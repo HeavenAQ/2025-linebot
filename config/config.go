@@ -12,16 +12,28 @@ type LineConfig struct {
 	ChannelToken  string `env:"LINE_CHANNEL_TOKEN"`
 }
 
-type GoogleDriveConfig struct {
-	Credentials string `env:"GOOGLE_DRIVE_CREDENTIALS"`
-	RootFolder  string `env:"GOOGLE_DRIVE_ROOT_FOLDER"`
+type GCPConfig struct {
+	ProjectID   string `env:"GCP_PROJECT_ID"`
+	Credentials string `env:"GCP_CREDENTIALS"`
+	Storage     StorageConfig
+	Secrets     SecretManagerConfig
+	Database    FirestoreConfig
 }
 
-type FirebaseConfig struct {
-	Credentials string `env:"FIREBASE_CREDENTIALS"`
-	ProjectID   string `env:"FIREBASE_PROJECT_ID"`
-	DataDB      string `env:"FIREBASE_DATA_DB"`
-	SessionDB   string `env:"FIREBASE_SESSION_DB"`
+type StorageConfig struct {
+	GoogleDrive GoogleDriveConfig
+}
+
+type GoogleDriveConfig struct {
+	RootFolder string `env:"GOOGLE_DRIVE_ROOT_FOLDER"`
+}
+type SecretManagerConfig struct {
+	SecretVersion string `env:"SECRET_VERSION"`
+}
+
+type FirestoreConfig struct {
+	DataDB    string `env:"FIREBASE_DATA_DB"`
+	SessionDB string `env:"FIREBASE_SESSION_DB"`
 }
 
 type GPTConfig struct {
@@ -36,13 +48,13 @@ type PoseEstimationServerConfig struct {
 }
 
 type Config struct {
-	Line        LineConfig
-	GoogleDrive GoogleDriveConfig
-	Firebase    FirebaseConfig
-	GPT         GPTConfig
+	Line                 LineConfig
+	GCP                  GCPConfig
+	GPT                  GPTConfig
+	PoseEstimationServer PoseEstimationServerConfig
 }
 
-func LoadConfig() (Config, error) {
+func LoadConfig() (*Config, error) {
 	// try to load .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -56,5 +68,5 @@ func LoadConfig() (Config, error) {
 	if _, err := env.UnmarshalFromEnviron(&config); err != nil {
 		log.Panic("Error loading config")
 	}
-	return config, nil
+	return &config, nil
 }

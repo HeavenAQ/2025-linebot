@@ -21,4 +21,5 @@ func SetRandomEnv(t *testing.T) {
 	t.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
 	t.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
 	t.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")
+	t.Setenv("PORT", "8080")
 }

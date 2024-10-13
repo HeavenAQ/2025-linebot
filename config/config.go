@@ -48,6 +48,7 @@ type PoseEstimationServerConfig struct {
 }
 
 type Config struct {
+	Port                 string `env:"PORT"`
 	Line                 LineConfig
 	GCP                  GCPConfig
 	GPT                  GPTConfig

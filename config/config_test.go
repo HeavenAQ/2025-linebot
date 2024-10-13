@@ -23,6 +23,7 @@ func TestLoadConfig(t *testing.T) {
 	os.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
 	os.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
 	os.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")
+	os.Setenv("PORT", "8080")
 
 	// Load config
 	config, err := LoadConfig()
@@ -44,4 +45,5 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, "test_pose_estimation_server_host", config.PoseEstimationServer.Host)
 	require.Equal(t, "test_pose_estimation_server_user", config.PoseEstimationServer.User)
 	require.Equal(t, "test_pose_estimation_server_password", config.PoseEstimationServer.Password)
+	require.Equal(t, "8080", config.Port)
 }

@@ -33,6 +33,8 @@ func (app *App) LineWebhookHandler() http.HandlerFunc {
 				if _, err := app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text)); err != nil {
 					app.Logger.Error.Println("error sending reply:", err)
 				}
+				app.Logger.Info.Println("Received message:", message.Text)
+				app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text))
 
 			case linebot.EventTypeFollow:
 				// Handle the follow event, e.g., welcome the user

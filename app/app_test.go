@@ -28,6 +28,9 @@ func TestNewApp(t *testing.T) {
 	// Check that the logger is initialized
 	require.NotNil(t, app.Logger, "Logger should not be nil")
 
+	// Check that the LineBot client is initialized
+	require.NotNil(t, app.LineBot, "LineBot should not be nil")
+
 	// Validate some config values (assuming they should match the environment variables set above)
 	require.Equal(t, "test_line_channel_secret", app.Config.Line.ChannelSecret)
 	require.Equal(t, "test_line_channel_token", app.Config.Line.ChannelToken)

@@ -13,15 +13,24 @@ type App struct {
 }
 
 func NewApp() *App {
+	// Set up logger
+	logger := NewLogger()
+
 	// load the configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		panic(err)
 	}
 
-	//
+	// Set up the LineBot client
+	lineBot, err := line.NewBotClient(cfg.Line.ChannelSecret, cfg.Line.ChannelToken)
+	if err != nil {
+		panic(err)
+	}
+
 	return &App{
-		Config: cfg,
-		Logger: NewLogger(),
+		Config:  cfg,
+		Logger:  logger,
+		LineBot: lineBot,
 	}
 }

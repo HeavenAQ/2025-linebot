@@ -8,7 +8,7 @@ import (
 
 type LineBotClient interface {
 	ParseRequest(*http.Request) ([]*linebot.Event, error)
-	ReplyMessage(string, ...linebot.SendingMessage) *linebot.ReplyMessageCall
+	ReplyMessage(string, ...linebot.SendingMessage) (*linebot.BasicResponse, error)
 	ReplyWithTypeError(token string)
 }
 

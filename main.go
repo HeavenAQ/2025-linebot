@@ -1,5 +1,19 @@
 package main
 
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/HeavenAQ/app"
+)
+
 func main() {
-	// Call the function
+	app := app.NewApp()
+	http.HandleFunc("/callback", app.HandleCallback)
+
+	app.Logger.Info.Println("\n\tServer started on port " + os.Getenv("PORT"))
+	if err := http.ListenAndServe(":"+os.Getenv("PORT"), nil); err != nil {
+		log.Fatal(err)
+	}
 }

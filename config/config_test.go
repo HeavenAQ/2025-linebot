@@ -15,7 +15,7 @@ func TestLoadConfig(t *testing.T) {
 	os.Setenv("GCP_PROJECT_ID", "test_gcp_project_id")
 	os.Setenv("GCP_CREDENTIALS", "test_gcp_credentials")
 	os.Setenv("GOOGLE_DRIVE_ROOT_FOLDER", "test_google_drive_root_folder")
-	os.Setenv("SECRET_VERSION", "test_secret_version")
+	os.Setenv("GCP_SECRET_VERSION", "test_secret_version")
 	os.Setenv("FIREBASE_DATA_DB", "test_firebase_data_db")
 	os.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
 	os.Setenv("OPENAI_API_KEY", "test_openai_api_key")
@@ -26,7 +26,7 @@ func TestLoadConfig(t *testing.T) {
 	os.Setenv("PORT", "8080")
 
 	// Load config
-	config, err := LoadConfig()
+	config, err := LoadConfig("")
 
 	// Ensure no errors occurred
 	require.NoError(t, err)

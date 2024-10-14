@@ -28,7 +28,7 @@ type GoogleDriveConfig struct {
 	RootFolder string `env:"GOOGLE_DRIVE_ROOT_FOLDER"`
 }
 type SecretManagerConfig struct {
-	SecretVersion string `env:"SECRET_VERSION"`
+	SecretVersion string `env:"GCP_SECRET_VERSION"`
 }
 
 type FirestoreConfig struct {
@@ -55,9 +55,26 @@ type Config struct {
 	PoseEstimationServer PoseEstimationServerConfig
 }
 
-func LoadConfig() (*Config, error) {
+func (c *Config) isConfigEmpty() bool {
+	return (c.Port == "" &&
+		c.Line.ChannelSecret == "" &&
+		c.Line.ChannelToken == "" &&
+		c.GCP.ProjectID == "" &&
+		c.GCP.Credentials == "" &&
+		c.GCP.Storage.GoogleDrive.RootFolder == "" &&
+		c.GCP.Secrets.SecretVersion == "" &&
+		c.GCP.Database.DataDB == "" &&
+		c.GCP.Database.SessionDB == "" &&
+		c.GPT.APIKey == "" &&
+		c.GPT.AssistantID == "" &&
+		c.PoseEstimationServer.Host == "" &&
+		c.PoseEstimationServer.User == "" &&
+		c.PoseEstimationServer.Password == "")
+}
+
+func LoadConfig(path string) (*Config, error) {
 	// try to load .env file
-	err := godotenv.Load()
+	err := godotenv.Load(path)
 	if err != nil {
 		// if error, log and continue without .env file
 		log.Println("Error loading .env file")
@@ -68,6 +85,9 @@ func LoadConfig() (*Config, error) {
 	var config Config
 	if _, err := env.UnmarshalFromEnviron(&config); err != nil {
 		log.Panic("Error loading config")
+	}
+	if config.isConfigEmpty() {
+		return nil, err
 	}
 	return &config, nil
 }

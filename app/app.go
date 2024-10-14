@@ -17,7 +17,7 @@ func NewApp() *App {
 	logger := NewLogger()
 
 	// load the configuration
-	cfg, err := config.LoadConfig()
+	cfg, err := config.LoadConfig(".env")
 	if err != nil {
 		panic(err)
 	}

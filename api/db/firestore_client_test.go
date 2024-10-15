@@ -1,31 +1,13 @@
-package db
+package db_test
 
 import (
-	"context"
 	"testing"
 
-	"cloud.google.com/go/firestore"
-	"github.com/HeavenAQ/api/secret"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/option"
 )
 
 // TestFirestoreRealAccess tests real Firestore access using credentials from Google Secret Manager
 func TestFirestoreRealAccess(t *testing.T) {
-	// Replace with your actual project ID and the secret name from Google Secret Manager
-
-	// Fetch credentials from Secret Manager
-	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
-	credentials, err := secret.AccessSecretVersion(secretName)
-	require.NoError(t, err)
-	require.NotNil(t, credentials)
-
-	// Initialize Firestore client
-	ctx := context.Background()
-	client, err := firestore.NewClient(ctx, cfg.GCP.ProjectID, option.WithCredentialsJSON(credentials))
-	require.NoError(t, err)
-	defer client.Close()
-
 	// Test data to be inserted
 	testData := map[string]interface{}{
 		"name":  "John Doe",
@@ -33,11 +15,11 @@ func TestFirestoreRealAccess(t *testing.T) {
 	}
 
 	// Test writing a document to Firestore
-	docRef, _, err := client.Collection("users").Add(ctx, testData)
+	docRef, _, err := firestoreClient.Data.Add(firestoreClient.Ctx, testData)
 	require.NoError(t, err)
 
 	// Ensure the data was written correctly by fetching it
-	docSnapshot, err := docRef.Get(ctx)
+	docSnapshot, err := docRef.Get(firestoreClient.Ctx)
 	require.NoError(t, err)
 	require.NotNil(t, docSnapshot)
 
@@ -50,6 +32,6 @@ func TestFirestoreRealAccess(t *testing.T) {
 	t.Logf("User Document: %v\n", fetchedData)
 
 	// Clean up by deleting the document
-	_, err = docRef.Delete(ctx)
+	_, err = docRef.Delete(firestoreClient.Ctx)
 	require.NoError(t, err)
 }

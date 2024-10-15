@@ -1,14 +1,42 @@
-package db
+package db_test
 
 import (
+	"context"
 	"log"
 	"os"
 	"testing"
 
+	"cloud.google.com/go/firestore"
+	"github.com/HeavenAQ/api/db"
+	"github.com/HeavenAQ/api/secret"
 	"github.com/HeavenAQ/config"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 )
 
-var cfg *config.Config
+func setupFirestoreClient(t *testing.T) *db.FirestoreClient {
+	// Fetch credentials from Secret Manager
+	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
+	credentials, err := secret.AccessSecretVersion(secretName)
+	require.NoError(t, err)
+	require.NotNil(t, credentials)
+
+	// Initialize Firestore client
+	ctx := context.Background()
+	client, err := firestore.NewClient(ctx, cfg.GCP.ProjectID, option.WithCredentialsJSON(credentials))
+	require.NoError(t, err)
+	return &db.FirestoreClient{
+		Ctx:      ctx,
+		Client:   client,
+		Data:     client.Collection(cfg.GCP.Database.DataDB),
+		Sessions: client.Collection(cfg.GCP.Database.SessionDB),
+	}
+}
+
+var (
+	cfg             *config.Config
+	firestoreClient *db.FirestoreClient
+)
 
 // setup database
 func TestMain(m *testing.M) {
@@ -17,6 +45,7 @@ func TestMain(m *testing.M) {
 		log.Fatal("Failed to load configurations")
 	}
 	cfg = conf
-
+	firestoreClient = setupFirestoreClient(&testing.T{})
+	defer firestoreClient.Client.Close()
 	os.Exit(m.Run())
 }

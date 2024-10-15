@@ -10,7 +10,7 @@ import (
 )
 
 type FirestoreClient struct {
-	ctx      context.Context
+	Ctx      context.Context
 	Client   *firestore.Client
 	Data     *firestore.CollectionRef
 	Sessions *firestore.CollectionRef

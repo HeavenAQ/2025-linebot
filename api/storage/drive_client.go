@@ -24,7 +24,7 @@ type UserFolders struct {
 	ThumbnailFolderID string
 }
 
-func NewGoogleDriveHandler(credentials []byte, rootFolderID string) (*GoogleDriveClient, error) {
+func NewGoogleDriveClient(credentials []byte, rootFolderID string) (*GoogleDriveClient, error) {
 	ctx := context.Background()
 
 	// init google drive service

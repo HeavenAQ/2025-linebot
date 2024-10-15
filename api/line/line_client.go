@@ -10,6 +10,7 @@ type LineBotClient interface {
 	ParseRequest(*http.Request) ([]*linebot.Event, error)
 	ReplyMessage(string, ...linebot.SendingMessage) (*linebot.BasicResponse, error)
 	ReplyWithTypeError(token string)
+	GetUserName(userId string) (string, error)
 }
 
 type LineBot struct {

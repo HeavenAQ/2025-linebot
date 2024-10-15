@@ -39,7 +39,7 @@ func setupGoogleDriveClient(t *testing.T) *storage.GoogleDriveClient {
 
 	// Initialize Google Drive client
 	rootFolderID := cfg.GCP.Storage.GoogleDrive.RootFolder
-	driveClient, err := storage.NewGoogleDriveHandler(credentials, rootFolderID)
+	driveClient, err := storage.NewGoogleDriveClient(credentials, rootFolderID)
 	require.NoError(t, err)
 	require.NotNil(t, driveClient)
 

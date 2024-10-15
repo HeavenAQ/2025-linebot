@@ -24,29 +24,32 @@ func (app *App) LineWebhookHandler() http.HandlerFunc {
 			return // Stop further processing
 		}
 
-		// Process the events from the request
-		for _, event := range events {
-			switch event.Type {
-			case linebot.EventTypeMessage:
-				// Example: handle a text message
-				message := event.Message.(*linebot.TextMessage)
-				if _, err := app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text)); err != nil {
-					app.Logger.Error.Println("error sending reply:", err)
-				}
-				app.Logger.Info.Println("Received message:", message.Text)
-				app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text))
+		app.processEvents(events)
+	}
+}
 
-			case linebot.EventTypeFollow:
-				// Handle the follow event, e.g., welcome the user
-				if _, err := app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Thanks for following!")); err != nil {
-					app.Logger.Error.Println("error sending follow reply:", err)
-				}
-
-			default:
-				// Log a warning and reply with a default message
-				app.Logger.Warn.Printf("unsupported event type: %s", event.Type)
-				app.LineBot.ReplyWithTypeError(event.ReplyToken)
+func (app *App) processEvents(events []*linebot.Event) {
+	for _, event := range events {
+		switch event.Type {
+		case linebot.EventTypeMessage:
+			// Example: handle a text message
+			message := event.Message.(*linebot.TextMessage)
+			if _, err := app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text)); err != nil {
+				app.Logger.Error.Println("error sending reply:", err)
 			}
+			app.Logger.Info.Println("Received message:", message.Text)
+			app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Received: "+message.Text))
+
+		case linebot.EventTypeFollow:
+			// Handle the follow event, e.g., welcome the user
+			if _, err := app.LineBot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage("Thanks for following!")); err != nil {
+				app.Logger.Error.Println("error sending follow reply:", err)
+			}
+
+		default:
+			// Log a warning and reply with a default message
+			app.Logger.Warn.Printf("unsupported event type: %s", event.Type)
+			app.LineBot.ReplyWithTypeError(event.ReplyToken)
 		}
 	}
 }

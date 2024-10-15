@@ -4,14 +4,14 @@ import (
 	"testing"
 
 	"github.com/HeavenAQ/api/db"
-	"github.com/HeavenAQ/api/drive"
+	"github.com/HeavenAQ/api/storage"
 	"github.com/stretchr/testify/require"
 	googleDrive "google.golang.org/api/drive/v3"
 )
 
 func TestCreateUserData(t *testing.T) {
 	// Define test data
-	testUserFolders := &drive.UserFolders{
+	testUserFolders := &storage.UserFolders{
 		UserID:            "test-user-id",
 		UserName:          "John Doe",
 		RootFolderID:      "root-folder-id",

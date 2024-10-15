@@ -17,7 +17,7 @@ func TestNewApp(t *testing.T) {
 	utils.SetRandomEnv(t)
 
 	// Call NewApp to create the app
-	app := NewApp()
+	app := NewApp("../.env")
 
 	// Ensure the app was created successfully
 	require.NotNil(t, app, "App should not be nil")

@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	app := app.NewApp()
+	app := app.NewApp(".env")
 	http.HandleFunc("/callback", app.LineWebhookHandler())
 
 	// Start the server

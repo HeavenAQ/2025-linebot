@@ -3,7 +3,7 @@ package db
 import (
 	"errors"
 
-	"github.com/HeavenAQ/api/drive"
+	"github.com/HeavenAQ/api/storage"
 	googleDrive "google.golang.org/api/drive/v3"
 )
 
@@ -78,7 +78,7 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 	}
 }
 
-func (client *FirestoreClient) CreateUserData(userFolders *drive.UserFolders) (*UserData, error) {
+func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
 	newUserTemplate := &UserData{
 		Name:       userFolders.UserName,

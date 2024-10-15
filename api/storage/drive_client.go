@@ -1,4 +1,4 @@
-package drive
+package storage
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-type GoogleDriveHandler struct {
+type GoogleDriveClient struct {
 	srv          *drive.Service
 	RootFolderID string
 }
@@ -24,7 +24,7 @@ type UserFolders struct {
 	ThumbnailFolderID string
 }
 
-func NewGoogleDriveHandler(credentials []byte, rootFolder string) (*GoogleDriveHandler, error) {
+func NewGoogleDriveHandler(credentials []byte, rootFolderID string) (*GoogleDriveClient, error) {
 	ctx := context.Background()
 
 	// init google drive service
@@ -33,12 +33,12 @@ func NewGoogleDriveHandler(credentials []byte, rootFolder string) (*GoogleDriveH
 		return nil, err
 	}
 
-	return &GoogleDriveHandler{
-		srv, rootFolder,
+	return &GoogleDriveClient{
+		srv, rootFolderID,
 	}, nil
 }
 
-func (handler *GoogleDriveHandler) CreateUserFolders(userID string, userName string) (*UserFolders, error) {
+func (client *GoogleDriveClient) CreateUserFolders(userID string, userName string) (*UserFolders, error) {
 	folderNames := []string{
 		userID,
 		"serve",
@@ -55,12 +55,12 @@ func (handler *GoogleDriveHandler) CreateUserFolders(userID string, userName str
 	for _, folderName := range folderNames {
 		var parents []string
 		if folderName == userID {
-			parents = []string{handler.RootFolderID}
+			parents = []string{client.RootFolderID}
 		} else {
 			parents = []string{userFolders.RootFolderID}
 		}
 
-		folder, err := handler.srv.Files.Create(&drive.File{
+		folder, err := client.srv.Files.Create(&drive.File{
 			Name:     folderName,
 			MimeType: "application/vnd.google-apps.folder",
 			Parents:  parents,
@@ -98,26 +98,38 @@ type FileInfo struct {
 	}
 }
 
-func (handler *GoogleDriveHandler) UploadVideo(fileInfo *FileInfo) (*drive.File, *drive.File, error) {
+func (client *GoogleDriveClient) UploadVideo(fileInfo *FileInfo) (*drive.File, error) {
 	// upload video file to google drive
 	blob := bytes.NewReader(fileInfo.Local.VideoBlob)
-	driveFile, err := handler.srv.Files.Create(&drive.File{
+	driveFile, err := client.srv.Files.Create(&drive.File{
 		Name:    fileInfo.Drive.Filename,
 		Parents: []string{fileInfo.Drive.ParentFolderID},
 	}).Media(blob).Do()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
+	return driveFile, nil
+}
+
+func (client *GoogleDriveClient) UploadThumbnail(fileInfo *FileInfo) (*drive.File, error) {
 	// upload video thumbnail to google drive
 	thumbnailData, err := os.ReadFile(fileInfo.Local.ThumbnailPath)
-	thumbnailFile, err := handler.srv.Files.Create(&drive.File{
+	thumbnailFile, err := client.srv.Files.Create(&drive.File{
 		Name:    fileInfo.Drive.Filename + "_thumbnail",
 		Parents: []string{fileInfo.Drive.ThumbnailFolderID},
 	}).Media(bytes.NewReader(thumbnailData)).Do()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return driveFile, thumbnailFile, nil
+	return thumbnailFile, nil
+}
+
+func (client *GoogleDriveClient) DeleteFile(fileID string) error {
+	err := client.srv.Files.Delete(fileID).Do()
+	if err != nil {
+		return err
+	}
+	return nil
 }

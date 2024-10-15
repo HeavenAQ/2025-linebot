@@ -12,12 +12,15 @@ type App struct {
 	LineBot line.LineBotClient
 }
 
-func NewApp() *App {
+func getGCPCredentials() {
+}
+
+func NewApp(configPath string) *App {
 	// Set up logger
 	logger := NewLogger()
 
 	// load the configuration
-	cfg, err := config.LoadConfig(".env")
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		panic(err)
 	}
@@ -27,6 +30,8 @@ func NewApp() *App {
 	if err != nil {
 		panic(err)
 	}
+
+	// Set up secret manager
 
 	return &App{
 		Config:  cfg,

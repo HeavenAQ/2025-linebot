@@ -70,7 +70,7 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) 
 		},
 	}
 
-	_, err := ref.Set(client.Ctx, newUserTemplate)
+	_, err := ref.Set(*client.Ctx, newUserTemplate)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) 
 }
 
 func (client *FirestoreClient) GetUserData(userId string) (*UserData, error) {
-	docsnap, err := client.Data.Doc(userId).Get(client.Ctx)
+	docsnap, err := client.Data.Doc(userId).Get(*client.Ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (client *FirestoreClient) GetUserData(userId string) (*UserData, error) {
 }
 
 func (client *FirestoreClient) updateUserData(user *UserData) error {
-	_, err := client.Data.Doc(user.ID).Set(client.Ctx, *user)
+	_, err := client.Data.Doc(user.ID).Set(*client.Ctx, *user)
 	if err != nil {
 		return err
 	}

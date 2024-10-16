@@ -12,8 +12,9 @@ func AccessSecretVersion(secretName string) ([]byte, error) {
 	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create secret manager client %v", err)
+		return nil, fmt.Errorf("failed to create secret manager client %w", err)
 	}
+
 	defer client.Close()
 
 	// access secret version
@@ -22,7 +23,7 @@ func AccessSecretVersion(secretName string) ([]byte, error) {
 	}
 	result, err := client.AccessSecretVersion(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to access secret version: %v", err)
+		return nil, fmt.Errorf("failed to access secret version: %w", err)
 	}
 
 	// return secret data
@@ -31,6 +32,5 @@ func AccessSecretVersion(secretName string) ([]byte, error) {
 
 func GetSecretString(gcpProjectID, secretID, secretVersion string) string {
 	res := fmt.Sprintf("projects/%s/secrets/%s/versions/%s", gcpProjectID, secretID, secretVersion)
-	fmt.Println(res)
 	return res
 }

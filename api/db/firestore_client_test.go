@@ -15,11 +15,11 @@ func TestFirestoreRealAccess(t *testing.T) {
 	}
 
 	// Test writing a document to Firestore
-	docRef, _, err := firestoreClient.Data.Add(firestoreClient.Ctx, testData)
+	docRef, _, err := firestoreClient.Data.Add(*firestoreClient.Ctx, testData)
 	require.NoError(t, err)
 
 	// Ensure the data was written correctly by fetching it
-	docSnapshot, err := docRef.Get(firestoreClient.Ctx)
+	docSnapshot, err := docRef.Get(*firestoreClient.Ctx)
 	require.NoError(t, err)
 	require.NotNil(t, docSnapshot)
 
@@ -32,6 +32,6 @@ func TestFirestoreRealAccess(t *testing.T) {
 	t.Logf("User Document: %v\n", fetchedData)
 
 	// Clean up by deleting the document
-	_, err = docRef.Delete(firestoreClient.Ctx)
+	_, err = docRef.Delete(*firestoreClient.Ctx)
 	require.NoError(t, err)
 }

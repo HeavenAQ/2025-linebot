@@ -11,8 +11,8 @@ import (
 func TestGetUserSession(t *testing.T) {
 	// Create a test user session
 	testUserID := "test-user-id"
-	expectedSession := db.UserSession{UserState: db.WritingReflection, Skill: "Writing"}
-	_, err := firestoreClient.Sessions.Doc(testUserID).Set(firestoreClient.Ctx, expectedSession)
+	expectedSession := db.UserSession{UserState: db.WritingNotes, Skill: "Writing"}
+	_, err := firestoreClient.Sessions.Doc(testUserID).Set(*firestoreClient.Ctx, expectedSession)
 	require.NoError(t, err)
 
 	// Retrieve the user session
@@ -22,7 +22,7 @@ func TestGetUserSession(t *testing.T) {
 	require.Equal(t, expectedSession.Skill, session.Skill)
 
 	// Clean up
-	firestoreClient.Sessions.Doc(testUserID).Delete(firestoreClient.Ctx)
+	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
 }
 
 // Test CreateUserSession function
@@ -42,7 +42,7 @@ func TestCreateUserSession(t *testing.T) {
 	require.Equal(t, "", savedSession.Skill)
 
 	// Clean up
-	firestoreClient.Sessions.Doc(testUserID).Delete(firestoreClient.Ctx)
+	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
 }
 
 // Test UpdateSessionUserState function
@@ -52,7 +52,7 @@ func TestUpdateSessionUserState(t *testing.T) {
 	firestoreClient.CreateUserSession(testUserID)
 
 	// Update the user state
-	err := firestoreClient.UpdateSessionUserState(testUserID, db.ChattingWithGPT)
+	err := firestoreClient.UpdateSessionUserState(testUserID, db.ChattingWithGPT, db.SelectingSkill)
 	require.NoError(t, err)
 
 	// Verify the state was updated in Firestore
@@ -61,7 +61,7 @@ func TestUpdateSessionUserState(t *testing.T) {
 	require.Equal(t, db.ChattingWithGPT, savedSession.UserState)
 
 	// Clean up
-	firestoreClient.Sessions.Doc(testUserID).Delete(firestoreClient.Ctx)
+	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
 }
 
 // Test UpdateSessionUserSkill function
@@ -81,5 +81,5 @@ func TestUpdateSessionUserSkill(t *testing.T) {
 	require.Equal(t, newSkill, savedSession.Skill)
 
 	// Clean up
-	firestoreClient.Sessions.Doc(testUserID).Delete(firestoreClient.Ctx)
+	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
 }

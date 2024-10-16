@@ -10,7 +10,7 @@ import (
 )
 
 type FirestoreClient struct {
-	Ctx      context.Context
+	Ctx      *context.Context
 	Client   *firestore.Client
 	Data     *firestore.CollectionRef
 	Sessions *firestore.CollectionRef
@@ -34,7 +34,7 @@ func NewFirestoreClient(credentials []byte, projectID string, dataCollection str
 
 	// return firestore client
 	return &FirestoreClient{
-		ctx,
+		&ctx,
 		client,
 		client.Collection(dataCollection),
 		client.Collection(sessionCollection),

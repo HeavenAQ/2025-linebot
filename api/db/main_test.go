@@ -26,7 +26,7 @@ func setupFirestoreClient(t *testing.T) *db.FirestoreClient {
 	client, err := firestore.NewClient(ctx, cfg.GCP.ProjectID, option.WithCredentialsJSON(credentials))
 	require.NoError(t, err)
 	return &db.FirestoreClient{
-		Ctx:      ctx,
+		Ctx:      &ctx,
 		Client:   client,
 		Data:     client.Collection(cfg.GCP.Database.DataDB),
 		Sessions: client.Collection(cfg.GCP.Database.SessionDB),
@@ -46,6 +46,6 @@ func TestMain(m *testing.M) {
 	}
 	cfg = conf
 	firestoreClient = setupFirestoreClient(&testing.T{})
-	defer firestoreClient.Client.Close()
+
 	os.Exit(m.Run())
 }

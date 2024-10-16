@@ -11,7 +11,7 @@ type UserSession struct {
 }
 
 func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, error) {
-	session, err := client.Sessions.Doc(userID).Get(client.Ctx)
+	session, err := client.Sessions.Doc(userID).Get(*client.Ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting user session: %w", err)
 	}
@@ -25,7 +25,7 @@ func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, erro
 }
 
 func (client *FirestoreClient) updateUserSession(userID string, newSessionContent UserSession) error {
-	_, err := client.Sessions.Doc(userID).Set(client.Ctx, newSessionContent)
+	_, err := client.Sessions.Doc(userID).Set(*client.Ctx, newSessionContent)
 	if err != nil {
 		return fmt.Errorf("error updating user session: %w", err)
 	}

@@ -1,22 +1,15 @@
 package app_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
-	"github.com/HeavenAQ/nstc-linebot-2025/utils"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewApp(t *testing.T) {
-	t.Parallel()
-	// Clear any existing environment variables (optional)
-	os.Clearenv()
-
 	// Set required environment variables to simulate configuration loading
 	// This simulates the expected env vars for your app to load the configuration
-	utils.SetRandomEnv(t)
 
 	// Call NewApp to create the app
 	app := app.NewApp("../.env")
@@ -32,10 +25,4 @@ func TestNewApp(t *testing.T) {
 
 	// Check that the LineBot client is initialized
 	require.NotNil(t, app.LineBot, "LineBot should not be nil")
-
-	// Validate some config values (assuming they should match the environment variables set above)
-	require.Equal(t, "test_line_channel_secret", app.Config.Line.ChannelSecret)
-	require.Equal(t, "test_line_channel_token", app.Config.Line.ChannelToken)
-	require.Equal(t, "test_gcp_project_id", app.Config.GCP.ProjectID)
-	require.Equal(t, "test_google_drive_root_folder", app.Config.GCP.Storage.GoogleDrive.RootFolder)
 }

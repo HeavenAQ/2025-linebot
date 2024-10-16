@@ -1,23 +1,19 @@
 package app
 
 import (
-	"github.com/HeavenAQ/config"
-
-	"github.com/HeavenAQ/api/db"
-	"github.com/HeavenAQ/api/line"
-	"github.com/HeavenAQ/api/secret"
-	"github.com/HeavenAQ/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 )
 
 type App struct {
 	Config          *config.Config
 	Logger          *Logger
-	LineBot         line.LineBotClient
+	LineBot         *line.LineBot
 	FirestoreClient *db.FirestoreClient
 	DriveClient     *storage.GoogleDriveClient
-}
-
-func getGCPCredentials() {
 }
 
 func NewApp(configPath string) *App {
@@ -39,6 +35,9 @@ func NewApp(configPath string) *App {
 	// Set up secret manager
 	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
 	credentials, err := secret.AccessSecretVersion(secretName)
+	if err != nil {
+		panic(err)
+	}
 
 	// Set up firestore client
 	firestoreClient, err := db.NewFirestoreClient(
@@ -47,12 +46,18 @@ func NewApp(configPath string) *App {
 		cfg.GCP.Database.DataDB,
 		cfg.GCP.Database.SessionDB,
 	)
+	if err != nil {
+		panic(err)
+	}
 
 	// Set up Google Drive client
 	driveClient, err := storage.NewGoogleDriveClient(
 		credentials,
 		cfg.GCP.Storage.GoogleDrive.RootFolder,
 	)
+	if err != nil {
+		panic(err)
+	}
 
 	return &App{
 		Config:          cfg,

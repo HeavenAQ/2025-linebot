@@ -5,9 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/HeavenAQ/api/secret"
-	"github.com/HeavenAQ/api/storage"
-	"github.com/HeavenAQ/config"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 	"github.com/stretchr/testify/require"
 )
 

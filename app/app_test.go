@@ -1,14 +1,16 @@
-package app
+package app_test
 
 import (
 	"os"
 	"testing"
 
-	"github.com/HeavenAQ/utils"
+	"github.com/HeavenAQ/nstc-linebot-2025/app"
+	"github.com/HeavenAQ/nstc-linebot-2025/utils"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewApp(t *testing.T) {
+	t.Parallel()
 	// Clear any existing environment variables (optional)
 	os.Clearenv()
 
@@ -17,7 +19,7 @@ func TestNewApp(t *testing.T) {
 	utils.SetRandomEnv(t)
 
 	// Call NewApp to create the app
-	app := NewApp("../.env")
+	app := app.NewApp("../.env")
 
 	// Ensure the app was created successfully
 	require.NotNil(t, app, "App should not be nil")

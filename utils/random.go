@@ -6,7 +6,9 @@ import (
 )
 
 func SetRandomEnv(t *testing.T) {
+	t.Helper()
 	os.Clearenv()
+
 	// Set environment variables for the test
 	t.Setenv("LINE_CHANNEL_SECRET", "test_line_channel_secret")
 	t.Setenv("LINE_CHANNEL_TOKEN", "test_line_channel_token")

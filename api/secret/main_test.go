@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/HeavenAQ/config"
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 )
 
 var cfg *config.Config

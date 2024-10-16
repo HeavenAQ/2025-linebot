@@ -1,9 +1,7 @@
 package db
 
 import (
-	"errors"
-
-	"github.com/HeavenAQ/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	googleDrive "google.golang.org/api/drive/v3"
 )
 
@@ -50,32 +48,6 @@ type Work struct {
 	PreviewNote   string  `json:"previewNote"`
 	AINote        string  `json:"aiNote"`
 	Rating        float32 `json:"rating"`
-}
-
-type Handedness int8
-
-const (
-	Left Handedness = iota
-	Right
-)
-
-func (h Handedness) String() string {
-	return [...]string{"left", "right"}[h]
-}
-
-func (h Handedness) ChnString() string {
-	return [...]string{"左手", "右手"}[h]
-}
-
-func HandednessStrToEnum(str string) (Handedness, error) {
-	switch str {
-	case "left":
-		return Left, nil
-	case "right":
-		return Right, nil
-	default:
-		return -1, errors.New("invalid handedness")
-	}
 }
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) (*UserData, error) {

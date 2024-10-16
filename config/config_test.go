@@ -1,32 +1,33 @@
-package config
+package config_test
 
 import (
 	"os"
 	"testing"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 	"github.com/stretchr/testify/require"
 )
 
 func TestLoadConfig(t *testing.T) {
 	os.Clearenv()
 	// Set environment variables for the test
-	os.Setenv("LINE_CHANNEL_SECRET", "test_line_channel_secret")
-	os.Setenv("LINE_CHANNEL_TOKEN", "test_line_channel_token")
-	os.Setenv("GCP_PROJECT_ID", "test_gcp_project_id")
-	os.Setenv("GCP_CREDENTIALS", "test_gcp_credentials")
-	os.Setenv("GOOGLE_DRIVE_ROOT_FOLDER", "test_google_drive_root_folder")
-	os.Setenv("GCP_SECRET_VERSION", "test_secret_version")
-	os.Setenv("FIREBASE_DATA_DB", "test_firebase_data_db")
-	os.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
-	os.Setenv("OPENAI_API_KEY", "test_openai_api_key")
-	os.Setenv("OPENAI_ASSISTANT_ID", "test_openai_assistant_id")
-	os.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
-	os.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
-	os.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")
-	os.Setenv("PORT", "8080")
+	t.Setenv("LINE_CHANNEL_SECRET", "test_line_channel_secret")
+	t.Setenv("LINE_CHANNEL_TOKEN", "test_line_channel_token")
+	t.Setenv("GCP_PROJECT_ID", "test_gcp_project_id")
+	t.Setenv("GCP_CREDENTIALS", "test_gcp_credentials")
+	t.Setenv("GOOGLE_DRIVE_ROOT_FOLDER", "test_google_drive_root_folder")
+	t.Setenv("GCP_SECRET_VERSION", "test_secret_version")
+	t.Setenv("FIREBASE_DATA_DB", "test_firebase_data_db")
+	t.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
+	t.Setenv("OPENAI_API_KEY", "test_openai_api_key")
+	t.Setenv("OPENAI_ASSISTANT_ID", "test_openai_assistant_id")
+	t.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
+	t.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
+	t.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")
+	t.Setenv("PORT", "8080")
 
 	// Load config
-	config, err := LoadConfig("")
+	config, err := config.LoadConfig("")
 
 	// Ensure no errors occurred
 	require.NoError(t, err)

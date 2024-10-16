@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/HeavenAQ/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/stretchr/testify/require"
 )
 

@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"cloud.google.com/go/firestore"
-	"github.com/HeavenAQ/api/db"
-	"github.com/HeavenAQ/api/secret"
-	"github.com/HeavenAQ/config"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 )

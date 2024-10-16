@@ -3,7 +3,7 @@ package db_test
 import (
 	"testing"
 
-	"github.com/HeavenAQ/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +29,7 @@ func TestGetUserSession(t *testing.T) {
 func TestCreateUserSession(t *testing.T) {
 	// Create a new session
 	testUserID := "new-user-id"
-	newSession, err := firestoreClient.CreateUerSession(testUserID)
+	newSession, err := firestoreClient.CreateUserSession(testUserID)
 	require.NoError(t, err)
 	require.NotNil(t, newSession)
 	require.Equal(t, db.None, newSession.UserState)
@@ -49,7 +49,7 @@ func TestCreateUserSession(t *testing.T) {
 func TestUpdateSessionUserState(t *testing.T) {
 	// Create a test user session
 	testUserID := "state-user-id"
-	firestoreClient.CreateUerSession(testUserID)
+	firestoreClient.CreateUserSession(testUserID)
 
 	// Update the user state
 	err := firestoreClient.UpdateSessionUserState(testUserID, db.ChattingWithGPT)
@@ -68,7 +68,7 @@ func TestUpdateSessionUserState(t *testing.T) {
 func TestUpdateSessionUserSkill(t *testing.T) {
 	// Create a test user session
 	testUserID := "skill-user-id"
-	firestoreClient.CreateUerSession(testUserID)
+	firestoreClient.CreateUserSession(testUserID)
 
 	// Update the user's skill
 	newSkill := "Public Speaking"

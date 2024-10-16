@@ -3,8 +3,8 @@ package db_test
 import (
 	"testing"
 
-	"github.com/HeavenAQ/api/db"
-	"github.com/HeavenAQ/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/stretchr/testify/require"
 	googleDrive "google.golang.org/api/drive/v3"
 )

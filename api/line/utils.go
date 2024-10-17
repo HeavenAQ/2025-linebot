@@ -7,7 +7,7 @@ import (
 
 type ReplyAction func(db.UserState, db.BadmintonSkill) linebot.QuickReplyAction
 
-func (client *LineBot) getQuickReplyAction() ReplyAction {
+func (client *Client) getQuickReplyAction() ReplyAction {
 	return func(userState db.UserState, skill db.BadmintonSkill) linebot.QuickReplyAction {
 		postbackData := `{"userState": "` + userState.String() + `", "skill": "` + skill.String() + `"}`
 		return linebot.NewPostbackAction(
@@ -21,7 +21,7 @@ func (client *LineBot) getQuickReplyAction() ReplyAction {
 	}
 }
 
-func (client *LineBot) getHandednessQuickReplyItems() *linebot.QuickReplyItems {
+func (client *Client) getHandednessQuickReplyItems() *linebot.QuickReplyItems {
 	items := []*linebot.QuickReplyButton{}
 	for _, handedness := range []db.Handedness{db.Left, db.Right} {
 		items = append(items, linebot.NewQuickReplyButton(

@@ -1,23 +1,27 @@
 package line
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
-func (client *LineBot) SendReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
-	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+func (client *Client) SendReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
+	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+	return res, fmt.Errorf("failed to reply message: %w", err)
 }
 
-func (client *LineBot) SendDefaultReply(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) SendDefaultReply(replyToken string) (*linebot.BasicResponse, error) {
 	return client.SendReply(replyToken, "請點選選單的項目")
 }
 
-func (client *LineBot) SendDefaultErrorReply(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) SendDefaultErrorReply(replyToken string) (*linebot.BasicResponse, error) {
 	return client.SendReply(replyToken, "發生錯誤，請重新操作")
 }
 
-func (client *LineBot) SendWelcomeReply(event *linebot.Event) (*linebot.BasicResponse, error) {
+func (client *Client) SendWelcomeReply(event *linebot.Event) (*linebot.BasicResponse, error) {
 	username, err := client.GetUserName(event.Source.UserID)
 	if err != nil {
 		return nil, err
@@ -26,7 +30,11 @@ func (client *LineBot) SendWelcomeReply(event *linebot.Event) (*linebot.BasicRes
 	return client.SendReply(event.ReplyToken, welcomMsg)
 }
 
-func (client *LineBot) SendVideoUploadedReply(replyToken string, skill string, videoFolder string) (*linebot.BasicResponse, error) {
+func (client *Client) SendVideoUploadedReply(
+	replyToken string,
+	skill string,
+	videoFolder string,
+) (*linebot.BasicResponse, error) {
 	s := db.SkillStrToEnum(skill)
 	skillFolder := "https://drive.google.com/drive/u/0/folders/" + videoFolder
 	return client.bot.ReplyMessage(
@@ -36,7 +44,40 @@ func (client *LineBot) SendVideoUploadedReply(replyToken string, skill string, v
 	).Do()
 }
 
-func (client *LineBot) SendInstruction(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) replyViewPortfolioError(replyToken string, skill db.BadmintonSkill) error {
+	_, err := client.bot.ReplyMessage(
+		replyToken,
+		linebot.NewTextMessage(
+			fmt.Sprintf("尚未上傳【%v】的學習反思及影片", skill.ChnString()),
+		),
+	).Do()
+	if err != nil {
+		return fmt.Errorf("failed to reply message: %w", err)
+	}
+	return nil
+}
+
+// ReplyMessage wraps the linebot.Client's ReplyMessage method
+func (client *Client) ReplyMessage(
+	replyToken string,
+	messages ...linebot.SendingMessage,
+) (*linebot.BasicResponse, error) {
+	res, err := client.bot.ReplyMessage(replyToken, messages...).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to reply message: %w", err)
+	}
+	return res, nil
+}
+
+func (client *Client) SendTypeErrorReply(replyToken string) (*linebot.BasicResponse, error) {
+	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage("抱歉，您所輸入的訊息格式目前並未支援，請重試一次！")).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to reply message: %w", err)
+	}
+	return res, nil
+}
+
+func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse, error) {
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
@@ -50,13 +91,16 @@ func (client *LineBot) SendInstruction(replyToken string) (*linebot.BasicRespons
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 
-func (client *LineBot) SendSyllabus(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) SendSyllabus(replyToken string) (*linebot.BasicResponse, error) {
 	const syllabus = "課程大綱：\n"
+
 	const msg = syllabus + "https://drive.google.com/open?id=1PeWkePHtq30ArcGqZwzWP64olL9F7Tqw&usp=drive_fs"
-	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+
+	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+	return res, fmt.Errorf("failed to reply message: %w", err)
 }
 
-func (client *LineBot) getSkillQuickReplyItems(userState db.UserState) *linebot.QuickReplyItems {
+func (client *Client) getSkillQuickReplyItems(userState db.UserState) *linebot.QuickReplyItems {
 	items := []*linebot.QuickReplyButton{}
 	quickReplyAction := client.getQuickReplyAction()
 
@@ -69,25 +113,57 @@ func (client *LineBot) getSkillQuickReplyItems(userState db.UserState) *linebot.
 	return linebot.NewQuickReplyItems(items...)
 }
 
-func (client *LineBot) PromptSkillSelection(replyToken string, userState db.UserState, prompt string) (*linebot.BasicResponse, error) {
+func (client *Client) PromptSkillSelection(
+	replyToken string,
+	userState db.UserState,
+	prompt string,
+) (*linebot.BasicResponse, error) {
 	msg := linebot.NewTextMessage(prompt).WithQuickReplies(
 		client.getSkillQuickReplyItems(userState),
 	)
 	return client.bot.ReplyMessage(replyToken, msg).Do()
 }
 
-func (client *LineBot) PromptHandednessSelection(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) PromptHandednessSelection(replyToken string) (*linebot.BasicResponse, error) {
 	msg := linebot.NewTextMessage("請選擇左手或右手").WithQuickReplies(
 		client.getHandednessQuickReplyItems(),
 	)
 	return client.bot.ReplyMessage(replyToken, msg).Do()
 }
 
-func (handler *LineBot) SendVideoMessage(replyToken string, video VideoInfo) (*linebot.BasicResponse, error) {
-	videoLink := "https://drive.google.com/uc?export=download&id=" + video.VideoId
-	thumbnailLink := "https://drive.usercontent.google.com/download?id=" + video.ThumbnailId
-	return handler.bot.ReplyMessage(
+func (client *Client) SendVideoMessage(replyToken string, video VideoInfo) (*linebot.BasicResponse, error) {
+	videoLink := "https://drive.google.com/uc?export=download&id=" + video.VideoID
+	thumbnailLink := "https://drive.usercontent.google.com/download?id=" + video.ThumbnailID
+	return client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewVideoMessage(videoLink, thumbnailLink),
 	).Do()
+}
+
+func (client *Client) SendPortfolio(event *linebot.Event, user *db.UserData, skill db.BadmintonSkill, userState db.UserState) error {
+	// get works from user portfolio
+	works := user.Portfolio.GetSkillPortfolio(skill.String())
+	if works == nil || len(works) == 0 {
+		client.replyViewPortfolioError(event.ReplyToken, skill)
+	}
+
+	// generate carousels from works
+	carousels, err := client.getCarousels(works, userState)
+	if err != nil {
+		client.SendDefaultErrorReply(event.ReplyToken)
+		return errors.New("Error getting carousels: " + err.Error())
+	}
+
+	// turn carousels into sending messages
+	var sendMsgs []linebot.SendingMessage
+	for _, msg := range carousels {
+		sendMsgs = append(sendMsgs, msg)
+	}
+
+	_, err = client.bot.ReplyMessage(event.ReplyToken, sendMsgs...).Do()
+	if err != nil {
+		client.SendDefaultErrorReply(event.ReplyToken)
+		return err
+	}
+	return nil
 }

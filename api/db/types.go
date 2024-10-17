@@ -21,8 +21,8 @@ const (
 	None
 )
 
-func (state UserState) String() string {
-	return [...]string{"writing reflection", "writing preview note", "chatting with GPT", "chatting with teacher", "viewing dashboard", "viewing expert videos", "viewing portfolio", "analyzing video", "none"}[state]
+func (s UserState) String() string {
+	return [...]string{"writing_notes", "chatting_with_gpt", "chatting_with_teacher", "viewing_dashboard", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "none"}[s]
 }
 
 // ActionStep represents the step of the action that a user is currently taking
@@ -30,11 +30,17 @@ type ActionStep int8
 
 const (
 	SelectingSkill ActionStep = iota
-	Writing
+	WritingPreviewNote
+	WritingReflection
+	UploadingVideo
 	Chatting
 	ChoosingVideoUploadMethod
 	Empty
 )
+
+func (s ActionStep) String() string {
+	return [...]string{"selecting_skill", "writing_preview_note", "writing_reflection", "chatting", "choosing_video_upload_method", "empty"}[s]
+}
 
 // Handedness represents the handedness of a player
 type Handedness int8

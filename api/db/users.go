@@ -1,16 +1,19 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	googleDrive "google.golang.org/api/drive/v3"
 )
 
 type UserData struct {
-	Portfolio  Portfolio  `json:"portfolio"`
-	FolderIDs  FolderIDs  `json:"folderIDs"`
-	Name       string     `json:"name"`
-	ID         string     `json:"id"`
-	Handedness Handedness `json:"handedness"`
+	Portfolio    Portfolios   `json:"portfolio"`
+	FolderIDs    FolderIDs    `json:"folderIDs"`
+	GPTThreadIDs GPTThreadIDs `json:"gptThreadIDs"`
+	Name         string       `json:"name"`
+	ID           string       `json:"id"`
+	Handedness   Handedness   `json:"handedness"`
 }
 
 type FolderIDs struct {
@@ -21,13 +24,19 @@ type FolderIDs struct {
 	Thumbnail string `json:"thumbnail"`
 }
 
-type Portfolio struct {
+type Portfolios struct {
 	Serve map[string]Work `json:"serve"`
 	Smash map[string]Work `json:"smash"`
 	Clear map[string]Work `json:"clear"`
 }
 
-func (p *Portfolio) GetSkillPortfolio(skill string) map[string]Work {
+type GPTThreadIDs struct {
+	Serve string `json:"serve"`
+	Smash string `json:"smash"`
+	Clear string `json:"clear"`
+}
+
+func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 	switch skill {
 	case "serve":
 		return p.Serve
@@ -63,34 +72,43 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) 
 			Clear:     userFolders.ClearFolderID,
 			Thumbnail: userFolders.ThumbnailFolderID,
 		},
-		Portfolio: Portfolio{
+		Portfolio: Portfolios{
 			Serve: map[string]Work{},
 			Smash: map[string]Work{},
 			Clear: map[string]Work{},
+		},
+		GPTThreadIDs: GPTThreadIDs{
+			Serve: "",
+			Smash: "",
+			Clear: "",
 		},
 	}
 
 	_, err := ref.Set(*client.Ctx, newUserTemplate)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating user data: %w", err)
 	}
 	return newUserTemplate, nil
 }
 
-func (client *FirestoreClient) GetUserData(userId string) (*UserData, error) {
-	docsnap, err := client.Data.Doc(userId).Get(*client.Ctx)
+func (client *FirestoreClient) GetUserData(userID string) (*UserData, error) {
+	docsnap, err := client.Data.Doc(userID).Get(*client.Ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting user data: %w", err)
 	}
 	user := &UserData{}
-	docsnap.DataTo(user)
+	err = docsnap.DataTo(user)
+	if err != nil {
+		return nil, fmt.Errorf("error converting user data: %w", err)
+	}
+
 	return user, nil
 }
 
 func (client *FirestoreClient) updateUserData(user *UserData) error {
 	_, err := client.Data.Doc(user.ID).Set(*client.Ctx, *user)
 	if err != nil {
-		return err
+		return fmt.Errorf("error updating user data: %w", err)
 	}
 	return nil
 }
@@ -113,11 +131,20 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPort
 		Thumbnail:     thumbnailFile.Id,
 	}
 	(*userPortfolio)[date] = work
-	client.updateUserSession(user.ID, *session)
+	err := client.updateUserSession(user.ID, *session)
+	if err != nil {
+		return fmt.Errorf("error updating user session: %w", err)
+	}
+
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) UpdateUserPortfolioReflection(user *UserData, userPortfolio *map[string]Work, date string, reflection string) error {
+func (client *FirestoreClient) UpdateUserPortfolioReflection(
+	user *UserData,
+	userPortfolio *map[string]Work,
+	date string,
+	reflection string,
+) error {
 	targetWork := (*userPortfolio)[date]
 	work := Work{
 		DateTime:      targetWork.DateTime,
@@ -133,7 +160,12 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(user *UserData, use
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(user *UserData, userPortfolio *map[string]Work, date string, previewNote string) error {
+func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
+	user *UserData,
+	userPortfolio *map[string]Work,
+	date string,
+	previewNote string,
+) error {
 	targetWork := (*userPortfolio)[date]
 	work := Work{
 		DateTime:      targetWork.DateTime,
@@ -145,5 +177,22 @@ func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(user *UserData, us
 		Thumbnail:     targetWork.Thumbnail,
 	}
 	(*userPortfolio)[date] = work
+	return client.updateUserData(user)
+}
+
+func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill string, threadID string) error {
+	switch skill {
+	case "serve":
+		user.GPTThreadIDs.Serve = threadID
+	case "smash":
+		user.GPTThreadIDs.Smash = threadID
+	case "clear":
+		user.GPTThreadIDs.Clear = threadID
+	}
+	return client.updateUserData(user)
+}
+
+func (client *FirestoreClient) UpdateUserGPTThreadIDs(user *UserData, threadIDs *GPTThreadIDs) error {
+	user.GPTThreadIDs = *threadIDs
 	return client.updateUserData(user)
 }

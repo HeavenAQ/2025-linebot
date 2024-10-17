@@ -60,7 +60,7 @@ func TestGetUserData(t *testing.T) {
 			Thumbnail: utils.RandomAlphabetString(10),
 		},
 		Handedness: db.Right,
-		Portfolio: db.Portfolio{
+		Portfolio: db.Portfolios{
 			Serve: map[string]db.Work{},
 			Smash: map[string]db.Work{},
 			Clear: map[string]db.Work{},
@@ -117,7 +117,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	testUser := &db.UserData{
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
-		Portfolio: db.Portfolio{
+		Portfolio: db.Portfolios{
 			Smash: map[string]db.Work{},
 			Serve: map[string]db.Work{},
 			Clear: map[string]db.Work{},

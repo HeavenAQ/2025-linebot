@@ -39,7 +39,13 @@ func (app *App) processEvents(events []*linebot.Event) {
 		switch event.Type {
 		case linebot.EventTypeFollow:
 			app.Logger.Info.Printf("Follow event received. New user ID: %s", event.Source.UserID)
-			app.LineBot.SendWelcomeReply(event)
+			res, err := app.LineBot.SendWelcomeReply(event)
+			if err != nil {
+				app.Logger.Warn.Println("Error sending welcome message: ", err)
+				return
+			}
+
+			app.Logger.Info.Println("Welcome message sent. Response from line: ", res)
 		case linebot.EventTypeMessage:
 			// Example: handle a text message
 			app.Logger.Info.Println("Text message received")
@@ -69,7 +75,11 @@ func (app *App) processEvents(events []*linebot.Event) {
 		default:
 			// Log a warning and reply with a default message
 			app.Logger.Warn.Printf("unsupported event type: %s", event.Type)
-			app.LineBot.ReplyWithTypeError(event.ReplyToken)
+			_, err := app.LineBot.SendTypeErrorReply(event.ReplyToken)
+			if err != nil {
+				app.Logger.Warn.Println("Error sending type error message: ", err)
+				return
+			}
 		}
 	}
 }
@@ -82,7 +92,10 @@ func (app *App) handleRichMenuMessage(
 ) {
 	// Handle the rich menu message
 	var res *linebot.BasicResponse
+
 	var err error
+
+	var errSessionUpdate error
 
 	switch event.Text {
 	case "使用說明":
@@ -90,30 +103,38 @@ func (app *App) handleRichMenuMessage(
 		res, err = app.LineBot.SendInstruction(replyToken)
 	case "學習歷程":
 		app.resetUserSession(user.ID)
-		app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingPortfoilo, db.SelectingSkill)
+		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingPortfoilo, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要查看的動作")
 	case "專家影片":
 		app.resetUserSession(user.ID)
-		app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingExpertVideos, db.SelectingSkill)
+		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingExpertVideos, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要觀看的動作")
 	case "分析影片":
 		app.resetUserSession(user.ID)
-		app.FirestoreClient.UpdateSessionUserState(user.ID, db.AnalyzingVideo, db.SelectingSkill)
+
+		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.AnalyzingVideo, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要分析的動作")
 	case "預習及反思":
 		app.resetUserSession(user.ID)
-		app.FirestoreClient.UpdateSessionUserState(user.ID, db.WritingNotes, db.SelectingSkill)
+		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.WritingNotes, db.SelectingSkill)
+
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要記錄的動作")
 	case "GPT對談":
 		app.resetUserSession(user.ID)
-		app.FirestoreClient.UpdateSessionUserState(user.ID, db.ChattingWithGPT, db.SelectingSkill)
+		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ChattingWithGPT, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要對談的動作")
 	default:
 		app.resetUserSession(user.ID)
 		res, err = app.LineBot.ReplyMessage(replyToken, linebot.NewTextMessage("抱歉，您所輸入的訊息格式目前並未支援，請重試一次！"))
 	}
 
-	if err != nil {
+	if err != nil || errSessionUpdate != nil {
+		_, err = app.LineBot.SendDefaultErrorReply(replyToken)
+		if err != nil {
+			app.Logger.Warn.Println("Error sending type error message: ", err)
+			return
+		}
+
 		app.Logger.Warn.Println("Error sending instruction: ", err)
 		return
 	}
@@ -132,6 +153,24 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.ViewingExpertVideos:
 	case db.ViewingPortfoilo:
 	case db.AnalyzingVideo:
+		switch session.ActionStep {
+		case db.SelectingSkill:
+			err := app.LineBot.PromptUploadVideo(event)
+			app.handleVideoUploadPromptError(err, replyToken)
+			err = app.FirestoreClient.UpdateSessionActionStep(user.ID, db.UploadingVideo)
+			app.handleUpdateSessionError(err, replyToken)
+		case db.UploadingVideo:
+
+			err := app.FirestoreClient.UpdateSessionActionStep(user.ID, db.Empty)
+			app.handleUpdateSessionError(err, replyToken)
+		default:
+			app.resetUserSession(user.ID)
+			_, err := app.LineBot.SendDefaultErrorReply(replyToken)
+			if err != nil {
+				app.Logger.Warn.Println("Error sending type error message: ", err)
+				return
+			}
+		}
 	case db.None:
 	default:
 	}

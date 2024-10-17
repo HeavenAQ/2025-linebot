@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
@@ -11,9 +12,10 @@ import (
 type App struct {
 	Config          *config.Config
 	Logger          *Logger
-	LineBot         *line.LineBot
+	LineBot         *line.Client
 	FirestoreClient *db.FirestoreClient
 	DriveClient     *storage.GoogleDriveClient
+	GPTClient       *gpt.Client
 }
 
 func NewApp(configPath string) *App {
@@ -59,11 +61,15 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
+	// Set up GPT Client
+	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.AssistantID)
+
 	return &App{
 		Config:          cfg,
 		Logger:          logger,
 		LineBot:         lineBot,
 		FirestoreClient: firestoreClient,
 		DriveClient:     driveClient,
+		GPTClient:       gptClient,
 	}
 }

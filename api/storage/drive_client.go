@@ -38,49 +38,111 @@ func NewGoogleDriveClient(credentials []byte, rootFolderID string) (*GoogleDrive
 	}, nil
 }
 
+func (client *GoogleDriveClient) createFolder(
+	folderName string,
+	parents []string,
+) (folderID string, err error) {
+	folder, err := client.srv.Files.Create(&drive.File{
+		Name:     folderName,
+		MimeType: "application/vnd.google-apps.folder",
+		Parents:  parents,
+	}).Do()
+	if err != nil {
+		return "", err
+	}
+
+	return folder.Id, nil
+}
+
+func (client *GoogleDriveClient) asyncCreateFolder(folderName string, parents []string, idChannel chan<- string, errorChannel chan<- error) {
+	// Attempt folder creation
+	folderID, err := client.createFolder(folderName, parents)
+	if err != nil {
+		select {
+		case errorChannel <- err:
+		default:
+		}
+		return
+	}
+
+	// Send successful folder ID
+	idChannel <- folderID
+}
+
+func (client *GoogleDriveClient) asyncCreateFolders(userID string, folderNames []string, userFolders *UserFolders) (<-chan string, <-chan error) {
+	idChannel := make(chan string, len(folderNames))
+	errorChannel := make(chan error, 1)
+
+	for i, folderName := range folderNames {
+		go func(i int, folderName string) {
+			// Determine parent folder
+			var parents []string
+			if folderName == userID {
+				parents = []string{client.RootFolderID}
+			} else {
+				parents = []string{userFolders.RootFolderID}
+			}
+
+			// Attempt folder creation
+			client.asyncCreateFolder(folderName, parents, idChannel, errorChannel)
+		}(i, folderName)
+	}
+	return idChannel, errorChannel
+}
+
+func (client *GoogleDriveClient) checkAsyncFolderCreation(idChannel <-chan string, errorChannel <-chan error, userFolders *UserFolders) error {
+	userFolderIDAddrs := []*string{
+		&userFolders.ServeFolderID,
+		&userFolders.SmashFolderID,
+		&userFolders.ClearFolderID,
+		&userFolders.ThumbnailFolderID,
+	}
+
+	for i := range userFolderIDAddrs {
+		select {
+		case err := <-errorChannel:
+			if err != nil {
+				return err
+			}
+		case res := <-idChannel:
+			*userFolderIDAddrs[i] = res
+		}
+	}
+	return nil
+}
+
 func (client *GoogleDriveClient) CreateUserFolders(userID string, userName string) (*UserFolders, error) {
 	folderNames := []string{
-		userID,
 		"serve",
 		"smash",
 		"clear",
 		"thumbnail",
 	}
 
+	// Initialize user folders struct
 	userFolders := UserFolders{
-		UserID:   userID,
-		UserName: userName,
+		UserID:            userID,
+		UserName:          userName,
+		RootFolderID:      "",
+		ServeFolderID:     "",
+		SmashFolderID:     "",
+		ClearFolderID:     "",
+		ThumbnailFolderID: "",
 	}
 
-	for _, folderName := range folderNames {
-		var parents []string
-		if folderName == userID {
-			parents = []string{client.RootFolderID}
-		} else {
-			parents = []string{userFolders.RootFolderID}
-		}
+	// Create user's root folder first
+	var userRootFolder string
+	userRootFolder, err := client.createFolder(userID, []string{client.RootFolderID})
+	if err != nil {
+		return nil, err
+	}
+	userFolders.RootFolderID = userRootFolder
 
-		folder, err := client.srv.Files.Create(&drive.File{
-			Name:     folderName,
-			MimeType: "application/vnd.google-apps.folder",
-			Parents:  parents,
-		}).Do()
-		if err != nil {
-			return nil, err
-		}
-
-		switch folderName {
-		case userID:
-			userFolders.RootFolderID = folder.Id
-		case "serve":
-			userFolders.ServeFolderID = folder.Id
-		case "smash":
-			userFolders.SmashFolderID = folder.Id
-		case "clear":
-			userFolders.ClearFolderID = folder.Id
-		case "thumbnail":
-			userFolders.ThumbnailFolderID = folder.Id
-		}
+	// Create folders in Google Drive concurrently
+	idChannel, errChannel := client.asyncCreateFolders(userID, folderNames, &userFolders)
+	err = client.checkAsyncFolderCreation(idChannel, errChannel, &userFolders)
+	if err != nil {
+		return nil, err
 	}
 
 	return &userFolders, nil

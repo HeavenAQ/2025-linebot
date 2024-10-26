@@ -12,22 +12,20 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-func (client *Client) gePortfolioRating(work db.Work) *linebot.BoxComponent {
+// getPortfolioRating creates the star rating component
+func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 	rating := work.Rating
 	contents := []linebot.FlexComponent{}
 	for i := 0; i < 5; i++ {
-		var url string
+		url := "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
 		if rating >= 20 {
 			url = "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-		} else {
-			url = "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
 		}
 		contents = append(contents, &linebot.IconComponent{
 			Type: "icon",
 			Size: "sm",
 			URL:  url,
 		})
-
 		rating -= 20
 	}
 	contents = append(contents, &linebot.TextComponent{
@@ -46,55 +44,60 @@ func (client *Client) gePortfolioRating(work db.Work) *linebot.BoxComponent {
 	}
 }
 
-func (client *Client) getCarouselItem(work db.Work, userState db.UserState) *linebot.BubbleContainer {
-	rating := client.gePortfolioRating(work)
-	previewWriting, err := json.Marshal(WritingNotePostback{
-		State:      userState.String(),
+// createButtonActions generates the buttons for preview and reflection actions
+func (client *Client) createButtonActions(work db.Work) ([]linebot.FlexComponent, error) {
+	previewData, err := json.Marshal(WritingNotePostback{
+		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
 		ActionStep: db.WritingPreviewNote.String(),
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	reflectionWriting, err := json.Marshal(WritingNotePostback{
-		State:      userState.String(),
+	reflectionData, err := json.Marshal(WritingNotePostback{
+		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
 		ActionStep: db.WritingReflection.String(),
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	previewBtnAction := linebot.NewPostbackAction(
-		"更新課前動作檢測要點",
-		string(previewWriting),
-		"",
-		"",
-		"openKeyboard",
-		"",
-	)
-	reflectionBtnAction := linebot.NewPostbackAction(
-		"更新學習反思",
-		string(reflectionWriting),
-		"",
-		"",
-		"openKeyboard",
-		"",
-	)
+	videoData, err := json.Marshal(VideoPostback{
+		VideoID:     work.SkeletonVideo,
+		ThumbnailID: work.Thumbnail,
+	})
+	if err != nil {
+		return nil, err
+	}
 
-	footerContents := []linebot.FlexComponent{
+	return []linebot.FlexComponent{
 		&linebot.ButtonComponent{
 			Type:   "button",
 			Style:  "primary",
 			Height: "sm",
-			Action: reflectionBtnAction,
+			Action: linebot.NewPostbackAction(
+				"更新學習反思",
+				string(reflectionData),
+				"",
+				"",
+				"openKeyboard",
+				"",
+			),
 		},
 		&linebot.ButtonComponent{
 			Type:   "button",
 			Style:  "primary",
 			Height: "sm",
-			Action: previewBtnAction,
+			Action: linebot.NewPostbackAction(
+				"更新課前動作檢測要點",
+				string(previewData),
+				"",
+				"",
+				"openKeyboard",
+				"",
+			),
 		},
 		&linebot.ButtonComponent{
 			Type:   "button",
@@ -102,16 +105,58 @@ func (client *Client) getCarouselItem(work db.Work, userState db.UserState) *lin
 			Height: "sm",
 			Action: linebot.NewPostbackAction(
 				"查看影片",
-				"video={\"video_id\": \""+work.SkeletonVideo+"\", \"thumbnail_id\": \""+work.Thumbnail+"\"}",
+				string(videoData),
 				"",
 				"",
 				"",
 				"",
 			),
 		},
+	}, nil
+}
+
+// createNotesSection generates the notes sections for AI Note, Preview Note, and Reflection
+func createNotesSection(label string, content string) *linebot.BoxComponent {
+	// If content is empty, provide a default placeholder text
+	if content == "" {
+		content = "無內容" // You can replace this with any placeholder text
+	}
+	return &linebot.BoxComponent{
+		Type:    "box",
+		Layout:  "vertical",
+		Spacing: "sm",
+		Contents: []linebot.FlexComponent{
+			&linebot.TextComponent{
+				Type:   "text",
+				Text:   label,
+				Color:  "#000000",
+				Size:   "md",
+				Flex:   linebot.IntPtr(1),
+				Weight: "bold",
+			},
+			&linebot.TextComponent{
+				Type:  "text",
+				Text:  content,
+				Wrap:  true,
+				Color: "#666666",
+				Size:  "sm",
+				Flex:  linebot.IntPtr(5),
+			},
+		},
+	}
+}
+
+// getCarouselItem constructs the carousel item using helper functions
+func (client *Client) getCarouselItem(work db.Work, showBtns bool) *linebot.BubbleContainer {
+	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
+	formattedDate := dateTime.Format("2006-01-02")
+	rating := client.getPortfolioRating(work)
+	buttons, err := client.createButtonActions(work)
+	if err != nil {
+		return nil
 	}
 
-	return &linebot.BubbleContainer{
+	item := &linebot.BubbleContainer{
 		Type: "bubble",
 		Hero: &linebot.ImageComponent{
 			Type:        "image",
@@ -126,113 +171,27 @@ func (client *Client) getCarouselItem(work db.Work, userState db.UserState) *lin
 			Contents: []linebot.FlexComponent{
 				&linebot.TextComponent{
 					Type:   "text",
-					Text:   "🗓️ " + work.DateTime[:10],
+					Text:   "🗓️ " + formattedDate,
 					Weight: "bold",
 					Size:   "xl",
 				},
 				rating,
-				&linebot.BoxComponent{
-					Type:    "box",
-					Layout:  "vertical",
-					Margin:  "lg",
-					Spacing: "sm",
-					Contents: []linebot.FlexComponent{
-						&linebot.BoxComponent{
-							Type:    "box",
-							Layout:  "vertical",
-							Spacing: "sm",
-							Contents: []linebot.FlexComponent{
-								&linebot.TextComponent{
-									Type:   "text",
-									Text:   "需調整細節：",
-									Color:  "#000000",
-									Size:   "md",
-									Flex:   linebot.IntPtr(1),
-									Weight: "bold",
-								},
-								&linebot.TextComponent{
-									Type:  "text",
-									Text:  work.AINote,
-									Wrap:  true,
-									Color: "#666666",
-									Size:  "sm",
-									Flex:  linebot.IntPtr(5),
-								},
-							},
-						},
-					},
-				},
-				&linebot.BoxComponent{
-					Type:    "box",
-					Layout:  "vertical",
-					Margin:  "lg",
-					Spacing: "sm",
-					Contents: []linebot.FlexComponent{
-						&linebot.BoxComponent{
-							Type:    "box",
-							Layout:  "vertical",
-							Spacing: "sm",
-							Contents: []linebot.FlexComponent{
-								&linebot.TextComponent{
-									Type:   "text",
-									Text:   "課前動作檢測要點：",
-									Color:  "#000000",
-									Size:   "md",
-									Flex:   linebot.IntPtr(1),
-									Weight: "bold",
-								},
-								&linebot.TextComponent{
-									Type:  "text",
-									Text:  work.PreviewNote,
-									Wrap:  true,
-									Color: "#666666",
-									Size:  "sm",
-									Flex:  linebot.IntPtr(5),
-								},
-							},
-						},
-					},
-				},
-				&linebot.BoxComponent{
-					Type:    "box",
-					Layout:  "vertical",
-					Margin:  "lg",
-					Spacing: "sm",
-					Contents: []linebot.FlexComponent{
-						&linebot.BoxComponent{
-							Type:    "box",
-							Layout:  "vertical",
-							Spacing: "sm",
-							Contents: []linebot.FlexComponent{
-								&linebot.TextComponent{
-									Type:   "text",
-									Text:   "學習反思：",
-									Color:  "#000000",
-									Size:   "md",
-									Flex:   linebot.IntPtr(1),
-									Weight: "bold",
-								},
-								&linebot.TextComponent{
-									Type:  "text",
-									Text:  work.Reflection,
-									Wrap:  true,
-									Color: "#666666",
-									Size:  "sm",
-									Flex:  linebot.IntPtr(5),
-								},
-							},
-						},
-					},
-				},
+				createNotesSection("需調整細節：", work.AINote),
+				createNotesSection("課前動作檢測要點：", work.PreviewNote),
+				createNotesSection("學習反思：", work.Reflection),
 			},
 		},
-		Footer: &linebot.BoxComponent{
+	}
+
+	if showBtns {
+		item.Footer = &linebot.BoxComponent{
 			Type:     "box",
 			Layout:   "vertical",
 			Spacing:  "sm",
-			Contents: footerContents,
-		},
+			Contents: buttons,
+		}
 	}
+	return item
 }
 
 func (client *Client) insertCarousel(carouselItems []*linebot.FlexMessage, items []*linebot.BubbleContainer) []*linebot.FlexMessage {
@@ -261,66 +220,26 @@ func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
-func (handler *Client) getCarousels(works map[string]db.Work, userState db.UserState) ([]*linebot.FlexMessage, error) {
+func (client *Client) getCarousels(works map[string]db.Work, showBtns bool) ([]*linebot.FlexMessage, error) {
 	items := []*linebot.BubbleContainer{}
 	carouselItems := []*linebot.FlexMessage{}
-	sortedWorks := handler.sortWorks(works)
+	sortedWorks := client.sortWorks(works)
 	for _, work := range sortedWorks {
-		items = append(items, handler.getCarouselItem(work, userState))
+		items = append(items, client.getCarouselItem(work, showBtns))
 
 		// since the carousel can only contain 10 items, we need to split the works into multiple carousels in order to display all of them
 		if len(items) == 10 {
-			carouselItems = handler.insertCarousel(carouselItems, items)
+			carouselItems = client.insertCarousel(carouselItems, items)
 			items = []*linebot.BubbleContainer{}
 		}
 	}
 
 	// insert the last carousel
 	if len(items) > 0 {
-		carouselItems = handler.insertCarousel(carouselItems, items)
+		carouselItems = client.insertCarousel(carouselItems, items)
 	}
 
 	// latest work will be displayed last
 	slices.Reverse(carouselItems)
 	return carouselItems, nil
-}
-
-func (client *Client) getActionUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
-	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
-		db.Right: {
-			db.Serve: []string{
-				"https://youtu.be/uE-EHVX1LrA",
-			},
-			db.Smash: []string{
-				"https://youtu.be/K7EEhEF2vMo",
-			},
-			db.Clear: []string{
-				"https://youtu.be/K7EEhEF2vMo",
-			},
-		},
-		db.Left: {
-			db.Serve: []string{
-				"https://youtu.be/7i0KvbJ4rEE",
-				"https://youtu.be/LiQWE6i3bbI",
-			},
-			db.Smash: []string{
-				"https://youtu.be/yyjC-xXOsdg",
-				"https://youtu.be/AzF44kouBBQ",
-			},
-			db.Clear: []string{
-				"https://youtu.be/yyjC-xXOsdg",
-				"https://youtu.be/AzF44kouBBQ",
-			},
-		},
-	}
-	return actionUrls[hand][skill]
-}
-
-func (client *Client) GetVideoContent(event *linebot.Event) (*linebot.MessageContentResponse, error) {
-	msg := event.Message.(*linebot.VideoMessage)
-	content, err := client.bot.GetMessageContent(msg.ID).Do()
-	if err != nil {
-		return nil, err
-	}
-	return content, nil
 }

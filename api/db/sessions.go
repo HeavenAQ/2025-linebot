@@ -24,7 +24,7 @@ func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, erro
 	return &userSessioon, nil
 }
 
-func (client *FirestoreClient) updateUserSession(userID string, newSessionContent UserSession) error {
+func (client *FirestoreClient) UpdateUserSession(userID string, newSessionContent UserSession) error {
 	_, err := client.Sessions.Doc(userID).Set(*client.Ctx, newSessionContent)
 	if err != nil {
 		return fmt.Errorf("error updating user session: %w", err)
@@ -38,7 +38,7 @@ func (client *FirestoreClient) CreateUserSession(userID string) (*UserSession, e
 		Skill:      "",
 		ActionStep: Empty,
 	}
-	err := client.updateUserSession(userID, newSession)
+	err := client.UpdateUserSession(userID, newSession)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (client *FirestoreClient) UpdateSessionUserState(userID string, state UserS
 
 	userSession.UserState = state
 	userSession.ActionStep = step
-	return client.updateUserSession(userID, *userSession)
+	return client.UpdateUserSession(userID, *userSession)
 }
 
 func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill string) error {
@@ -63,11 +63,16 @@ func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill strin
 	}
 
 	userSession.Skill = skill
-	return client.updateUserSession(userID, *userSession)
+	return client.UpdateUserSession(userID, *userSession)
 }
 
-func (client *FirestoreClient) ResetSession(userID string, newSessionContent UserSession) error {
-	err := client.updateUserSession(userID, newSessionContent)
+func (client *FirestoreClient) ResetSession(userID string) error {
+	userSession := UserSession{
+		Skill:      "",
+		UserState:  None,
+		ActionStep: Empty,
+	}
+	err := client.UpdateUserSession(userID, userSession)
 	if err != nil {
 		return err
 	}
@@ -81,5 +86,5 @@ func (client *FirestoreClient) UpdateSessionActionStep(userID string, step Actio
 	}
 
 	userSession.ActionStep = step
-	return client.updateUserSession(userID, *userSession)
+	return client.UpdateUserSession(userID, *userSession)
 }

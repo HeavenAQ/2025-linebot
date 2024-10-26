@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
@@ -36,6 +37,12 @@ func (app *App) processEvents(events []*linebot.Event) {
 		user := app.createUserIfNotExist(event.Source.UserID)
 		session := app.createUserSessionIfNotExist(event.Source.UserID)
 
+		// If not none, handle actions based user's session state
+		if session.UserState != db.None {
+			app.Logger.Info.Println("Try to handle user's state")
+			app.handleUserState(event, user, session, event.ReplyToken)
+		}
+
 		switch event.Type {
 		case linebot.EventTypeFollow:
 			app.Logger.Info.Printf("Follow event received. New user ID: %s", event.Source.UserID)
@@ -66,10 +73,8 @@ func (app *App) processEvents(events []*linebot.Event) {
 				return
 			}
 
-			// Handle the message based on the user's state
-			app.handleUserState(event, user, session, event.ReplyToken)
 		case linebot.EventTypePostback:
-			app.Logger.Info.Println("Postback event received")
+			app.Logger.Info.Printf("Postback event received. User ID: %v", event.Source.UserID)
 			app.handleUserState(event, user, session, event.ReplyToken)
 
 		default:
@@ -99,32 +104,32 @@ func (app *App) handleRichMenuMessage(
 
 	switch event.Text {
 	case "使用說明":
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		res, err = app.LineBot.SendInstruction(replyToken)
 	case "學習歷程":
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingPortfoilo, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要查看的動作")
 	case "專家影片":
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ViewingExpertVideos, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要觀看的動作")
-	case "分析影片":
-		app.resetUserSession(user.ID)
+	case "動作分析":
+		app.FirestoreClient.ResetSession(user.ID)
 
 		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.AnalyzingVideo, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要分析的動作")
 	case "預習及反思":
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.WritingNotes, db.SelectingSkill)
 
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要記錄的動作")
 	case "GPT對談":
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		errSessionUpdate = app.FirestoreClient.UpdateSessionUserState(user.ID, db.ChattingWithGPT, db.SelectingSkill)
 		res, err = app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要對談的動作")
 	default:
-		app.resetUserSession(user.ID)
+		app.FirestoreClient.ResetSession(user.ID)
 		res, err = app.LineBot.ReplyMessage(replyToken, linebot.NewTextMessage("抱歉，您所輸入的訊息格式目前並未支援，請重試一次！"))
 	}
 
@@ -143,6 +148,12 @@ func (app *App) handleRichMenuMessage(
 }
 
 func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session *db.UserSession, replyToken string) {
+	// Try to get the raw data
+	var rawData string
+	if event.Type == linebot.EventTypePostback {
+		rawData = event.Postback.Data
+	}
+
 	switch session.UserState {
 	case db.WritingNotes:
 		if session.ActionStep == db.SelectingSkill {
@@ -155,23 +166,100 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.AnalyzingVideo:
 		switch session.ActionStep {
 		case db.SelectingSkill:
-			err := app.LineBot.PromptUploadVideo(event)
-			app.handleVideoUploadPromptError(err, replyToken)
-			err = app.FirestoreClient.UpdateSessionActionStep(user.ID, db.UploadingVideo)
-			app.handleUpdateSessionError(err, replyToken)
+			app.handleSelectingSkill(event, user, rawData, replyToken)
 		case db.UploadingVideo:
-
-			err := app.FirestoreClient.UpdateSessionActionStep(user.ID, db.Empty)
-			app.handleUpdateSessionError(err, replyToken)
+			app.handleUploadingVideo(event, session, user, replyToken)
 		default:
-			app.resetUserSession(user.ID)
-			_, err := app.LineBot.SendDefaultErrorReply(replyToken)
-			if err != nil {
-				app.Logger.Warn.Println("Error sending type error message: ", err)
-				return
-			}
+			app.handleInvalidActionStep(user.ID, replyToken)
 		}
 	case db.None:
 	default:
+	}
+}
+
+func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+	// Get the user's portfolio
+	data, err := app.LineBot.HandleSelectingSkill(rawData)
+	app.handlePostbackDataTypeError(err, replyToken)
+
+	// Send the user's portfolio
+	err = app.LineBot.SendPortfolio(
+		event,
+		user,
+		db.SkillStrToEnum(data.Skill),
+		session.UserState,
+		"以下為您的學習歷程：",
+		false,
+	)
+	app.handleSendingReplyMessageError(err, replyToken)
+}
+
+func (app *App) handleSelectingSkill(event *linebot.Event, user *db.UserData, rawData string, replyToken string) {
+	// Unmarshal raw data for SelectingSkill action
+	data, err := app.LineBot.HandleSelectingSkill(rawData)
+	app.handlePostbackDataTypeError(err, replyToken)
+
+	// Prompt user to upload video
+	err = app.LineBot.PromptUploadVideo(event)
+	app.handleVideoUploadPromptError(err, replyToken)
+
+	// Update the skill session and move on to the next step
+	err = app.FirestoreClient.UpdateUserSession(
+		user.ID,
+		db.UserSession{
+			Skill:      data.Skill,
+			UserState:  db.AnalyzingVideo,
+			ActionStep: db.UploadingVideo,
+		})
+	app.handleUpdateSessionError(err, replyToken)
+}
+
+func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
+	// Type assertion to get the video message
+	videoMsg, ok := event.Message.(*linebot.VideoMessage)
+	if !ok {
+		app.Logger.Warn.Println("Non-video message received")
+		app.FirestoreClient.ResetSession(user.ID)
+		_, err := app.LineBot.SendDefaultErrorReply(replyToken)
+		app.handleGetVideoError(err, replyToken)
+		return
+	}
+
+	// Get the video content
+	app.Logger.Info.Println("Getting video content")
+	videoContent, err := app.LineBot.GetVideoContent(videoMsg.ID)
+	app.handleGetVideoError(err, replyToken)
+
+	// Create video thumbnail
+	app.Logger.Info.Println("Creating video thumbnail")
+	thumbnailPath, err := app.createVideoThumbnail(event, user, videoContent)
+	app.handleThumbnailCreationError(err, replyToken)
+
+	// Upload the video to Google Drive
+	today := time.Now().Format("2006-01-02-15-04")
+	app.Logger.Info.Println("Uploading video to Google Drive")
+	video, thumbnail, err := app.uploadVideoToDrive(user, session, videoContent, thumbnailPath, today)
+	app.handleUploadToDriveError(err, replyToken)
+
+	// Update user portfolio
+	app.Logger.Info.Println("Updating user portfolio")
+	err = app.updateUserPortfolioVideo(user, session, today, video, thumbnail)
+	app.handleUpdateUserPortfolioError(err, replyToken)
+
+	// Send a success message
+	err = app.sendVideoUploadedReply(event, session, user)
+	app.handleSendingReplyMessageError(err, replyToken)
+
+	// Reset the user session
+	err = app.FirestoreClient.ResetSession(user.ID)
+	app.handleUpdateSessionError(err, replyToken)
+}
+
+// Function to handle invalid action steps
+func (app *App) handleInvalidActionStep(userID string, replyToken string) {
+	app.FirestoreClient.ResetSession(userID)
+	_, err := app.LineBot.SendDefaultErrorReply(replyToken)
+	if err != nil {
+		app.Logger.Warn.Println("Error sending default error reply:", err)
 	}
 }

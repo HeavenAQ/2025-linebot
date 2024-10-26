@@ -140,15 +140,22 @@ func (client *Client) SendVideoMessage(replyToken string, video VideoInfo) (*lin
 	).Do()
 }
 
-func (client *Client) SendPortfolio(event *linebot.Event, user *db.UserData, skill db.BadmintonSkill, userState db.UserState) error {
+func (client *Client) SendPortfolio(
+	event *linebot.Event,
+	user *db.UserData,
+	skill db.BadmintonSkill,
+	userState db.UserState,
+	textMsg string,
+	showBtns bool,
+) error {
 	// get works from user portfolio
 	works := user.Portfolio.GetSkillPortfolio(skill.String())
-	if works == nil || len(works) == 0 {
+	if len(works) == 0 {
 		client.replyViewPortfolioError(event.ReplyToken, skill)
 	}
 
 	// generate carousels from works
-	carousels, err := client.getCarousels(works, userState)
+	carousels, err := client.getCarousels(works, showBtns)
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
 		return errors.New("Error getting carousels: " + err.Error())
@@ -156,11 +163,15 @@ func (client *Client) SendPortfolio(event *linebot.Event, user *db.UserData, ski
 
 	// turn carousels into sending messages
 	var sendMsgs []linebot.SendingMessage
+	sendMsgs = append(sendMsgs, linebot.NewTextMessage(textMsg))
 	for _, msg := range carousels {
 		sendMsgs = append(sendMsgs, msg)
 	}
 
-	_, err = client.bot.ReplyMessage(event.ReplyToken, sendMsgs...).Do()
+	_, err = client.bot.ReplyMessage(
+		event.ReplyToken,
+		sendMsgs...,
+	).Do()
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
 		return err

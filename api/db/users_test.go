@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
@@ -25,8 +26,14 @@ func TestCreateUserData(t *testing.T) {
 		ThumbnailFolderID: utils.RandomAlphabetString(10),
 	}
 
+	testGPTthreads := &db.GPTThreadIDs{
+		Serve: utils.RandomAlphabetString(10),
+		Smash: utils.RandomAlphabetString(10),
+		Clear: utils.RandomAlphabetString(10),
+	}
+
 	// Call the method to create user data
-	userData, err := firestoreClient.CreateUserData(testUserFolders)
+	userData, err := firestoreClient.CreateUserData(testUserFolders, testGPTthreads)
 	require.NoError(t, err)
 	require.NotNil(t, userData)
 
@@ -141,7 +148,17 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	aiSuggestions := "Improve form"
 
 	// Call the method to add video to portfolio
-	err = firestoreClient.CreateUserPortfolioVideo(testUser, &testUser.Portfolio.Serve, session, driveFile, thumbnailFile, aiRating, aiSuggestions)
+	today := time.Now().Format("2006-01-02-15-04")
+	err = firestoreClient.CreateUserPortfolioVideo(
+		testUser,
+		&testUser.Portfolio.Serve,
+		today,
+		session,
+		driveFile,
+		thumbnailFile,
+		aiRating,
+		aiSuggestions,
+	)
 	require.NoError(t, err)
 
 	// Verify that the video was added to the portfolio

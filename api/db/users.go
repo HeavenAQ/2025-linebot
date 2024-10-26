@@ -59,7 +59,7 @@ type Work struct {
 	Rating        float32 `json:"rating"`
 }
 
-func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) (*UserData, error) {
+func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
 	newUserTemplate := &UserData{
 		Name:       userFolders.UserName,
@@ -78,9 +78,9 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) 
 			Clear: map[string]Work{},
 		},
 		GPTThreadIDs: GPTThreadIDs{
-			Serve: "",
-			Smash: "",
-			Clear: "",
+			Serve: gptThreads.Serve,
+			Smash: gptThreads.Smash,
+			Clear: gptThreads.Clear,
 		},
 	}
 
@@ -118,9 +118,8 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File, aiRating float32, aiSuggestions string) error {
+func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File, aiRating float32, aiSuggestions string) error {
 	id := driveFile.Id
-	date := driveFile.Name
 	work := Work{
 		DateTime:      date,
 		Rating:        aiRating,
@@ -131,7 +130,7 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPort
 		Thumbnail:     thumbnailFile.Id,
 	}
 	(*userPortfolio)[date] = work
-	err := client.updateUserSession(user.ID, *session)
+	err := client.UpdateUserSession(user.ID, *session)
 	if err != nil {
 		return fmt.Errorf("error updating user session: %w", err)
 	}

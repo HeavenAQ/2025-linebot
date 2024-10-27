@@ -54,6 +54,7 @@ type ActionStep int8
 
 const (
 	SelectingSkill ActionStep = iota
+	SelectingHandedness
 	WritingPreviewNote
 	WritingReflection
 	UploadingVideo
@@ -63,7 +64,7 @@ const (
 )
 
 func (s ActionStep) String() string {
-	return [...]string{"selecting_skill", "writing_preview_note", "writing_reflection", "chatting", "choosing_video_upload_method", "empty"}[s]
+	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "choosing_video_upload_method", "empty"}[s]
 }
 
 // Handedness represents the handedness of a player

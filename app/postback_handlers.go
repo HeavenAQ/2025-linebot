@@ -25,11 +25,30 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.ChattingWithGPT:
 		// Process chat
 	case db.ViewingExpertVideos:
+		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
 		app.handleViewingPortfolio(event, rawData, user, session, replyToken)
 	case db.AnalyzingVideo:
 		app.handleAnalyzingVideoActions(event, rawData, user, session, replyToken)
 	default:
+	}
+}
+
+func (app *App) handleViewingExpertVideos(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+	switch session.ActionStep {
+	case db.SelectingSkill:
+		session.ActionStep = db.SelectingHandedness
+		app.handleSelectingSkill(
+			event,
+			session,
+			rawData,
+			replyToken,
+			app.LineBot.PromptHandednessSelection,
+		)
+	case db.SelectingHandedness:
+		app.handleSendingExpertVideos(event, session, replyToken)
+	default:
+		app.handleInvalidActionStep(user.ID, replyToken)
 	}
 }
 
@@ -55,7 +74,14 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
-		app.handleSelectingSkill(event, user, rawData, replyToken)
+		session.ActionStep = db.UploadingVideo
+		app.handleSelectingSkill(
+			event,
+			session,
+			rawData,
+			replyToken,
+			app.LineBot.PromptUploadVideo,
+		)
 	case db.UploadingVideo:
 		app.handleUploadingVideo(event, session, user, replyToken)
 	default:
@@ -65,20 +91,30 @@ func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string
 
 // Helper functions
 
-func (app *App) handleSelectingSkill(event *linebot.Event, user *db.UserData, rawData, replyToken string) {
+func (app *App) handleSelectingSkill(
+	event *linebot.Event,
+	session *db.UserSession,
+	rawData,
+	replyToken string,
+	nextStepFunc func(*linebot.Event) error,
+) {
 	data, err := app.LineBot.HandleSelectingSkill(rawData)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)
 		return
 	}
 
-	err = app.LineBot.PromptUploadVideo(event)
+	err = nextStepFunc(event)
 	if err != nil {
 		app.handleVideoUploadPromptError(err, replyToken)
 		return
 	}
 
-	err = app.FirestoreClient.UpdateUserSession(user.ID, db.UserSession{Skill: data.Skill, UserState: db.AnalyzingVideo, ActionStep: db.UploadingVideo})
+	session.Skill = data.Skill
+	err = app.FirestoreClient.UpdateUserSession(
+		event.Source.UserID,
+		*session,
+	)
 	if err != nil {
 		app.handleUpdateSessionError(err, replyToken)
 	}
@@ -149,6 +185,22 @@ func (app *App) handleInvalidActionStep(userID string, replyToken string) {
 	_, err := app.LineBot.SendDefaultErrorReply(replyToken)
 	if err != nil {
 		app.Logger.Warn.Println("Error sending default error reply:", err)
+		return
+	}
+}
+
+func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.UserSession, replyToken string) {
+	data, err := app.LineBot.HandleSelectingHandedness(event.Postback.Data)
+	if err != nil {
+		app.handlePostbackDataTypeError(err, replyToken)
+		return
+	}
+
+	handedness, err := db.HandednessStrToEnum(data.Handedness)
+	skill := db.SkillStrToEnum(session.Skill)
+	err = app.LineBot.SendExpertVideos(handedness, skill, replyToken)
+	if err != nil {
+		app.handleSendExpertVideosError(err, replyToken)
 		return
 	}
 }

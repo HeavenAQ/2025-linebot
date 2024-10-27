@@ -94,3 +94,10 @@ func (app *App) handleSendPortfolioError(err error, replyToken string) {
 		"Portfolio has been sent",
 	)(err, replyToken)
 }
+
+func (app *App) handleSendExpertVideosError(err error, replyToken string) {
+	app.handleLineError(
+		"Error sending expert videos",
+		"Expert videos has been sent",
+	)(err, replyToken)
+}

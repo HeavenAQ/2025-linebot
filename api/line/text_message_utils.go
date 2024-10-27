@@ -124,11 +124,12 @@ func (client *Client) PromptSkillSelection(
 	return client.bot.ReplyMessage(replyToken, msg).Do()
 }
 
-func (client *Client) PromptHandednessSelection(replyToken string) (*linebot.BasicResponse, error) {
+func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 	msg := linebot.NewTextMessage("請選擇左手或右手").WithQuickReplies(
 		client.getHandednessQuickReplyItems(),
 	)
-	return client.bot.ReplyMessage(replyToken, msg).Do()
+	_, err := client.bot.ReplyMessage(event.ReplyToken, msg).Do()
+	return err
 }
 
 func (client *Client) SendVideoMessage(replyToken string, video VideoInfo) (*linebot.BasicResponse, error) {
@@ -183,6 +184,63 @@ func (client *Client) SendPortfolio(
 	).Do()
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
+		return err
+	}
+	return nil
+}
+
+func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
+	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
+		db.Right: {
+			db.Serve: []string{
+				"https://youtu.be/uE-EHVX1LrA",
+			},
+			db.Smash: []string{
+				"https://youtu.be/K7EEhEF2vMo",
+			},
+			db.Clear: []string{
+				"https://youtu.be/K7EEhEF2vMo",
+			},
+		},
+		db.Left: {
+			db.Serve: []string{
+				"https://youtu.be/7i0KvbJ4rEE",
+				"https://youtu.be/LiQWE6i3bbI",
+			},
+			db.Smash: []string{
+				"https://youtu.be/yyjC-xXOsdg",
+				"https://youtu.be/AzF44kouBBQ",
+			},
+			db.Clear: []string{
+				"https://youtu.be/yyjC-xXOsdg",
+				"https://youtu.be/AzF44kouBBQ",
+			},
+		},
+	}
+	return actionUrls[hand][skill]
+}
+
+func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.BadmintonSkill, replyToken string) error {
+	urls := client.getSkillUrls(handedness, skill)
+
+	// create messages
+	msgs := []linebot.SendingMessage{
+		linebot.NewTextMessage(
+			fmt.Sprintf("以下是【%v】-【%v】的專家示範影片：",
+				handedness.ChnString(),
+				skill.ChnString()),
+		),
+	}
+
+	// append video urls to messages
+	for i, url := range urls {
+		msg := fmt.Sprintf("專家影片%v：\n%v", i+1, url)
+		msgs = append(msgs, linebot.NewTextMessage(msg))
+	}
+
+	// Send messages
+	_, err := client.bot.ReplyMessage(replyToken, msgs...).Do()
+	if err != nil {
 		return err
 	}
 	return nil

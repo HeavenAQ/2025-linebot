@@ -33,11 +33,19 @@ func (client *Client) getQuickReplyAction() ReplyAction {
 func (client *Client) getHandednessQuickReplyItems() *linebot.QuickReplyItems {
 	items := []*linebot.QuickReplyButton{}
 	for _, handedness := range []db.Handedness{db.Left, db.Right} {
+		// Convert the handedness to a JSON string
+		handednessData, err := json.Marshal(SelectingHandednessPostback{
+			Handedness: handedness.String(),
+		})
+		if err != nil {
+			return nil
+		}
+
 		items = append(items, linebot.NewQuickReplyButton(
 			"",
 			linebot.NewPostbackAction(
 				handedness.ChnString(),
-				"handedness="+handedness.String(),
+				string(handednessData),
 				"",
 				handedness.ChnString(),
 				"",

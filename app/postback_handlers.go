@@ -9,6 +9,13 @@ import (
 )
 
 func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, session *db.UserSession) {
+	// Ignore the event if the postback data is for switching the menu
+	if event.Postback.Data == "switch-to-main" ||
+		event.Postback.Data == "switch-to-secondary" {
+		app.Logger.Info.Printf("Menu switch event received. User ID: %v", event.Source.UserID)
+		return
+	}
+
 	app.Logger.Info.Printf("Postback event received. User ID: %v", event.Source.UserID)
 	app.handleUserState(event, user, session, event.ReplyToken)
 }

@@ -13,16 +13,40 @@ type UserState int8
 const (
 	WritingNotes UserState = iota
 	ChattingWithGPT
-	ChattingWithTeacher
-	ViewingDashboard
 	ViewingExpertVideos
 	ViewingPortfoilo
 	AnalyzingVideo
+	ReadingInstruction
 	None
 )
 
 func (s UserState) String() string {
-	return [...]string{"writing_notes", "chatting_with_gpt", "chatting_with_teacher", "viewing_dashboard", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "none"}[s]
+	return [...]string{"writing_notes", "chatting_with_gpt", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
+}
+
+func (s UserState) ChnString() string {
+	return [...]string{"預習及反思", "GPT對談", "專家影片", "學習歷程", "動作分析", "使用說明", "無"}[s]
+}
+
+func UserStateChnStrToEnum(str string) (UserState, error) {
+	switch str {
+	case "預習及反思":
+		return WritingNotes, nil
+	case "GPT對談":
+		return ChattingWithGPT, nil
+	case "專家影片":
+		return ViewingExpertVideos, nil
+	case "學習歷程":
+		return ViewingPortfoilo, nil
+	case "動作分析":
+		return AnalyzingVideo, nil
+	case "使用說明":
+		return ReadingInstruction, nil
+	case "無":
+		return None, nil
+	default:
+		return -1, errors.New("invalid user state")
+	}
 }
 
 // ActionStep represents the step of the action that a user is currently taking

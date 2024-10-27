@@ -44,7 +44,7 @@ func (client *Client) SendVideoUploadedReply(
 	).Do()
 }
 
-func (client *Client) replyViewPortfolioError(replyToken string, skill db.BadmintonSkill) error {
+func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {
 	_, err := client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewTextMessage(
@@ -140,6 +140,15 @@ func (client *Client) SendVideoMessage(replyToken string, video VideoInfo) (*lin
 	).Do()
 }
 
+type NoPortfolioError struct {
+	Err   error
+	Skill db.BadmintonSkill
+}
+
+func (e *NoPortfolioError) Error() string {
+	return fmt.Sprintf("No portfolio found for skill %v: %v", e.Skill, e.Err)
+}
+
 func (client *Client) SendPortfolio(
 	event *linebot.Event,
 	user *db.UserData,
@@ -151,7 +160,7 @@ func (client *Client) SendPortfolio(
 	// get works from user portfolio
 	works := user.Portfolio.GetSkillPortfolio(skill.String())
 	if len(works) == 0 {
-		client.replyViewPortfolioError(event.ReplyToken, skill)
+		return &NoPortfolioError{Skill: skill, Err: errors.New("No portfolio found")}
 	}
 
 	// generate carousels from works

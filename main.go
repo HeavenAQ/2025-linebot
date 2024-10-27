@@ -11,6 +11,9 @@ import (
 func main() {
 	app := app.NewApp(".env")
 	http.HandleFunc("/callback", app.LineWebhookHandler())
+	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello, World!"))
+	})
 
 	// Default time duration
 	const (
@@ -21,7 +24,7 @@ func main() {
 
 	// Create a new server
 	server := &http.Server{
-		Addr:         ":" + app.Config.Port,
+		Addr:         "0.0.0.0:" + app.Config.Port,
 		Handler:      http.DefaultServeMux,
 		ReadTimeout:  DefaultReadTimeout,
 		WriteTimeout: DefaultWriteTimeout,

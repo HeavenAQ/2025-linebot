@@ -1,6 +1,10 @@
 package app
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
+)
 
 func handleLineMessageResponseError(err error) {
 	if err != nil {
@@ -74,5 +78,19 @@ func (app *App) handlePostbackDataTypeError(err error, replyToken string) {
 	app.handleLineError(
 		"Error handling postback data type casting",
 		"Postback data type has been handled",
+	)(err, replyToken)
+}
+
+func (app *App) handleSendPortfolioError(err error, replyToken string) {
+	if err, ok := err.(*line.NoPortfolioError); ok {
+		app.Logger.Info.Println(err)
+		err := app.LineBot.SendNoPortfolioReply(replyToken, err.Skill)
+		handleLineMessageResponseError(err)
+		return
+	}
+
+	app.handleLineError(
+		"Error sending portfolio",
+		"Portfolio has been sent",
 	)(err, replyToken)
 }

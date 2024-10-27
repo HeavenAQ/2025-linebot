@@ -45,11 +45,12 @@ func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 }
 
 // createButtonActions generates the buttons for preview and reflection actions
-func (client *Client) createButtonActions(work db.Work) ([]linebot.FlexComponent, error) {
+func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
 	previewData, err := json.Marshal(WritingNotePostback{
 		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
 		ActionStep: db.WritingPreviewNote.String(),
+		Skill:      skill,
 	})
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func (client *Client) createButtonActions(work db.Work) ([]linebot.FlexComponent
 		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
 		ActionStep: db.WritingReflection.String(),
+		Skill:      skill,
 	})
 	if err != nil {
 		return nil, err
@@ -147,11 +149,11 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 }
 
 // getCarouselItem constructs the carousel item using helper functions
-func (client *Client) getCarouselItem(work db.Work, showBtns bool) *linebot.BubbleContainer {
+func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
 	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
 	rating := client.getPortfolioRating(work)
-	buttons, err := client.createButtonActions(work)
+	buttons, err := client.createButtonActions(work, skill)
 	if err != nil {
 		return nil
 	}
@@ -220,12 +222,12 @@ func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
-func (client *Client) getCarousels(works map[string]db.Work, showBtns bool) ([]*linebot.FlexMessage, error) {
+func (client *Client) getCarousels(works map[string]db.Work, skill string, showBtns bool) ([]*linebot.FlexMessage, error) {
 	items := []*linebot.BubbleContainer{}
 	carouselItems := []*linebot.FlexMessage{}
 	sortedWorks := client.sortWorks(works)
 	for _, work := range sortedWorks {
-		items = append(items, client.getCarouselItem(work, showBtns))
+		items = append(items, client.getCarouselItem(work, skill, showBtns))
 
 		// since the carousel can only contain 10 items, we need to split the works into multiple carousels in order to display all of them
 		if len(items) == 10 {

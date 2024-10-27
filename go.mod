@@ -7,25 +7,25 @@ toolchain go1.23.1
 require (
 	cloud.google.com/go/firestore v1.17.0
 	firebase.google.com/go v3.13.0+incompatible
-	github.com/alexedwards/scs/v2 v2.8.0
+	github.com/Netflix/go-env v0.1.0
 	github.com/joho/godotenv v1.5.1
 	github.com/line/line-bot-sdk-go/v7 v7.21.0
+	github.com/sashabaranov/go-openai v1.32.2
 	github.com/u2takey/ffmpeg-go v0.5.0
 	google.golang.org/api v0.196.0
 )
 
 require (
-	github.com/GaijinEntertainment/go-exhaustruct/v3 v3.3.0 // indirect
-	github.com/Netflix/go-env v0.1.0 // indirect
 	github.com/aws/aws-sdk-go v1.55.5 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-playground/validator v9.31.0+incompatible // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/sashabaranov/go-openai v1.32.2 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/u2takey/go-utils v0.3.1 // indirect
-	golang.org/x/mod v0.21.0 // indirect
-	golang.org/x/tools v0.26.0 // indirect
+	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

@@ -6,23 +6,24 @@ type PostbackData interface {
 }
 
 type VideoPostback struct {
-	VideoID     string `json:"video_id"`
-	ThumbnailID string `json:"thumbnail_id"`
+	VideoID     string `json:"video_id" validate:"required"`
+	ThumbnailID string `json:"thumbnail_id" validate:"required"`
 }
 
 type WritingNotePostback struct {
-	State      string `json:"state"`
-	WorkDate   string `json:"work_date"`
-	ActionStep string `json:"action_step"`
+	State      string `json:"state" validate:"required"`
+	WorkDate   string `json:"work_date" validate:"required"`
+	ActionStep string `json:"action_step" validate:"required"`
+	Skill      string `json:"skill" validate:"required"`
 }
 
 type SelectingSkillPostback struct {
-	State string `json:"state"`
-	Skill string `json:"skill"`
+	State string `json:"state" validate:"required"`
+	Skill string `json:"skill" validate:"required"`
 }
 
 type SelectingHandednessPostback struct {
-	Handedness string `json:"handedness"`
+	Handedness string `json:"handedness" validate:"required"`
 }
 
 // Implement the marker interface for each struct

@@ -165,7 +165,7 @@ func (client *Client) SendPortfolio(
 	}
 
 	// generate carousels from works
-	carousels, err := client.getCarousels(works, showBtns)
+	carousels, err := client.getCarousels(works, skill.String(), showBtns)
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
 		return errors.New("Error getting carousels: " + err.Error())

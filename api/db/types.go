@@ -59,12 +59,35 @@ const (
 	WritingReflection
 	UploadingVideo
 	Chatting
-	ChoosingVideoUploadMethod
+	SelectingPortfolio
 	Empty
 )
 
+func ActionStepStrToEnum(str string) (ActionStep, error) {
+	switch str {
+	case "selecting_skill":
+		return SelectingSkill, nil
+	case "selecting_handedness":
+		return SelectingHandedness, nil
+	case "writing_preview_note":
+		return WritingPreviewNote, nil
+	case "writing_reflection":
+		return WritingReflection, nil
+	case "uploading_video":
+		return UploadingVideo, nil
+	case "chatting":
+		return Chatting, nil
+	case "selecting_portfolio":
+		return SelectingPortfolio, nil
+	case "empty":
+		return Empty, nil
+	default:
+		return -1, errors.New("invalid action step")
+	}
+}
+
 func (s ActionStep) String() string {
-	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "choosing_video_upload_method", "empty"}[s]
+	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "selecting_portfolio", "empty"}[s]
 }
 
 // Handedness represents the handedness of a player

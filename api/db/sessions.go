@@ -5,9 +5,10 @@ import (
 )
 
 type UserSession struct {
-	Skill      string     `json:"skill"`
-	UserState  UserState  `json:"userState"`
-	ActionStep ActionStep `json:"actionStep"`
+	Skill        string     `json:"skill"`
+	UpdatingDate string     `json:"updating_date"`
+	UserState    UserState  `json:"user_state"`
+	ActionStep   ActionStep `json:"action_step"`
 }
 
 func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, error) {
@@ -34,9 +35,10 @@ func (client *FirestoreClient) UpdateUserSession(userID string, newSessionConten
 
 func (client *FirestoreClient) CreateUserSession(userID string) (*UserSession, error) {
 	newSession := UserSession{
-		UserState:  None,
-		Skill:      "",
-		ActionStep: Empty,
+		UserState:    None,
+		Skill:        "",
+		ActionStep:   Empty,
+		UpdatingDate: "",
 	}
 	err := client.UpdateUserSession(userID, newSession)
 	if err != nil {
@@ -68,9 +70,10 @@ func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill strin
 
 func (client *FirestoreClient) ResetSession(userID string) error {
 	userSession := UserSession{
-		Skill:      "",
-		UserState:  None,
-		ActionStep: Empty,
+		Skill:        "",
+		UserState:    None,
+		ActionStep:   Empty,
+		UpdatingDate: "",
 	}
 	err := client.UpdateUserSession(userID, userSession)
 	if err != nil {
@@ -86,5 +89,15 @@ func (client *FirestoreClient) UpdateSessionActionStep(userID string, step Actio
 	}
 
 	userSession.ActionStep = step
+	return client.UpdateUserSession(userID, *userSession)
+}
+
+func (client *FirestoreClient) UpdateSessionUpdatingDate(userID string, date string) error {
+	userSession, err := client.GetUserSession(userID)
+	if err != nil {
+		return err
+	}
+
+	userSession.UpdatingDate = date
 	return client.UpdateUserSession(userID, *userSession)
 }

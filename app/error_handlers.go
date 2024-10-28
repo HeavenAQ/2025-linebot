@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
+	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
 func handleLineMessageResponseError(err error) {
@@ -99,5 +100,12 @@ func (app *App) handleSendExpertVideosError(err error, replyToken string) {
 	app.handleLineError(
 		"Error sending expert videos",
 		"Expert videos has been sent",
+	)(err, replyToken)
+}
+
+func (app *App) handleMessageResponseError(res *linebot.BasicResponse, err error, replyToken string) {
+	app.handleLineError(
+		"Error sending message",
+		fmt.Sprintf("Message sent successfully. Response from LINE: %v", res),
 	)(err, replyToken)
 }

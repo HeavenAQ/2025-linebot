@@ -23,7 +23,7 @@ func (app *App) handleEvents(events []*linebot.Event) {
 func (app *App) handleFollowEvent(event *linebot.Event) {
 	app.Logger.Info.Printf("Follow event received. New user ID: %s", event.Source.UserID)
 	res, err := app.LineBot.SendWelcomeReply(event)
-	app.handleMessageResponse(res, err, event.ReplyToken)
+	app.handleMessageResponseError(res, err, event.ReplyToken)
 }
 
 func (app *App) handleUnsupportedEvent(event *linebot.Event) {

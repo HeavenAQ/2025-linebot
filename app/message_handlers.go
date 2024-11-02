@@ -33,6 +33,12 @@ func (app *App) handleTextMessage(event *linebot.Event, message *linebot.TextMes
 	app.handleRichMenuMessage(incomingState, user, session.UserState, event.ReplyToken)
 }
 
+func (app *App) handleUnsupportedMessage(replyToken string) {
+	app.Logger.Warn.Println("Unsupported message type")
+	_, err := app.LineBot.SendDefaultReply(replyToken)
+	handleLineMessageResponseError(err)
+}
+
 func (app *App) handleRichMenuMessage(
 	incomingState db.UserState,
 	user *db.UserData,
@@ -53,6 +59,6 @@ func (app *App) handleRichMenuMessage(
 	case db.ChattingWithGPT:
 		app.processChattingWithGPT(user, userState, replyToken)
 	default:
-		// app.sendUnsupportedMessage(replyToken)
+		app.handleUnsupportedMessage(replyToken)
 	}
 }

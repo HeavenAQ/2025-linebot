@@ -132,7 +132,7 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 	return err
 }
 
-func (client *Client) SendVideoMessage(replyToken string, video VideoInfo) (*linebot.BasicResponse, error) {
+func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
 	videoLink := "https://drive.google.com/uc?export=download&id=" + video.VideoID
 	thumbnailLink := "https://drive.usercontent.google.com/download?id=" + video.ThumbnailID
 	return client.bot.ReplyMessage(

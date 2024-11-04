@@ -71,3 +71,7 @@ func (client *Client) HandleSelectingHandednessPostbackData(rawData string) (*Se
 func (client *Client) HandleWritingNotePostbackData(rawData string) (*WritingNotePostback, error) {
 	return handlePostbackData[WritingNotePostback](rawData)
 }
+
+func (client *Client) HandleVideoPostbackData(rawData string) (*VideoPostback, error) {
+	return handlePostbackData[VideoPostback](rawData)
+}

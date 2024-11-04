@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/go-resty/resty/v2"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
@@ -78,7 +78,7 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 	return driveFile, thumbnailFile, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, driveFile *drive.File, thumbnailFile *drive.File) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, score float32, driveFile *drive.File, thumbnailFile *drive.File) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
 
@@ -89,7 +89,8 @@ func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSess
 		session,
 		driveFile,
 		thumbnailFile,
-		float32(0.0),
+		score,
+
 		"動作標準",
 	)
 }
@@ -155,69 +156,50 @@ func (app App) resizeVideo(user *db.UserData, videoPath string) (string, error) 
 	return outputFilename, nil
 }
 
-func (app *App) analyzeVideo(resizedVideo string, user *db.UserData, session *db.UserSession) (*AnalyzedResult, error) {
+func (app *App) analyzeVideo(videoBlob []byte) (*poseestimation.ResponseData, error) {
 	app.Logger.Info.Println("Analyzing video:")
 
-	// resize video to 1080 x 1920
-	resizedBlob, err := os.ReadFile(resizedVideo)
-	if err != nil {
-		return nil, err
-	}
-
-	os.Remove(resizedVideo)
-
 	// set up request body with video data
-	app.Logger.Info.Println("Sending video to AI server: " + os.Getenv("GENAI_URL"))
-	date := time.Now().Format("2006-01-02-15-04")
-	filename := user.ID + "_" + session.Skill + "_" + date + ".mp4"
-	baseURL := os.Getenv("GENAI_URL") + "/analyze"
+	url := app.Config.PoseEstimationServer.Host + "/upload"
+	app.Logger.Info.Println("Sending video to AI server, URL: " + url)
 	client := resty.New()
 	client.SetTimeout(1 * time.Minute)
 
 	maxRetries := 6
 	delay := 10 * time.Second
-	var resp *resty.Response
+	var resp *poseestimation.ResponseData
+	var err error
 	for i := 0; i < maxRetries; i++ {
-		// send video to AI server
-		resp, err = client.R().
-			SetBasicAuth(os.Getenv("GENAI_USER"), os.Getenv("GENAI_PASSWORD")).
-			SetQueryParam("handedness", user.Handedness.String()).
-			SetQueryParam("skill", session.Skill).
-			SetFileReader("file", filename, bytes.NewReader(resizedBlob)).
-			Post(baseURL)
+		// init client
+		client := poseestimation.NewClient(
+			app.Config.PoseEstimationServer.User,
+			app.Config.PoseEstimationServer.Password,
+			url,
+			videoBlob,
+		)
 
-		// if no error and status code is not 502, break the loop
-		if err == nil && resp.StatusCode() != 502 {
+		// send video to AI server
+		resp, err = client.ProcessVideo()
+		if err == nil {
 			break
-			// if status code is 502 or 500, retry after 10 seconds
-		} else if resp != nil && (resp.StatusCode() == 502 || resp.StatusCode() == 500) {
-			app.Logger.Warn.Println("AI Server is busy, retrying in 5 seconds")
-			time.Sleep(delay)
-			// if error is not nil, return error
-		} else if err != nil {
-			return nil, err
 		}
+
+		// retry if failed
+		app.Logger.Error.Println("Error processing video:", err)
+		app.Logger.Error.Println("Retrying in", delay)
+		time.Sleep(delay)
 	}
 
 	// Check if we have a valid response
 	if err != nil {
+		app.Logger.Error.Printf("AI Server Response: %v\n", err.Error())
 		return nil, err
 	}
 	if resp == nil {
 		return nil, fmt.Errorf("failed to get response from AI server after %d retries", maxRetries)
 	}
-	if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("unexpected status code %d from AI server", resp.StatusCode())
-	}
 
-	// parse response to json
-	var result AnalyzedResult
-	err = json.Unmarshal(resp.Body(), &result)
-	if err != nil {
-		app.Logger.Error.Println("AI Server Response:\n" + string(resp.Body()))
-		return nil, err
-	}
-	return &result, nil
+	return resp, nil
 }
 
 func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, blob []byte) (string, error) {

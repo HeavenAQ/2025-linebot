@@ -109,3 +109,10 @@ func (app *App) handleMessageResponseError(res *linebot.BasicResponse, err error
 		fmt.Sprintf("Message sent successfully. Response from LINE: %v", res),
 	)(err, replyToken)
 }
+
+func (app *App) handleVideoAnalysisError(err error, replyToken string) {
+	app.handleLineError(
+		"Error analyzing the video",
+		"Video has been analyzed",
+	)(err, replyToken)
+}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
+	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -33,6 +34,12 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	// Handle note updating action as a special case
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
 		app.forceStateToWritingNotes(user, session, data, replyToken)
+		return
+	}
+
+	// Handle video watching action as a special case
+	if data, ok := app.isWatchVideoAction(rawData); ok {
+		app.LineBot.SendVideoMessage(replyToken, data)
 		return
 	}
 
@@ -65,6 +72,16 @@ func getPostbackData(event *linebot.Event) string {
 // If true, it updates the session accordingly and sends a response to the user.
 func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, bool) {
 	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// isWatchVideoAction checks if the postback event indicates a watch video action.
+// If true, it sends a video message to the user.
+func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
+	data, err := app.LineBot.HandleVideoPostbackData(rawData)
 	if err != nil {
 		return nil, false
 	}
@@ -176,19 +193,30 @@ func (app *App) handleSelectingSkill(
 
 // handleUploadingVideo processes video uploads, creates thumbnails, and updates the user portfolio.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
+	// Get video content
 	videoContent, err := app.getVideoContent(event, user.ID)
 	if err != nil {
 		app.handleGetVideoError(err, replyToken)
 		return
 	}
 
+	// Cteate thumbnail
 	thumbnailPath, err := app.createVideoThumbnail(event, user, videoContent)
 	if err != nil {
 		app.handleThumbnailCreationError(err, replyToken)
 		return
 	}
 
-	app.uploadVideoContent(event, user, session, videoContent, thumbnailPath, replyToken)
+	// Send video to AI server for analysis
+	resp, err := app.analyzeVideo(videoContent)
+	if err != nil {
+		app.handleVideoAnalysisError(err, replyToken)
+		return
+	}
+	app.Logger.Info.Println("resp: ", resp.GradingScore)
+
+	// Upload video to Google Drive and update user portfolio
+	app.uploadVideoContent(event, user, session, resp, thumbnailPath, replyToken)
 }
 
 // getVideoContent retrieves the video content if the event includes a video message.
@@ -203,15 +231,15 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 }
 
 // uploadVideoContent uploads video content and thumbnail to Google Drive, then updates the user portfolio.
-func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, videoContent []byte, thumbnailPath, replyToken string) {
+func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, aiResponse *poseestimation.ResponseData, thumbnailPath, replyToken string) {
 	today := time.Now().Format("2006-01-02-15-04")
-	video, thumbnail, err := app.uploadVideoToDrive(user, session, videoContent, thumbnailPath, today)
+	video, thumbnail, err := app.uploadVideoToDrive(user, session, aiResponse.ProcessedVideo, thumbnailPath, today)
 	if err != nil {
 		app.handleUploadToDriveError(err, replyToken)
 		return
 	}
 
-	err = app.updateUserPortfolioVideo(user, session, today, video, thumbnail)
+	err = app.updateUserPortfolioVideo(user, session, today, float32(aiResponse.GradingScore), video, thumbnail)
 	if err != nil {
 		app.handleUpdateUserPortfolioError(err, replyToken)
 		return

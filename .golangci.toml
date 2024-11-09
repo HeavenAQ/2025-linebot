@@ -1,1 +1,0 @@
-linters = { enable-all = true, disable = ["depguard", "cyclop"] }

@@ -52,8 +52,8 @@ func (app *App) handleRichMenuMessage(
 		app.processViewingPortfolio(user, userState, replyToken)
 	case db.ViewingExpertVideos:
 		app.processViewingExpertVideos(user, userState, replyToken)
-	case db.AnalyzingVideo:
-		app.processAnalyzingVideo(user, userState, replyToken)
+	case db.UploadingVideo:
+		app.processUploadingVideo(user, userState, replyToken)
 	case db.WritingNotes:
 		app.processWritingNotes(user, userState, replyToken)
 	case db.ChattingWithGPT:

@@ -18,45 +18,52 @@ type UserData struct {
 
 type FolderIDs struct {
 	Root      string `json:"root"`
-	Serve     string `json:"serve"`
-	Smash     string `json:"smash"`
+	Lift      string `json:"lift"`
+	Drop      string `json:"drop"`
+	Netplay   string `json:"netplay"`
 	Clear     string `json:"clear"`
+	Footwork  string `json:"footwork"`
+	Strategy  string `json:"strategy"`
 	Thumbnail string `json:"thumbnail"`
 }
 
 type Portfolios struct {
-	Serve map[string]Work `json:"serve"`
-	Smash map[string]Work `json:"smash"`
-	Clear map[string]Work `json:"clear"`
-}
-
-type GPTThreadIDs struct {
-	Serve string `json:"serve"`
-	Smash string `json:"smash"`
-	Clear string `json:"clear"`
+	Lift     map[string]Work `json:"lift"`
+	Drop     map[string]Work `json:"drop"`
+	Netplay  map[string]Work `json:"netplay"`
+	Clear    map[string]Work `json:"clear"`
+	Footwork map[string]Work `json:"footwork"`
+	Strategy map[string]Work `json:"strategy"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 	switch skill {
-	case "serve":
-		return p.Serve
-	case "smash":
-		return p.Smash
+	case "lift":
+		return p.Lift
+	case "drop":
+		return p.Drop
+	case "netplay":
+		return p.Netplay
 	case "clear":
 		return p.Clear
+	case "footwork":
+		return p.Footwork
+	case "strategy":
+		return p.Strategy
 	default:
 		return nil
 	}
 }
 
+type GPTThreadIDs struct {
+	Strategy string `json:"strategy"`
+}
+
 type Work struct {
-	DateTime      string  `json:"date"`
-	Thumbnail     string  `json:"thumbnail"`
-	SkeletonVideo string  `json:"video"`
-	Reflection    string  `json:"reflection"`
-	PreviewNote   string  `json:"previewNote"`
-	AINote        string  `json:"aiNote"`
-	Rating        float32 `json:"rating"`
+	DateTime   string `json:"date"`
+	Thumbnail  string `json:"thumbnail"`
+	Video      string `json:"video"`
+	Reflection string `json:"reflection"`
 }
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
@@ -67,20 +74,24 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 		Handedness: Right,
 		FolderIDs: FolderIDs{
 			Root:      userFolders.RootFolderID,
-			Serve:     userFolders.ServeFolderID,
-			Smash:     userFolders.SmashFolderID,
+			Lift:      userFolders.LiftFolderID,
+			Drop:      "",
+			Netplay:   "",
 			Clear:     userFolders.ClearFolderID,
+			Footwork:  "",
+			Strategy:  "",
 			Thumbnail: userFolders.ThumbnailFolderID,
 		},
 		Portfolio: Portfolios{
-			Serve: map[string]Work{},
-			Smash: map[string]Work{},
-			Clear: map[string]Work{},
+			Lift:     map[string]Work{},
+			Drop:     map[string]Work{},
+			Netplay:  map[string]Work{},
+			Clear:    map[string]Work{},
+			Footwork: map[string]Work{},
+			Strategy: map[string]Work{},
 		},
 		GPTThreadIDs: GPTThreadIDs{
-			Serve: gptThreads.Serve,
-			Smash: gptThreads.Smash,
-			Clear: gptThreads.Clear,
+			Strategy: "",
 		},
 	}
 
@@ -118,16 +129,13 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File, aiRating float32, aiSuggestions string) error {
+func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File) error {
 	id := driveFile.Id
 	work := Work{
-		DateTime:      date,
-		Rating:        aiRating,
-		Reflection:    "尚未填寫心得",
-		PreviewNote:   "尚未填寫課前檢視要點",
-		AINote:        aiSuggestions,
-		SkeletonVideo: id,
-		Thumbnail:     thumbnailFile.Id,
+		DateTime:   date,
+		Reflection: "尚未填寫心得",
+		Video:      id,
+		Thumbnail:  thumbnailFile.Id,
 	}
 	(*userPortfolio)[date] = work
 	err := client.UpdateUserSession(user.ID, *session)
@@ -146,47 +154,20 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 ) error {
 	targetWork := (*userPortfolio)[date]
 	work := Work{
-		DateTime:      targetWork.DateTime,
-		Rating:        targetWork.Rating,
-		Reflection:    reflection,
-		PreviewNote:   targetWork.PreviewNote,
-		SkeletonVideo: targetWork.SkeletonVideo,
-		Thumbnail:     targetWork.Thumbnail,
-		AINote:        targetWork.AINote,
+		DateTime:   targetWork.DateTime,
+		Reflection: reflection,
+		Video:      targetWork.Video,
+		Thumbnail:  targetWork.Thumbnail,
 	}
 	(*userPortfolio)[date] = work
 
-	return client.updateUserData(user)
-}
-
-func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
-	user *UserData,
-	userPortfolio *map[string]Work,
-	date string,
-	previewNote string,
-) error {
-	targetWork := (*userPortfolio)[date]
-	work := Work{
-		DateTime:      targetWork.DateTime,
-		Reflection:    targetWork.Reflection,
-		Rating:        targetWork.Rating,
-		AINote:        targetWork.AINote,
-		PreviewNote:   previewNote,
-		SkeletonVideo: targetWork.SkeletonVideo,
-		Thumbnail:     targetWork.Thumbnail,
-	}
-	(*userPortfolio)[date] = work
 	return client.updateUserData(user)
 }
 
 func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill string, threadID string) error {
 	switch skill {
-	case "serve":
-		user.GPTThreadIDs.Serve = threadID
-	case "smash":
-		user.GPTThreadIDs.Smash = threadID
-	case "clear":
-		user.GPTThreadIDs.Clear = threadID
+	case "strategy":
+		user.GPTThreadIDs.Strategy = threadID
 	}
 	return client.updateUserData(user)
 }

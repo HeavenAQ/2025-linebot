@@ -41,18 +41,11 @@ type GPTConfig struct {
 	AssistantID string `env:"OPENAI_ASSISTANT_ID"`
 }
 
-type PoseEstimationServerConfig struct {
-	Host     string `env:"POSE_ESTIMATION_SERVER_HOST"`
-	User     string `env:"POSE_ESTIMATION_SERVER_USER"`
-	Password string `env:"POSE_ESTIMATION_SERVER_PASSWORD"`
-}
-
 type Config struct {
-	Port                 string `env:"PORT"`
-	Line                 LineConfig
-	GCP                  GCPConfig
-	GPT                  GPTConfig
-	PoseEstimationServer PoseEstimationServerConfig
+	Port string `env:"PORT"`
+	Line LineConfig
+	GCP  GCPConfig
+	GPT  GPTConfig
 }
 
 func (c *Config) isConfigEmpty() bool {
@@ -66,10 +59,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
 		c.GPT.APIKey == "" &&
-		c.GPT.AssistantID == "" &&
-		c.PoseEstimationServer.Host == "" &&
-		c.PoseEstimationServer.User == "" &&
-		c.PoseEstimationServer.Password == "")
+		c.GPT.AssistantID == "")
 }
 
 func LoadConfig(path string) (*Config, error) {

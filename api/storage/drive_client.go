@@ -17,10 +17,12 @@ type GoogleDriveClient struct {
 type UserFolders struct {
 	UserID            string
 	UserName          string
+	LiftFolderID      string
+	DropFolderID      string
 	RootFolderID      string
-	ServeFolderID     string
-	SmashFolderID     string
+	NetplayFolderID   string
 	ClearFolderID     string
+	FootworkFolderID  string
 	ThumbnailFolderID string
 }
 
@@ -92,9 +94,11 @@ func (client *GoogleDriveClient) asyncCreateFolders(userID string, folderNames [
 
 func (client *GoogleDriveClient) checkAsyncFolderCreation(idChannel <-chan string, errorChannel <-chan error, userFolders *UserFolders) error {
 	userFolderIDAddrs := []*string{
-		&userFolders.ServeFolderID,
-		&userFolders.SmashFolderID,
 		&userFolders.ClearFolderID,
+		&userFolders.FootworkFolderID,
+		&userFolders.LiftFolderID,
+		&userFolders.NetplayFolderID,
+		&userFolders.DropFolderID,
 		&userFolders.ThumbnailFolderID,
 	}
 
@@ -123,10 +127,12 @@ func (client *GoogleDriveClient) CreateUserFolders(userID string, userName strin
 	userFolders := UserFolders{
 		UserID:            userID,
 		UserName:          userName,
+		LiftFolderID:      "",
+		DropFolderID:      "",
 		RootFolderID:      "",
-		ServeFolderID:     "",
-		SmashFolderID:     "",
+		NetplayFolderID:   "",
 		ClearFolderID:     "",
+		FootworkFolderID:  "",
 		ThumbnailFolderID: "",
 	}
 

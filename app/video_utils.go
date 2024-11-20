@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
-	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	"github.com/go-resty/resty/v2"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 	"google.golang.org/api/drive/v3"
@@ -19,21 +16,21 @@ import (
 
 const tmpFolder = "./tmp/"
 
-type AnalyzedResult struct {
-	SkeletonVideo string   `json:"skeleton_video"`
-	Score         string   `json:"score"`
-	Suggestions   []string `json:"suggestions"`
-}
-
 func (app *App) getVideoFolder(user *db.UserData, skill string) string {
 	var folderId string
 	switch skill {
-	case "serve":
-		folderId = user.FolderIDs.Serve
-	case "smash":
-		folderId = user.FolderIDs.Smash
 	case "clear":
 		folderId = user.FolderIDs.Clear
+	case "drop":
+		folderId = user.FolderIDs.Drop
+	case "footwork":
+		folderId = user.FolderIDs.Footwork
+	case "lift":
+		folderId = user.FolderIDs.Lift
+	case "netplay":
+		folderId = user.FolderIDs.Netplay
+	case "strategy":
+		folderId = user.FolderIDs.Strategy
 	}
 	return folderId
 }
@@ -78,7 +75,7 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 	return driveFile, thumbnailFile, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, score float32, driveFile *drive.File, thumbnailFile *drive.File) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, driveFile *drive.File, thumbnailFile *drive.File) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
 
@@ -89,9 +86,6 @@ func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSess
 		session,
 		driveFile,
 		thumbnailFile,
-		score,
-
-		"動作標準",
 	)
 }
 
@@ -154,52 +148,6 @@ func (app App) resizeVideo(user *db.UserData, videoPath string) (string, error) 
 
 	app.Logger.Info.Println("Video resized successfully.")
 	return outputFilename, nil
-}
-
-func (app *App) analyzeVideo(videoBlob []byte) (*poseestimation.ResponseData, error) {
-	app.Logger.Info.Println("Analyzing video:")
-
-	// set up request body with video data
-	url := app.Config.PoseEstimationServer.Host + "/upload"
-	app.Logger.Info.Println("Sending video to AI server, URL: " + url)
-	client := resty.New()
-	client.SetTimeout(1 * time.Minute)
-
-	maxRetries := 6
-	delay := 10 * time.Second
-	var resp *poseestimation.ResponseData
-	var err error
-	for i := 0; i < maxRetries; i++ {
-		// init client
-		client := poseestimation.NewClient(
-			app.Config.PoseEstimationServer.User,
-			app.Config.PoseEstimationServer.Password,
-			url,
-			videoBlob,
-		)
-
-		// send video to AI server
-		resp, err = client.ProcessVideo()
-		if err == nil {
-			break
-		}
-
-		// retry if failed
-		app.Logger.Error.Println("Error processing video:", err)
-		app.Logger.Error.Println("Retrying in", delay)
-		time.Sleep(delay)
-	}
-
-	// Check if we have a valid response
-	if err != nil {
-		app.Logger.Error.Printf("AI Server Response: %v\n", err.Error())
-		return nil, err
-	}
-	if resp == nil {
-		return nil, fmt.Errorf("failed to get response from AI server after %d retries", maxRetries)
-	}
-
-	return resp, nil
 }
 
 func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, blob []byte) (string, error) {

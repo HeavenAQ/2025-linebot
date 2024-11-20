@@ -82,12 +82,11 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
-	const addPreviewNote = "➡️ 課前動作檢測：課前預習上週動作，並記錄需進步的要點\n\n"
 	const analyzeRecording = "➡️ 分析影片：上傳個人動作錄影，系統將自動產生分析結果\n\n"
 	const addReflection = "➡️ 本週學習反思：新增每周各動作的學習反思\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
 	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + portfolio + expertVideo + addPreviewNote + analyzeRecording + addReflection + note1 + note2
+	const msg = welcome + instruction + portfolio + expertVideo + analyzeRecording + addReflection + note1 + note2
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 
@@ -104,7 +103,8 @@ func (client *Client) getSkillQuickReplyItems(userState db.UserState) *linebot.Q
 	items := []*linebot.QuickReplyButton{}
 	quickReplyAction := client.getQuickReplyAction()
 
-	for _, skill := range []db.BadmintonSkill{db.Serve, db.Smash, db.Clear} {
+	skills := db.BadmintonSkillSlice()
+	for _, skill := range skills {
 		items = append(items, linebot.NewQuickReplyButton(
 			"",
 			quickReplyAction(userState, skill),
@@ -192,28 +192,53 @@ func (client *Client) SendPortfolio(
 func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
 	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
 		db.Right: {
-			db.Serve: []string{
-				"https://youtu.be/uE-EHVX1LrA",
+			db.Lift: []string{
+				"https://youtu.be/6T6zMCKc6Mw",
+				"https://youtu.be/k9RejtgoatA",
+				"https://youtu.be/4XVJKG6KwlI",
+				"https://youtu.be/g58fyhMkRD4",
 			},
-			db.Smash: []string{
-				"https://youtu.be/K7EEhEF2vMo",
+			db.Drop: []string{
+				"https://youtu.be/ST5citEQZps",
+			},
+			db.Netplay: []string{
+				"https://youtu.be/mklLfEWPG_U",
 			},
 			db.Clear: []string{
 				"https://youtu.be/K7EEhEF2vMo",
+			},
+			db.Footwork: []string{
+				"https://youtu.be/IPl7-mCESfs",
+			},
+			db.Strategy: []string{
+				"https://youtu.be/7i0KvbJ4rEE",
 			},
 		},
 		db.Left: {
-			db.Serve: []string{
-				"https://youtu.be/7i0KvbJ4rEE",
-				"https://youtu.be/LiQWE6i3bbI",
+			db.Lift: []string{
+				"https://youtu.be/ah9ZE9KNFpI",
+				"https://youtu.be/JKbQSG27vkk",
+				"https://youtu.be/ah9ZE9KNFpI",
+				"https://youtu.be/JKbQSG27vkk",
 			},
-			db.Smash: []string{
-				"https://youtu.be/yyjC-xXOsdg",
-				"https://youtu.be/AzF44kouBBQ",
+			db.Drop: []string{
+				"https://youtu.be/zatTzMKNUgY",
+				"https://youtu.be/BKpO9u9Ci14",
+			},
+			db.Netplay: []string{
+				"https://youtu.be/lWnLgTaiSAY",
+				"https://youtu.be/KkAfJBuYx00",
 			},
 			db.Clear: []string{
 				"https://youtu.be/yyjC-xXOsdg",
 				"https://youtu.be/AzF44kouBBQ",
+			},
+			db.Footwork: []string{
+				"https://youtu.be/9i_5PgCYgts",
+				"https://youtu.be/AZtvW9faDA8",
+			},
+			db.Strategy: []string{
+				"https://youtu.be/7i0KvbJ4rEE",
 			},
 		},
 	}

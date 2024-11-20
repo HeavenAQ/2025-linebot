@@ -46,14 +46,14 @@ func (app *App) processViewingExpertVideos(user *db.UserData, userState db.UserS
 	})()
 }
 
-func (app *App) processAnalyzingVideo(user *db.UserData, userState db.UserState, replyToken string) {
+func (app *App) processUploadingVideo(user *db.UserData, userState db.UserState, replyToken string) {
 	processWrapper(app, user, replyToken, func(replyToken string) (*linebot.BasicResponse, error) {
-		err := app.FirestoreClient.UpdateSessionUserState(user.ID, db.AnalyzingVideo, db.SelectingSkill)
+		err := app.FirestoreClient.UpdateSessionUserState(user.ID, db.UploadingVideo, db.SelectingSkill)
 		if err != nil {
 			app.handleUpdateSessionError(err, replyToken)
 			return nil, err
 		}
-		return app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要分析的動作")
+		return app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要上傳的動作")
 	})()
 }
 

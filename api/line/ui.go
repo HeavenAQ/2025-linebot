@@ -2,7 +2,6 @@ package line
 
 import (
 	"encoding/json"
-	"fmt"
 	"slices"
 	"sort"
 	"time"
@@ -12,50 +11,8 @@ import (
 	"golang.org/x/exp/maps"
 )
 
-// getPortfolioRating creates the star rating component
-func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
-	rating := work.Rating
-	contents := []linebot.FlexComponent{}
-	for i := 0; i < 5; i++ {
-		url := "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gray_star_28.png"
-		if rating >= 20 {
-			url = "https://scdn.line-apps.com/n/channel_devcenter/img/fx/review_gold_star_28.png"
-		}
-		contents = append(contents, &linebot.IconComponent{
-			Type: "icon",
-			Size: "sm",
-			URL:  url,
-		})
-		rating -= 20
-	}
-	contents = append(contents, &linebot.TextComponent{
-		Type:   "text",
-		Text:   fmt.Sprintf("%.2f", work.Rating),
-		Size:   "sm",
-		Color:  "#8c8c8c",
-		Margin: "md",
-		Flex:   linebot.IntPtr(0),
-	})
-	return &linebot.BoxComponent{
-		Type:     "box",
-		Layout:   "baseline",
-		Margin:   "md",
-		Contents: contents,
-	}
-}
-
 // createButtonActions generates the buttons for preview and reflection actions
 func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
-	previewData, err := json.Marshal(WritingNotePostback{
-		State:      db.WritingNotes.String(),
-		WorkDate:   work.DateTime,
-		ActionStep: db.WritingPreviewNote.String(),
-		Skill:      skill,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	reflectionData, err := json.Marshal(WritingNotePostback{
 		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
@@ -67,7 +24,7 @@ func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot
 	}
 
 	videoData, err := json.Marshal(VideoPostback{
-		VideoID:     work.SkeletonVideo,
+		VideoID:     work.Video,
 		ThumbnailID: work.Thumbnail,
 	})
 	if err != nil {
@@ -82,19 +39,6 @@ func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot
 			Action: linebot.NewPostbackAction(
 				"更新學習反思",
 				string(reflectionData),
-				"",
-				"",
-				"openKeyboard",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"更新課前動作檢測要點",
-				string(previewData),
 				"",
 				"",
 				"openKeyboard",
@@ -152,7 +96,6 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
 	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
-	rating := client.getPortfolioRating(work)
 	buttons, err := client.createButtonActions(work, skill)
 	if err != nil {
 		return nil
@@ -177,9 +120,6 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 					Weight: "bold",
 					Size:   "xl",
 				},
-				rating,
-				createNotesSection("需調整細節：", work.AINote),
-				createNotesSection("課前動作檢測要點：", work.PreviewNote),
 				createNotesSection("學習反思：", work.Reflection),
 			},
 		},

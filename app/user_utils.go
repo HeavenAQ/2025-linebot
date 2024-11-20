@@ -39,7 +39,7 @@ func (app *App) createUser(userID string) *db.UserData {
 
 func (app *App) createUserGPTThreads() (*db.GPTThreadIDs, error) {
 	userGPTThreads := db.GPTThreadIDs{}
-	threadIDAddrs := [3]*string{&userGPTThreads.Serve, &userGPTThreads.Clear, &userGPTThreads.Smash}
+	threadIDAddrs := [3]*string{&userGPTThreads.Strategy}
 	resultChannel, errChannel := make(chan string), make(chan error)
 
 	// create gpt threads concurrently
@@ -99,12 +99,18 @@ func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db.Work {
 	var work map[string]db.Work
 	switch skill {
-	case "serve":
-		work = user.Portfolio.Serve
-	case "smash":
-		work = user.Portfolio.Smash
 	case "clear":
 		work = user.Portfolio.Clear
+	case "drop":
+		work = user.Portfolio.Drop
+	case "footwork":
+		work = user.Portfolio.Footwork
+	case "lift":
+		work = user.Portfolio.Lift
+	case "netplay":
+		work = user.Portfolio.Netplay
+	case "strategy":
+		work = user.Portfolio.Strategy
 	}
 	return &work
 }

@@ -6,7 +6,6 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
-	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -53,7 +52,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
 		app.handleViewingPortfolio(event, rawData, user, session, replyToken)
-	case db.AnalyzingVideo:
+	case db.UploadingVideo:
 		app.handleAnalyzingVideoActions(event, rawData, user, session, replyToken)
 	default:
 		app.handleInvalidActionStep(user.ID, replyToken)
@@ -101,20 +100,14 @@ func (app *App) forceStateToWritingNotes(user *db.UserData, session *db.UserSess
 	app.FirestoreClient.UpdateUserSession(user.ID, *session)
 
 	// Generate and send a response message to the user based on the action step
-	msg := generateUpdateNoteMessage(data.WorkDate, data.Skill, actionStep)
+	msg := generateUpdateNoteMessage(data.WorkDate, data.Skill)
 	app.LineBot.SendReply(replyToken, msg)
 }
 
 // generateUpdateNoteMessage creates a message for updating a note, specifying the date and skill.
-func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep) string {
+func generateUpdateNoteMessage(workDate, skill string) string {
 	skillStr := db.SkillStrToEnum(skill).ChnString()
-	msg := "請輸入【" + workDate + "】的【" + skillStr + "】的"
-	if actionStep == db.WritingPreviewNote {
-		msg += "課前檢視要點"
-	} else {
-		msg += "學習反思"
-	}
-	return msg
+	return "請輸入【" + workDate + "】的【" + skillStr + "】的學習反思"
 }
 
 // Handlers for different user states
@@ -153,9 +146,9 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
-		session.ActionStep = db.UploadingVideo
+		session.ActionStep = db.SelectingVideoUploadMethod
 		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptUploadVideo)
-	case db.UploadingVideo:
+	case db.SelectingVideoUploadMethod:
 		app.handleUploadingVideo(event, session, user, replyToken)
 	default:
 		app.handleInvalidActionStep(user.ID, replyToken)
@@ -207,16 +200,8 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 		return
 	}
 
-	// Send video to AI server for analysis
-	resp, err := app.analyzeVideo(videoContent)
-	if err != nil {
-		app.handleVideoAnalysisError(err, replyToken)
-		return
-	}
-	app.Logger.Info.Println("resp: ", resp.GradingScore)
-
 	// Upload video to Google Drive and update user portfolio
-	app.uploadVideoContent(event, user, session, resp, thumbnailPath, replyToken)
+	app.uploadVideoContent(event, user, session, videoContent, thumbnailPath, replyToken)
 }
 
 // getVideoContent retrieves the video content if the event includes a video message.
@@ -231,15 +216,15 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 }
 
 // uploadVideoContent uploads video content and thumbnail to Google Drive, then updates the user portfolio.
-func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, aiResponse *poseestimation.ResponseData, thumbnailPath, replyToken string) {
+func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, videoContent []byte, thumbnailPath, replyToken string) {
 	today := time.Now().Format("2006-01-02-15-04")
-	video, thumbnail, err := app.uploadVideoToDrive(user, session, aiResponse.ProcessedVideo, thumbnailPath, today)
+	video, thumbnail, err := app.uploadVideoToDrive(user, session, videoContent, thumbnailPath, today)
 	if err != nil {
 		app.handleUploadToDriveError(err, replyToken)
 		return
 	}
 
-	err = app.updateUserPortfolioVideo(user, session, today, float32(aiResponse.GradingScore), video, thumbnail)
+	err = app.updateUserPortfolioVideo(user, session, today, video, thumbnail)
 	if err != nil {
 		app.handleUpdateUserPortfolioError(err, replyToken)
 		return
@@ -299,11 +284,6 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 		// Handle the selection of a portfolio for note updating
 		app.handleSelectingPortfolio(rawData, user, session, replyToken)
 
-	case db.WritingPreviewNote, db.WritingReflection:
-		// Handle updating the note based on the session’s action step (preview or reflection)
-		app.handleUpdatingNote(event, user, session)
-		app.FirestoreClient.ResetSession(user.ID)
-
 	default:
 		// Handle unexpected action steps in WritingNotes state
 		app.handleInvalidActionStep(user.ID, replyToken)
@@ -337,7 +317,7 @@ func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, sess
 // handleUpdatingNote handles the actual note update for either preview or reflection notes
 func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, session *db.UserSession) {
 	// Verify the correct action step for updating the note
-	if session.ActionStep != db.WritingPreviewNote && session.ActionStep != db.WritingReflection {
+	if session.ActionStep != db.WritingReflection {
 		app.Logger.Warn.Println("Invalid action step for updating note")
 		app.handleInvalidActionStep(user.ID, event.ReplyToken)
 		return
@@ -353,21 +333,12 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 
 	// Update the note in the user portfolio based on the action step (preview or reflection)
 	portfolio := user.Portfolio.GetSkillPortfolio(session.Skill)
-	if session.ActionStep == db.WritingPreviewNote {
-		app.FirestoreClient.UpdateUserPortfolioPreviewNote(
-			user,
-			&portfolio,
-			session.UpdatingDate,
-			note.Text,
-		)
-	} else {
-		app.FirestoreClient.UpdateUserPortfolioReflection(
-			user,
-			&portfolio,
-			session.UpdatingDate,
-			note.Text,
-		)
-	}
+	app.FirestoreClient.UpdateUserPortfolioReflection(
+		user,
+		&portfolio,
+		session.UpdatingDate,
+		note.Text,
+	)
 
 	// Send a confirmation message to the user showing the updated portfolio
 	app.LineBot.SendPortfolio(event, user, db.SkillStrToEnum(session.Skill), session.UserState, "以下為您的學習歷程：", false)

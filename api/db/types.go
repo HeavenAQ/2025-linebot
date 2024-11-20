@@ -15,13 +15,13 @@ const (
 	ChattingWithGPT
 	ViewingExpertVideos
 	ViewingPortfoilo
-	AnalyzingVideo
+	UploadingVideo
 	ReadingInstruction
 	None
 )
 
 func (s UserState) String() string {
-	return [...]string{"writing_notes", "chatting_with_gpt", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
+	return [...]string{"writing_notes", "chatting_with_gpt", "viewing_expert_videos", "viewing_portfolio", "uploading_video", "reading_instruction", "none"}[s]
 }
 
 func (s UserState) ChnString() string {
@@ -39,7 +39,7 @@ func UserStateChnStrToEnum(str string) (UserState, error) {
 	case "學習歷程":
 		return ViewingPortfoilo, nil
 	case "動作分析":
-		return AnalyzingVideo, nil
+		return UploadingVideo, nil
 	case "使用說明":
 		return ReadingInstruction, nil
 	case "無":
@@ -55,9 +55,8 @@ type ActionStep int8
 const (
 	SelectingSkill ActionStep = iota
 	SelectingHandedness
-	WritingPreviewNote
 	WritingReflection
-	UploadingVideo
+	SelectingVideoUploadMethod
 	Chatting
 	SelectingPortfolio
 	Empty
@@ -69,12 +68,10 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 		return SelectingSkill, nil
 	case "selecting_handedness":
 		return SelectingHandedness, nil
-	case "writing_preview_note":
-		return WritingPreviewNote, nil
 	case "writing_reflection":
 		return WritingReflection, nil
-	case "uploading_video":
-		return UploadingVideo, nil
+	case "selecting_video_upload_method":
+		return SelectingVideoUploadMethod, nil
 	case "chatting":
 		return Chatting, nil
 	case "selecting_portfolio":
@@ -87,7 +84,7 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 }
 
 func (s ActionStep) String() string {
-	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "selecting_portfolio", "empty"}[s]
+	return [...]string{"selecting_skill", "selecting_handedness", "writing_reflection", "selecting_video_upload_method", "chatting", "selecting_portfolio", "empty"}[s]
 }
 
 // Handedness represents the handedness of a player
@@ -121,27 +118,38 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 type BadmintonSkill int8
 
 const (
-	Serve BadmintonSkill = iota
-	Smash
+	Lift BadmintonSkill = iota
+	Drop
+	Netplay
 	Clear
+	Footwork
+	Strategy
 )
 
+func BadmintonSkillSlice() []BadmintonSkill {
+	return []BadmintonSkill{Lift, Drop, Netplay, Clear, Footwork, Strategy}
+}
+
 func (s BadmintonSkill) String() string {
-	return [...]string{"serve", "smash", "clear"}[s]
+	return [...]string{"lift", "drop", "netplay", "clear", "footwork", "strategy"}[s]
 }
 
 func (s BadmintonSkill) ChnString() string {
-	return [...]string{"發球", "殺球", "高遠球"}[s]
+	return [...]string{"挑球", "切球", "小球", "高遠球", "腳步", "雙打戰術"}[s]
 }
 
 func SkillStrToEnum(str string) BadmintonSkill {
 	switch str {
-	case "serve":
-		return Serve
-	case "smash":
-		return Smash
+	case "lift":
+		return Lift
+	case "drop":
+		return Drop
+	case "netplay":
+		return Netplay
 	case "clear":
 		return Clear
+	case "footwork":
+		return Footwork
 	default:
 		return -1
 	}

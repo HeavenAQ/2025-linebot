@@ -26,7 +26,7 @@ func (app *App) handleNonTextMessage(event *linebot.Event, session *db.UserSessi
 func (app *App) handleTextMessage(event *linebot.Event, message *linebot.TextMessage, user *db.UserData, session *db.UserSession) {
 	incomingState, err := db.UserStateChnStrToEnum(message.Text)
 	if err != nil {
-		app.Logger.Info.Println("Incoming message is not a rich menu message; handling as a reflection note")
+		app.Logger.Info.Println("Incoming message is not a rich menu message; Handling it with user state function")
 		app.handleUserState(event, user, session, event.ReplyToken)
 		return
 	}

@@ -62,7 +62,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.ViewingPortfoilo:
 		app.handleViewingPortfolio(event, rawData, user, session, replyToken)
 	case db.UploadingVideo:
-		app.handleAnalyzingVideoActions(event, rawData, user, session, replyToken)
+		app.handleUploadingVideoAction(event, rawData, user, session, replyToken)
 	default:
 		app.handleInvalidActionStep(user.ID, replyToken)
 	}
@@ -161,8 +161,8 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 	app.resetSessionWithErrorHandling(user.ID, replyToken)
 }
 
-// handleAnalyzingVideoActions handles actions for analyzing videos and updates session state as needed.
-func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+// handleUploadingVideoAction handles actions for analyzing videos and updates session state as needed.
+func (app *App) handleUploadingVideoAction(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
 		session.ActionStep = db.SelectingVideoUploadMethod
@@ -302,6 +302,11 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 	case db.SelectingPortfolio:
 		// Handle the selection of a portfolio for note updating
 		app.handleSelectingPortfolio(rawData, user, session, replyToken)
+
+	case db.WritingReflection:
+		// Handle updating the note based on the session’s action step (preview or reflection)
+		app.handleUpdatingNote(event, user, session)
+		app.FirestoreClient.ResetSession(user.ID)
 
 	default:
 		// Handle unexpected action steps in WritingNotes state

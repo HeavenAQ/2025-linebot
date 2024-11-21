@@ -36,8 +36,8 @@ jobs:
 
       - name: Deploy to Cloud Run
         env:
-          CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
-          CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           GCP_SECRET_VERSION: ${{ secrets.GCP_SECRET_VERSION }}
@@ -54,4 +54,4 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 1Gi \
-            --set-env-vars CHANNEL_SECRET=${{ secrets.LINE_CHANNEL_SECRET }},CHANNEL_TOKEN=${{ secrets.LINE_CHANNEL_TOKEN }},GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_CREDENTIALS=${{ secrets.GCP_CREDENTIALS }},GCP_SECRET_VERSION=${{ secrets.GCP_SECRET_VERSION }},GOOGLE_DRIVE_ROOT_FOLDER=${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }},FIREBASE_DATA_DB=${{ secrets.FIREBASE_DATA_DB }},FIREBASE_SESSION_DB=${{ secrets.FIREBASE_SESSION_DB }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},OPENAI_ASSISTANT_ID=${{ secrets.OPENAI_ASSISTANT_ID }},TZ=${{ secrets.TIMEZONE }}
+            --set-env-vars LINE_CHANNEL_SECRET=${{ secrets.LINE_CHANNEL_SECRET }},LINE_CHANNEL_TOKEN=${{ secrets.LINE_CHANNEL_TOKEN }},GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_CREDENTIALS=${{ secrets.GCP_CREDENTIALS }},GCP_SECRET_VERSION=${{ secrets.GCP_SECRET_VERSION }},GOOGLE_DRIVE_ROOT_FOLDER=${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }},FIREBASE_DATA_DB=${{ secrets.FIREBASE_DATA_DB }},FIREBASE_SESSION_DB=${{ secrets.FIREBASE_SESSION_DB }},OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }},OPENAI_ASSISTANT_ID=${{ secrets.OPENAI_ASSISTANT_ID }},TZ=${{ secrets.TIMEZONE }}

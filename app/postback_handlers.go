@@ -30,6 +30,15 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	rawData := getPostbackData(event)
 	app.Logger.Info.Println("rawData: ", rawData)
 
+	// Handle GPT stop chatting action as a special case
+	if data, ok := app.isStopChattingWithGPTAction(rawData); ok {
+		if data.Stop {
+			app.FirestoreClient.ResetSession(user.ID)
+			app.LineBot.SendReply(replyToken, "已結束對話")
+			return
+		}
+	}
+
 	// Handle note updating action as a special case
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
 		app.forceStateToWritingNotes(user, session, data, replyToken)
@@ -47,7 +56,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
 	case db.ChattingWithGPT:
-		// Handle GPT-based interactions here
+		app.handleChattingWithGPT(event, user, replyToken)
 	case db.ViewingExpertVideos:
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
@@ -81,6 +90,16 @@ func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, b
 // If true, it sends a video message to the user.
 func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
 	data, err := app.LineBot.HandleVideoPostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// isStopChattingWithGPTAction checks if the postback event indicates a GPT chatting action.
+// If true, it hands the control over to the GPT chat handler.
+func (app *App) isStopChattingWithGPTAction(rawData string) (*line.StopGPTPostback, bool) {
+	data, err := app.LineBot.HandleStopGPTPostbackData(rawData)
 	if err != nil {
 		return nil, false
 	}
@@ -287,6 +306,43 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 	default:
 		// Handle unexpected action steps in WritingNotes state
 		app.handleInvalidActionStep(user.ID, replyToken)
+	}
+}
+
+// handleChattingWithGPT handles the GPT chatting action.
+func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, replyToken string) {
+	// get message from event
+	var msg string
+	message, ok := event.Message.(*linebot.TextMessage)
+	if ok {
+		msg = message.Text
+	}
+	// Add message to the GPT thread
+	err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.Strategy, msg)
+	if err != nil {
+		app.handleAddMessageToGPTThreadError(err, replyToken)
+		return
+	}
+
+	// Run the GPT thread
+	runID, err := app.GPTClient.RunThread(user.GPTThreadIDs.Strategy)
+	if err != nil {
+		app.handleGPTRunThreadError(err, replyToken)
+		return
+	}
+
+	// Retrieve the assistant's response
+	response, err := app.GPTClient.GetAssistantResponse(user.GPTThreadIDs.Strategy, runID)
+	if err != nil {
+		app.handleGetGPTResponseError(err, replyToken)
+		return
+	}
+
+	// Send a message to the user to start chatting with GPT
+	_, err = app.LineBot.SendGPTChattingModeReply(replyToken, response)
+	if err != nil {
+		handleLineMessageResponseError(err)
+		return
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
-const tmpFolder = "./tmp/"
+const tmpFolder = "/tmp/"
 
 func (app *App) getVideoFolder(user *db.UserData, skill string) string {
 	var folderId string
@@ -35,7 +35,7 @@ func (app *App) getVideoFolder(user *db.UserData, skill string) string {
 	return folderId
 }
 
-func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, skeletonVideo []byte, thumbnailPath string, filename string) (*drive.File, *drive.File, error) {
+func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, videoBlob []byte, thumbnailPath string, filename string) (*drive.File, *drive.File, error) {
 	app.Logger.Info.Println("Getting folder ID...")
 	folderID := app.getVideoFolder(user, session.Skill)
 
@@ -55,7 +55,7 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 			VideoBlob     []byte
 		}{
 			ThumbnailPath: thumbnailPath,
-			VideoBlob:     skeletonVideo,
+			VideoBlob:     videoBlob,
 		},
 	}
 

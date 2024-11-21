@@ -75,11 +75,11 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 		FolderIDs: FolderIDs{
 			Root:      userFolders.RootFolderID,
 			Lift:      userFolders.LiftFolderID,
-			Drop:      "",
-			Netplay:   "",
+			Drop:      userFolders.DropFolderID,
+			Netplay:   userFolders.NetplayFolderID,
 			Clear:     userFolders.ClearFolderID,
-			Footwork:  "",
-			Strategy:  "",
+			Footwork:  userFolders.FootworkFolderID,
+			Strategy:  userFolders.StrategyFolderID,
 			Thumbnail: userFolders.ThumbnailFolderID,
 		},
 		Portfolio: Portfolios{
@@ -91,7 +91,7 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 			Strategy: map[string]Work{},
 		},
 		GPTThreadIDs: GPTThreadIDs{
-			Strategy: "",
+			Strategy: gptThreads.Strategy,
 		},
 	}
 

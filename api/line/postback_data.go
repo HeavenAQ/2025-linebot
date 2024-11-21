@@ -25,9 +25,13 @@ type SelectingSkillPostback struct {
 type SelectingHandednessPostback struct {
 	Handedness string `json:"handedness" validate:"required"`
 }
+type StopGPTPostback struct {
+	Stop bool `json:"stop" validate:"required"`
+}
 
 // Implement the marker interface for each struct
 func (VideoPostback) isPostbackData()               {}
 func (WritingNotePostback) isPostbackData()         {}
 func (SelectingSkillPostback) isPostbackData()      {}
 func (SelectingHandednessPostback) isPostbackData() {}
+func (StopGPTPostback) isPostbackData()             {}

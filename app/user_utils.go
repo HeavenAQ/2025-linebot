@@ -39,12 +39,13 @@ func (app *App) createUser(userID string) *db.UserData {
 
 func (app *App) createUserGPTThreads() (*db.GPTThreadIDs, error) {
 	userGPTThreads := db.GPTThreadIDs{}
-	threadIDAddrs := [3]*string{&userGPTThreads.Strategy}
+	threadIDAddrs := []*string{&userGPTThreads.Strategy}
 	resultChannel, errChannel := make(chan string), make(chan error)
 
 	// create gpt threads concurrently
 	for i := 0; i < len(threadIDAddrs); i++ {
 		go func() {
+			app.Logger.Info.Println("Creating GPT thread...")
 			thread, err := app.GPTClient.CreateThread()
 			if err != nil {
 				app.Logger.Error.Println("Error creating GPT thread:", err)

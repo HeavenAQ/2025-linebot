@@ -57,7 +57,7 @@ func (app *App) handleRichMenuMessage(
 	case db.WritingNotes:
 		app.processWritingNotes(user, userState, replyToken)
 	case db.ChattingWithGPT:
-		app.processChattingWithGPT(user, userState, replyToken)
+		app.processChattingWithGPT(user, replyToken)
 	default:
 		app.handleUnsupportedMessage(replyToken)
 	}

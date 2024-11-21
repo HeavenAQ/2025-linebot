@@ -106,13 +106,15 @@ func (client *Client) SendTypeErrorReply(replyToken string) (*linebot.BasicRespo
 func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse, error) {
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
+	const addReflection = "➡️ 學習反思：新增每周各動作的學習反思\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
+	const analyzeRecording = "➡️ 影片上傳：上傳個人動作錄影，LINE Bot將自動產生學習歷程\n\n"
+	const chatWithGPT = "➡️ 與GPT對談：與GPT對話，獲取羽球相關資訊\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
-	const analyzeRecording = "➡️ 影片上傳：上傳個人動作錄影，系統將自動產生分析結果\n\n"
-	const addReflection = "➡️ 本週學習反思：新增每周各動作的學習反思\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
-	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + portfolio + expertVideo + analyzeRecording + addReflection + note1 + note2
+	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔 \n\n"
+	const note3 = "⚠️ 如需和老師對話，請在發送訊息前確認自己已退出和GPT對談"
+	const msg = welcome + instruction + addReflection + portfolio + analyzeRecording + chatWithGPT + expertVideo + note1 + note2 + note3
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 

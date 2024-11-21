@@ -12,7 +12,7 @@ import (
 )
 
 // createButtonActions generates the buttons for preview and reflection actions
-func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
+func (client *Client) createButtonActions(work db.Work, skill string, showReflectionBtn bool) ([]linebot.FlexComponent, error) {
 	reflectionData, err := json.Marshal(WritingNotePostback{
 		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
@@ -31,34 +31,39 @@ func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot
 		return nil, err
 	}
 
-	return []linebot.FlexComponent{
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"更新學習反思",
-				string(reflectionData),
-				"",
-				"",
-				"openKeyboard",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "link",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"查看影片",
-				string(videoData),
-				"",
-				"",
-				"",
-				"",
-			),
-		},
-	}, nil
+	var btnComponents []linebot.FlexComponent
+	if showReflectionBtn {
+		btnComponents = []linebot.FlexComponent{
+			&linebot.ButtonComponent{
+				Type:   "button",
+				Style:  "primary",
+				Height: "sm",
+				Action: linebot.NewPostbackAction(
+					"更新學習反思",
+					string(reflectionData),
+					"",
+					"",
+					"openKeyboard",
+					"",
+				),
+			},
+		}
+	}
+
+	btnComponents = append(btnComponents, &linebot.ButtonComponent{
+		Type:   "button",
+		Style:  "link",
+		Height: "sm",
+		Action: linebot.NewPostbackAction(
+			"查看影片",
+			string(videoData),
+			"",
+			"",
+			"",
+			"",
+		),
+	})
+	return btnComponents, nil
 }
 
 // createNotesSection generates the notes sections for AI Note, Preview Note, and Reflection
@@ -96,7 +101,7 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
 	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
-	buttons, err := client.createButtonActions(work, skill)
+	buttons, err := client.createButtonActions(work, skill, showBtns)
 	if err != nil {
 		return nil
 	}
@@ -123,15 +128,12 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 				createNotesSection("學習反思：", work.Reflection),
 			},
 		},
-	}
-
-	if showBtns {
-		item.Footer = &linebot.BoxComponent{
+		Footer: &linebot.BoxComponent{
 			Type:     "box",
 			Layout:   "vertical",
 			Spacing:  "sm",
 			Contents: buttons,
-		}
+		},
 	}
 	return item
 }

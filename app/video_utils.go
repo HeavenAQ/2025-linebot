@@ -19,18 +19,18 @@ const tmpFolder = "/tmp/"
 func (app *App) getVideoFolder(user *db.UserData, skill string) string {
 	var folderId string
 	switch skill {
-	case "clear":
-		folderId = user.FolderIDs.Clear
-	case "drop":
-		folderId = user.FolderIDs.Drop
-	case "footwork":
-		folderId = user.FolderIDs.Footwork
-	case "lift":
-		folderId = user.FolderIDs.Lift
-	case "netplay":
-		folderId = user.FolderIDs.Netplay
-	case "strategy":
-		folderId = user.FolderIDs.Strategy
+	case "front_court_footwork":
+		folderId = user.FolderIDs.FrontCourtFootwork
+	case "drive":
+		folderId = user.FolderIDs.Drive
+	case "back_court_footwork":
+		folderId = user.FolderIDs.BackCourtFootwork
+	case "smash":
+		folderId = user.FolderIDs.Smash
+	case "netkill":
+		folderId = user.FolderIDs.Netkill
+	case "doubles_rotation":
+		folderId = user.FolderIDs.DoublesRotation
 	}
 	return folderId
 }

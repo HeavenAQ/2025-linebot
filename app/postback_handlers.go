@@ -323,21 +323,21 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, r
 		msg = message.Text
 	}
 	// Add message to the GPT thread
-	err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.Strategy, msg)
+	err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
 	if err != nil {
 		app.handleAddMessageToGPTThreadError(err, replyToken)
 		return
 	}
 
 	// Run the GPT thread
-	runID, err := app.GPTClient.RunThread(user.GPTThreadIDs.Strategy)
+	runID, err := app.GPTClient.RunThread(user.GPTThreadIDs.DoublesRotation)
 	if err != nil {
 		app.handleGPTRunThreadError(err, replyToken)
 		return
 	}
 
 	// Retrieve the assistant's response
-	response, err := app.GPTClient.GetAssistantResponse(user.GPTThreadIDs.Strategy, runID)
+	response, err := app.GPTClient.GetAssistantResponse(user.GPTThreadIDs.DoublesRotation, runID)
 	if err != nil {
 		app.handleGetGPTResponseError(err, replyToken)
 		return

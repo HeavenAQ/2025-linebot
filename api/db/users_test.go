@@ -17,19 +17,19 @@ func TestCreateUserData(t *testing.T) {
 
 	// Define test data using RandomAlphabetString
 	testUserFolders := &storage.UserFolders{
-		UserID:            utils.RandomAlphabetString(10),
-		UserName:          utils.RandomAlphabetString(10),
-		LiftFolderID:      utils.RandomAlphabetString(10),
-		DropFolderID:      utils.RandomAlphabetString(10),
-		RootFolderID:      utils.RandomAlphabetString(10),
-		NetplayFolderID:   utils.RandomAlphabetString(10),
-		ClearFolderID:     utils.RandomAlphabetString(10),
-		FootworkFolderID:  utils.RandomAlphabetString(10),
-		ThumbnailFolderID: utils.RandomAlphabetString(10),
+		UserID:                     utils.RandomAlphabetString(10),
+		UserName:                   utils.RandomAlphabetString(10),
+		SmashFolderID:              utils.RandomAlphabetString(10),
+		DriveFolderID:              utils.RandomAlphabetString(10),
+		RootFolderID:               utils.RandomAlphabetString(10),
+		NetkillFolderID:            utils.RandomAlphabetString(10),
+		FrontCourtFootworkFolderID: utils.RandomAlphabetString(10),
+		BackCourtFootworkFolderID:  utils.RandomAlphabetString(10),
+		ThumbnailFolderID:          utils.RandomAlphabetString(10),
 	}
 
 	testGPTthreads := &db.GPTThreadIDs{
-		Strategy: utils.RandomAlphabetString(10),
+		DoublesRotation: utils.RandomAlphabetString(10),
 	}
 
 	// Call the method to create user data
@@ -43,7 +43,7 @@ func TestCreateUserData(t *testing.T) {
 
 	// Verify folder IDs
 	require.Equal(t, testUserFolders.RootFolderID, userData.FolderIDs.Root)
-	require.Equal(t, testUserFolders.ClearFolderID, userData.FolderIDs.Clear)
+	require.Equal(t, testUserFolders.FrontCourtFootworkFolderID, userData.FolderIDs.FrontCourtFootwork)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(userData.ID).Delete(*firestoreClient.Ctx)
@@ -60,18 +60,18 @@ func TestGetUserData(t *testing.T) {
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
 		FolderIDs: db.FolderIDs{
-			Root:      utils.RandomAlphabetString(10),
-			Clear:     utils.RandomAlphabetString(10),
-			Thumbnail: utils.RandomAlphabetString(10),
+			Root:               utils.RandomAlphabetString(10),
+			FrontCourtFootwork: utils.RandomAlphabetString(10),
+			Thumbnail:          utils.RandomAlphabetString(10),
 		},
 		Handedness: db.Right,
 		Portfolio: db.Portfolios{
-			Lift:     map[string]db.Work{},
-			Drop:     map[string]db.Work{},
-			Netplay:  map[string]db.Work{},
-			Clear:    map[string]db.Work{},
-			Footwork: map[string]db.Work{},
-			Strategy: map[string]db.Work{},
+			Smash:              map[string]db.Work{},
+			Drive:              map[string]db.Work{},
+			Netkill:            map[string]db.Work{},
+			FrontCourtFootwork: map[string]db.Work{},
+			BackCourtFootwork:  map[string]db.Work{},
+			DoublesRotation:    map[string]db.Work{},
 		},
 	}
 	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
@@ -126,12 +126,12 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
 		Portfolio: db.Portfolios{
-			Lift:     map[string]db.Work{},
-			Drop:     map[string]db.Work{},
-			Netplay:  map[string]db.Work{},
-			Clear:    map[string]db.Work{},
-			Footwork: map[string]db.Work{},
-			Strategy: map[string]db.Work{},
+			Smash:              map[string]db.Work{},
+			Drive:              map[string]db.Work{},
+			Netkill:            map[string]db.Work{},
+			FrontCourtFootwork: map[string]db.Work{},
+			BackCourtFootwork:  map[string]db.Work{},
+			DoublesRotation:    map[string]db.Work{},
 		},
 	}
 	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
@@ -153,7 +153,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	today := time.Now().Format("2006-01-02-15-04")
 	err = firestoreClient.CreateUserPortfolioVideo(
 		testUser,
-		&testUser.Portfolio.Clear,
+		&testUser.Portfolio.FrontCourtFootwork,
 		today,
 		session,
 		driveFile,
@@ -164,7 +164,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	// Verify that the video was added to the portfolio
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
-	require.NotNil(t, updatedUser.Portfolio.Clear[driveFile.Name])
+	require.NotNil(t, updatedUser.Portfolio.FrontCourtFootwork[driveFile.Name])
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

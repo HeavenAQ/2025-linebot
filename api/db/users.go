@@ -17,46 +17,46 @@ type UserData struct {
 }
 
 type FolderIDs struct {
-	Root      string `json:"root"`
-	Lift      string `json:"lift"`
-	Drop      string `json:"drop"`
-	Netplay   string `json:"netplay"`
-	Clear     string `json:"clear"`
-	Footwork  string `json:"footwork"`
-	Strategy  string `json:"strategy"`
-	Thumbnail string `json:"thumbnail"`
+	Root               string `json:"root"`
+	Smash              string `json:"smash"`
+	Drive              string `json:"drive"`
+	Netkill            string `json:"netkill"`
+	FrontCourtFootwork string `json:"front_court_footwork"`
+	BackCourtFootwork  string `json:"back_court_footwork"`
+	DoublesRotation    string `json:"doubles_rotation"`
+	Thumbnail          string `json:"thumbnail"`
 }
 
 type Portfolios struct {
-	Lift     map[string]Work `json:"lift"`
-	Drop     map[string]Work `json:"drop"`
-	Netplay  map[string]Work `json:"netplay"`
-	Clear    map[string]Work `json:"clear"`
-	Footwork map[string]Work `json:"footwork"`
-	Strategy map[string]Work `json:"strategy"`
+	Smash              map[string]Work `json:"smash"`
+	Drive              map[string]Work `json:"drive"`
+	Netkill            map[string]Work `json:"netkill"`
+	FrontCourtFootwork map[string]Work `json:"front_court_footwork"`
+	BackCourtFootwork  map[string]Work `json:"back_court_footwork"`
+	DoublesRotation    map[string]Work `json:"double_rotation"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 	switch skill {
-	case "lift":
-		return p.Lift
-	case "drop":
-		return p.Drop
-	case "netplay":
-		return p.Netplay
-	case "clear":
-		return p.Clear
+	case "smash":
+		return p.Smash
+	case "drive":
+		return p.Drive
+	case "netkill":
+		return p.Netkill
+	case "front_court_footwork":
+		return p.FrontCourtFootwork
 	case "footwork":
-		return p.Footwork
-	case "strategy":
-		return p.Strategy
+		return p.BackCourtFootwork
+	case "doubles_rotation":
+		return p.DoublesRotation
 	default:
 		return nil
 	}
 }
 
 type GPTThreadIDs struct {
-	Strategy string `json:"strategy"`
+	DoublesRotation string `json:"doubles_rotation"`
 }
 
 type Work struct {
@@ -73,25 +73,25 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 		ID:         userFolders.UserID,
 		Handedness: Right,
 		FolderIDs: FolderIDs{
-			Root:      userFolders.RootFolderID,
-			Lift:      userFolders.LiftFolderID,
-			Drop:      userFolders.DropFolderID,
-			Netplay:   userFolders.NetplayFolderID,
-			Clear:     userFolders.ClearFolderID,
-			Footwork:  userFolders.FootworkFolderID,
-			Strategy:  userFolders.StrategyFolderID,
-			Thumbnail: userFolders.ThumbnailFolderID,
+			Root:               userFolders.RootFolderID,
+			Smash:              userFolders.SmashFolderID,
+			Drive:              userFolders.DriveFolderID,
+			Netkill:            userFolders.NetkillFolderID,
+			FrontCourtFootwork: userFolders.FrontCourtFootworkFolderID,
+			BackCourtFootwork:  userFolders.BackCourtFootworkFolderID,
+			DoublesRotation:    userFolders.DoublesRotationFolderID,
+			Thumbnail:          userFolders.ThumbnailFolderID,
 		},
 		Portfolio: Portfolios{
-			Lift:     map[string]Work{},
-			Drop:     map[string]Work{},
-			Netplay:  map[string]Work{},
-			Clear:    map[string]Work{},
-			Footwork: map[string]Work{},
-			Strategy: map[string]Work{},
+			Smash:              map[string]Work{},
+			Drive:              map[string]Work{},
+			Netkill:            map[string]Work{},
+			FrontCourtFootwork: map[string]Work{},
+			BackCourtFootwork:  map[string]Work{},
+			DoublesRotation:    map[string]Work{},
 		},
 		GPTThreadIDs: GPTThreadIDs{
-			Strategy: gptThreads.Strategy,
+			DoublesRotation: gptThreads.DoublesRotation,
 		},
 	}
 
@@ -167,7 +167,7 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill string, threadID string) error {
 	switch skill {
 	case "strategy":
-		user.GPTThreadIDs.Strategy = threadID
+		user.GPTThreadIDs.DoublesRotation = threadID
 	}
 	return client.updateUserData(user)
 }

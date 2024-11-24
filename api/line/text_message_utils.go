@@ -220,52 +220,52 @@ func (client *Client) SendPortfolio(
 func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
 	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
 		db.Right: {
-			db.Lift: []string{
+			db.Smash: []string{
 				"https://youtu.be/6T6zMCKc6Mw",
 				"https://youtu.be/k9RejtgoatA",
 				"https://youtu.be/4XVJKG6KwlI",
 				"https://youtu.be/g58fyhMkRD4",
 			},
-			db.Drop: []string{
+			db.Drive: []string{
 				"https://youtu.be/ST5citEQZps",
 			},
-			db.Netplay: []string{
+			db.NetKill: []string{
 				"https://youtu.be/mklLfEWPG_U",
 			},
-			db.Clear: []string{
+			db.BackCourtFootwork: []string{
 				"https://youtu.be/K7EEhEF2vMo",
 			},
-			db.Footwork: []string{
+			db.FrontCourtFootwork: []string{
 				"https://youtu.be/IPl7-mCESfs",
 			},
-			db.Strategy: []string{
+			db.DoublesRotation: []string{
 				"https://youtu.be/7i0KvbJ4rEE",
 			},
 		},
 		db.Left: {
-			db.Lift: []string{
+			db.Smash: []string{
 				"https://youtu.be/ah9ZE9KNFpI",
 				"https://youtu.be/JKbQSG27vkk",
 				"https://youtu.be/ah9ZE9KNFpI",
 				"https://youtu.be/JKbQSG27vkk",
 			},
-			db.Drop: []string{
+			db.Drive: []string{
 				"https://youtu.be/zatTzMKNUgY",
 				"https://youtu.be/BKpO9u9Ci14",
 			},
-			db.Netplay: []string{
+			db.NetKill: []string{
 				"https://youtu.be/lWnLgTaiSAY",
 				"https://youtu.be/KkAfJBuYx00",
 			},
-			db.Clear: []string{
+			db.BackCourtFootwork: []string{
 				"https://youtu.be/yyjC-xXOsdg",
 				"https://youtu.be/AzF44kouBBQ",
 			},
-			db.Footwork: []string{
+			db.FrontCourtFootwork: []string{
 				"https://youtu.be/9i_5PgCYgts",
 				"https://youtu.be/AZtvW9faDA8",
 			},
-			db.Strategy: []string{
+			db.DoublesRotation: []string{
 				"https://youtu.be/7i0KvbJ4rEE",
 			},
 		},

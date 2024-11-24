@@ -118,40 +118,40 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 type BadmintonSkill int8
 
 const (
-	Lift BadmintonSkill = iota
-	Drop
-	Netplay
-	Clear
-	Footwork
-	Strategy
+	Smash BadmintonSkill = iota
+	Drive
+	NetKill
+	BackCourtFootwork
+	FrontCourtFootwork
+	DoublesRotation
 )
 
 func BadmintonSkillSlice() []BadmintonSkill {
-	return []BadmintonSkill{Lift, Drop, Netplay, Clear, Footwork, Strategy}
+	return []BadmintonSkill{Smash, Drive, NetKill, BackCourtFootwork, FrontCourtFootwork, DoublesRotation}
 }
 
 func (s BadmintonSkill) String() string {
-	return [...]string{"lift", "drop", "netplay", "clear", "footwork", "strategy"}[s]
+	return [...]string{"smash", "drive", "netkill", "back_court_footwork", "front_court_footwork", "doubles_rotation"}[s]
 }
 
 func (s BadmintonSkill) ChnString() string {
-	return [...]string{"挑球", "切球", "小球", "高遠球", "腳步", "雙打戰術"}[s]
+	return [...]string{"殺球", "抽球", "壓球", "後場腳步", "前場腳步", "雙打輪轉"}[s]
 }
 
 func SkillStrToEnum(str string) BadmintonSkill {
 	switch str {
-	case "lift":
-		return Lift
-	case "drop":
-		return Drop
-	case "netplay":
-		return Netplay
-	case "clear":
-		return Clear
-	case "footwork":
-		return Footwork
-	case "strategy":
-		return Strategy
+	case "smash":
+		return Smash
+	case "drive":
+		return Drive
+	case "netkill":
+		return NetKill
+	case "back_court_footwork":
+		return BackCourtFootwork
+	case "front_court_footwork":
+		return FrontCourtFootwork
+	case "doubles_rotation":
+		return DoublesRotation
 	default:
 		return -1
 	}

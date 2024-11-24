@@ -15,16 +15,16 @@ type GoogleDriveClient struct {
 }
 
 type UserFolders struct {
-	UserID            string
-	UserName          string
-	LiftFolderID      string
-	DropFolderID      string
-	RootFolderID      string
-	NetplayFolderID   string
-	ClearFolderID     string
-	FootworkFolderID  string
-	StrategyFolderID  string
-	ThumbnailFolderID string
+	UserID                     string
+	UserName                   string
+	RootFolderID               string
+	SmashFolderID              string
+	DriveFolderID              string
+	NetkillFolderID            string
+	FrontCourtFootworkFolderID string
+	BackCourtFootworkFolderID  string
+	DoublesRotationFolderID    string
+	ThumbnailFolderID          string
 }
 
 func NewGoogleDriveClient(credentials []byte, rootFolderID string) (*GoogleDriveClient, error) {
@@ -95,12 +95,12 @@ func (client *GoogleDriveClient) asyncCreateFolders(userID string, folderNames [
 
 func (client *GoogleDriveClient) checkAsyncFolderCreation(idChannel <-chan string, errorChannel <-chan error, userFolders *UserFolders) error {
 	userFolderIDAddrs := []*string{
-		&userFolders.ClearFolderID,
-		&userFolders.FootworkFolderID,
-		&userFolders.LiftFolderID,
-		&userFolders.NetplayFolderID,
-		&userFolders.DropFolderID,
-		&userFolders.StrategyFolderID,
+		&userFolders.FrontCourtFootworkFolderID,
+		&userFolders.BackCourtFootworkFolderID,
+		&userFolders.SmashFolderID,
+		&userFolders.NetkillFolderID,
+		&userFolders.DriveFolderID,
+		&userFolders.DoublesRotationFolderID,
 		&userFolders.ThumbnailFolderID,
 	}
 
@@ -118,20 +118,28 @@ func (client *GoogleDriveClient) checkAsyncFolderCreation(idChannel <-chan strin
 }
 
 func (client *GoogleDriveClient) CreateUserFolders(userID string, userName string) (*UserFolders, error) {
-	folderNames := []string{"Lift", "Drop", "Netplay", "Clear", "Footwork", "Strategy", "Thumbnail"}
+	folderNames := []string{
+		"Front Court Footwork",
+		"Back Court Footwork",
+		"Smash",
+		"Netkill",
+		"Drive",
+		"Doubles Rotation",
+		"Thumbnail",
+	}
 
 	// Initialize user folders struct
 	userFolders := UserFolders{
-		UserID:            userID,
-		UserName:          userName,
-		LiftFolderID:      "",
-		DropFolderID:      "",
-		RootFolderID:      "",
-		NetplayFolderID:   "",
-		ClearFolderID:     "",
-		FootworkFolderID:  "",
-		StrategyFolderID:  "",
-		ThumbnailFolderID: "",
+		UserID:                     userID,
+		UserName:                   userName,
+		SmashFolderID:              "",
+		DriveFolderID:              "",
+		RootFolderID:               "",
+		NetkillFolderID:            "",
+		FrontCourtFootworkFolderID: "",
+		BackCourtFootworkFolderID:  "",
+		DoublesRotationFolderID:    "",
+		ThumbnailFolderID:          "",
 	}
 
 	// Create user's root folder first

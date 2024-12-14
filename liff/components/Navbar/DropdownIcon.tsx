@@ -23,7 +23,7 @@ export default function DropDownIcon() {
   return (
     <Menu as="div" className="relative inline-block rounded-lg border border-zinc-500 text-left">
       <Menu.Button
-        className="relative flex cursor-pointer items-center justify-center rounded-lg p-[0.6rem] duration-200 hover:bg-orange-200 hover:dark:bg-zinc-700"
+        className="relative flex cursor-pointer items-center justify-center rounded-lg p-[0.5rem] duration-200"
         onClick={() => {
           setIsOpen(!isOpen)
         }}
@@ -39,7 +39,7 @@ export default function DropDownIcon() {
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items className="absolute -bottom-36 right-0 flex w-56 flex-col rounded-md bg-orange-50 p-1 dark:divide-zinc-100 dark:bg-zinc-500">
+        <Menu.Items className="absolute -bottom-36 right-0 flex w-56 flex-col rounded-md bg-orange-50 p-1 text-black dark:divide-zinc-100 dark:bg-gray-700 dark:text-white">
           <Menu.Item>
             <div className="w-full rounded-md p-1 pl-2 font-bold">Content</div>
           </Menu.Item>

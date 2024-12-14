@@ -16,8 +16,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={mPlusRounded1c.className}>
-      <body>
+    <html lang="en" className={`${mPlusRounded1c.className} duration-200`}>
+      <body className="bg-[#eee7d7] dark:bg-zinc-900">
         <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>{children}</LiffProvider>
       </body>

@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Dict, Tuple
+from typing import Dict, Tuple, TypedDict
 
 
 class COCOKeypoints(IntEnum):
@@ -22,5 +22,47 @@ class COCOKeypoints(IntEnum):
     RIGHT_ANKLE = 16
 
 
+class Skill(IntEnum):
+    SERVE = 0
+    CLEAR = 1
+
+    @classmethod
+    def convert_to_enum(cls, skill: str):
+        return Skill[skill.upper()]
+
+    def __str__(self):
+        return self.name.lower()
+
+
+class Handedness(IntEnum):
+    RIGHT = 0
+    LEFT = 1
+
+    @classmethod
+    def convert_to_enum(cls, handedness: str):
+        return Handedness[handedness.upper()]
+
+    def __str__(self):
+        return self.name.lower()
+
+
 Body2DCoordinates = Dict[COCOKeypoints, Tuple[float, float]]
 
+
+# Response related types
+
+
+class GradingDetail(TypedDict):
+    description: str
+    grade: float
+
+
+class GradingOutcome(TypedDict):
+    total_grade: float
+    grading_details: list[GradingDetail]
+
+
+class VideoAnalysisResponse(TypedDict):
+    grade: GradingOutcome
+    used_angles_data: list[dict[str, float] | None]
+    processed_video: str

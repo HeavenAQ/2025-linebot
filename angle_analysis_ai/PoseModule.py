@@ -8,6 +8,8 @@ from ultralytics import YOLO
 
 from Logger import Logger
 from Types import Body2DCoordinates, COCOKeypoints
+from PIL import Image, ImageDraw, ImageFont
+from Joints import SKELETON_CONNECTIONS
 
 
 class PoseDetector:
@@ -163,63 +165,41 @@ class PoseDetector:
         angle_radian = np.arccos(cos_theta)
         return np.degrees(angle_radian)
 
-    def show_pose(self, img: MatLike, results: Any) -> None:
+    def show_pose(self, img: MatLike, landmarks: Optional[Body2DCoordinates]) -> None:
         """
         Draws only the pose skeleton (landmarks and connections) on the given image.
 
         Args:
             img (MatLike): The input image on which the landmarks are to be drawn.
-            results (Any): The results from YOLOv8's pose detection.
+            landmarks (Optional[Dict]): A dictionary of keypoints with COCOKeypoints as keys
+                                        and (x, y) coordinates as values.
 
         Returns:
             None
         """
-        if results and len(results) > 0:
+        if landmarks:
             self.logger.debug("Drawing pose skeleton on the image")
 
-            # Define the connections between keypoints for the skeleton
-            skeleton_connections = [
-                (COCOKeypoints.LEFT_SHOULDER, COCOKeypoints.RIGHT_SHOULDER),
-                (COCOKeypoints.LEFT_SHOULDER, COCOKeypoints.LEFT_ELBOW),
-                (COCOKeypoints.LEFT_ELBOW, COCOKeypoints.LEFT_WRIST),
-                (COCOKeypoints.RIGHT_SHOULDER, COCOKeypoints.RIGHT_ELBOW),
-                (COCOKeypoints.RIGHT_ELBOW, COCOKeypoints.RIGHT_WRIST),
-                (COCOKeypoints.LEFT_HIP, COCOKeypoints.RIGHT_HIP),
-                (COCOKeypoints.LEFT_HIP, COCOKeypoints.LEFT_KNEE),
-                (COCOKeypoints.LEFT_KNEE, COCOKeypoints.LEFT_ANKLE),
-                (COCOKeypoints.RIGHT_HIP, COCOKeypoints.RIGHT_KNEE),
-                (COCOKeypoints.RIGHT_KNEE, COCOKeypoints.RIGHT_ANKLE),
-                (COCOKeypoints.LEFT_SHOULDER, COCOKeypoints.LEFT_HIP),
-                (COCOKeypoints.RIGHT_SHOULDER, COCOKeypoints.RIGHT_HIP),
-            ]
+            # Draw each connection in the skeleton
+            for start, end in SKELETON_CONNECTIONS:
+                if start in landmarks and end in landmarks:
+                    x1, y1 = landmarks[start]
+                    x2, y2 = landmarks[end]
+                    if (
+                        x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0
+                    ):  # Ensure points are valid
+                        cv2.line(
+                            img,
+                            (int(x1), int(y1)),
+                            (int(x2), int(y2)),
+                            (255, 255, 255),
+                            2,
+                        )
 
-            # Iterate over each detected person in the results
-            for result in results:
-                keypoints = (
-                    result.keypoints.xy[0].gpu().numpy()
-                )  # Get keypoints (x, y) for each detected person
-
-                # Draw each connection in the skeleton
-                for start, end in skeleton_connections:
-                    if start.value < len(keypoints) and end.value < len(keypoints):
-                        x1, y1 = keypoints[start.value]
-                        x2, y2 = keypoints[end.value]
-                        if (
-                            x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0
-                        ):  # Ensure points are valid
-                            cv2.line(
-                                img,
-                                (int(x1), int(y1)),
-                                (int(x2), int(y2)),
-                                (255, 255, 255),
-                                2,
-                            )
-
-                # Draw each keypoint
-                for point in keypoints:
-                    x, y = point
-                    if x > 0 and y > 0:  # Ensure point is valid
-                        cv2.circle(img, (int(x), int(y)), 3, (249, 210, 60), 1)
+            # Draw each keypoint
+            for keypoint, (x, y) in landmarks.items():
+                if x > 0 and y > 0:  # Ensure point is valid
+                    cv2.circle(img, (int(x), int(y)), 3, (249, 210, 60), 1)
         else:
             self.logger.error("No landmarks provided to show_pose method")
 
@@ -252,7 +232,7 @@ class PoseDetector:
         point_b: tuple[float, float],
         point_c: tuple[float, float],
         angle: float,
-        color: tuple = (255, 200, 200),  # Light blue in BGR
+        color: tuple = (249, 210, 60),  # Light blue in BGR
         thickness: int = 2,
     ) -> None:
         # Convert points to NumPy arrays
@@ -283,7 +263,7 @@ class PoseDetector:
             start_angle -= 360  # Adjust for OpenCV's ellipse function
 
         # Set the radius of the arc (smaller radius)
-        radius = int(max(img.shape[0], img.shape[1]) * 0.04)
+        radius = int(max(img.shape[0], img.shape[1]) * 0.01)
 
         # Draw the arc
         center = (int(b[0]), int(b[1]))
@@ -301,15 +281,36 @@ class PoseDetector:
         )
 
         # Display the angle value near the arc
-        text_offset = radius + 5
-        text_position = (center[0] + text_offset, center[1] - text_offset)
-        cv2.putText(
+        self.__add_text_with_pillow(
             img,
-            f"{int(angle)} deg",
-            text_position,
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,  # Smaller font size
-            color,
-            1,  # Thinner text
-            cv2.LINE_AA,
+            f"{int(angle)}°",  # Unicode degree symbol
+            (center[0] + radius + 5, center[1] - radius - 5),
+            font_size=20,
+            color=(color[2], color[1], color[0]),  # Convert BGR to RGB
         )
+
+    # Helper moethod that adds text to an image using Pillow (private method)
+    def __add_text_with_pillow(
+        self, img, text, position, font_size=20, color=(255, 255, 255)
+    ):
+        """
+        Add text with Pillow onto an OpenCV image.
+
+        :param img: OpenCV image (numpy array).
+        :param text: The text to render (supports Unicode, e.g., "45°").
+        :param position: Tuple (x, y) specifying the position of the text.
+        :param font_size: Size of the font.
+        :param color: Text color as a tuple (R, G, B).
+        """
+        # Convert OpenCV image to PIL image
+        pil_image = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_image)
+
+        # Load the font
+        font = ImageFont.load_default(size=font_size)
+
+        # Add text to the image
+        draw.text(position, text, font=font, fill=color)
+
+        # Convert the PIL image back to OpenCV format
+        np.copyto(img, cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR))

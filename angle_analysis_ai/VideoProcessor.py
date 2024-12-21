@@ -147,20 +147,40 @@ class VideoProcessor:
             # Find peak acceleration
             peak_acc_index = np.argmax(accelerations) + 2
 
+            # Define a smaller range around the peak acceleration
+            range_start = max(0, peak_acc_index - 15)
+            range_end = min(len(self.right_hand_positions), peak_acc_index + 20)
+
+            # Use the range to extract the right hand positions
+            sub_range_positions = self.right_hand_positions[range_start:range_end]
+
+            # Find the frame within this range with the lowest right hand position
+            final_peak_frame = peak_acc_index
+            if sub_range_positions:
+                y_values = [pos[1] for pos in sub_range_positions]
+                lowest_hand_relative_index = np.argmax(y_values)
+                final_peak_frame = range_start + lowest_hand_relative_index
+
             # Find frame where elbow position satisfies custom metric
-            subset_positions = self.right_elbow_positions[peak_acc_index:]
+            subset_positions = self.right_elbow_positions[final_peak_frame:]
             composite_metric = [(pos[0] - pos[1]) for pos in subset_positions]
             relative_max_y_index = np.argmax(composite_metric)
-            max_y_index = peak_acc_index + relative_max_y_index
+            max_y_index = final_peak_frame + relative_max_y_index
 
             # Define frame range
-            start_index = max(0, peak_acc_index - 30)
+            start_index = max(0, final_peak_frame - 30)
             end_index = min(len(self.frames), max_y_index)
 
             # Calculate angles for the selected frames
             angle_lists = [
                 self.compute_angles(self.frames[i])
-                for i in (start_index, peak_acc_index, end_index)
+                for i in (
+                    start_index,
+                    (start_index + final_peak_frame) // 2,
+                    final_peak_frame,
+                    (final_peak_frame + max_y_index) // 2,
+                    end_index,
+                )
             ]
 
             # Dynamically get and use the grader
@@ -179,7 +199,6 @@ class VideoProcessor:
 
             # Return the response
             response["grade"] = grade
-            response["used_angles_data"] = angle_lists
             response["processed_video"] = video_base64
             return response
         return response
@@ -205,7 +224,9 @@ class VideoProcessor:
                 self.pose_detector.show_pose(frame, landmarks)
 
                 # Overlay angle arcs
-                for _, (point_a_id, point_b_id, point_c_id) in JOINTS.items():
+                for key, (point_a_id, point_b_id, point_c_id) in JOINTS.items():
+                    if key in ("Nose Right Shoulder Elbow", "Nose Left Shoulder Elbow"):
+                        continue
                     if all(
                         kp in landmarks for kp in (point_a_id, point_b_id, point_c_id)
                     ):

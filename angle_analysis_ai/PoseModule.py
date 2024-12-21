@@ -27,7 +27,7 @@ class PoseDetector:
 
     def __init__(
         self,
-        model_path: str = "yolov8m-pose.pt",
+        model_path: str = "yolo11m-pose.pt",
         min_detection_confidence: float = 0.5,
     ):
         """

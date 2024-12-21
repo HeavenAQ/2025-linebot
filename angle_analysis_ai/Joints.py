@@ -41,6 +41,16 @@ JOINTS = {
         COCOKeypoints.RIGHT_HIP,
         COCOKeypoints.LEFT_HIP,
     ),
+    "Nose Right Shoulder Elbow": (
+        COCOKeypoints.NOSE,
+        COCOKeypoints.RIGHT_SHOULDER,
+        COCOKeypoints.RIGHT_ELBOW,
+    ),
+    "Nose Left Shoulder Elbow": (
+        COCOKeypoints.NOSE,
+        COCOKeypoints.LEFT_SHOULDER,
+        COCOKeypoints.LEFT_ELBOW,
+    ),
 }
 
 SKELETON_CONNECTIONS = [

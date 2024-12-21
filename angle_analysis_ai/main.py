@@ -72,6 +72,7 @@ def training_set():
         video_path=file_path, out_filename=filename, output_folder=OUTPUT_FOLDER
     )
     response = processor.process_video(skill, handedness)
+    print(response["grade"])
 
     # Response
     return jsonify(response), 200

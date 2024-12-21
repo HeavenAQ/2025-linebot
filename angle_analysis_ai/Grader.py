@@ -16,22 +16,30 @@ serve_std = pd.read_excel(
 
 
 def serve_angle_grader(
-    angle_max_grade: float, joint_name: str, frame_idx: str, cur_angle: float
+    angle_max_grade: float,
+    joint_name: str,
+    frame_idx: str,
+    angle_dict: dict[str, float],
 ) -> float:
+    # Use joint name and frame index to get the mean and std from the expert data
     idx = joint_name, frame_idx
     mean = serve_mean.loc[idx]
     std = serve_std.loc[idx]
 
+    # Calculate the min and max angle based on the mean and std
     min_angle = mean - std
     max_angle = mean + std
 
-    if min_angle <= cur_angle <= max_angle:
+    # get current angle
+    current_angle = angle_dict[joint_name]
+
+    if min_angle <= current_angle <= max_angle:
         return angle_max_grade
     else:
-        if min_angle > cur_angle:
-            return angle_max_grade * (cur_angle / min_angle)
+        if min_angle > current_angle:
+            return angle_max_grade * (current_angle / min_angle)
         else:
-            return angle_max_grade * (max_angle / cur_angle)
+            return angle_max_grade * (max_angle / current_angle)
 
 
 class Grader(ABC):
@@ -89,85 +97,90 @@ class GraderRegistry:
 
 
 class ServeRightHandedGrader(Grader):
-    def grade_checkpoint_1(self, angle_set: AngleDict) -> float:
+    def grade_checkpoint_1_arms(self, angle_dict: AngleDict) -> float:
         """
-        The preparation phase of the serve. Full score for this checkpoint: 25
+        The preparation phase of the serve. Full score for this checkpoint: 20
         """
-        if not angle_set:
+        if not angle_dict:
             return 0
         grade = 0
-
-        # crotch angle
-        if angle_set["Left Crotch"] >= angle_set["Right Crotch"]:
-            grade += 10
-
-        # shoulder angles
-        grade += serve_angle_grader(
-            5.5, "Left Shoulder", "start", angle_set["Left Shoulder"]
-        )
-        grade += serve_angle_grader(
-            5.5, "Right Shoulder", "start", angle_set["Right Shoulder"]
-        )
-
-        # right elbow angle
-        grade += serve_angle_grader(4, "Right Elbow", "start", angle_set["Right Elbow"])
+        grade += serve_angle_grader(5, "Right Shoulder", "check1", angle_dict)
+        grade += serve_angle_grader(5, "Left Shoulder", "check1", angle_dict)
         return grade
 
-    def grade_checkpoint_2(self, angle_set: AngleDict) -> float:
+    def grade_checkpoint_1_legs(self, angle_dict: AngleDict) -> float:
         """
-        Body weight transfer. Full score for this checkpoint: 25
+        The preparation phase of the serve. Full score for this checkpoint: 20
         """
-        if not angle_set:
+        if not angle_dict:
+            return 0
+        if angle_dict["Right Crotch"] <= angle_dict["Left Crotch"]:
+            return 10
+        return 0
+
+    def grade_checkpoint_2(self, angle_dict1: AngleDict, angle_dict2) -> float:
+        """
+        Body weight transfer. Full score for this checkpoint: 20
+        """
+        if not angle_dict1 or not angle_dict2:
             return 0
         grade = 0
-        if angle_set["Left Crotch"] < angle_set["Right Crotch"]:
+        if angle_dict1["Right Crotch"] < angle_dict2["Right Crotch"]:
             grade += 10
-
-        grade += serve_angle_grader(7.5, "Left Crotch", "mid", angle_set["Left Crotch"])
-
-        grade += serve_angle_grader(
-            7.5, "Right Crotch", "mid", angle_set["Right Crotch"]
-        )
-
+        if angle_dict1["Left Crotch"] > angle_dict2["Left Crotch"]:
+            grade += 10
         return grade
 
-    def grade_checkpoint_3(self, angle_set: AngleDict) -> float:
+    def grade_checkpoint_3(self, angle_dict: AngleDict) -> float:
         """
-        Wrist snap. Full score for this checkpoint: 25
+        Bottom rotation. Full score for this checkpoint: 20
         """
-        if not angle_set:
-            return 0
-        return serve_angle_grader(25, "Right Elbow", "mid", angle_set["Right Elbow"])
+        grade = 0
+        if not angle_dict:
+            return grade
+        if angle_dict["Right Crotch"] > angle_dict["Left Crotch"]:
+            grade += 20
+        return grade
 
-    def grade_checkpoint_4(self, angle: AngleDict) -> float:
+    def grade_checkpoint_4(self, angle_dict: AngleDict) -> float:
         """
-        The ending pose of the serve. Full score for this checkpoint: 25
+        Wrist flick. Full score for this checkpoint: 20
         """
+        grade = 0
+        if not angle_dict:
+            return grade
+        grade += serve_angle_grader(20, "Right Elbow", "check4", angle_dict)
+        return grade
+
+    def grade_checkpoint_5(self, angle: AngleDict) -> float:
+        """
+        Shoulder rotation. Full score for this checkpoint: 20
+        """
+        grade = 0
         if not angle:
-            return 0
-        grade = 0
-        if angle["Left Crotch"] > angle["Right Crotch"]:
-            grade += 5
-        grade += serve_angle_grader(2.5, "Left Crotch", "end", angle["Left Crotch"])
-        grade += serve_angle_grader(2.5, "Right Crotch", "end", angle["Right Crotch"])
-        grade += serve_angle_grader(5, "Right Shoulder", "end", angle["Right Shoulder"])
-        grade += serve_angle_grader(5, "Right Elbow", "end", angle["Right Elbow"])
+            return grade
+        grade += serve_angle_grader(10, "Right Shoulder", "check5", angle)
+        grade += serve_angle_grader(10, "Nose Right Shoulder Elbow", "check5", angle)
         return grade
 
         # full score for this frame: 20
 
     def grade(self, angles: AngleDicts) -> GradingOutcome:
         # full score for this: 100
-        check1 = self.grade_checkpoint_1(angles[0])
-        check2 = self.grade_checkpoint_2(angles[1])
-        check3 = self.grade_checkpoint_3(angles[1])
-        check4 = self.grade_checkpoint_4(angles[2])
-        total = check1 + check2 + check3 + check4
+        check1_arms = self.grade_checkpoint_1_arms(angles[0])
+        check1_legs = self.grade_checkpoint_1_legs(angles[0])
+        check2 = self.grade_checkpoint_2(angles[0], angles[1])
+        check3 = self.grade_checkpoint_3(angles[2])
+        check4 = self.grade_checkpoint_4(angles[3])
+        check5 = self.grade_checkpoint_5(angles[4])
+        total = check1_arms + check1_legs + check2 + check3 + check4 + check5
         grading_details: list[GradingDetail] = [
-            {"description": "Preparation", "grade": check1},
-            {"description": "Body Weight Transfer", "grade": check2},
-            {"description": "Wrist Snap", "grade": check3},
-            {"description": "Ending Pose", "grade": check4},
+            {"description": "雙手平舉", "grade": check1_arms},
+            {"description": "將重心放至持拍腳", "grade": check1_legs},
+            {"description": "身體重心轉移至非持拍腳", "grade": check2},
+            {"description": "髖關節前旋", "grade": check4},
+            {"description": "持拍手手腕發力", "grade": check4},
+            {"description": "肩膀旋轉朝前", "grade": check5},
         ]
 
         return {

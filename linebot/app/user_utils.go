@@ -108,3 +108,16 @@ func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db
 	}
 	return &work
 }
+
+func (app *App) getUserGPTThread(user *db.UserData, skill string) string {
+	var threadID string
+	switch skill {
+	case "serve":
+		threadID = user.GPTThreadIDs.Serve
+	case "smash":
+		threadID = user.GPTThreadIDs.Smash
+	case "clear":
+		threadID = user.GPTThreadIDs.Clear
+	}
+	return threadID
+}

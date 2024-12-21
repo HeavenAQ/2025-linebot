@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/go-resty/resty/v2"
 )
 
@@ -18,9 +19,10 @@ type Client struct {
 }
 
 // ResponseData holds the data returned from the video processing API.
-type ResponseData struct {
-	ProcessedVideo []byte  `json:"processed_video"`
-	GradingScore   float64 `json:"grading_score"`
+
+type VideoAnalysisResponse struct {
+	ProcessedVideo string                 `json:"processed_video"`
+	Grade          commons.GradingOutcome `json:"grade"`
 }
 
 // NewClient initializes a new Client with the specified URL, credentials, and video blob.
@@ -28,7 +30,6 @@ func NewClient(username, password, url string, videoBlob []byte) *Client {
 	client := resty.New()
 	client.SetTimeout(120 * time.Second) // Set a 120-second timeout to handle large files
 	client.SetRetryCount(3)              // Retry the request up to 3 times in case of failures
-	client.SetDebug(true)                // Enable debug mode to log request and response details
 
 	return &Client{
 		Client:    client,
@@ -40,13 +41,17 @@ func NewClient(username, password, url string, videoBlob []byte) *Client {
 }
 
 // uploadVideo uploads the video blob specified in the Client struct and returns a ResponseData struct.
-func (c *Client) uploadVideo() (*ResponseData, error) {
+func (c *Client) uploadVideo(skill string, handedness string) (*VideoAnalysisResponse, error) {
 	// Prepare the request.
 	req := c.Client.R().
 		SetBasicAuth(c.Username, c.Password).                              // Set Basic Authentication credentials
 		SetFileReader("video", "video.mp4", bytes.NewReader(c.VideoBlob)). // Attach the video blob as a file
-		SetResult(&ResponseData{}).                                        // Expect a ResponseData struct
-		SetError(&map[string]interface{}{})                                // Capture error response if any
+		SetFormData(map[string]string{
+			"skill":      skill,
+			"handedness": handedness,
+		}).
+		SetResult(&VideoAnalysisResponse{}). // Expect a ResponseData struct
+		SetError(&map[string]interface{}{})  // Capture error response if any
 
 	// Send the request.
 	resp, err := req.Post(c.URL)
@@ -61,7 +66,7 @@ func (c *Client) uploadVideo() (*ResponseData, error) {
 	}
 
 	// Extract response data into a ResponseData struct.
-	responseData, ok := resp.Result().(*ResponseData)
+	responseData, ok := resp.Result().(*VideoAnalysisResponse)
 	if !ok || responseData == nil {
 		return nil, fmt.Errorf("failed to parse response data")
 	}
@@ -70,9 +75,9 @@ func (c *Client) uploadVideo() (*ResponseData, error) {
 }
 
 // ProcessVideo handles the entire video processing workflow: uploading, retrieving the grading score, and returning the processed video as bytes.
-func (c *Client) ProcessVideo() (*ResponseData, error) {
+func (c *Client) ProcessVideo(skill string, handedness string) (*VideoAnalysisResponse, error) {
 	// Upload the video and retrieve response data.
-	responseData, err := c.uploadVideo()
+	responseData, err := c.uploadVideo(skill, handedness)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload video: %w", err)
 	}

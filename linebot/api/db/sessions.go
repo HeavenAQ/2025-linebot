@@ -6,6 +6,7 @@ import (
 
 type UserSession struct {
 	Skill        string     `json:"skill"`
+	Handedness   string     `json:"handedness"`
 	UpdatingDate string     `json:"updating_date"`
 	UserState    UserState  `json:"user_state"`
 	ActionStep   ActionStep `json:"action_step"`
@@ -36,6 +37,7 @@ func (client *FirestoreClient) UpdateUserSession(userID string, newSessionConten
 func (client *FirestoreClient) CreateUserSession(userID string) (*UserSession, error) {
 	newSession := UserSession{
 		UserState:    None,
+		Handedness:   "",
 		Skill:        "",
 		ActionStep:   Empty,
 		UpdatingDate: "",
@@ -71,6 +73,7 @@ func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill strin
 func (client *FirestoreClient) ResetSession(userID string) error {
 	userSession := UserSession{
 		Skill:        "",
+		Handedness:   "",
 		UserState:    None,
 		ActionStep:   Empty,
 		UpdatingDate: "",
@@ -99,5 +102,15 @@ func (client *FirestoreClient) UpdateSessionUpdatingDate(userID string, date str
 	}
 
 	userSession.UpdatingDate = date
+	return client.UpdateUserSession(userID, *userSession)
+}
+
+func (client *FirestoreClient) UpdateSessionHandedness(userID string, handedness string) error {
+	userSession, err := client.GetUserSession(userID)
+	if err != nil {
+		return err
+	}
+
+	userSession.Handedness = handedness
 	return client.UpdateUserSession(userID, *userSession)
 }

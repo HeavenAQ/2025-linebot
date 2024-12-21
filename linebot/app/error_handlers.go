@@ -116,3 +116,24 @@ func (app *App) handleVideoAnalysisError(err error, replyToken string) {
 		"Video has been analyzed",
 	)(err, replyToken)
 }
+
+func (app *App) handleAddMessageToGPTThreadError(err error, replyToken string) {
+	app.handleLineError(
+		"Error adding message to GPT thread",
+		"Message has been added to GPT thread.",
+	)(err, replyToken)
+}
+
+func (app *App) handleGPTRunThreadError(err error, replyToken string) {
+	app.handleLineError(
+		"Error running GPT thread",
+		"GPT thread has been run. Response from LINE: %v",
+	)(err, replyToken)
+}
+
+func (app *App) handleGetGPTResponseError(err error, replyToken string) {
+	app.handleLineError(
+		"Error getting GPT response",
+		"GPT response has been received. Response from LINE: %v",
+	)(err, replyToken)
+}

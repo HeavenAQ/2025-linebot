@@ -11,6 +11,7 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/go-resty/resty/v2"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
@@ -78,7 +79,7 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 	return driveFile, thumbnailFile, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, score float32, driveFile *drive.File, thumbnailFile *drive.File) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, grade commons.GradingOutcome, driveFile *drive.File, thumbnailFile *drive.File) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
 
@@ -89,9 +90,7 @@ func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSess
 		session,
 		driveFile,
 		thumbnailFile,
-		score,
-
-		"動作標準",
+		grade,
 	)
 }
 
@@ -103,6 +102,7 @@ func (app *App) sendVideoUploadedReply(event *linebot.Event, session *db.UserSes
 		event,
 		user,
 		skill,
+		session.Handedness,
 		session.UserState,
 		"影片已成功上傳！",
 		true,
@@ -156,7 +156,7 @@ func (app App) resizeVideo(user *db.UserData, videoPath string) (string, error) 
 	return outputFilename, nil
 }
 
-func (app *App) analyzeVideo(videoBlob []byte) (*poseestimation.ResponseData, error) {
+func (app *App) analyzeVideo(videoBlob []byte, skill string, handedness string) (*poseestimation.VideoAnalysisResponse, error) {
 	app.Logger.Info.Println("Analyzing video:")
 
 	// set up request body with video data
@@ -167,7 +167,7 @@ func (app *App) analyzeVideo(videoBlob []byte) (*poseestimation.ResponseData, er
 
 	maxRetries := 6
 	delay := 10 * time.Second
-	var resp *poseestimation.ResponseData
+	var resp *poseestimation.VideoAnalysisResponse
 	var err error
 	for i := 0; i < maxRetries; i++ {
 		// init client
@@ -179,7 +179,7 @@ func (app *App) analyzeVideo(videoBlob []byte) (*poseestimation.ResponseData, er
 		)
 
 		// send video to AI server
-		resp, err = client.ProcessVideo()
+		resp, err = client.ProcessVideo(skill, handedness)
 		if err == nil {
 			break
 		}

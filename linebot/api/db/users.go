@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	googleDrive "google.golang.org/api/drive/v3"
 )
 
@@ -50,13 +51,14 @@ func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 }
 
 type Work struct {
-	DateTime      string  `json:"date"`
-	Thumbnail     string  `json:"thumbnail"`
-	SkeletonVideo string  `json:"video"`
-	Reflection    string  `json:"reflection"`
-	PreviewNote   string  `json:"previewNote"`
-	AINote        string  `json:"aiNote"`
-	Rating        float32 `json:"rating"`
+	DateTime                string                 `json:"date"`
+	Thumbnail               string                 `json:"thumbnail"`
+	SkeletonVideo           string                 `json:"video"`
+	SkeletonComparisonVideo string                 `json:"comparisonVideo"`
+	Reflection              string                 `json:"reflection"`
+	PreviewNote             string                 `json:"previewNote"`
+	AINote                  string                 `json:"aiNote"`
+	GradingOutcome          commons.GradingOutcome `json:"gradingOutcome"`
 }
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
@@ -118,16 +120,25 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File, aiRating float32, aiSuggestions string) error {
+func (client *FirestoreClient) CreateUserPortfolioVideo(
+	user *UserData,
+	userPortfolio *map[string]Work,
+	date string,
+	session *UserSession,
+	driveFile *googleDrive.File,
+	thumbnailFile *googleDrive.File,
+	aiGrading commons.GradingOutcome,
+) error {
 	id := driveFile.Id
 	work := Work{
-		DateTime:      date,
-		Rating:        aiRating,
-		Reflection:    "尚未填寫心得",
-		PreviewNote:   "尚未填寫課前檢視要點",
-		AINote:        aiSuggestions,
-		SkeletonVideo: id,
-		Thumbnail:     thumbnailFile.Id,
+		DateTime:                date,
+		GradingOutcome:          aiGrading,
+		Reflection:              "尚未填寫心得",
+		PreviewNote:             "尚未填寫課前檢視要點",
+		AINote:                  "尚未詢問 AI 改善建議",
+		SkeletonVideo:           id,
+		SkeletonComparisonVideo: "",
+		Thumbnail:               thumbnailFile.Id,
 	}
 	(*userPortfolio)[date] = work
 	err := client.UpdateUserSession(user.ID, *session)
@@ -146,13 +157,14 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 ) error {
 	targetWork := (*userPortfolio)[date]
 	work := Work{
-		DateTime:      targetWork.DateTime,
-		Rating:        targetWork.Rating,
-		Reflection:    reflection,
-		PreviewNote:   targetWork.PreviewNote,
-		SkeletonVideo: targetWork.SkeletonVideo,
-		Thumbnail:     targetWork.Thumbnail,
-		AINote:        targetWork.AINote,
+		DateTime:                targetWork.DateTime,
+		GradingOutcome:          targetWork.GradingOutcome,
+		Reflection:              reflection,
+		PreviewNote:             targetWork.PreviewNote,
+		SkeletonVideo:           targetWork.SkeletonVideo,
+		SkeletonComparisonVideo: targetWork.SkeletonComparisonVideo,
+		Thumbnail:               targetWork.Thumbnail,
+		AINote:                  targetWork.AINote,
 	}
 	(*userPortfolio)[date] = work
 
@@ -167,13 +179,14 @@ func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
 ) error {
 	targetWork := (*userPortfolio)[date]
 	work := Work{
-		DateTime:      targetWork.DateTime,
-		Reflection:    targetWork.Reflection,
-		Rating:        targetWork.Rating,
-		AINote:        targetWork.AINote,
-		PreviewNote:   previewNote,
-		SkeletonVideo: targetWork.SkeletonVideo,
-		Thumbnail:     targetWork.Thumbnail,
+		DateTime:                targetWork.DateTime,
+		GradingOutcome:          targetWork.GradingOutcome,
+		Reflection:              targetWork.Reflection,
+		PreviewNote:             previewNote,
+		SkeletonVideo:           targetWork.SkeletonVideo,
+		SkeletonComparisonVideo: targetWork.SkeletonComparisonVideo,
+		Thumbnail:               targetWork.Thumbnail,
+		AINote:                  targetWork.AINote,
 	}
 	(*userPortfolio)[date] = work
 	return client.updateUserData(user)
@@ -193,5 +206,26 @@ func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill strin
 
 func (client *FirestoreClient) UpdateUserGPTThreadIDs(user *UserData, threadIDs *GPTThreadIDs) error {
 	user.GPTThreadIDs = *threadIDs
+	return client.updateUserData(user)
+}
+
+func (client *FirestoreClient) UpdateUserPortfolioAINote(
+	user *UserData,
+	userPortfolio *map[string]Work,
+	date string,
+	aiNote string,
+) error {
+	targetWork := (*userPortfolio)[date]
+	work := Work{
+		DateTime:                targetWork.DateTime,
+		GradingOutcome:          targetWork.GradingOutcome,
+		Reflection:              targetWork.Reflection,
+		PreviewNote:             targetWork.PreviewNote,
+		SkeletonVideo:           targetWork.SkeletonVideo,
+		SkeletonComparisonVideo: targetWork.SkeletonComparisonVideo,
+		Thumbnail:               targetWork.Thumbnail,
+		AINote:                  aiNote,
+	}
+	(*userPortfolio)[date] = work
 	return client.updateUserData(user)
 }

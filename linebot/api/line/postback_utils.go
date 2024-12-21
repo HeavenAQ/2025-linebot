@@ -75,3 +75,11 @@ func (client *Client) HandleWritingNotePostbackData(rawData string) (*WritingNot
 func (client *Client) HandleVideoPostbackData(rawData string) (*VideoPostback, error) {
 	return handlePostbackData[VideoPostback](rawData)
 }
+
+func (client *Client) HandleAskingAIForHelpPostbackData(rawData string) (*AskingAIForHelpPostback, error) {
+	return handlePostbackData[AskingAIForHelpPostback](rawData)
+}
+
+func (client *Client) HandleStopGPTPostbackData(rawData string) (*StopGPTPostback, error) {
+	return handlePostbackData[StopGPTPostback](rawData)
+}

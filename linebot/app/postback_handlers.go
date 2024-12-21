@@ -1,7 +1,10 @@
 package app
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
@@ -10,7 +13,13 @@ import (
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
-// handlePostbackEvent processes LINE postback events. If the event is for menu switching, it is ignored.
+// ============================================================================
+// 1. High-Level Handlers
+// ============================================================================
+
+// handlePostbackEvent processes LINE postback events.
+// - If it’s a menu-switch event, it’s ignored.
+// - Otherwise, it delegates to handleUserState.
 func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, session *db.UserSession) {
 	if isMenuSwitchEvent(event.Postback.Data) {
 		app.Logger.Info.Printf("Menu switch event ignored. User ID: %v", event.Source.UserID)
@@ -21,34 +30,45 @@ func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, ses
 	app.handleUserState(event, user, session, event.ReplyToken)
 }
 
-// isMenuSwitchEvent checks if a postback data string corresponds to a menu-switching action.
-func isMenuSwitchEvent(data string) bool {
-	return data == "switch-to-main" || data == "switch-to-secondary"
-}
-
-// handleUserState manages the user's session state and delegates the processing to appropriate handlers based on the session state.
+// handleUserState manages the user's session state, routing to the appropriate
+// handler function based on the session’s current state.
 func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session *db.UserSession, replyToken string) {
 	rawData := getPostbackData(event)
 	app.Logger.Info.Println("rawData: ", rawData)
 
-	// Handle note updating action as a special case
+	// 1. GPT stop-chatting action
+	if data, ok := app.isStopChattingWithGPTAction(rawData); ok {
+		if data.Stop {
+			app.FirestoreClient.ResetSession(user.ID)
+			app.LineBot.SendReply(replyToken, "已結束對話")
+			return
+		}
+	}
+
+	// 2. Note updating action
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
 		app.forceStateToWritingNotes(user, session, data, replyToken)
 		return
 	}
 
-	// Handle video watching action as a special case
+	// 3. Video watching action
 	if data, ok := app.isWatchVideoAction(rawData); ok {
 		app.LineBot.SendVideoMessage(replyToken, data)
 		return
 	}
 
-	// Route the event handling based on the current user session state
+	// 4. Ask AI for help
+	if data, ok := app.isAskingAIForHelpAction(rawData); ok {
+		app.handleAnalyzePortfolioWithGPT(event, user, data, session, replyToken)
+		return
+	}
+
+	// 5. Route by user state
 	switch session.UserState {
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
 	case db.ChattingWithGPT:
-		// Handle GPT-based interactions here
+		app.handleChattingWithGPT(event, rawData, user, session, replyToken)
 	case db.ViewingExpertVideos:
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
@@ -60,80 +80,127 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	}
 }
 
-// getPostbackData extracts postback data from the event if available.
-func getPostbackData(event *linebot.Event) string {
-	if event.Type == linebot.EventTypePostback {
-		return event.Postback.Data
-	}
-	return ""
-}
+// ============================================================================
+// 2. State Machine Sub-Handlers
+// ============================================================================
 
-// isUpdateNoteAction checks if the postback event indicates an update note action.
-// If true, it updates the session accordingly and sends a response to the user.
-func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, bool) {
-	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
-// isWatchVideoAction checks if the postback event indicates a watch video action.
-// If true, it sends a video message to the user.
-func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
-	data, err := app.LineBot.HandleVideoPostbackData(rawData)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
-func (app *App) forceStateToWritingNotes(user *db.UserData, session *db.UserSession, data *line.WritingNotePostback, replyToken string) {
-	// Determine the action step and update the session state
-	actionStep, err := db.ActionStepStrToEnum(data.ActionStep)
-	if err != nil {
-		app.Logger.Warn.Println("Invalid action step for updating note")
-		app.FirestoreClient.ResetSession(user.ID)
-	}
-
-	session.ActionStep, session.UpdatingDate, session.UserState = actionStep, data.WorkDate, db.WritingNotes
-	session.Skill = data.Skill
-	app.FirestoreClient.UpdateUserSession(user.ID, *session)
-
-	// Generate and send a response message to the user based on the action step
-	msg := generateUpdateNoteMessage(data.WorkDate, data.Skill, actionStep)
-	app.LineBot.SendReply(replyToken, msg)
-}
-
-// generateUpdateNoteMessage creates a message for updating a note, specifying the date and skill.
-func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep) string {
-	skillStr := db.SkillStrToEnum(skill).ChnString()
-	msg := "請輸入【" + workDate + "】的【" + skillStr + "】的"
-	if actionStep == db.WritingPreviewNote {
-		msg += "課前檢視要點"
-	} else {
-		msg += "學習反思"
-	}
-	return msg
-}
-
-// Handlers for different user states
-
-// handleViewingExpertVideos manages the flow for viewing expert videos, advancing action steps as necessary.
-func (app *App) handleViewingExpertVideos(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+// handleWritingNotes handles logic for the “WritingNotes” state.
+func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
-		session.ActionStep = db.SelectingHandedness
-		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptHandednessSelection)
-	case db.SelectingHandedness:
-		app.handleSendingExpertVideos(event, session, replyToken)
-		app.resetSessionWithErrorHandling(user.ID, replyToken)
+		// Move to “SelectingPortfolio” after skill selection
+		session.ActionStep = db.SelectingPortfolio
+		data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
+		if err != nil {
+			app.handlePostbackDataTypeError(err, replyToken)
+			return
+		}
+		session.Skill = data.Skill
+
+		if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
+			app.handleUpdateSessionError(err, replyToken)
+			return
+		}
+
+		// Prompt user to select which portfolio entry to update
+		if err := app.LineBot.SendPortfolio(
+			event,
+			user,
+			db.SkillStrToEnum(data.Skill),
+			session.Handedness,
+			session.UserState,
+			"請選擇您要更新的學習歷程：",
+			true,
+		); err != nil {
+			app.handleSendPortfolioError(err, replyToken)
+			return
+		}
+
+	case db.SelectingPortfolio:
+		app.handleSelectingPortfolio(rawData, user, session, replyToken)
+
+	case db.WritingPreviewNote, db.WritingReflection:
+		app.handleUpdatingNote(event, user, session)
+		app.FirestoreClient.ResetSession(user.ID)
+
 	default:
 		app.handleInvalidActionStep(user.ID, replyToken)
 	}
 }
 
-// handleViewingPortfolio handles viewing portfolio actions and resets the session after completion.
+// handleChattingWithGPT handles logic for the “ChattingWithGPT” state.
+func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+	switch session.ActionStep {
+	case db.SelectingSkill:
+		// Move to “Chatting”
+		session.ActionStep = db.Chatting
+		lineData, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
+		if err != nil {
+			app.handlePostbackDataTypeError(err, replyToken)
+			return
+		}
+		session.Skill = lineData.Skill
+		app.FirestoreClient.UpdateUserSession(user.ID, *session)
+
+		// Inform user we are entering GPT chatting mode
+		app.LineBot.SendGPTChattingModeReply(replyToken, "已進入和GPT對話模式")
+
+	case db.Chatting:
+		// Get user text message
+		var msg string
+		message, ok := event.Message.(*linebot.TextMessage)
+		if ok {
+			msg = message.Text
+		}
+
+		// Add the message to GPT thread
+		threadID := app.getUserGPTThread(user, session.Skill)
+		if err := app.GPTClient.AddMessageToThread(threadID, msg); err != nil {
+			app.handleAddMessageToGPTThreadError(err, replyToken)
+			return
+		}
+
+		// Run the GPT thread
+		runID, err := app.GPTClient.RunThread(threadID)
+		if err != nil {
+			app.handleGPTRunThreadError(err, replyToken)
+			return
+		}
+
+		// Retrieve GPT response
+		response, err := app.GPTClient.GetAssistantResponse(threadID, runID)
+		if err != nil {
+			app.handleGetGPTResponseError(err, replyToken)
+			return
+		}
+
+		if _, err := app.LineBot.SendGPTChattingModeReply(replyToken, response); err != nil {
+			handleLineMessageResponseError(err)
+			return
+		}
+
+	default:
+		app.handleInvalidActionStep(user.ID, replyToken)
+	}
+}
+
+// handleViewingExpertVideos handles logic for the “ViewingExpertVideos” state.
+func (app *App) handleViewingExpertVideos(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
+	switch session.ActionStep {
+	case db.SelectingSkill:
+		session.ActionStep = db.SelectingHandedness
+		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptHandednessSelection)
+
+	case db.SelectingHandedness:
+		app.handleSendingExpertVideos(event, session, replyToken)
+		app.resetSessionWithErrorHandling(user.ID, replyToken)
+
+	default:
+		app.handleInvalidActionStep(user.ID, replyToken)
+	}
+}
+
+// handleViewingPortfolio handles logic for the “ViewingPortfoilo” state.
 func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
 	if err != nil {
@@ -141,7 +208,15 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 		return
 	}
 
-	if err := app.LineBot.SendPortfolio(event, user, db.SkillStrToEnum(data.Skill), session.UserState, "以下為您的學習歷程：", false); err != nil {
+	if err := app.LineBot.SendPortfolio(
+		event,
+		user,
+		db.SkillStrToEnum(data.Skill),
+		session.Handedness,
+		session.UserState,
+		"以下為您的學習歷程：",
+		false,
+	); err != nil {
 		app.handleSendPortfolioError(err, replyToken)
 		return
 	}
@@ -149,168 +224,59 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 	app.resetSessionWithErrorHandling(user.ID, replyToken)
 }
 
-// handleAnalyzingVideoActions handles actions for analyzing videos and updates session state as needed.
+// handleAnalyzingVideoActions handles logic for the “AnalyzingVideo” state.
 func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
+		session.ActionStep = db.SelectingHandedness
+		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptHandednessSelection)
+
+	case db.SelectingHandedness:
 		session.ActionStep = db.UploadingVideo
-		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptUploadVideo)
-	case db.UploadingVideo:
-		app.handleUploadingVideo(event, session, user, replyToken)
-	default:
-		app.handleInvalidActionStep(user.ID, replyToken)
-	}
-}
-
-// Helper functions
-
-// handleSelectingSkill facilitates the skill selection process and moves to the next step.
-func (app *App) handleSelectingSkill(
-	event *linebot.Event,
-	session *db.UserSession,
-	rawData,
-	replyToken string,
-	nextStepFunc func(*linebot.Event) error,
-) {
-	data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
-	if err != nil {
-		app.handlePostbackDataTypeError(err, replyToken)
-		return
-	}
-
-	err = nextStepFunc(event)
-	if err != nil {
-		app.handleVideoUploadPromptError(err, replyToken)
-		return
-	}
-
-	session.Skill = data.Skill
-	err = app.FirestoreClient.UpdateUserSession(event.Source.UserID, *session)
-	if err != nil {
-		app.handleUpdateSessionError(err, replyToken)
-	}
-}
-
-// handleUploadingVideo processes video uploads, creates thumbnails, and updates the user portfolio.
-func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
-	// Get video content
-	videoContent, err := app.getVideoContent(event, user.ID)
-	if err != nil {
-		app.handleGetVideoError(err, replyToken)
-		return
-	}
-
-	// Cteate thumbnail
-	thumbnailPath, err := app.createVideoThumbnail(event, user, videoContent)
-	if err != nil {
-		app.handleThumbnailCreationError(err, replyToken)
-		return
-	}
-
-	// Send video to AI server for analysis
-	resp, err := app.analyzeVideo(videoContent)
-	if err != nil {
-		app.handleVideoAnalysisError(err, replyToken)
-		return
-	}
-	app.Logger.Info.Println("resp: ", resp.GradingScore)
-
-	// Upload video to Google Drive and update user portfolio
-	app.uploadVideoContent(event, user, session, resp, thumbnailPath, replyToken)
-}
-
-// getVideoContent retrieves the video content if the event includes a video message.
-func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, error) {
-	videoMsg, ok := event.Message.(*linebot.VideoMessage)
-	if !ok {
-		app.Logger.Warn.Println("Non-video message received")
-		app.FirestoreClient.ResetSession(userID)
-		return nil, errors.New("non-video message")
-	}
-	return app.LineBot.GetVideoContent(videoMsg.ID)
-}
-
-// uploadVideoContent uploads video content and thumbnail to Google Drive, then updates the user portfolio.
-func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, aiResponse *poseestimation.ResponseData, thumbnailPath, replyToken string) {
-	today := time.Now().Format("2006-01-02-15-04")
-	video, thumbnail, err := app.uploadVideoToDrive(user, session, aiResponse.ProcessedVideo, thumbnailPath, today)
-	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
-		return
-	}
-
-	err = app.updateUserPortfolioVideo(user, session, today, float32(aiResponse.GradingScore), video, thumbnail)
-	if err != nil {
-		app.handleUpdateUserPortfolioError(err, replyToken)
-		return
-	}
-
-	err = app.sendVideoUploadedReply(event, session, user)
-	if err != nil {
-		app.handleSendingReplyMessageError(err, replyToken)
-		return
-	}
-	app.FirestoreClient.ResetSession(user.ID)
-}
-
-// resetSessionWithErrorHandling resets the user session and handles any errors encountered.
-func (app *App) resetSessionWithErrorHandling(userID, replyToken string) {
-	if err := app.FirestoreClient.ResetSession(userID); err != nil {
-		app.handleUpdateSessionError(err, replyToken)
-	}
-}
-
-// handleInvalidActionStep manages cases where the user session has an unexpected action step.
-func (app *App) handleInvalidActionStep(userID string, replyToken string) {
-	app.FirestoreClient.ResetSession(userID)
-	_, err := app.LineBot.SendDefaultErrorReply(replyToken)
-	if err != nil {
-		app.Logger.Warn.Println("Error sending default error reply:", err)
-	}
-}
-
-func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
-	switch session.ActionStep {
-	case db.SelectingSkill:
-		// Transition to SelectingPortfolio step after choosing a skill
-		session.ActionStep = db.SelectingPortfolio
-		data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
+		data, err := app.LineBot.HandleSelectingHandednessPostbackData(rawData)
 		if err != nil {
 			app.handlePostbackDataTypeError(err, replyToken)
 			return
 		}
+		app.FirestoreClient.UpdateSessionHandedness(user.ID, data.Handedness)
+		app.LineBot.PromptUploadVideo(event)
 
-		// Update session with selected skill and prompt user to select a portfolio
-		session.Skill = data.Skill
-		err = app.FirestoreClient.UpdateUserSession(user.ID, *session)
-		if err != nil {
-			app.handleUpdateSessionError(err, replyToken)
-			return
-		}
-
-		// Prompt user to select a portfolio based on chosen skill
-		err = app.LineBot.SendPortfolio(event, user, db.SkillStrToEnum(data.Skill), session.UserState, "請選擇您要更新的學習歷程：", true)
-		if err != nil {
-			app.handleSendPortfolioError(err, replyToken)
-			return
-		}
-
-	case db.SelectingPortfolio:
-		// Handle the selection of a portfolio for note updating
-		app.handleSelectingPortfolio(rawData, user, session, replyToken)
-
-	case db.WritingPreviewNote, db.WritingReflection:
-		// Handle updating the note based on the session’s action step (preview or reflection)
-		app.handleUpdatingNote(event, user, session)
-		app.FirestoreClient.ResetSession(user.ID)
+	case db.UploadingVideo:
+		app.handleUploadingVideo(event, session, user, replyToken)
 
 	default:
-		// Handle unexpected action steps in WritingNotes state
 		app.handleInvalidActionStep(user.ID, replyToken)
 	}
 }
 
-// handleSelectingPortfolio processes the portfolio selection during note writing
+// ============================================================================
+// 3. Individual Action Handlers
+// ============================================================================
+
+// forceStateToWritingNotes forces the session to WritingNotes, prompting the user.
+func (app *App) forceStateToWritingNotes(user *db.UserData, session *db.UserSession, data *line.WritingNotePostback, replyToken string) {
+	actionStep, err := db.ActionStepStrToEnum(data.ActionStep)
+	if err != nil {
+		app.Logger.Warn.Println("Invalid action step for updating note")
+		app.FirestoreClient.ResetSession(user.ID)
+		return
+	}
+
+	session.ActionStep = actionStep
+	session.UpdatingDate = data.WorkDate
+	session.UserState = db.WritingNotes
+	session.Skill = data.Skill
+
+	if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
+		app.handleUpdateSessionError(err, replyToken)
+		return
+	}
+
+	msg := generateUpdateNoteMessage(data.WorkDate, data.Skill, actionStep)
+	app.LineBot.SendReply(replyToken, msg)
+}
+
+// handleSelectingPortfolio is invoked when selecting which portfolio entry to update.
 func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
 	if err != nil {
@@ -318,32 +284,28 @@ func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, sess
 		return
 	}
 
-	// Update the action step and session with the selected portfolio details
 	actionStep, err := db.ActionStepStrToEnum(data.ActionStep)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)
 		return
 	}
+
 	session.ActionStep = actionStep
 	session.UpdatingDate = data.WorkDate
 
-	// Save the updated session
-	err = app.FirestoreClient.UpdateUserSession(user.ID, *session)
-	if err != nil {
+	if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
 		app.handleUpdateSessionError(err, replyToken)
 	}
 }
 
-// handleUpdatingNote handles the actual note update for either preview or reflection notes
+// handleUpdatingNote updates the preview or reflection note in the user’s portfolio.
 func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, session *db.UserSession) {
-	// Verify the correct action step for updating the note
 	if session.ActionStep != db.WritingPreviewNote && session.ActionStep != db.WritingReflection {
 		app.Logger.Warn.Println("Invalid action step for updating note")
 		app.handleInvalidActionStep(user.ID, event.ReplyToken)
 		return
 	}
 
-	// Retrieve the text message content for the note update
 	note, ok := event.Message.(*linebot.TextMessage)
 	if !ok {
 		app.Logger.Warn.Println("Non-text message received when updating note")
@@ -351,8 +313,8 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 		return
 	}
 
-	// Update the note in the user portfolio based on the action step (preview or reflection)
 	portfolio := user.Portfolio.GetSkillPortfolio(session.Skill)
+
 	if session.ActionStep == db.WritingPreviewNote {
 		app.FirestoreClient.UpdateUserPortfolioPreviewNote(
 			user,
@@ -369,20 +331,284 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 		)
 	}
 
-	// Send a confirmation message to the user showing the updated portfolio
-	app.LineBot.SendPortfolio(event, user, db.SkillStrToEnum(session.Skill), session.UserState, "以下為您的學習歷程：", false)
+	app.LineBot.SendPortfolio(
+		event,
+		user,
+		db.SkillStrToEnum(session.Skill),
+		session.Handedness,
+		session.UserState,
+		"以下為您的學習歷程：",
+		false,
+	)
 }
 
-// handleSelectingHandedness processes the handedness selection for viewing expert videos
+// handleAnalyzePortfolioWithGPT processes the user's request to ask GPT for help.
+func (app *App) handleAnalyzePortfolioWithGPT(
+	event *linebot.Event,
+	user *db.UserData,
+	data *line.AskingAIForHelpPostback,
+	session *db.UserSession,
+	replyToken string,
+) {
+	portfolio := app.getUserPortfolio(user, data.Skill)
+	gradingDetails := (*portfolio)[data.WorkDate].GradingOutcome.GradingDetails
+
+	preprocessedUsedAnglesData, err := json.Marshal(gradingDetails)
+	if err != nil {
+		app.Logger.Error.Println("Failed to marshal used angles data:", err)
+		app.LineBot.SendReply(replyToken, "無法取得動作資料，請再試一次")
+		return
+	}
+
+	threadID := app.getUserGPTThread(user, data.Skill)
+	aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, threadID)
+	if err := app.FirestoreClient.UpdateUserPortfolioAINote(user, portfolio, data.WorkDate, aiResponse); err != nil {
+		app.Logger.Error.Println("Failed to update AI note:", err)
+		app.LineBot.SendReply(replyToken, "無法更新AI筆記，請再試一次")
+		return
+	}
+
+	app.LineBot.SendPortfolio(
+		event,
+		user,
+		db.SkillStrToEnum(data.Skill),
+		session.Handedness,
+		session.UserState,
+		"以下為您的學習歷程：",
+		false,
+	)
+}
+
+// handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
+func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
+	// 1. Get video content
+	videoContent, err := app.getVideoContent(event, user.ID)
+	if err != nil {
+		app.handleGetVideoError(err, replyToken)
+		return
+	}
+
+	// 2. Create thumbnail
+	thumbnailPath, err := app.createVideoThumbnail(event, user, videoContent)
+	if err != nil {
+		app.handleThumbnailCreationError(err, replyToken)
+		return
+	}
+
+	// 3. Send video to AI server for analysis
+	resp, err := app.analyzeVideo(videoContent, session.Skill, session.Handedness)
+	if err != nil {
+		app.handleVideoAnalysisError(err, replyToken)
+		return
+	}
+	app.Logger.Info.Println("AI total grade: ", resp.Grade.TotalGrade)
+
+	// 4. Upload AI-processed video and update user portfolio
+	app.uploadVideoContent(event, user, session, resp, thumbnailPath, replyToken)
+}
+
+// ============================================================================
+// 4. Helper Functions
+// ============================================================================
+
+// --------------------------------------------------------------------
+// 4.1 Basic Postback Data Extraction
+// --------------------------------------------------------------------
+
+func getPostbackData(event *linebot.Event) string {
+	if event.Type == linebot.EventTypePostback {
+		return event.Postback.Data
+	}
+	return ""
+}
+
+func isMenuSwitchEvent(data string) bool {
+	return data == "switch-to-main" || data == "switch-to-secondary"
+}
+
+// --------------------------------------------------------------------
+// 4.2 Specialized Postback Actions
+// --------------------------------------------------------------------
+
+func (app *App) isStopChattingWithGPTAction(rawData string) (*line.StopGPTPostback, bool) {
+	data, err := app.LineBot.HandleStopGPTPostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, bool) {
+	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
+	data, err := app.LineBot.HandleVideoPostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func (app *App) isAskingAIForHelpAction(rawData string) (*line.AskingAIForHelpPostback, bool) {
+	data, err := app.LineBot.HandleAskingAIForHelpPostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// --------------------------------------------------------------------
+// 4.3 GPT / AI Interaction
+// --------------------------------------------------------------------
+
+func (app *App) analyzeWithGPT(
+	data *line.AskingAIForHelpPostback,
+	preprocessedUsedAnglesData []byte,
+	threadID string,
+) string {
+	msg := fmt.Sprintf(
+		"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
+		data.Handedness,
+		data.Skill,
+		string(preprocessedUsedAnglesData),
+	)
+	if err := app.GPTClient.AddMessageToThread(threadID, msg); err != nil {
+		app.Logger.Error.Println("Failed to add message to GPT thread:", err)
+		return "無法取得建議，請再試一次"
+	}
+
+	runID, err := app.GPTClient.RunThread(threadID)
+	if err != nil {
+		app.Logger.Error.Println("Failed to run GPT thread:", err)
+		return "無法取得建議，請再試一次"
+	}
+
+	response, err := app.GPTClient.GetAssistantResponse(threadID, runID)
+	if err != nil {
+		app.Logger.Error.Println("Failed to get GPT response:", err)
+		return "無法取得建議，請再試一次"
+	}
+	return response
+}
+
+// --------------------------------------------------------------------
+// 4.4 Video & Portfolio Updates
+// --------------------------------------------------------------------
+
+// getVideoContent retrieves the video bytes from a linebot.VideoMessage.
+func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, error) {
+	videoMsg, ok := event.Message.(*linebot.VideoMessage)
+	if !ok {
+		app.Logger.Warn.Println("Non-video message received")
+		app.FirestoreClient.ResetSession(userID)
+		return nil, errors.New("non-video message")
+	}
+	return app.LineBot.GetVideoContent(videoMsg.ID)
+}
+
+// uploadVideoContent handles the final step of uploading the processed video
+// to Google Drive (or your storage), then updating the user’s portfolio.
+func (app *App) uploadVideoContent(
+	event *linebot.Event,
+	user *db.UserData,
+	session *db.UserSession,
+	aiResponse *poseestimation.VideoAnalysisResponse,
+	thumbnailPath string,
+	replyToken string,
+) {
+	timestamp := time.Now().Format("2006-01-02-15-04")
+
+	// Decode AI-processed video
+	videoData, err := base64.StdEncoding.DecodeString(aiResponse.ProcessedVideo)
+	if err != nil {
+		app.handleUploadToDriveError(fmt.Errorf("failed to decode base64 video: %w", err), replyToken)
+		return
+	}
+
+	// Upload video + thumbnail to cloud storage (placeholder function)
+	videoLink, thumbLink, err := app.uploadVideoToDrive(
+		user,
+		session,
+		videoData,
+		thumbnailPath,
+		timestamp,
+	)
+	if err != nil {
+		app.handleUploadToDriveError(err, replyToken)
+		return
+	}
+
+	// Update user portfolio with AI grading
+	if err := app.updateUserPortfolioVideo(user, session, timestamp, aiResponse.Grade, videoLink, thumbLink); err != nil {
+		app.handleUpdateUserPortfolioError(err, replyToken)
+		return
+	}
+
+	// Notify user
+	if err := app.sendVideoUploadedReply(event, session, user); err != nil {
+		app.handleSendingReplyMessageError(err, replyToken)
+		return
+	}
+
+	app.FirestoreClient.ResetSession(user.ID)
+}
+
+// generateUpdateNoteMessage forms a response prompt for note updating.
+func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep) string {
+	skillStr := db.SkillStrToEnum(skill).ChnString()
+	msg := "請輸入【" + workDate + "】的【" + skillStr + "】的"
+	if actionStep == db.WritingPreviewNote {
+		msg += "課前檢視要點"
+	} else {
+		msg += "學習反思"
+	}
+	return msg
+}
+
+// --------------------------------------------------------------------
+// 4.5 Helper for Selecting Skill
+// --------------------------------------------------------------------
+
+// handleSelectingSkill helps transition the user from “SelectingSkill” to the
+// next action, e.g., choosing handedness or uploading a video.
+func (app *App) handleSelectingSkill(
+	event *linebot.Event,
+	session *db.UserSession,
+	rawData string,
+	replyToken string,
+	nextStepFunc func(*linebot.Event) error,
+) {
+	data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
+	if err != nil {
+		app.handlePostbackDataTypeError(err, replyToken)
+		return
+	}
+
+	if err := nextStepFunc(event); err != nil {
+		app.handleVideoUploadPromptError(err, replyToken)
+		return
+	}
+
+	session.Skill = data.Skill
+	if err := app.FirestoreClient.UpdateUserSession(event.Source.UserID, *session); err != nil {
+		app.handleUpdateSessionError(err, replyToken)
+	}
+}
+
+// handleSendingExpertVideos is a helper that sets up the correct expert videos
+// after the user selects their handedness.
 func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.UserSession, replyToken string) {
-	// Parse handedness from the event's postback data
 	data, err := app.LineBot.HandleSelectingHandednessPostbackData(event.Postback.Data)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)
 		return
 	}
 
-	// Convert handedness and skill to their respective enums
 	handedness, err := db.HandednessStrToEnum(data.Handedness)
 	if err != nil {
 		app.Logger.Warn.Println("Invalid handedness received:", data.Handedness)
@@ -391,13 +617,29 @@ func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.User
 	}
 
 	skill := db.SkillStrToEnum(session.Skill)
-
-	// Send expert videos based on handedness and skill selection
-	err = app.LineBot.SendExpertVideos(handedness, skill, replyToken)
-	if err != nil {
+	if err := app.LineBot.SendExpertVideos(handedness, skill, replyToken); err != nil {
 		app.handleSendExpertVideosError(err, replyToken)
 		return
 	}
 
 	app.Logger.Info.Printf("Expert videos sent for User ID: %v, Skill: %v, Handedness: %v", event.Source.UserID, skill, handedness)
+}
+
+// ============================================================================
+// 5. Error Handling & Session Management
+// ============================================================================
+
+// handleInvalidActionStep resets the session and sends a default error reply.
+func (app *App) handleInvalidActionStep(userID, replyToken string) {
+	app.FirestoreClient.ResetSession(userID)
+	if _, err := app.LineBot.SendDefaultErrorReply(replyToken); err != nil {
+		app.Logger.Warn.Println("Error sending default error reply:", err)
+	}
+}
+
+// resetSessionWithErrorHandling is a small helper to reset the session.
+func (app *App) resetSessionWithErrorHandling(userID, replyToken string) {
+	if err := app.FirestoreClient.ResetSession(userID); err != nil {
+		app.handleUpdateSessionError(err, replyToken)
+	}
 }

@@ -1,6 +1,7 @@
 package poseestimation
 
 import (
+	"encoding/base64"
 	"log"
 	"os"
 	"testing"
@@ -24,19 +25,23 @@ func TestClient_ProcessVideo_Integration(t *testing.T) {
 	client := NewClient(testUsername, testPassword, testServerURL, videoBlob)
 
 	// Run the ProcessVideo method.
-	responseData, err := client.ProcessVideo()
+	responseData, err := client.ProcessVideo("serve", "right")
 	require.NoError(t, err, "expected no error from ProcessVideo")
 	require.NotNil(t, responseData, "expected response data")
 
 	// Validate grading score - this will vary depending on the server logic.
-	require.GreaterOrEqual(t, responseData.GradingScore, 0.0, "grading score should be >= 0")
+	require.GreaterOrEqual(t, responseData.Grade.TotalGrade, 0.0, "grading score should be >= 0")
 
 	// Ensure processed video data is returned.
 	require.NotEmpty(t, responseData.ProcessedVideo, "processed video should not be empty")
 
+	// Decode the video data first
+	videoData, err := base64.StdEncoding.DecodeString(responseData.ProcessedVideo)
+	require.NoError(t, err, "failed to decode processed video data")
+
 	// Save the processed video to a file.
 	outputFilePath := "../../tmp/processed_video.mp4"
-	err = os.WriteFile(outputFilePath, responseData.ProcessedVideo, 0644)
+	err = os.WriteFile(outputFilePath, videoData, 0644)
 	require.NoError(t, err, "failed to save processed video file")
 
 	// Log success message for confirmation.

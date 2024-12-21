@@ -1,6 +1,7 @@
 package line
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -154,6 +155,7 @@ func (client *Client) SendPortfolio(
 	event *linebot.Event,
 	user *db.UserData,
 	skill db.BadmintonSkill,
+	handedness string,
 	userState db.UserState,
 	textMsg string,
 	showBtns bool,
@@ -165,7 +167,7 @@ func (client *Client) SendPortfolio(
 	}
 
 	// generate carousels from works
-	carousels, err := client.getCarousels(works, skill.String(), showBtns)
+	carousels, err := client.getCarousels(works, skill.String(), handedness, showBtns)
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
 		return errors.New("Error getting carousels: " + err.Error())
@@ -244,4 +246,29 @@ func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.Badmin
 		return err
 	}
 	return nil
+}
+
+func (client *Client) SendGPTChattingModeReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
+	data, err := json.Marshal(StopGPTPostback{Stop: true})
+	if err != nil {
+		return nil, err
+	}
+
+	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(
+		msg,
+	).WithQuickReplies(&linebot.QuickReplyItems{
+		Items: []*linebot.QuickReplyButton{
+			linebot.NewQuickReplyButton(
+				"",
+				linebot.NewPostbackAction(
+					"結束對話",
+					string(data),
+					"",
+					"結束對話",
+					"OpenRichMenu",
+					"",
+				),
+			),
+		},
+	})).Do()
 }

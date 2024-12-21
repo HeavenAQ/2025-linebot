@@ -6,6 +6,7 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/HeavenAQ/nstc-linebot-2025/utils"
 	"github.com/stretchr/testify/require"
 	googleDrive "google.golang.org/api/drive/v3"
@@ -144,9 +145,14 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	session := &db.UserSession{
 		UserState: db.WritingNotes,
 	}
-	aiRating := float32(4.5)
-	aiSuggestions := "Improve form"
-
+	aiRating := commons.GradingOutcome{
+		GradingDetails: []commons.GradingDetail{
+			{
+				Description: "Form",
+				Grade:       0.5,
+			},
+		},
+	}
 	// Call the method to add video to portfolio
 	today := time.Now().Format("2006-01-02-15-04")
 	err = firestoreClient.CreateUserPortfolioVideo(
@@ -157,7 +163,6 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 		driveFile,
 		thumbnailFile,
 		aiRating,
-		aiSuggestions,
 	)
 	require.NoError(t, err)
 
@@ -165,7 +170,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
 	require.NotNil(t, updatedUser.Portfolio.Serve[driveFile.Name])
-	require.Equal(t, aiRating, updatedUser.Portfolio.Serve[driveFile.Name].Rating)
+	require.Equal(t, aiRating, updatedUser.Portfolio.Serve[driveFile.Name].GradingOutcome)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

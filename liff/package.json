@@ -12,10 +12,17 @@
     "@headlessui/react": "^2.2.0",
     "@line/liff": "^2.25.0",
     "animated-tailwindcss": "^4.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "firebase-admin": "^13.0.2",
+    "lucide-react": "^0.469.0",
     "next": "15.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-icons": "^5.4.0",
+    "recharts": "^2.15.0",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
     "tailwindcss-animated": "^1.1.2"
   },
   "devDependencies": {

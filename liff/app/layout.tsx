@@ -4,6 +4,7 @@ import React from 'react'
 import { LiffProvider } from './LiffProvider'
 import Navbar from '@/components/Navbar/Navbar'
 import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
+import Hero from '@/components/Hero'
 
 export const metadata: Metadata = {
   title: 'NSTC LINE BOT PROJECT (115)',
@@ -17,9 +18,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${mPlusRounded1c.className} duration-200`}>
-      <body className="bg-[#eee7d7] dark:bg-zinc-900">
+      <body className="bg-[#eee7d7] text-black dark:bg-zinc-900 dark:text-white">
         <Navbar />
-        <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>{children}</LiffProvider>
+        <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
+          <Hero />
+          {children}
+        </LiffProvider>
       </body>
     </html>
   )

@@ -42,6 +42,7 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         setProfile(profile)
         console.log(profile.pictureUrl)
       })
+      console.log(liff.getDecodedIDToken())
 
       setLiff(liff)
     } catch (error) {

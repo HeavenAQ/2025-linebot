@@ -3,6 +3,7 @@ import React from 'react'
 import { Fragment, useState } from 'react'
 import { Menu, Transition } from '@headlessui/react'
 import { FiMenu, FiX } from 'react-icons/fi'
+import Link from 'next/link'
 
 const items = [
   {
@@ -46,14 +47,14 @@ export default function DropDownIcon() {
           {items.map((item, i) => (
             <Menu.Item key={i}>
               {({ active }) => (
-                <a
-                  href={`/${item.href}`}
+                <Link
+                  href={`${item.href}`}
                   className={`${
                     active && 'bg-zinc-600 text-white dark:bg-orange-50 dark:text-black'
                   } w-full rounded-md p-1 px-3`}
                 >
                   {item.displayName}
-                </a>
+                </Link>
               )}
             </Menu.Item>
           ))}

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import Image from 'next/image'
 
 import { useLiff } from '../app/LiffProvider'
+import Spinner from './ui/spinner'
 
 export default function Hero() {
   const { liff, profile } = useLiff()
@@ -18,11 +19,7 @@ export default function Hero() {
   }, [liff])
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-16 w-16 animate-spin rounded-full border-b-2 border-t-2 border-zinc-700"></div>
-      </div>
-    )
+    return <Spinner />
   }
 
   return (

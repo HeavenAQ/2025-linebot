@@ -1,49 +1,49 @@
 export interface UserData {
-  portfolio: Portfolios
-  folderIDs: FolderIDs
-  gptThreadIDs: GPTThreadIDs
-  name: string
-  id: string
-  handedness: string
+  Portfolio: Portfolios
+  FolderIDs: FolderIDs
+  GPTThreadIDs: GPTThreadIDs
+  Name: string
+  Id: string
+  Handedness: string
 }
 
 export interface FolderIDs {
-  root: string
-  serve: string
-  smash: string
-  clear: string
-  thumbnail: string
+  Root: string
+  Serve: string
+  Smash: string
+  Clear: string
+  Thumbnail: string
 }
 
 export interface Portfolios {
-  serve: Record<string, Work>
-  smash: Record<string, Work>
-  clear: Record<string, Work>
+  Serve: Record<string, Work>
+  Smash: Record<string, Work>
+  Clear: Record<string, Work>
 }
 
 export interface GPTThreadIDs {
-  serve: string
-  smash: string
-  clear: string
+  Serve: string
+  Smash: string
+  Clear: string
 }
 
 export interface Work {
-  dateTime: string
-  thumbnail: string
-  skeletonVideo: string
-  skeletonComparisonVideo: string
-  reflection: string
-  previewNote: string
-  aiNote: string
-  gradingOutcome: GradingOutcome
+  DateTime: string
+  Thumbnail: string
+  SkeletonVideo: string
+  SkeletonComparisonVideo: string
+  Reflection: string
+  PreviewNote: string
+  AINote: string
+  GradingOutcome: GradingOutcome
 }
 
 export interface GradingDetail {
-  description: string
-  grade: number
+  Description: string
+  Grade: number
 }
 
 export interface GradingOutcome {
-  gradingDetails: GradingDetail[]
-  totalGrade: number
+  GradingDetails: GradingDetail[]
+  TotalGrade: number
 }

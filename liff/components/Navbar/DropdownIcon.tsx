@@ -49,6 +49,7 @@ export default function DropDownIcon() {
               {({ active }) => (
                 <Link
                   href={`${item.href}`}
+                  onClick={() => setIsOpen(false)}
                   className={`${
                     active && 'bg-zinc-600 text-white dark:bg-orange-50 dark:text-black'
                   } w-full rounded-md p-1 px-3`}

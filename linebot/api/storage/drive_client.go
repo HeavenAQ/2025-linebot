@@ -90,24 +90,37 @@ func (client *GoogleDriveClient) asyncCreateFolders(userID string, folderNames [
 	return idChannel, errorChannel
 }
 
-func (client *GoogleDriveClient) checkAsyncFolderCreation(idChannel <-chan string, errorChannel <-chan error, userFolders *UserFolders) error {
-	userFolderIDAddrs := []*string{
-		&userFolders.ServeFolderID,
-		&userFolders.SmashFolderID,
-		&userFolders.ClearFolderID,
-		&userFolders.ThumbnailFolderID,
+func (client *GoogleDriveClient) checkAsyncFolderCreation(
+	idChannel <-chan string,
+	errorChannel <-chan error,
+	folderNames []string,
+	userFolders *UserFolders,
+) error {
+	// Map folder names to user folder ID pointers
+	folderNameToField := map[string]*string{
+		"serve":     &userFolders.ServeFolderID,
+		"smash":     &userFolders.SmashFolderID,
+		"clear":     &userFolders.ClearFolderID,
+		"thumbnail": &userFolders.ThumbnailFolderID,
 	}
 
-	for i := range userFolderIDAddrs {
+	for range folderNames {
 		select {
 		case err := <-errorChannel:
 			if err != nil {
 				return err
 			}
-		case res := <-idChannel:
-			*userFolderIDAddrs[i] = res
+		case folderID := <-idChannel:
+			for name, field := range folderNameToField {
+				if *field == "" { // Check if the field is still empty
+					*field = folderID
+					delete(folderNameToField, name) // Remove from mapping once assigned
+					break
+				}
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -140,7 +153,7 @@ func (client *GoogleDriveClient) CreateUserFolders(userID string, userName strin
 
 	// Create folders in Google Drive concurrently
 	idChannel, errChannel := client.asyncCreateFolders(userID, folderNames, &userFolders)
-	err = client.checkAsyncFolderCreation(idChannel, errChannel, &userFolders)
+	err = client.checkAsyncFolderCreation(idChannel, errChannel, folderNames, &userFolders)
 	if err != nil {
 		return nil, err
 	}

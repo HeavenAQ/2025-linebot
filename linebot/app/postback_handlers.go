@@ -1,15 +1,15 @@
 package app
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
-	poseestimation "github.com/HeavenAQ/nstc-linebot-2025/api/pose_estimation"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -381,21 +381,14 @@ func (app *App) handleAnalyzePortfolioWithGPT(
 
 // handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
-	// 1. Get video content
+	// Get video content
 	videoContent, err := app.getVideoContent(event, user.ID)
 	if err != nil {
 		app.handleGetVideoError(err, replyToken)
 		return
 	}
 
-	// 2. Create thumbnail
-	thumbnailPath, err := app.createVideoThumbnail(event, user, videoContent)
-	if err != nil {
-		app.handleThumbnailCreationError(err, replyToken)
-		return
-	}
-
-	// 3. Send video to AI server for analysis
+	// Send video to AI server for analysis
 	resp, err := app.analyzeVideo(videoContent, session.Skill, session.Handedness)
 	if err != nil {
 		app.handleVideoAnalysisError(err, replyToken)
@@ -403,8 +396,18 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 	}
 	app.Logger.Info.Println("AI total grade: ", resp.Grade.TotalGrade)
 
-	// 4. Upload AI-processed video and update user portfolio
-	app.uploadVideoContent(event, user, session, resp, thumbnailPath, replyToken)
+	// Stitches the video with expert video
+	stitchedVideoPath := app.stitchVideoWithExpertVideo(user, resp.ProcessedVideo, session.Skill, session.Handedness)
+
+	// Create thumbnail
+	thumbnailPath, err := app.createVideoThumbnail(event, user, stitchedVideoPath)
+	if err != nil {
+		app.handleThumbnailCreationError(err, replyToken)
+		return
+	}
+
+	// 5. Upload AI-processed video and update user portfolio
+	app.uploadVideoContent(event, user, session, resp.Grade, stitchedVideoPath, thumbnailPath, replyToken)
 }
 
 // ============================================================================
@@ -517,16 +520,17 @@ func (app *App) uploadVideoContent(
 	event *linebot.Event,
 	user *db.UserData,
 	session *db.UserSession,
-	aiResponse *poseestimation.VideoAnalysisResponse,
+	grade commons.GradingOutcome,
+	stitchedVideoPath string,
 	thumbnailPath string,
 	replyToken string,
 ) {
 	timestamp := time.Now().Format("2006-01-02-15-04")
 
 	// Decode AI-processed video
-	videoData, err := base64.StdEncoding.DecodeString(aiResponse.ProcessedVideo)
+	videoData, err := os.ReadFile(stitchedVideoPath)
 	if err != nil {
-		app.handleUploadToDriveError(fmt.Errorf("failed to decode base64 video: %w", err), replyToken)
+		app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video", err), replyToken)
 		return
 	}
 
@@ -544,7 +548,7 @@ func (app *App) uploadVideoContent(
 	}
 
 	// Update user portfolio with AI grading
-	if err := app.updateUserPortfolioVideo(user, session, timestamp, aiResponse.Grade, videoLink, thumbLink); err != nil {
+	if err := app.updateUserPortfolioVideo(user, session, timestamp, grade, videoLink, thumbLink); err != nil {
 		app.handleUpdateUserPortfolioError(err, replyToken)
 		return
 	}

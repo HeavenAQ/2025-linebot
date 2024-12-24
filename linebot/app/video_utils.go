@@ -2,10 +2,12 @@ package app
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
@@ -142,10 +144,10 @@ func (app App) resizeVideo(user *db.UserData, videoPath string) (string, error) 
 	err := ffmpeg_go.Input(videoPath).
 		Filter("scale", ffmpeg_go.Args{"1080:1920"}).
 		Output(outputFilename, ffmpeg_go.KwArgs{
-			"vsync":   "0",  // avoid audio sync issues
-			"threads": "1",  // use 1 thread to avoid memory issues
-			"b:v":     "1M", // set video bitrate to 1 Mbps
-			"an":      "",   // remove audio
+			"vsync":   "0", // avoid audio sync issues
+			"threads": "1", // use 1 thread to avoid memory issues
+			"an":      "",  // remove audio
+			"b:v":     "1M",
 		}).
 		Run()
 	if err != nil {
@@ -202,40 +204,21 @@ func (app *App) analyzeVideo(videoBlob []byte, skill string, handedness string) 
 	return resp, nil
 }
 
-func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, blob []byte) (string, error) {
+func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, videoPath string) (string, error) {
 	// create a tmp file to store video blob
-	app.Logger.Info.Println("Creating a tmp file to store video blob ...")
-	replyToken := event.ReplyToken
 	filename := tmpFolder + user.ID + ".mp4"
-	file, err := os.Create(filename)
-	if err != nil {
-		app.Logger.Error.Println("Error creating tmp file for video:", err)
-		app.handleThumbnailCreationError(err, replyToken)
-		return "", err
-	}
-	defer file.Close()
-
-	// write video blob to the tmp file
-	app.Logger.Info.Println("Writing video blob to tmp file")
-	if _, err := io.Copy(file, bytes.NewReader(blob)); err != nil {
-		app.Logger.Error.Println("Error writing video blob to tmp file:", err)
-		_, err := app.LineBot.SendDefaultErrorReply(replyToken)
-		app.handleThumbnailCreationError(err, replyToken)
-		return "", err
-	}
 
 	// Using ffmpeg to create video thumbnail
 	app.Logger.Info.Println("Extracting thumbnail from the video")
 	outFileName := tmpFolder + user.ID + ".jpeg"
 
 	var stderr bytes.Buffer
-	err = ffmpeg_go.Input(filename, ffmpeg_go.KwArgs{
+	err := ffmpeg_go.Input(videoPath, ffmpeg_go.KwArgs{
 		"ss": "00:00:01", // place ss before input file to avoid seeking issues
 	}).
 		Output(outFileName, ffmpeg_go.KwArgs{
-			"vframes": 1,              // extract exactly 1 frame
-			"vcodec":  "mjpeg",        // make it a jpeg file
-			"vf":      "scale=320:-1", // scale the image to 320px width, keep aspect ratio
+			"vframes": 1,       // extract exactly 1 frame
+			"vcodec":  "mjpeg", // make it a jpeg file
 		}).
 		WithErrorOutput(&stderr). // Capture stderr for debugging
 		Run()
@@ -252,6 +235,56 @@ func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, bl
 		}
 	}()
 	return outFileName, nil
+}
+
+func (app *App) stitchVideoWithExpertVideo(user *db.UserData, encodedVideo string, skill string, handedness string) string {
+	// extract video data from base64 string
+	videoData, err := base64.StdEncoding.DecodeString(encodedVideo)
+	if err != nil {
+		app.Logger.Error.Println("Error decoding video data:", err)
+		return ""
+	}
+
+	// save it to a tmp file
+	videoPath := tmpFolder + user.ID + "_video.mp4"
+	videoFile, err := os.Create(videoPath)
+	if err != nil {
+		app.Logger.Error.Println("Error creating tmp file for video:", err)
+	}
+	videoFile.Write(videoData)
+
+	//  run ffmpeg with cmd to stitch the video with expert video
+	expertVideoPath := fmt.Sprintf("./pro_videos/pro_%v_%v.mp4", handedness, skill)
+	outputPath := tmpFolder + user.ID + "_stitched.mp4"
+	cmd := exec.Command(
+		"ffmpeg",
+		"-i", videoPath,
+		"-i", expertVideoPath,
+		"-filter_complex",
+		"[0:v]scale=-1:960[video1];[1:v]scale=-1:960[video2];[video1][video2]hstack[stacked];[stacked]pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+		"-c:v", "mpeg4", // Use the MPEG-4 codec
+		"-q:v", "5", // Adjust quality (lower is better; 2-5 recommended)
+		"-pix_fmt", "yuv420p", // Ensure pixel format matches
+		"-r", "29.79", // Match the frame rate
+		"-metadata:s:v", "rotate=0", // Ensure no rotation metadata
+		"-y", // Overwrite the output file
+		outputPath,
+	) // Capture the output for debugging
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	// Run the command
+	err = cmd.Run()
+	if err != nil {
+		app.Logger.Error.Println("Error stitching video with expert video:", err)
+		app.Logger.Error.Println("ffmpeg stderr:", stderr.String())
+		return ""
+	}
+
+	app.Logger.Info.Println("Video stitched successfully.")
+	return outputPath
 }
 
 func uploadError(app App, event *linebot.Event, err error, message string) {

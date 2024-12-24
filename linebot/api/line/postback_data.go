@@ -26,7 +26,7 @@ type SelectingHandednessPostback struct {
 	Handedness string `json:"handedness" validate:"required"`
 }
 
-type AskingAIForHelpPostback struct {
+type AnalyzingWithGPTPostback struct {
 	Handedness string `json:"handedness" validate:"required"`
 	WorkDate   string `json:"work_date" validate:"required"`
 	Skill      string `json:"skill" validate:"required"`
@@ -41,5 +41,5 @@ func (VideoPostback) isPostbackData()               {}
 func (WritingNotePostback) isPostbackData()         {}
 func (SelectingSkillPostback) isPostbackData()      {}
 func (SelectingHandednessPostback) isPostbackData() {}
-func (AskingAIForHelpPostback) isPostbackData()     {}
+func (AnalyzingWithGPTPostback) isPostbackData()    {}
 func (StopGPTPostback) isPostbackData()             {}

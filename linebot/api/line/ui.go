@@ -74,7 +74,7 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 		return nil, err
 	}
 
-	askedAIForHelpData, err := json.Marshal(AskingAIForHelpPostback{
+	askedAIForHelpData, err := json.Marshal(AnalyzingWithGPTPostback{
 		Handedness: handedness,
 		WorkDate:   work.DateTime,
 		Skill:      skill,

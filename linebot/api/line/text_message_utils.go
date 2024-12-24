@@ -161,6 +161,11 @@ func (client *Client) SendPortfolio(
 	textMsg string,
 	showBtns bool,
 ) error {
+	// If handedness is not specified, return error
+	if handedness == "" {
+		return errors.New("handedness not specified")
+	}
+
 	// get works from user portfolio
 	works := user.Portfolio.GetSkillPortfolio(skill.String())
 	if len(works) == 0 {

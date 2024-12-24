@@ -58,7 +58,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	}
 
 	// 4. Ask AI for help
-	if data, ok := app.isAskingAIForHelpAction(rawData); ok {
+	if data, ok := app.isAnalyzingPortfolioWithGPT(rawData); ok {
 		app.handleAnalyzePortfolioWithGPT(event, user, data, session, replyToken)
 		return
 	}
@@ -346,7 +346,7 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 func (app *App) handleAnalyzePortfolioWithGPT(
 	event *linebot.Event,
 	user *db.UserData,
-	data *line.AskingAIForHelpPostback,
+	data *line.AnalyzingWithGPTPostback,
 	session *db.UserSession,
 	replyToken string,
 ) {
@@ -368,15 +368,19 @@ func (app *App) handleAnalyzePortfolioWithGPT(
 		return
 	}
 
-	app.LineBot.SendPortfolio(
+	err = app.LineBot.SendPortfolio(
 		event,
 		user,
 		db.SkillStrToEnum(data.Skill),
-		session.Handedness,
+		data.Handedness,
 		session.UserState,
 		"以下為您的學習歷程：",
 		false,
 	)
+	if err != nil {
+		app.handleSendPortfolioError(err, replyToken)
+		return
+	}
 }
 
 // handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
@@ -457,7 +461,7 @@ func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
 	return data, true
 }
 
-func (app *App) isAskingAIForHelpAction(rawData string) (*line.AskingAIForHelpPostback, bool) {
+func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWithGPTPostback, bool) {
 	data, err := app.LineBot.HandleAskingAIForHelpPostbackData(rawData)
 	if err != nil {
 		return nil, false
@@ -470,7 +474,7 @@ func (app *App) isAskingAIForHelpAction(rawData string) (*line.AskingAIForHelpPo
 // --------------------------------------------------------------------
 
 func (app *App) analyzeWithGPT(
-	data *line.AskingAIForHelpPostback,
+	data *line.AnalyzingWithGPTPostback,
 	preprocessedUsedAnglesData []byte,
 	threadID string,
 ) string {

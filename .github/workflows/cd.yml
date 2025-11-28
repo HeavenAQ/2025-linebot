@@ -3,12 +3,12 @@ name: Deploy to Cloud Run
 on:
   push:
     branches:
-      - moe
+      - moe-2026
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: moe-linebot
+    environment: moe-linebot-2026
     permissions:
       contents: read
       id-token: write
@@ -20,7 +20,6 @@ jobs:
       - name: Authorize Google Cloud SDK
         uses: google-github-actions/auth@v2
         with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
@@ -29,10 +28,22 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Build and push Docker image
-        run: |-
-          gcloud builds submit \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2025
+      - name: Who am I?
+        run: |
+          gcloud auth list
+          gcloud config get-value account
+
+      - name: Build Docker image locally
+        run: |
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026 .
+
+      - name: Authenticate Docker to GCR
+        run: |
+          gcloud auth configure-docker gcr.io
+
+      - name: Push Docker image
+        run: |
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026
 
       - name: Deploy to Cloud Run
         env:
@@ -47,8 +58,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_ASSISTANT_ID: ${{ secrets.OPENAI_ASSISTANT_ID }}
         run: |
-          gcloud run deploy moe-linebot-2025 \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2025 \
+          gcloud run deploy moe-linebot-2026 \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026 \
             --platform managed \
             --region asia-east1 \
             --allow-unauthenticated \

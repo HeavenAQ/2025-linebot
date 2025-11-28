@@ -24,7 +24,7 @@ func main() {
 
 	// Create a new server
 	server := &http.Server{
-		Addr:         "0.0.0.0:" + "8080",
+		Addr:         "0.0.0.0:" + app.Config.Port,
 		Handler:      http.DefaultServeMux,
 		ReadTimeout:  DefaultReadTimeout,
 		WriteTimeout: DefaultWriteTimeout,

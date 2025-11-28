@@ -322,33 +322,19 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, r
 	if ok {
 		msg = message.Text
 	}
-	// Add message to the GPT thread
-	err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
-	if err != nil {
-		app.handleAddMessageToGPTThreadError(err, replyToken)
-		return
-	}
+    // Send message and get the assistant's reply via Responses API
+    response, err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
+    if err != nil {
+        app.handleAddMessageToGPTThreadError(err, replyToken)
+        return
+    }
 
-	// Run the GPT thread
-	runID, err := app.GPTClient.RunThread(user.GPTThreadIDs.DoublesRotation)
-	if err != nil {
-		app.handleGPTRunThreadError(err, replyToken)
-		return
-	}
-
-	// Retrieve the assistant's response
-	response, err := app.GPTClient.GetAssistantResponse(user.GPTThreadIDs.DoublesRotation, runID)
-	if err != nil {
-		app.handleGetGPTResponseError(err, replyToken)
-		return
-	}
-
-	// Send a message to the user to start chatting with GPT
-	_, err = app.LineBot.SendGPTChattingModeReply(replyToken, response)
-	if err != nil {
-		handleLineMessageResponseError(err)
-		return
-	}
+    // Send a message to the user to continue chatting with GPT
+    _, err = app.LineBot.SendGPTChattingModeReply(replyToken, response)
+    if err != nil {
+        handleLineMessageResponseError(err)
+        return
+    }
 }
 
 // handleSelectingPortfolio processes the portfolio selection during note writing

@@ -37,8 +37,8 @@ type FirestoreConfig struct {
 }
 
 type GPTConfig struct {
-	APIKey      string `env:"OPENAI_API_KEY"`
-	AssistantID string `env:"OPENAI_ASSISTANT_ID"`
+	APIKey   string `env:"OPENAI_API_KEY"`
+	PromptID string `env:"OPENAI_PROMPT_ID"`
 }
 
 type Config struct {
@@ -58,8 +58,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.GCP.Secrets.SecretVersion == "" &&
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
-		c.GPT.APIKey == "" &&
-		c.GPT.AssistantID == "")
+		c.GPT.APIKey == "")
 }
 
 func LoadConfig(path string) (*Config, error) {

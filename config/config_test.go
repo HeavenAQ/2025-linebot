@@ -42,6 +42,6 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, "test_firebase_data_db", config.GCP.Database.DataDB)
 	require.Equal(t, "test_firebase_session_db", config.GCP.Database.SessionDB)
 	require.Equal(t, "test_openai_api_key", config.GPT.APIKey)
-	require.Equal(t, "test_openai_assistant_id", config.GPT.AssistantID)
+	require.Equal(t, "test_openai_assistant_id", config.GPT.PromptID)
 	require.Equal(t, "8080", config.Port)
 }

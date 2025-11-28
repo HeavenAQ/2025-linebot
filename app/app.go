@@ -61,8 +61,8 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
-	// Set up GPT Client
-	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.AssistantID)
+	// Set up GPT Client (Responses API)
+	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID)
 
 	return &App{
 		Config:          cfg,

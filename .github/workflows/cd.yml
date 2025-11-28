@@ -35,15 +35,15 @@ jobs:
 
       - name: Build Docker image locally
         run: |
-          docker build -t asia-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026/moe-linebot-2026:latest .
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026 .
 
-      - name: Authenticate Docker to Artifact Registry
+      - name: Authenticate Docker to GCR
         run: |
-          gcloud auth configure-docker asia-east1-docker.pkg.dev
+          gcloud auth configure-docker gcr.io
 
       - name: Push Docker image
         run: |
-          docker push asia-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026/moe-linebot-2026:latest
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026
 
       - name: Deploy to Cloud Run
         env:
@@ -59,7 +59,7 @@ jobs:
           OPENAI_ASSISTANT_ID: ${{ secrets.OPENAI_ASSISTANT_ID }}
         run: |
           gcloud run deploy moe-linebot-2026 \
-            --image asia-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026/moe-linebot-2026:latest \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/moe-linebot-2026 \
             --platform managed \
             --region asia-east1 \
             --allow-unauthenticated \

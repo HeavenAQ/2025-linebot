@@ -11,44 +11,47 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
-	"google.golang.org/api/drive/v3"
 )
 
 const tmpFolder = "/tmp/"
 
-func (app *App) getVideoFolder(user *db.UserData, skill string) string {
-	var folderId string
+func (app *App) getVideoFolderPath(user *db.UserData, skill string) string {
+	var folderPath string
 	switch skill {
 	case "front_court_footwork":
-		folderId = user.FolderIDs.FrontCourtFootwork
+		folderPath = user.FolderPaths.FrontCourtFootwork
 	case "drive":
-		folderId = user.FolderIDs.Drive
+		folderPath = user.FolderPaths.Drive
 	case "back_court_footwork":
-		folderId = user.FolderIDs.BackCourtFootwork
+		folderPath = user.FolderPaths.BackCourtFootwork
 	case "smash":
-		folderId = user.FolderIDs.Smash
+		folderPath = user.FolderPaths.Smash
 	case "netkill":
-		folderId = user.FolderIDs.Netkill
+		folderPath = user.FolderPaths.Netkill
 	case "doubles_rotation":
-		folderId = user.FolderIDs.DoublesRotation
+		folderPath = user.FolderPaths.DoublesRotation
 	}
-	return folderId
+	return folderPath
 }
 
-func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, videoBlob []byte, thumbnailPath string, filename string) (*drive.File, *drive.File, error) {
-	app.Logger.Info.Println("Getting folder ID...")
-	folderID := app.getVideoFolder(user, session.Skill)
+func (app *App) uploadVideoToBucket(user *db.UserData, session *db.UserSession, videoBlob []byte, thumbnailPath string, filename string) (*storage.UploadedFile, *storage.UploadedFile, error) {
+	app.Logger.Info.Println("Getting folder path...")
+	folderPath := app.getVideoFolderPath(user, session.Skill)
 
-	app.Logger.Info.Printf("Uploading video to folder ID: %v...\n", folderID)
+	// Construct full paths for video and thumbnail
+	videoFilename := fmt.Sprintf("%v.mp4", filename)
+	thumbnailFilename := fmt.Sprintf("%v_thumbnail.jpg", filename)
+	videoPath := folderPath + videoFilename
+	thumbnailFullPath := user.FolderPaths.Thumbnail + thumbnailFilename
+
+	app.Logger.Info.Printf("Uploading video to path: %v...\n", videoPath)
 	fileInfo := storage.FileInfo{
-		Drive: struct {
-			ParentFolderID    string
-			ThumbnailFolderID string
-			Filename          string
+		Bucket: struct {
+			VideoPath     string
+			ThumbnailPath string
 		}{
-			ParentFolderID:    folderID,
-			ThumbnailFolderID: user.FolderIDs.Thumbnail,
-			Filename:          fmt.Sprintf("%v.mp4", filename),
+			VideoPath:     videoPath,
+			ThumbnailPath: thumbnailFullPath,
 		},
 		Local: struct {
 			ThumbnailPath string
@@ -60,22 +63,22 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, v
 	}
 
 	// Upload file
-	driveFile, err := app.DriveClient.UploadVideo(&fileInfo)
+	uploadedVideo, err := app.BucketClient.UploadVideo(&fileInfo)
 	if err != nil {
 		app.Logger.Error.Println("Failed to upload the video")
 		return nil, nil, err
 	}
 
 	// Upload thumbnail
-	thumbnailFile, err := app.DriveClient.UploadThumbnail(&fileInfo)
+	uploadedThumbnail, err := app.BucketClient.UploadThumbnail(&fileInfo)
 	if err != nil {
 		app.Logger.Error.Println("Failed to upload the thumbnail")
 		return nil, nil, err
 	}
-	return driveFile, thumbnailFile, nil
+	return uploadedVideo, uploadedThumbnail, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, driveFile *drive.File, thumbnailFile *drive.File) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, videoFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
 
@@ -84,7 +87,7 @@ func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSess
 		userPortfolio,
 		date,
 		session,
-		driveFile,
+		videoFile,
 		thumbnailFile,
 	)
 }

@@ -21,11 +21,7 @@ type GCPConfig struct {
 }
 
 type StorageConfig struct {
-	GoogleDrive GoogleDriveConfig
-}
-
-type GoogleDriveConfig struct {
-	RootFolder string `env:"GOOGLE_DRIVE_ROOT_FOLDER"`
+	BucketName string `env:"GCS_BUCKET_NAME"`
 }
 type SecretManagerConfig struct {
 	SecretVersion string `env:"GCP_SECRET_VERSION"`
@@ -55,7 +51,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.Line.ChannelToken == "" &&
 		c.GCP.ProjectID == "" &&
 		c.GCP.Credentials == "" &&
-		c.GCP.Storage.GoogleDrive.RootFolder == "" &&
+		c.GCP.Storage.BucketName == "" &&
 		c.GCP.Secrets.SecretVersion == "" &&
 		c.GCP.Database.DatabaseID == "" &&
 		c.GCP.Database.DataDB == "" &&

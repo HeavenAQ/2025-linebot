@@ -110,7 +110,7 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 		Type: "bubble",
 		Hero: &linebot.ImageComponent{
 			Type:        "image",
-			URL:         "https://drive.usercontent.google.com/download?id=" + work.Thumbnail,
+			URL:         "https://storage.googleapis.com/moe-linebot-2026-storage/" + work.Thumbnail,
 			Size:        "full",
 			AspectRatio: "20:13",
 			AspectMode:  "cover",

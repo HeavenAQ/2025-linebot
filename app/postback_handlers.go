@@ -234,12 +234,12 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 	return app.LineBot.GetVideoContent(videoMsg.ID)
 }
 
-// uploadVideoContent uploads video content and thumbnail to Google Drive, then updates the user portfolio.
+// uploadVideoContent uploads video content and thumbnail to Google Cloud Storage, then updates the user portfolio.
 func (app *App) uploadVideoContent(event *linebot.Event, user *db.UserData, session *db.UserSession, videoContent []byte, thumbnailPath, replyToken string) {
 	today := time.Now().Format("2006-01-02-15-04")
-	video, thumbnail, err := app.uploadVideoToDrive(user, session, videoContent, thumbnailPath, today)
+	video, thumbnail, err := app.uploadVideoToBucket(user, session, videoContent, thumbnailPath, today)
 	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
+		app.handleUploadToBucketError(err, replyToken)
 		return
 	}
 

@@ -8,7 +8,6 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/utils"
 	"github.com/stretchr/testify/require"
-	googleDrive "google.golang.org/api/drive/v3"
 )
 
 // TestCreateUserData verifies the creation of user data
@@ -16,16 +15,11 @@ func TestCreateUserData(t *testing.T) {
 	t.Parallel()
 
 	// Define test data using RandomAlphabetString
+	userID := utils.RandomAlphabetString(10)
 	testUserFolders := &storage.UserFolders{
-		UserID:                     utils.RandomAlphabetString(10),
-		UserName:                   utils.RandomAlphabetString(10),
-		SmashFolderID:              utils.RandomAlphabetString(10),
-		DriveFolderID:              utils.RandomAlphabetString(10),
-		RootFolderID:               utils.RandomAlphabetString(10),
-		NetkillFolderID:            utils.RandomAlphabetString(10),
-		FrontCourtFootworkFolderID: utils.RandomAlphabetString(10),
-		BackCourtFootworkFolderID:  utils.RandomAlphabetString(10),
-		ThumbnailFolderID:          utils.RandomAlphabetString(10),
+		UserID:   userID,
+		UserName: utils.RandomAlphabetString(10),
+		RootPath: userID + "/",
 	}
 
 	testGPTthreads := &db.GPTThreadIDs{
@@ -37,13 +31,13 @@ func TestCreateUserData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, userData)
 
-	// Verify folder IDs and user data
+	// Verify folder paths and user data
 	require.Equal(t, testUserFolders.UserName, userData.Name)
 	require.Equal(t, testUserFolders.UserID, userData.ID)
 
-	// Verify folder IDs
-	require.Equal(t, testUserFolders.RootFolderID, userData.FolderIDs.Root)
-	require.Equal(t, testUserFolders.FrontCourtFootworkFolderID, userData.FolderIDs.FrontCourtFootwork)
+	// Verify folder paths
+	require.Equal(t, testUserFolders.RootPath, userData.FolderPaths.Root)
+	require.Equal(t, testUserFolders.RootPath+"front_court_footwork/", userData.FolderPaths.FrontCourtFootwork)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(userData.ID).Delete(*firestoreClient.Ctx)
@@ -59,10 +53,10 @@ func TestGetUserData(t *testing.T) {
 	testUser := &db.UserData{
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
-		FolderIDs: db.FolderIDs{
-			Root:               utils.RandomAlphabetString(10),
-			FrontCourtFootwork: utils.RandomAlphabetString(10),
-			Thumbnail:          utils.RandomAlphabetString(10),
+		FolderPaths: db.FolderPaths{
+			Root:               testUserID + "/",
+			FrontCourtFootwork: testUserID + "/front_court_footwork/",
+			Thumbnail:          testUserID + "/thumbnails/",
 		},
 		Handedness: db.Right,
 		Portfolio: db.Portfolios{
@@ -138,25 +132,26 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Define test data for video creation
-	driveFile := &googleDrive.File{
-		Id:   utils.RandomAlphabetString(10),
-		Name: "2024-10-14",
+	today := time.Now().Format("2006-01-02-15-04")
+	videoFile := &storage.UploadedFile{
+		Name: today + ".mp4",
+		Path: testUserID + "/front_court_footwork/" + today + ".mp4",
 	}
-	thumbnailFile := &googleDrive.File{
-		Id: utils.RandomAlphabetString(10),
+	thumbnailFile := &storage.UploadedFile{
+		Name: today + "_thumbnail.jpg",
+		Path: testUserID + "/thumbnails/" + today + "_thumbnail.jpg",
 	}
 	session := &db.UserSession{
 		UserState: db.WritingNotes,
 	}
 
 	// Call the method to add video to portfolio
-	today := time.Now().Format("2006-01-02-15-04")
 	err = firestoreClient.CreateUserPortfolioVideo(
 		testUser,
 		&testUser.Portfolio.FrontCourtFootwork,
 		today,
 		session,
-		driveFile,
+		videoFile,
 		thumbnailFile,
 	)
 	require.NoError(t, err)
@@ -164,7 +159,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	// Verify that the video was added to the portfolio
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
-	require.NotNil(t, updatedUser.Portfolio.FrontCourtFootwork[driveFile.Name])
+	require.NotNil(t, updatedUser.Portfolio.FrontCourtFootwork[today])
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

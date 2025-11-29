@@ -8,22 +8,25 @@ func (app *App) createUser(userID string) *db.UserData {
 	username, err := app.LineBot.GetUserName(userID)
 	if err != nil {
 		app.Logger.Error.Println("Error getting new user's name:", err)
+		return nil
 	}
 	app.Logger.Info.Println("User name has been retrieved")
 
-	// Create user's folders
-	app.Logger.Info.Println("Creating the user's folders")
-	userFolders, err := app.DriveClient.CreateUserFolders(userID, username)
+	// Create user's folder structure in bucket
+	app.Logger.Info.Println("Creating the user's folder structure")
+	userFolders, err := app.BucketClient.CreateUserFolders(userID, username)
 	if err != nil {
-		app.Logger.Error.Println("Error creating new user's folders:", err)
+		app.Logger.Error.Println("Error creating new user's folder structure:", err)
+		return nil
 	}
-	app.Logger.Info.Println("User's folders has been created")
+	app.Logger.Info.Println("User's folder structure has been created")
 
 	// create GPT threads for users
 	app.Logger.Info.Println("Creating the user's GPT threads")
 	gptThreadIDs, err := app.createUserGPTThreads()
 	if err != nil {
 		app.Logger.Error.Println("Error creating user's GPT threads:", err)
+		return nil
 	}
 	app.Logger.Info.Println("User's GPT threads have been created")
 
@@ -32,6 +35,7 @@ func (app *App) createUser(userID string) *db.UserData {
 	userData, err := app.FirestoreClient.CreateUserData(userFolders, gptThreadIDs)
 	if err != nil {
 		app.Logger.Error.Println("Error creating new user's data:", err)
+		return nil
 	}
 	app.Logger.Info.Println("User's data has been added")
 	return userData
@@ -76,6 +80,10 @@ func (app *App) createUserIfNotExist(userID string) *db.UserData {
 	if err != nil {
 		app.Logger.Warn.Println("User not found, creating new user...")
 		userData := app.createUser(userID)
+		if userData == nil {
+			app.Logger.Error.Println("Failed to create new user")
+			return nil
+		}
 		user = userData
 
 		app.Logger.Info.Println("New user created successfully.")
@@ -91,6 +99,7 @@ func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 		session, err = app.FirestoreClient.CreateUserSession(userID)
 		if err != nil {
 			app.Logger.Error.Println("Error creating new user session:", err)
+			return nil
 		}
 	}
 

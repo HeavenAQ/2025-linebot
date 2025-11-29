@@ -5,7 +5,16 @@ import "github.com/line/line-bot-sdk-go/v7/linebot"
 func (app *App) handleEvents(events []*linebot.Event) {
 	for _, event := range events {
 		user := app.createUserIfNotExist(event.Source.UserID)
+		if user == nil {
+			app.Logger.Error.Printf("Failed to get or create user for ID: %s", event.Source.UserID)
+			continue
+		}
+
 		session := app.createUserSessionIfNotExist(event.Source.UserID)
+		if session == nil {
+			app.Logger.Error.Printf("Failed to get or create session for user ID: %s", event.Source.UserID)
+			continue
+		}
 
 		switch event.Type {
 		case linebot.EventTypeFollow:

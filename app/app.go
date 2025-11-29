@@ -14,7 +14,7 @@ type App struct {
 	Logger          *Logger
 	LineBot         *line.Client
 	FirestoreClient *db.FirestoreClient
-	DriveClient     *storage.GoogleDriveClient
+	BucketClient    *storage.BucketClient
 	GPTClient       *gpt.Client
 }
 
@@ -53,10 +53,10 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
-	// Set up Google Drive client
-	driveClient, err := storage.NewGoogleDriveClient(
+	// Set up Google Cloud Storage bucket client
+	bucketClient, err := storage.NewBucketClient(
 		credentials,
-		cfg.GCP.Storage.GoogleDrive.RootFolder,
+		cfg.GCP.Storage.BucketName,
 	)
 	if err != nil {
 		panic(err)
@@ -70,7 +70,7 @@ func NewApp(configPath string) *App {
 		Logger:          logger,
 		LineBot:         lineBot,
 		FirestoreClient: firestoreClient,
-		DriveClient:     driveClient,
+		BucketClient:    bucketClient,
 		GPTClient:       gptClient,
 	}
 }

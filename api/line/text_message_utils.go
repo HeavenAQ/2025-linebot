@@ -161,8 +161,8 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 }
 
 func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
-	videoLink := "https://drive.google.com/uc?export=download&id=" + video.VideoID
-	thumbnailLink := "https://drive.usercontent.google.com/download?id=" + video.ThumbnailID
+	videoLink := "https://storage.googleapis.com/moe-linebot-2026-storage/" + video.VideoID
+	thumbnailLink := "https://storage.googleapis.com/moe-linebot-2026-storage/" + video.ThumbnailID
 	return client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewVideoMessage(videoLink, thumbnailLink),

@@ -4,19 +4,18 @@ import (
 	"fmt"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	googleDrive "google.golang.org/api/drive/v3"
 )
 
 type UserData struct {
 	Portfolio    Portfolios   `json:"portfolio"`
-	FolderIDs    FolderIDs    `json:"folderIDs"`
+	FolderPaths  FolderPaths  `json:"folderPaths"`
 	GPTThreadIDs GPTThreadIDs `json:"gptThreadIDs"`
 	Name         string       `json:"name"`
 	ID           string       `json:"id"`
 	Handedness   Handedness   `json:"handedness"`
 }
 
-type FolderIDs struct {
+type FolderPaths struct {
 	Root               string `json:"root"`
 	Smash              string `json:"smash"`
 	Drive              string `json:"drive"`
@@ -68,19 +67,22 @@ type Work struct {
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
+
+	// In GCS, folders are just path prefixes
+	rootPath := userFolders.RootPath
 	newUserTemplate := &UserData{
 		Name:       userFolders.UserName,
 		ID:         userFolders.UserID,
 		Handedness: Right,
-		FolderIDs: FolderIDs{
-			Root:               userFolders.RootFolderID,
-			Smash:              userFolders.SmashFolderID,
-			Drive:              userFolders.DriveFolderID,
-			Netkill:            userFolders.NetkillFolderID,
-			FrontCourtFootwork: userFolders.FrontCourtFootworkFolderID,
-			BackCourtFootwork:  userFolders.BackCourtFootworkFolderID,
-			DoublesRotation:    userFolders.DoublesRotationFolderID,
-			Thumbnail:          userFolders.ThumbnailFolderID,
+		FolderPaths: FolderPaths{
+			Root:               rootPath,
+			Smash:              rootPath + "smash/",
+			Drive:              rootPath + "drive/",
+			Netkill:            rootPath + "netkill/",
+			FrontCourtFootwork: rootPath + "front_court_footwork/",
+			BackCourtFootwork:  rootPath + "back_court_footwork/",
+			DoublesRotation:    rootPath + "doubles_rotation/",
+			Thumbnail:          rootPath + "thumbnails/",
 		},
 		Portfolio: Portfolios{
 			Smash:              map[string]Work{},
@@ -129,13 +131,12 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, driveFile *googleDrive.File, thumbnailFile *googleDrive.File) error {
-	id := driveFile.Id
+func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, videoFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
 	work := Work{
 		DateTime:   date,
 		Reflection: "尚未填寫心得",
-		Video:      id,
-		Thumbnail:  thumbnailFile.Id,
+		Video:      videoFile.Path,
+		Thumbnail:  thumbnailFile.Path,
 	}
 	(*userPortfolio)[date] = work
 	err := client.UpdateUserSession(user.ID, *session)

@@ -32,8 +32,9 @@ type SecretManagerConfig struct {
 }
 
 type FirestoreConfig struct {
-	DataDB    string `env:"FIREBASE_DATA_DB"`
-	SessionDB string `env:"FIREBASE_SESSION_DB"`
+	DatabaseID string `env:"FIREBASE_ID"`
+	DataDB     string `env:"FIREBASE_DATA_DB"`
+	SessionDB  string `env:"FIREBASE_SESSION_DB"`
 }
 
 type GPTConfig struct {
@@ -56,6 +57,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.GCP.Credentials == "" &&
 		c.GCP.Storage.GoogleDrive.RootFolder == "" &&
 		c.GCP.Secrets.SecretVersion == "" &&
+		c.GCP.Database.DatabaseID == "" &&
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
 		c.GPT.APIKey == "")

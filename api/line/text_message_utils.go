@@ -244,10 +244,8 @@ func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) 
 		},
 		db.Left: {
 			db.Smash: []string{
-				"https://youtu.be/ah9ZE9KNFpI",
-				"https://youtu.be/JKbQSG27vkk",
-				"https://youtu.be/ah9ZE9KNFpI",
-				"https://youtu.be/JKbQSG27vkk",
+				"https://youtu.be/zn58JKpXy34",
+				"https://youtu.be/2vTLZkNyIng",
 			},
 			db.Drive: []string{
 				"https://youtu.be/zatTzMKNUgY",

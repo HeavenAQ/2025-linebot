@@ -45,6 +45,7 @@ func NewApp(configPath string) *App {
 	firestoreClient, err := db.NewFirestoreClient(
 		credentials,
 		cfg.GCP.ProjectID,
+		cfg.GCP.Database.DatabaseID,
 		cfg.GCP.Database.DataDB,
 		cfg.GCP.Database.SessionDB,
 	)

@@ -322,19 +322,21 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, r
 	if ok {
 		msg = message.Text
 	}
-    // Send message and get the assistant's reply via Responses API
-    response, err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
-    if err != nil {
-        app.handleAddMessageToGPTThreadError(err, replyToken)
-        return
-    }
+	// Send message and get the assistant's reply via Responses API
+	response, err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
+	if err != nil {
+		app.Logger.Error.Println(err)
+		app.handleAddMessageToGPTThreadError(err, replyToken)
+		return
+	}
 
-    // Send a message to the user to continue chatting with GPT
-    _, err = app.LineBot.SendGPTChattingModeReply(replyToken, response)
-    if err != nil {
-        handleLineMessageResponseError(err)
-        return
-    }
+	// Send a message to the user to continue chatting with GPT
+	_, err = app.LineBot.SendGPTChattingModeReply(replyToken, response)
+	if err != nil {
+		app.Logger.Error.Println(err)
+		handleLineMessageResponseError(err)
+		return
+	}
 }
 
 // handleSelectingPortfolio processes the portfolio selection during note writing

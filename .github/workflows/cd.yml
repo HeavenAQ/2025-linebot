@@ -14,6 +14,51 @@ jobs:
       id-token: write
 
     steps:
+      - name: Validate required secrets
+        env:
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+          GCP_SECRET_VERSION: ${{ secrets.GCP_SECRET_VERSION }}
+          GOOGLE_DRIVE_ROOT_FOLDER: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER }}
+          FIREBASE_ID: ${{ secrets.FIREBASE_ID }}
+          FIREBASE_DATA_DB: ${{ secrets.FIREBASE_DATA_DB }}
+          FIREBASE_SESSION_DB: ${{ secrets.FIREBASE_SESSION_DB }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_PROMPT_ID: ${{ secrets.OPENAI_PROMPT_ID }}
+          TIMEZONE: ${{ secrets.TIMEZONE }}
+          GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          echo "Validating required environment secrets..."
+
+          required_secrets=(
+            LINE_CHANNEL_SECRET
+            LINE_CHANNEL_TOKEN
+            GCP_PROJECT_ID
+            GCP_CREDENTIALS
+            GCP_SECRET_VERSION
+            GOOGLE_DRIVE_ROOT_FOLDER
+            FIREBASE_ID
+            FIREBASE_DATA_DB
+            FIREBASE_SESSION_DB
+            OPENAI_API_KEY
+            OPENAI_PROMPT_ID 
+            TIMEZONE
+            GCP_SA_EMAIL
+            GCS_BUCKET_NAME
+          )
+
+          for secret in "${required_secrets[@]}"; do
+            if [ -z "${!secret}" ]; then
+              echo "❌ Missing required secret: $secret"
+              exit 1
+            else
+              echo "✅ $secret is present"
+            fi
+          done
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -52,12 +97,13 @@ jobs:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
           GCP_SECRET_VERSION: ${{ secrets.GCP_SECRET_VERSION }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
           GOOGLE_DRIVE_ROOT_FOLDER: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER }}
           FIREBASE_ID: ${{ secrets.FIREBASE_ID }}
           FIREBASE_DATA_DB: ${{ secrets.FIREBASE_DATA_DB }}
           FIREBASE_SESSION_DB: ${{ secrets.FIREBASE_SESSION_DB }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_ASSISTANT_ID: ${{ secrets.OPENAI_ASSISTANT_ID }}
+          OPENAI_PROMPT_ID: ${{ secrets.OPENAI_PROMPT_ID }}
           TZ: ${{ secrets.TIMEZONE }}
         run: |
           gcloud run deploy moe-linebot-2026 \
@@ -78,6 +124,7 @@ jobs:
               FIREBASE_DATA_DB=${FIREBASE_DATA_DB},
               FIREBASE_SESSION_DB=${FIREBASE_SESSION_DB},
               OPENAI_API_KEY=${OPENAI_API_KEY},
-              OPENAI_ASSISTANT_ID=${OPENAI_ASSISTANT_ID},
+              OPENAI_PROMPT_ID=${OPENAI_PROMPT_ID},
+              GCS_BUCKET_NAME=${GCS_BUCKET_NAME},
               TZ=${TZ}
             "

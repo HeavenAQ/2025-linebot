@@ -25,16 +25,16 @@ func (s UserState) String() string {
 }
 
 func (s UserState) ChnString() string {
-	return [...]string{"學習反思", "GPT", "專家影片", "學習歷程", "影片上傳", "使用說明", "無"}[s]
+	return [...]string{"學習反思", "GPT對談", "專家示範短影音", "學習歷程", "影片上傳", "使用說明", "無"}[s]
 }
 
 func UserStateChnStrToEnum(str string) (UserState, error) {
 	switch str {
 	case "學習反思":
 		return WritingNotes, nil
-	case "GPT":
+	case "GPT對談":
 		return ChattingWithGPT, nil
-	case "專家影片":
+	case "專家示範短影音":
 		return ViewingExpertVideos, nil
 	case "學習歷程":
 		return ViewingPortfoilo, nil

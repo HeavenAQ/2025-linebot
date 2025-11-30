@@ -18,18 +18,24 @@ const tmpFolder = "/tmp/"
 func (app *App) getVideoFolderPath(user *db.UserData, skill string) string {
 	var folderPath string
 	switch skill {
-	case "front_court_footwork":
-		folderPath = user.FolderPaths.FrontCourtFootwork
-	case "drive":
-		folderPath = user.FolderPaths.Drive
-	case "back_court_footwork":
-		folderPath = user.FolderPaths.BackCourtFootwork
-	case "smash":
-		folderPath = user.FolderPaths.Smash
-	case "netkill":
-		folderPath = user.FolderPaths.Netkill
-	case "doubles_rotation":
-		folderPath = user.FolderPaths.DoublesRotation
+	case "jumping_clear":
+		folderPath = user.FolderPaths.JumpingClear
+	case "front_court_high_point_drop":
+		folderPath = user.FolderPaths.FrontCourtHighPointDrop
+	case "defensive_clear":
+		folderPath = user.FolderPaths.DefensiveClear
+	case "front_court_low_point_lift":
+		folderPath = user.FolderPaths.FrontCourtLowPointLift
+	case "jumping_smash":
+		folderPath = user.FolderPaths.JumpingSmash
+	case "mid_court_chasse_to_back":
+		folderPath = user.FolderPaths.MidCourtChasseToBack
+	case "forward_cross_step":
+		folderPath = user.FolderPaths.ForwardCrossStep
+	case "mid_court_back_cross_step":
+		folderPath = user.FolderPaths.MidCourtBackCrossStep
+	case "defensive_slide_step":
+		folderPath = user.FolderPaths.DefensiveSlideStep
 	}
 	return folderPath
 }

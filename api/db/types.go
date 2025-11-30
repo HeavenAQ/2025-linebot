@@ -118,40 +118,79 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 type BadmintonSkill int8
 
 const (
-	Smash BadmintonSkill = iota
-	Drive
-	NetKill
-	BackCourtFootwork
-	FrontCourtFootwork
-	DoublesRotation
+	JumpingClear BadmintonSkill = iota
+	FrontCourtHighPointDrop
+	DefensiveClear
+	FrontCourtLowPointLift
+	JumpingSmash
+	MidCourtChasseToBack
+	ForwardCrossStep
+	MidCourtBackCrossStep
+	DefensiveSlideStep
 )
 
 func BadmintonSkillSlice() []BadmintonSkill {
-	return []BadmintonSkill{Smash, Drive, NetKill, BackCourtFootwork, FrontCourtFootwork, DoublesRotation}
+	return []BadmintonSkill{
+		JumpingClear,
+		FrontCourtHighPointDrop,
+		DefensiveClear,
+		FrontCourtLowPointLift,
+		JumpingSmash,
+		MidCourtChasseToBack,
+		ForwardCrossStep,
+		MidCourtBackCrossStep,
+		DefensiveSlideStep,
+	}
 }
 
 func (s BadmintonSkill) String() string {
-	return [...]string{"smash", "drive", "netkill", "back_court_footwork", "front_court_footwork", "doubles_rotation"}[s]
+	return [...]string{
+		"jumping_clear",
+		"front_court_high_point_drop",
+		"defensive_clear",
+		"front_court_low_point_lift",
+		"jumping_smash",
+		"mid_court_chasse_to_back",
+		"forward_cross_step",
+		"mid_court_back_cross_step",
+		"defensive_slide_step",
+	}[s]
 }
 
 func (s BadmintonSkill) ChnString() string {
-	return [...]string{"殺球", "抽球", "壓球", "後場腳步", "前場腳步", "雙打輪轉"}[s]
+	return [...]string{
+		"後場起跳擊高遠球",
+		"前場高點小球",
+		"後場被動高遠球",
+		"前場低點挑球",
+		"後場起跳擊殺球",
+		"中場墊步至後場",
+		"前交叉步法",
+		"中場後交叉步至後場",
+		"被動滑步",
+	}[s]
 }
 
 func SkillStrToEnum(str string) BadmintonSkill {
 	switch str {
-	case "smash":
-		return Smash
-	case "drive":
-		return Drive
-	case "netkill":
-		return NetKill
-	case "back_court_footwork":
-		return BackCourtFootwork
-	case "front_court_footwork":
-		return FrontCourtFootwork
-	case "doubles_rotation":
-		return DoublesRotation
+	case "jumping_clear":
+		return JumpingClear
+	case "front_court_high_point_drop":
+		return FrontCourtHighPointDrop
+	case "defensive_clear":
+		return DefensiveClear
+	case "front_court_low_point_lift":
+		return FrontCourtLowPointLift
+	case "jumping_smash":
+		return JumpingSmash
+	case "mid_court_chasse_to_back":
+		return MidCourtChasseToBack
+	case "forward_cross_step":
+		return ForwardCrossStep
+	case "mid_court_back_cross_step":
+		return MidCourtBackCrossStep
+	case "defensive_slide_step":
+		return DefensiveSlideStep
 	default:
 		return -1
 	}

@@ -220,52 +220,29 @@ func (client *Client) SendPortfolio(
 func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
 	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
 		db.Right: {
-			db.Smash: []string{
-				"https://youtu.be/6T6zMCKc6Mw",
-				"https://youtu.be/k9RejtgoatA",
-				"https://youtu.be/4XVJKG6KwlI",
-				"https://youtu.be/g58fyhMkRD4",
-			},
-			db.Drive: []string{
-				"https://youtu.be/ST5citEQZps",
-			},
-			db.NetKill: []string{
-				"https://youtu.be/mklLfEWPG_U",
-			},
-			db.BackCourtFootwork: []string{
-				"https://youtu.be/K7EEhEF2vMo",
-			},
-			db.FrontCourtFootwork: []string{
-				"https://youtu.be/IPl7-mCESfs",
-			},
-			db.DoublesRotation: []string{
-				"https://youtu.be/7i0KvbJ4rEE",
-			},
+			db.JumpingClear:            []string{},
+			db.FrontCourtHighPointDrop: []string{},
+			db.DefensiveClear:          []string{},
+			db.FrontCourtLowPointLift:  []string{},
+			db.JumpingSmash:            []string{},
+			db.MidCourtChasseToBack:    []string{},
+			db.ForwardCrossStep:        []string{},
+			db.MidCourtBackCrossStep:   []string{},
+			db.DefensiveSlideStep:      []string{},
 		},
 		db.Left: {
-			db.Smash: []string{
-				"https://youtu.be/zn58JKpXy34",
-				"https://youtu.be/2vTLZkNyIng",
-			},
-			db.Drive: []string{
-				"https://youtu.be/zatTzMKNUgY",
-				"https://youtu.be/BKpO9u9Ci14",
-			},
-			db.NetKill: []string{
-				"https://youtu.be/lWnLgTaiSAY",
-				"https://youtu.be/KkAfJBuYx00",
-			},
-			db.BackCourtFootwork: []string{
+			db.JumpingClear: []string{
 				"https://youtu.be/yyjC-xXOsdg",
 				"https://youtu.be/AzF44kouBBQ",
 			},
-			db.FrontCourtFootwork: []string{
-				"https://youtu.be/9i_5PgCYgts",
-				"https://youtu.be/AZtvW9faDA8",
-			},
-			db.DoublesRotation: []string{
-				"https://youtu.be/7i0KvbJ4rEE",
-			},
+			db.FrontCourtHighPointDrop: []string{},
+			db.DefensiveClear:          []string{},
+			db.FrontCourtLowPointLift:  []string{},
+			db.JumpingSmash:            []string{},
+			db.MidCourtChasseToBack:    []string{},
+			db.ForwardCrossStep:        []string{},
+			db.MidCourtBackCrossStep:   []string{},
+			db.DefensiveSlideStep:      []string{},
 		},
 	}
 	return actionUrls[hand][skill]

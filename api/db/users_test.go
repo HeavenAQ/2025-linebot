@@ -23,7 +23,15 @@ func TestCreateUserData(t *testing.T) {
 	}
 
 	testGPTthreads := &db.GPTThreadIDs{
-		DoublesRotation: utils.RandomAlphabetString(10),
+		JumpingClear:            utils.RandomAlphabetString(10),
+		FrontCourtHighPointDrop: utils.RandomAlphabetString(10),
+		DefensiveClear:          utils.RandomAlphabetString(10),
+		FrontCourtLowPointLift:  utils.RandomAlphabetString(10),
+		JumpingSmash:            utils.RandomAlphabetString(10),
+		MidCourtChasseToBack:    utils.RandomAlphabetString(10),
+		ForwardCrossStep:        utils.RandomAlphabetString(10),
+		MidCourtBackCrossStep:   utils.RandomAlphabetString(10),
+		DefensiveSlideStep:      utils.RandomAlphabetString(10),
 	}
 
 	// Call the method to create user data
@@ -37,7 +45,7 @@ func TestCreateUserData(t *testing.T) {
 
 	// Verify folder paths
 	require.Equal(t, testUserFolders.RootPath, userData.FolderPaths.Root)
-	require.Equal(t, testUserFolders.RootPath+"front_court_footwork/", userData.FolderPaths.FrontCourtFootwork)
+	require.Equal(t, testUserFolders.RootPath+"front_court_high_point_drop/", userData.FolderPaths.FrontCourtHighPointDrop)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(userData.ID).Delete(*firestoreClient.Ctx)
@@ -54,18 +62,21 @@ func TestGetUserData(t *testing.T) {
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
 		FolderPaths: db.FolderPaths{
-			Root:               testUserID + "/",
-			FrontCourtFootwork: testUserID + "/front_court_footwork/",
-			Thumbnail:          testUserID + "/thumbnails/",
+			Root:                    testUserID + "/",
+			FrontCourtHighPointDrop: testUserID + "/front_court_high_point_drop/",
+			Thumbnail:               testUserID + "/thumbnails/",
 		},
 		Handedness: db.Right,
 		Portfolio: db.Portfolios{
-			Smash:              map[string]db.Work{},
-			Drive:              map[string]db.Work{},
-			Netkill:            map[string]db.Work{},
-			FrontCourtFootwork: map[string]db.Work{},
-			BackCourtFootwork:  map[string]db.Work{},
-			DoublesRotation:    map[string]db.Work{},
+			JumpingClear:            map[string]db.Work{},
+			FrontCourtHighPointDrop: map[string]db.Work{},
+			DefensiveClear:          map[string]db.Work{},
+			FrontCourtLowPointLift:  map[string]db.Work{},
+			JumpingSmash:            map[string]db.Work{},
+			MidCourtChasseToBack:    map[string]db.Work{},
+			ForwardCrossStep:        map[string]db.Work{},
+			MidCourtBackCrossStep:   map[string]db.Work{},
+			DefensiveSlideStep:      map[string]db.Work{},
 		},
 	}
 	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
@@ -120,12 +131,15 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
 		Portfolio: db.Portfolios{
-			Smash:              map[string]db.Work{},
-			Drive:              map[string]db.Work{},
-			Netkill:            map[string]db.Work{},
-			FrontCourtFootwork: map[string]db.Work{},
-			BackCourtFootwork:  map[string]db.Work{},
-			DoublesRotation:    map[string]db.Work{},
+			JumpingClear:            map[string]db.Work{},
+			FrontCourtHighPointDrop: map[string]db.Work{},
+			DefensiveClear:          map[string]db.Work{},
+			FrontCourtLowPointLift:  map[string]db.Work{},
+			JumpingSmash:            map[string]db.Work{},
+			MidCourtChasseToBack:    map[string]db.Work{},
+			ForwardCrossStep:        map[string]db.Work{},
+			MidCourtBackCrossStep:   map[string]db.Work{},
+			DefensiveSlideStep:      map[string]db.Work{},
 		},
 	}
 	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
@@ -135,7 +149,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	today := time.Now().Format("2006-01-02-15-04")
 	videoFile := &storage.UploadedFile{
 		Name: today + ".mp4",
-		Path: testUserID + "/front_court_footwork/" + today + ".mp4",
+		Path: testUserID + "/front_court_high_point_drop/" + today + ".mp4",
 	}
 	thumbnailFile := &storage.UploadedFile{
 		Name: today + "_thumbnail.jpg",
@@ -148,7 +162,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	// Call the method to add video to portfolio
 	err = firestoreClient.CreateUserPortfolioVideo(
 		testUser,
-		&testUser.Portfolio.FrontCourtFootwork,
+		&testUser.Portfolio.FrontCourtHighPointDrop,
 		today,
 		session,
 		videoFile,
@@ -159,7 +173,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	// Verify that the video was added to the portfolio
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
-	require.NotNil(t, updatedUser.Portfolio.FrontCourtFootwork[today])
+	require.NotNil(t, updatedUser.Portfolio.FrontCourtHighPointDrop[today])
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

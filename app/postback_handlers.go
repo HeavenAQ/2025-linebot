@@ -56,7 +56,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
 	case db.ChattingWithGPT:
-		app.handleChattingWithGPT(event, user, replyToken)
+		app.handleChattingWithGPT(event, user, session, replyToken)
 	case db.ViewingExpertVideos:
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
@@ -315,15 +315,39 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 }
 
 // handleChattingWithGPT handles the GPT chatting action.
-func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, replyToken string) {
+func (app *App) handleChattingWithGPT(event *linebot.Event, user *db.UserData, session *db.UserSession, replyToken string) {
 	// get message from event
 	var msg string
 	message, ok := event.Message.(*linebot.TextMessage)
 	if ok {
 		msg = message.Text
 	}
+
+	// Get the GPT thread ID based on the skill in session
+	var threadID string
+	switch session.Skill {
+	case "jumping_clear":
+		threadID = user.GPTThreadIDs.JumpingClear
+	case "front_court_high_point_drop":
+		threadID = user.GPTThreadIDs.FrontCourtHighPointDrop
+	case "defensive_clear":
+		threadID = user.GPTThreadIDs.DefensiveClear
+	case "front_court_low_point_lift":
+		threadID = user.GPTThreadIDs.FrontCourtLowPointLift
+	case "jumping_smash":
+		threadID = user.GPTThreadIDs.JumpingSmash
+	case "mid_court_chasse_to_back":
+		threadID = user.GPTThreadIDs.MidCourtChasseToBack
+	case "forward_cross_step":
+		threadID = user.GPTThreadIDs.ForwardCrossStep
+	case "mid_court_back_cross_step":
+		threadID = user.GPTThreadIDs.MidCourtBackCrossStep
+	case "defensive_slide_step":
+		threadID = user.GPTThreadIDs.DefensiveSlideStep
+	}
+
 	// Send message and get the assistant's reply via Responses API
-	response, err := app.GPTClient.AddMessageToThread(user.GPTThreadIDs.DoublesRotation, msg)
+	response, err := app.GPTClient.AddMessageToThread(threadID, msg)
 	if err != nil {
 		app.Logger.Error.Println(err)
 		app.handleAddMessageToGPTThreadError(err, replyToken)

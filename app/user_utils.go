@@ -43,7 +43,17 @@ func (app *App) createUser(userID string) *db.UserData {
 
 func (app *App) createUserGPTThreads() (*db.GPTThreadIDs, error) {
 	userGPTThreads := db.GPTThreadIDs{}
-	threadIDAddrs := []*string{&userGPTThreads.DoublesRotation}
+	threadIDAddrs := []*string{
+		&userGPTThreads.JumpingClear,
+		&userGPTThreads.FrontCourtHighPointDrop,
+		&userGPTThreads.DefensiveClear,
+		&userGPTThreads.FrontCourtLowPointLift,
+		&userGPTThreads.JumpingSmash,
+		&userGPTThreads.MidCourtChasseToBack,
+		&userGPTThreads.ForwardCrossStep,
+		&userGPTThreads.MidCourtBackCrossStep,
+		&userGPTThreads.DefensiveSlideStep,
+	}
 	resultChannel, errChannel := make(chan string), make(chan error)
 
 	// create gpt threads concurrently
@@ -109,18 +119,24 @@ func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db.Work {
 	var work map[string]db.Work
 	switch skill {
-	case "front_court_footwork":
-		work = user.Portfolio.FrontCourtFootwork
-	case "drive":
-		work = user.Portfolio.Drive
-	case "back_court_footwork":
-		work = user.Portfolio.BackCourtFootwork
-	case "smash":
-		work = user.Portfolio.Smash
-	case "netkill":
-		work = user.Portfolio.Netkill
-	case "doubles_rotation":
-		work = user.Portfolio.DoublesRotation
+	case "jumping_clear":
+		work = user.Portfolio.JumpingClear
+	case "front_court_high_point_drop":
+		work = user.Portfolio.FrontCourtHighPointDrop
+	case "defensive_clear":
+		work = user.Portfolio.DefensiveClear
+	case "front_court_low_point_lift":
+		work = user.Portfolio.FrontCourtLowPointLift
+	case "jumping_smash":
+		work = user.Portfolio.JumpingSmash
+	case "mid_court_chasse_to_back":
+		work = user.Portfolio.MidCourtChasseToBack
+	case "forward_cross_step":
+		work = user.Portfolio.ForwardCrossStep
+	case "mid_court_back_cross_step":
+		work = user.Portfolio.MidCourtBackCrossStep
+	case "defensive_slide_step":
+		work = user.Portfolio.DefensiveSlideStep
 	}
 	return &work
 }

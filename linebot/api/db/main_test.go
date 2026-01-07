@@ -11,19 +11,16 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
 	"github.com/HeavenAQ/nstc-linebot-2025/config"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/api/option"
 )
 
 func setupFirestoreClient(t *testing.T) *db.FirestoreClient {
 	// Fetch credentials from Secret Manager
-	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
-	credentials, err := secret.AccessSecretVersion(secretName)
+	err := secret.DownloadEnvFile()
 	require.NoError(t, err)
-	require.NotNil(t, credentials)
 
 	// Initialize Firestore client
 	ctx := context.Background()
-	client, err := firestore.NewClient(ctx, cfg.GCP.ProjectID, option.WithCredentialsJSON(credentials))
+	client, err := firestore.NewClient(ctx, cfg.GCP.ProjectID)
 	require.NoError(t, err)
 	return &db.FirestoreClient{
 		Ctx:      &ctx,
@@ -40,12 +37,17 @@ var (
 
 // setup database
 func TestMain(m *testing.M) {
-	conf, err := config.LoadConfig("../../.env")
-	if err != nil {
-		log.Fatal("Failed to load configurations")
-	}
-	cfg = conf
-	firestoreClient = setupFirestoreClient(&testing.T{})
+    // Skip Firestore live tests unless explicitly enabled
+    if os.Getenv("RUN_LIVE_FIRESTORE") != "1" {
+        log.Println("Skipping Firestore live tests; set RUN_LIVE_FIRESTORE=1 to enable.")
+        os.Exit(0)
+    }
+    conf, err := config.LoadConfig("../../.env")
+    if err != nil {
+        log.Fatal("Failed to load configurations")
+    }
+    cfg = conf
+    firestoreClient = setupFirestoreClient(&testing.T{})
 
-	os.Exit(m.Run())
+    os.Exit(m.Run())
 }

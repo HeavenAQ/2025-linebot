@@ -17,7 +17,6 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
-	"google.golang.org/api/drive/v3"
 )
 
 const tmpFolder = "./tmp/"
@@ -32,30 +31,25 @@ func (app *App) getVideoFolder(user *db.UserData, skill string) string {
 	var folderId string
 	switch skill {
 	case "serve":
-		folderId = user.FolderIDs.Serve
+		folderId = user.FolderPaths.Serve
 	case "smash":
-		folderId = user.FolderIDs.Smash
+		folderId = user.FolderPaths.Smash
 	case "clear":
-		folderId = user.FolderIDs.Clear
+		folderId = user.FolderPaths.Clear
 	}
 	return folderId
 }
 
-func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, skeletonVideo []byte, thumbnailPath string, filename string) (*drive.File, *drive.File, error) {
+func (app *App) uploadVideoToBucket(user *db.UserData, session *db.UserSession, skeletonVideo []byte, thumbnailPath string, filename string) (*storage.UploadedFile, *storage.UploadedFile, error) {
 	app.Logger.Info.Println("Getting folder ID...")
 	folderID := app.getVideoFolder(user, session.Skill)
 
 	app.Logger.Info.Printf("Uploading video to folder ID: %v...\n", folderID)
 	fileInfo := storage.FileInfo{
-		Drive: struct {
-			ParentFolderID    string
-			ThumbnailFolderID string
-			Filename          string
-		}{
-			ParentFolderID:    folderID,
-			ThumbnailFolderID: user.FolderIDs.Thumbnail,
-			Filename:          fmt.Sprintf("%v.mp4", filename),
-		},
+		Bucket: struct {
+			VideoPath     string
+			ThumbnailPath string
+		}{},
 		Local: struct {
 			ThumbnailPath string
 			VideoBlob     []byte
@@ -66,14 +60,14 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 	}
 
 	// Upload file
-	driveFile, err := app.DriveClient.UploadVideo(&fileInfo)
+	driveFile, err := app.StorageClient.UploadVideo(&fileInfo)
 	if err != nil {
 		app.Logger.Error.Println("Failed to upload the video")
 		return nil, nil, err
 	}
 
 	// Upload thumbnail
-	thumbnailFile, err := app.DriveClient.UploadThumbnail(&fileInfo)
+	thumbnailFile, err := app.StorageClient.UploadThumbnail(&fileInfo)
 	if err != nil {
 		app.Logger.Error.Println("Failed to upload the thumbnail")
 		return nil, nil, err
@@ -81,7 +75,7 @@ func (app *App) uploadVideoToDrive(user *db.UserData, session *db.UserSession, s
 	return driveFile, thumbnailFile, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, grade commons.GradingOutcome, driveFile *drive.File, thumbnailFile *drive.File) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, grade commons.GradingOutcome, videoFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
 
@@ -90,7 +84,7 @@ func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSess
 		userPortfolio,
 		date,
 		session,
-		driveFile,
+		videoFile,
 		thumbnailFile,
 		grade,
 	)

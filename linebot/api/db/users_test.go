@@ -1,15 +1,14 @@
 package db_test
 
 import (
-	"testing"
-	"time"
+    "testing"
+    "time"
 
-	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
-	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	"github.com/HeavenAQ/nstc-linebot-2025/commons"
-	"github.com/HeavenAQ/nstc-linebot-2025/utils"
-	"github.com/stretchr/testify/require"
-	googleDrive "google.golang.org/api/drive/v3"
+    "github.com/HeavenAQ/nstc-linebot-2025/api/db"
+    "github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+    "github.com/HeavenAQ/nstc-linebot-2025/commons"
+    "github.com/HeavenAQ/nstc-linebot-2025/utils"
+    "github.com/stretchr/testify/require"
 )
 
 // TestCreateUserData verifies the creation of user data
@@ -18,23 +17,19 @@ func TestCreateUserData(t *testing.T) {
 
 	// Define test data using RandomAlphabetString
 	testUserFolders := &storage.UserFolders{
-		UserID:            utils.RandomAlphabetString(10),
-		UserName:          utils.RandomAlphabetString(10),
-		RootFolderID:      utils.RandomAlphabetString(10),
-		ServeFolderID:     utils.RandomAlphabetString(10),
-		SmashFolderID:     utils.RandomAlphabetString(10),
-		ClearFolderID:     utils.RandomAlphabetString(10),
-		ThumbnailFolderID: utils.RandomAlphabetString(10),
+		UserID:   utils.RandomAlphabetString(10),
+		UserName: utils.RandomAlphabetString(10),
+		RootPath: utils.RandomAlphabetString(10),
 	}
 
-	testGPTthreads := &db.GPTThreadIDs{
-		Serve: utils.RandomAlphabetString(10),
-		Smash: utils.RandomAlphabetString(10),
-		Clear: utils.RandomAlphabetString(10),
-	}
+    testGPTConvs := &db.GPTConversationIDs{
+        Serve: utils.RandomAlphabetString(10),
+        Smash: utils.RandomAlphabetString(10),
+        Clear: utils.RandomAlphabetString(10),
+    }
 
 	// Call the method to create user data
-	userData, err := firestoreClient.CreateUserData(testUserFolders, testGPTthreads)
+    userData, err := firestoreClient.CreateUserData(testUserFolders, testGPTConvs)
 	require.NoError(t, err)
 	require.NotNil(t, userData)
 
@@ -43,8 +38,7 @@ func TestCreateUserData(t *testing.T) {
 	require.Equal(t, testUserFolders.UserID, userData.ID)
 
 	// Verify folder IDs
-	require.Equal(t, testUserFolders.RootFolderID, userData.FolderIDs.Root)
-	require.Equal(t, testUserFolders.ServeFolderID, userData.FolderIDs.Serve)
+	require.Equal(t, testUserFolders.RootPath, userData.FolderPaths.Root)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(userData.ID).Delete(*firestoreClient.Ctx)
@@ -60,7 +54,7 @@ func TestGetUserData(t *testing.T) {
 	testUser := &db.UserData{
 		Name: utils.RandomAlphabetString(10),
 		ID:   testUserID,
-		FolderIDs: db.FolderIDs{
+		FolderPaths: db.FolderPaths{
 			Root:      utils.RandomAlphabetString(10),
 			Serve:     utils.RandomAlphabetString(10),
 			Smash:     utils.RandomAlphabetString(10),
@@ -134,14 +128,15 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
 	require.NoError(t, err)
 
-	// Define test data for video creation
-	driveFile := &googleDrive.File{
-		Id:   utils.RandomAlphabetString(10),
-		Name: "2024-10-14",
-	}
-	thumbnailFile := &googleDrive.File{
-		Id: utils.RandomAlphabetString(10),
-	}
+    // Define test data for video creation (match storage.UploadedFile type)
+    videoFile := &storage.UploadedFile{
+        Name: "serve/video.mp4",
+        Path: "serve/video.mp4",
+    }
+    thumbnailFile := &storage.UploadedFile{
+        Name: "thumbnail/serve.jpg",
+        Path: "thumbnail/serve.jpg",
+    }
 	session := &db.UserSession{
 		UserState: db.WritingNotes,
 	}
@@ -155,22 +150,22 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	}
 	// Call the method to add video to portfolio
 	today := time.Now().Format("2006-01-02-15-04")
-	err = firestoreClient.CreateUserPortfolioVideo(
-		testUser,
-		&testUser.Portfolio.Serve,
-		today,
-		session,
-		driveFile,
-		thumbnailFile,
-		aiRating,
-	)
-	require.NoError(t, err)
+    err = firestoreClient.CreateUserPortfolioVideo(
+        testUser,
+        &testUser.Portfolio.Serve,
+        today,
+        session,
+        videoFile,
+        thumbnailFile,
+        aiRating,
+    )
+    require.NoError(t, err)
 
 	// Verify that the video was added to the portfolio
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
-	require.NotNil(t, updatedUser.Portfolio.Serve[driveFile.Name])
-	require.Equal(t, aiRating, updatedUser.Portfolio.Serve[driveFile.Name].GradingOutcome)
+    require.NotNil(t, updatedUser.Portfolio.Serve[today])
+    require.Equal(t, aiRating, updatedUser.Portfolio.Serve[today].GradingOutcome)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

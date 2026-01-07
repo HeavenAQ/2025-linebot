@@ -13,23 +13,23 @@ func (app *App) createUser(userID string) *db.UserData {
 
 	// Create user's folders
 	app.Logger.Info.Println("Creating the user's folders")
-	userFolders, err := app.DriveClient.CreateUserFolders(userID, username)
+	userFolders, err := app.StorageClient.CreateUserFolders(userID, username)
 	if err != nil {
 		app.Logger.Error.Println("Error creating new user's folders:", err)
 	}
 	app.Logger.Info.Println("User's folders has been created")
 
-	// create GPT threads for users
-	app.Logger.Info.Println("Creating the user's GPT threads")
-	gptThreadIDs, err := app.createUserGPTThreads()
-	if err != nil {
-		app.Logger.Error.Println("Error creating user's GPT threads:", err)
-	}
-	app.Logger.Info.Println("User's GPT threads have been created")
+    // create GPT conversations for users
+    app.Logger.Info.Println("Creating the user's GPT conversations")
+    gptConversationIDs, err := app.createUserGPTConversations()
+    if err != nil {
+        app.Logger.Error.Println("Error creating user's GPT conversations:", err)
+    }
+    app.Logger.Info.Println("User's GPT conversations have been created")
 
 	// Store user's data in database
 	app.Logger.Info.Println("Add the user's data to database")
-	userData, err := app.FirestoreClient.CreateUserData(userFolders, gptThreadIDs)
+    userData, err := app.FirestoreClient.CreateUserData(userFolders, gptConversationIDs)
 	if err != nil {
 		app.Logger.Error.Println("Error creating new user's data:", err)
 	}
@@ -37,37 +37,37 @@ func (app *App) createUser(userID string) *db.UserData {
 	return userData
 }
 
-func (app *App) createUserGPTThreads() (*db.GPTThreadIDs, error) {
-	userGPTThreads := db.GPTThreadIDs{}
-	threadIDAddrs := [3]*string{&userGPTThreads.Serve, &userGPTThreads.Clear, &userGPTThreads.Smash}
-	resultChannel, errChannel := make(chan string), make(chan error)
+func (app *App) createUserGPTConversations() (*db.GPTConversationIDs, error) {
+    userGPTConversations := db.GPTConversationIDs{}
+    idAddrs := [3]*string{&userGPTConversations.Serve, &userGPTConversations.Clear, &userGPTConversations.Smash}
+    resultChannel, errChannel := make(chan string), make(chan error)
 
-	// create gpt threads concurrently
-	for i := 0; i < len(threadIDAddrs); i++ {
-		go func() {
-			thread, err := app.GPTClient.CreateThread()
-			if err != nil {
-				app.Logger.Error.Println("Error creating GPT thread:", err)
-				errChannel <- err
-				return
-			}
-			resultChannel <- thread.ID
-		}()
-	}
+    // create gpt conversations concurrently
+    for i := 0; i < len(idAddrs); i++ {
+        go func() {
+            conv, err := app.GPTClient.CreateConversation()
+            if err != nil {
+                app.Logger.Error.Println("Error creating GPT conversation:", err)
+                errChannel <- err
+                return
+            }
+            resultChannel <- conv.ID
+        }()
+    }
 
-	// check the result of each thread creation and update the thread ID
-	for i := range threadIDAddrs {
-		select {
-		case res := <-resultChannel:
-			*threadIDAddrs[i] = res
-		case err := <-errChannel:
-			app.Logger.Error.Println("Error creating GPT thread:", err)
-			return nil, err
-		}
-	}
+    // check the result of each conversation creation and update the ID
+    for i := range idAddrs {
+        select {
+        case res := <-resultChannel:
+            *idAddrs[i] = res
+        case err := <-errChannel:
+            app.Logger.Error.Println("Error creating GPT conversation:", err)
+            return nil, err
+        }
+    }
 
-	// return the user's GPT threads
-	return &userGPTThreads, nil
+    // return the user's GPT conversations
+    return &userGPTConversations, nil
 }
 
 func (app *App) createUserIfNotExist(userID string) *db.UserData {
@@ -109,15 +109,15 @@ func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db
 	return &work
 }
 
-func (app *App) getUserGPTThread(user *db.UserData, skill string) string {
-	var threadID string
-	switch skill {
-	case "serve":
-		threadID = user.GPTThreadIDs.Serve
-	case "smash":
-		threadID = user.GPTThreadIDs.Smash
-	case "clear":
-		threadID = user.GPTThreadIDs.Clear
-	}
-	return threadID
+func (app *App) getUserGPTConversation(user *db.UserData, skill string) string {
+    switch skill {
+    case "serve":
+        return user.GPTConversationIDs.Serve
+    case "smash":
+        return user.GPTConversationIDs.Smash
+    case "clear":
+        return user.GPTConversationIDs.Clear
+    default:
+        return ""
+    }
 }

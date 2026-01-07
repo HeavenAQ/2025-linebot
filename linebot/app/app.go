@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
@@ -14,13 +16,23 @@ type App struct {
 	Logger          *Logger
 	LineBot         *line.Client
 	FirestoreClient *db.FirestoreClient
-	DriveClient     *storage.GoogleDriveClient
+	StorageClient   *storage.BucketClient
 	GPTClient       *gpt.Client
 }
 
 func NewApp(configPath string) *App {
 	// Set up logger
 	logger := NewLogger()
+	testMode := os.Getenv("SKIP_EXTERNAL_CLIENTS") == "1"
+
+	// Download env file only when not in test mode and when the config file does not exist locally
+	if !testMode {
+		if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
+			if err := secret.DownloadEnvFile(); err != nil {
+				panic(err)
+			}
+		}
+	}
 
 	// load the configuration
 	cfg, err := config.LoadConfig(configPath)
@@ -29,21 +41,22 @@ func NewApp(configPath string) *App {
 	}
 
 	// Set up the LineBot client
-	lineBot, err := line.NewBotClient(cfg.Line.ChannelSecret, cfg.Line.ChannelToken)
+	lineBot, err := line.NewBotClient(cfg.Line.ChannelSecret, cfg.Line.ChannelToken, cfg.GCP.Storage.BucketName)
 	if err != nil {
 		panic(err)
 	}
 
-	// Set up secret manager
-	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
-	credentials, err := secret.AccessSecretVersion(secretName)
-	if err != nil {
-		panic(err)
+	// When in test mode, skip external clients (Firestore, Storage, GPT)
+	if testMode {
+		return &App{
+			Config:  cfg,
+			Logger:  logger,
+			LineBot: lineBot,
+		}
 	}
 
 	// Set up firestore client
 	firestoreClient, err := db.NewFirestoreClient(
-		credentials,
 		cfg.GCP.ProjectID,
 		cfg.GCP.Database.DataDB,
 		cfg.GCP.Database.SessionDB,
@@ -52,24 +65,23 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
-	// Set up Google Drive client
-	driveClient, err := storage.NewGoogleDriveClient(
-		credentials,
-		cfg.GCP.Storage.GoogleDrive.RootFolder,
+	// Set up Cloud Storage client
+	storageClient, err := storage.NewBucketClient(
+		cfg.GCP.Storage.BucketName,
 	)
 	if err != nil {
 		panic(err)
 	}
 
 	// Set up GPT Client
-	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.AssistantID)
+	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID)
 
 	return &App{
 		Config:          cfg,
 		Logger:          logger,
 		LineBot:         lineBot,
 		FirestoreClient: firestoreClient,
-		DriveClient:     driveClient,
+		StorageClient:   storageClient,
 		GPTClient:       gptClient,
 	}
 }

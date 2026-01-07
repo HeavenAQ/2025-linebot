@@ -5,19 +5,18 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
-	googleDrive "google.golang.org/api/drive/v3"
 )
 
 type UserData struct {
-	Portfolio    Portfolios   `json:"portfolio"`
-	FolderIDs    FolderIDs    `json:"folderIDs"`
-	GPTThreadIDs GPTThreadIDs `json:"gptThreadIDs"`
-	Name         string       `json:"name"`
-	ID           string       `json:"id"`
-	Handedness   Handedness   `json:"handedness"`
+    Portfolio           Portfolios          `json:"portfolio"`
+    FolderPaths         FolderPaths         `json:"folderIDs"`
+    GPTConversationIDs  GPTConversationIDs  `json:"gptConversationIDs"`
+    Name                string              `json:"name"`
+    ID                  string              `json:"id"`
+    Handedness          Handedness          `json:"handedness"`
 }
 
-type FolderIDs struct {
+type FolderPaths struct {
 	Root      string `json:"root"`
 	Serve     string `json:"serve"`
 	Smash     string `json:"smash"`
@@ -26,15 +25,15 @@ type FolderIDs struct {
 }
 
 type Portfolios struct {
-	Serve map[string]Work `json:"serve"`
-	Smash map[string]Work `json:"smash"`
-	Clear map[string]Work `json:"clear"`
+    Serve map[string]Work `json:"serve"`
+    Smash map[string]Work `json:"smash"`
+    Clear map[string]Work `json:"clear"`
 }
 
-type GPTThreadIDs struct {
-	Serve string `json:"serve"`
-	Smash string `json:"smash"`
-	Clear string `json:"clear"`
+type GPTConversationIDs struct {
+    Serve string `json:"serve"`
+    Smash string `json:"smash"`
+    Clear string `json:"clear"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
@@ -61,30 +60,30 @@ type Work struct {
 	GradingOutcome          commons.GradingOutcome `json:"gradingOutcome"`
 }
 
-func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
-	ref := client.Data.Doc(userFolders.UserID)
-	newUserTemplate := &UserData{
-		Name:       userFolders.UserName,
-		ID:         userFolders.UserID,
-		Handedness: Right,
-		FolderIDs: FolderIDs{
-			Root:      userFolders.RootFolderID,
-			Serve:     userFolders.ServeFolderID,
-			Smash:     userFolders.SmashFolderID,
-			Clear:     userFolders.ClearFolderID,
-			Thumbnail: userFolders.ThumbnailFolderID,
+func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptConvs *GPTConversationIDs) (*UserData, error) {
+    ref := client.Data.Doc(userFolders.UserID)
+    newUserTemplate := &UserData{
+        Name:       userFolders.UserName,
+        ID:         userFolders.UserID,
+        Handedness: Right,
+		FolderPaths: FolderPaths{
+			Root:      userFolders.RootPath,
+			Serve:     userFolders.RootPath + "serve/",
+			Smash:     userFolders.RootPath + "smash/",
+			Clear:     userFolders.RootPath + "clear/",
+			Thumbnail: userFolders.RootPath + "thumbnail",
 		},
 		Portfolio: Portfolios{
 			Serve: map[string]Work{},
 			Smash: map[string]Work{},
 			Clear: map[string]Work{},
 		},
-		GPTThreadIDs: GPTThreadIDs{
-			Serve: gptThreads.Serve,
-			Smash: gptThreads.Smash,
-			Clear: gptThreads.Clear,
-		},
-	}
+        GPTConversationIDs: GPTConversationIDs{
+            Serve: gptConvs.Serve,
+            Smash: gptConvs.Smash,
+            Clear: gptConvs.Clear,
+        },
+    }
 
 	_, err := ref.Set(*client.Ctx, newUserTemplate)
 	if err != nil {
@@ -94,17 +93,16 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 }
 
 func (client *FirestoreClient) GetUserData(userID string) (*UserData, error) {
-	docsnap, err := client.Data.Doc(userID).Get(*client.Ctx)
+    docsnap, err := client.Data.Doc(userID).Get(*client.Ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting user data: %w", err)
 	}
-	user := &UserData{}
-	err = docsnap.DataTo(user)
-	if err != nil {
-		return nil, fmt.Errorf("error converting user data: %w", err)
-	}
-
-	return user, nil
+    user := &UserData{}
+    err = docsnap.DataTo(user)
+    if err != nil {
+        return nil, fmt.Errorf("error converting user data: %w", err)
+    }
+    return user, nil
 }
 
 func (client *FirestoreClient) updateUserData(user *UserData) error {
@@ -125,20 +123,19 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 	userPortfolio *map[string]Work,
 	date string,
 	session *UserSession,
-	driveFile *googleDrive.File,
-	thumbnailFile *googleDrive.File,
+	videoFile *storage.UploadedFile,
+	thumbnailFile *storage.UploadedFile,
 	aiGrading commons.GradingOutcome,
 ) error {
-	id := driveFile.Id
 	work := Work{
 		DateTime:                date,
 		GradingOutcome:          aiGrading,
 		Reflection:              "尚未填寫心得",
 		PreviewNote:             "尚未填寫課前檢視要點",
 		AINote:                  "尚未詢問 AI 改善建議",
-		SkeletonVideo:           id,
+		SkeletonVideo:           videoFile.Path,
 		SkeletonComparisonVideo: "",
-		Thumbnail:               thumbnailFile.Id,
+		Thumbnail:               thumbnailFile.Path,
 	}
 	(*userPortfolio)[date] = work
 	err := client.UpdateUserSession(user.ID, *session)
@@ -192,21 +189,21 @@ func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill string, threadID string) error {
-	switch skill {
-	case "serve":
-		user.GPTThreadIDs.Serve = threadID
-	case "smash":
-		user.GPTThreadIDs.Smash = threadID
-	case "clear":
-		user.GPTThreadIDs.Clear = threadID
-	}
-	return client.updateUserData(user)
+func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill string, id string) error {
+    switch skill {
+    case "serve":
+        user.GPTConversationIDs.Serve = id
+    case "smash":
+        user.GPTConversationIDs.Smash = id
+    case "clear":
+        user.GPTConversationIDs.Clear = id
+    }
+    return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) UpdateUserGPTThreadIDs(user *UserData, threadIDs *GPTThreadIDs) error {
-	user.GPTThreadIDs = *threadIDs
-	return client.updateUserData(user)
+func (client *FirestoreClient) UpdateUserGPTConversationIDs(user *UserData, ids *GPTConversationIDs) error {
+    user.GPTConversationIDs = *ids
+    return client.updateUserData(user)
 }
 
 func (client *FirestoreClient) UpdateUserPortfolioAINote(

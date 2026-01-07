@@ -31,20 +31,6 @@ func (client *Client) SendWelcomeReply(event *linebot.Event) (*linebot.BasicResp
 	return client.SendReply(event.ReplyToken, welcomMsg)
 }
 
-func (client *Client) SendVideoUploadedReply(
-	replyToken string,
-	skill string,
-	videoFolder string,
-) (*linebot.BasicResponse, error) {
-	s := db.SkillStrToEnum(skill)
-	skillFolder := "https://drive.google.com/drive/u/0/folders/" + videoFolder
-	return client.bot.ReplyMessage(
-		replyToken,
-		linebot.NewTextMessage("已成功上傳影片!"),
-		linebot.NewTextMessage("以下為【"+s.ChnString()+"】的影片資料夾：\n"+skillFolder),
-	).Do()
-}
-
 func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {
 	_, err := client.bot.ReplyMessage(
 		replyToken,
@@ -135,8 +121,8 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 }
 
 func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
-	videoLink := "https://drive.google.com/uc?export=download&id=" + video.VideoID
-	thumbnailLink := "https://drive.usercontent.google.com/download?id=" + video.ThumbnailID
+	videoLink := "https://storage.googleapis.com/" + client.bucketName + "/" + video.VideoID
+	thumbnailLink := "https://storage.googleapis.com/" + client.bucketName + "/" + video.ThumbnailID
 	return client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewVideoMessage(videoLink, thumbnailLink),

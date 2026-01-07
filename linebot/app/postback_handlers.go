@@ -153,26 +153,13 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			msg = message.Text
 		}
 
-		// Add the message to GPT thread
-		threadID := app.getUserGPTThread(user, session.Skill)
-		if err := app.GPTClient.AddMessageToThread(threadID, msg); err != nil {
-			app.handleAddMessageToGPTThreadError(err, replyToken)
-			return
-		}
-
-		// Run the GPT thread
-		runID, err := app.GPTClient.RunThread(threadID)
-		if err != nil {
-			app.handleGPTRunThreadError(err, replyToken)
-			return
-		}
-
-		// Retrieve GPT response
-		response, err := app.GPTClient.GetAssistantResponse(threadID, runID)
-		if err != nil {
-			app.handleGetGPTResponseError(err, replyToken)
-			return
-		}
+        // Add the message to GPT conversation and get reply
+        conversationID := app.getUserGPTConversation(user, session.Skill)
+        response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
+        if err != nil {
+            app.handleAddMessageToGPTConversationError(err, replyToken)
+            return
+        }
 
 		if _, err := app.LineBot.SendGPTChattingModeReply(replyToken, response); err != nil {
 			handleLineMessageResponseError(err)
@@ -360,8 +347,8 @@ func (app *App) handleAnalyzePortfolioWithGPT(
 		return
 	}
 
-	threadID := app.getUserGPTThread(user, data.Skill)
-	aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, threadID)
+    conversationID := app.getUserGPTConversation(user, data.Skill)
+    aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, conversationID)
 	if err := app.FirestoreClient.UpdateUserPortfolioAINote(user, portfolio, data.WorkDate, aiResponse); err != nil {
 		app.Logger.Error.Println("Failed to update AI note:", err)
 		app.LineBot.SendReply(replyToken, "無法更新AI筆記，請再試一次")
@@ -474,9 +461,9 @@ func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWith
 // --------------------------------------------------------------------
 
 func (app *App) analyzeWithGPT(
-	data *line.AnalyzingWithGPTPostback,
-	preprocessedUsedAnglesData []byte,
-	threadID string,
+    data *line.AnalyzingWithGPTPostback,
+    preprocessedUsedAnglesData []byte,
+    conversationID string,
 ) string {
 	msg := fmt.Sprintf(
 		"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
@@ -484,23 +471,12 @@ func (app *App) analyzeWithGPT(
 		data.Skill,
 		string(preprocessedUsedAnglesData),
 	)
-	if err := app.GPTClient.AddMessageToThread(threadID, msg); err != nil {
-		app.Logger.Error.Println("Failed to add message to GPT thread:", err)
-		return "無法取得建議，請再試一次"
-	}
-
-	runID, err := app.GPTClient.RunThread(threadID)
-	if err != nil {
-		app.Logger.Error.Println("Failed to run GPT thread:", err)
-		return "無法取得建議，請再試一次"
-	}
-
-	response, err := app.GPTClient.GetAssistantResponse(threadID, runID)
-	if err != nil {
-		app.Logger.Error.Println("Failed to get GPT response:", err)
-		return "無法取得建議，請再試一次"
-	}
-	return response
+    response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
+    if err != nil {
+        app.Logger.Error.Println("Failed to get GPT response:", err)
+        return "無法取得建議，請再試一次"
+    }
+    return response
 }
 
 // --------------------------------------------------------------------
@@ -533,13 +509,13 @@ func (app *App) uploadVideoContent(
 
 	// Decode AI-processed video
 	videoData, err := os.ReadFile(stitchedVideoPath)
-	if err != nil {
-		app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video", err), replyToken)
-		return
-	}
+    if err != nil {
+        app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video: %w", err), replyToken)
+        return
+    }
 
 	// Upload video + thumbnail to cloud storage (placeholder function)
-	videoLink, thumbLink, err := app.uploadVideoToDrive(
+	videoLink, thumbLink, err := app.uploadVideoToBucket(
 		user,
 		session,
 		videoData,

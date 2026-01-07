@@ -21,11 +21,7 @@ type GCPConfig struct {
 }
 
 type StorageConfig struct {
-	GoogleDrive GoogleDriveConfig
-}
-
-type GoogleDriveConfig struct {
-	RootFolder string `env:"GOOGLE_DRIVE_ROOT_FOLDER"`
+	BucketName string `env:"GCS_BUCKET_NAME"`
 }
 type SecretManagerConfig struct {
 	SecretVersion string `env:"GCP_SECRET_VERSION"`
@@ -37,8 +33,8 @@ type FirestoreConfig struct {
 }
 
 type GPTConfig struct {
-	APIKey      string `env:"OPENAI_API_KEY"`
-	AssistantID string `env:"OPENAI_ASSISTANT_ID"`
+	APIKey   string `env:"OPENAI_API_KEY"`
+	PromptID string `env:"OPENAI_PROMPT_ID"`
 }
 
 type PoseEstimationServerConfig struct {
@@ -61,12 +57,12 @@ func (c *Config) isConfigEmpty() bool {
 		c.Line.ChannelToken == "" &&
 		c.GCP.ProjectID == "" &&
 		c.GCP.Credentials == "" &&
-		c.GCP.Storage.GoogleDrive.RootFolder == "" &&
+		c.GCP.Storage.BucketName == "" &&
 		c.GCP.Secrets.SecretVersion == "" &&
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
 		c.GPT.APIKey == "" &&
-		c.GPT.AssistantID == "" &&
+		c.GPT.PromptID == "" &&
 		c.PoseEstimationServer.Host == "" &&
 		c.PoseEstimationServer.User == "" &&
 		c.PoseEstimationServer.Password == "")

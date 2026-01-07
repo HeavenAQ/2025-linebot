@@ -1,12 +1,12 @@
 package poseestimation
 
 import (
-	"encoding/base64"
-	"log"
-	"os"
-	"testing"
+    "encoding/base64"
+    "log"
+    "os"
+    "testing"
 
-	"github.com/stretchr/testify/require"
+    "github.com/stretchr/testify/require"
 )
 
 // Replace with the actual URL of your test server and credentials.
@@ -17,9 +17,12 @@ const (
 )
 
 func TestClient_ProcessVideo_Integration(t *testing.T) {
-	// Read the test video file as a blob.
-	videoBlob, err := os.ReadFile("../../tmp/serve.mp4") // Ensure this path points to a valid video file.
-	require.NoError(t, err, "failed to read test video file")
+    if os.Getenv("RUN_INTEGRATION_PE") != "1" {
+        t.Skip("Skipping pose estimation integration test; set RUN_INTEGRATION_PE=1 to run.")
+    }
+    // Read the test video file as a blob.
+    videoBlob, err := os.ReadFile("../../tmp/serve.mp4") // Ensure this path points to a valid video file.
+    require.NoError(t, err, "failed to read test video file")
 
 	// Initialize the client with the test server URL, video blob, and credentials.
 	client := NewClient(testUsername, testPassword, testServerURL, videoBlob)

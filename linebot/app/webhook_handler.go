@@ -8,11 +8,11 @@ import (
 )
 
 func (app *App) LineWebhookHandler() http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		events, err := app.LineBot.ParseRequest(req)
-		if err != nil {
-			app.handleParseError(err, writer)
-			return
+    return func(writer http.ResponseWriter, req *http.Request) {
+        events, err := app.LineBot.ParseRequest(req)
+        if err != nil {
+            app.handleParseError(err, writer)
+            return
 		}
 		app.handleEvents(events)
 	}

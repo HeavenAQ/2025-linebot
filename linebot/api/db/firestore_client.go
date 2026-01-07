@@ -6,7 +6,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
-	"google.golang.org/api/option"
 )
 
 type FirestoreClient struct {
@@ -16,12 +15,11 @@ type FirestoreClient struct {
 	Sessions *firestore.CollectionRef
 }
 
-func NewFirestoreClient(credentials []byte, projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
+func NewFirestoreClient(projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
 	// initialize firebase app
 	ctx := context.Background()
-	sa := option.WithCredentialsJSON(credentials)
 	conf := &firebase.Config{ProjectID: projectID}
-	app, err := firebase.NewApp(ctx, conf, sa)
+	app, err := firebase.NewApp(ctx, conf)
 	if err != nil {
 		return nil, err
 	}

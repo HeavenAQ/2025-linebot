@@ -3,34 +3,37 @@ package secret
 import (
 	"context"
 	"fmt"
+	"os"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
 
-func AccessSecretVersion(secretName string) ([]byte, error) {
+func DownloadEnvFile() error {
 	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create secret manager client %w", err)
+		return fmt.Errorf("failed to create secret manager client %w", err)
 	}
 
 	defer client.Close()
 
-	// access secret version
+	// ensure the GCP_PROJECT_ID is set in the environment
+	GCPProjectID := os.Getenv("GCP_PROJECT_ID")
+	if GCPProjectID == "" {
+		return fmt.Errorf("GCP project ID is not set for the current environment")
+	}
+
+	// access secret
 	req := &secretmanagerpb.AccessSecretVersionRequest{
-		Name: secretName,
+		Name: fmt.Sprintf("projects/%s/secrets/2025-linebot-env/versions/latest", GCPProjectID),
 	}
 	result, err := client.AccessSecretVersion(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to access secret version: %w", err)
+		return fmt.Errorf("failed to access secret version: %w", err)
 	}
 
-	// return secret data
-	return result.Payload.Data, nil
-}
-
-func GetSecretString(gcpProjectID, secretID, secretVersion string) string {
-	res := fmt.Sprintf("projects/%s/secrets/%s/versions/%s", gcpProjectID, secretID, secretVersion)
-	return res
+	// save the secret as a .env file
+	os.WriteFile(".env", result.Payload.Data, 0o444)
+	return nil
 }

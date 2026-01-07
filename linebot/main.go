@@ -1,39 +1,45 @@
 package main
 
 import (
-	"log"
-	"net/http"
-	"time"
+    "log"
+    "net/http"
+    "time"
 
-	"github.com/HeavenAQ/nstc-linebot-2025/app"
+    "github.com/HeavenAQ/nstc-linebot-2025/app"
+    "github.com/gin-gonic/gin"
 )
 
 func main() {
-	app := app.NewApp(".env")
-	http.HandleFunc("/callback", app.LineWebhookHandler())
-	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello, World!"))
-	})
+    application := app.NewApp(".env")
 
-	// Default time duration
-	const (
-		DefaultReadTimeout  = 100 * time.Second
-		DefaultWriteTimeout = 100 * time.Second
-		DefaultIdleTimeout  = 120 * time.Second
-	)
+    r := gin.New()
+    r.Use(gin.Recovery())
 
-	// Create a new server
-	server := &http.Server{
-		Addr:         "0.0.0.0:" + app.Config.Port,
-		Handler:      http.DefaultServeMux,
-		ReadTimeout:  DefaultReadTimeout,
-		WriteTimeout: DefaultWriteTimeout,
-		IdleTimeout:  DefaultIdleTimeout,
-	}
-	// Log the server start
-	app.Logger.Info.Println("\n\tServer started on port " + app.Config.Port)
+    // Routes (parity with previous net/http handlers)
+    r.POST("/callback", func(c *gin.Context) {
+        handler := application.LineWebhookHandler()
+        handler(c.Writer, c.Request)
+    })
+    r.GET("/test", func(c *gin.Context) { c.String(http.StatusOK, "Hello, World!") })
 
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+    // Swagger docs removed per user request.
+
+    // HTTP server with timeouts
+    const (
+        DefaultReadTimeout  = 100 * time.Second
+        DefaultWriteTimeout = 100 * time.Second
+        DefaultIdleTimeout  = 120 * time.Second
+    )
+    srv := &http.Server{
+        Addr:         "0.0.0.0:" + application.Config.Port,
+        Handler:      r,
+        ReadTimeout:  DefaultReadTimeout,
+        WriteTimeout: DefaultWriteTimeout,
+        IdleTimeout:  DefaultIdleTimeout,
+    }
+
+    application.Logger.Info.Println("\n\tServer started on port " + application.Config.Port)
+    if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+        log.Fatal(err)
+    }
 }

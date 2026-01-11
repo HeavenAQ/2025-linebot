@@ -129,9 +129,13 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	require.NoError(t, err)
 
     // Define test data for video creation (match storage.UploadedFile type)
-    videoFile := &storage.UploadedFile{
+    skeletonFile := &storage.UploadedFile{
         Name: "serve/video.mp4",
         Path: "serve/video.mp4",
+    }
+    comparisonFile := &storage.UploadedFile{
+        Name: "serve/video_comparison.mp4",
+        Path: "serve/video_comparison.mp4",
     }
     thumbnailFile := &storage.UploadedFile{
         Name: "thumbnail/serve.jpg",
@@ -155,7 +159,8 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
         &testUser.Portfolio.Serve,
         today,
         session,
-        videoFile,
+        skeletonFile,
+        comparisonFile,
         thumbnailFile,
         aiRating,
     )

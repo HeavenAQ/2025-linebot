@@ -55,10 +55,11 @@ func (app *App) handleThumbnailCreationError(err error, replyToken string) {
 }
 
 func (app *App) handleUploadToDriveError(err error, replyToken string) {
-	app.handleLineError(
-		"Error uploading the video to Google Drive",
-		"Video has been uploaded to Google Drive successfully",
-	)(err, replyToken)
+    // Despite the historical name, this handles Cloud Storage (GCS) uploads.
+    app.handleLineError(
+        "Error uploading the video to Cloud Storage",
+        "Video has been uploaded to Cloud Storage successfully",
+    )(err, replyToken)
 }
 
 func (app *App) handleSendingReplyMessageError(err error, replyToken string) {

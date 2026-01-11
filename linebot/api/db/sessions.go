@@ -5,11 +5,11 @@ import (
 )
 
 type UserSession struct {
-	Skill        string     `json:"skill"`
-	Handedness   string     `json:"handedness"`
-	UpdatingDate string     `json:"updating_date"`
-	UserState    UserState  `json:"user_state"`
-	ActionStep   ActionStep `json:"action_step"`
+	Skill       string     `json:"skill" firestore:"skill"`
+	Handedness  string     `json:"handedness" firestore:"handedness"`
+	UpdatedDate string     `json:"updated_date" firestore:"updated_date"`
+	UserState   UserState  `json:"user_state" firestore:"user_state"`
+	ActionStep  ActionStep `json:"action_step" firestore:"action_step"`
 }
 
 func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, error) {
@@ -36,11 +36,11 @@ func (client *FirestoreClient) UpdateUserSession(userID string, newSessionConten
 
 func (client *FirestoreClient) CreateUserSession(userID string) (*UserSession, error) {
 	newSession := UserSession{
-		UserState:    None,
-		Handedness:   "",
-		Skill:        "",
-		ActionStep:   Empty,
-		UpdatingDate: "",
+		UserState:   None,
+		Handedness:  "",
+		Skill:       "",
+		ActionStep:  Empty,
+		UpdatedDate: "",
 	}
 	err := client.UpdateUserSession(userID, newSession)
 	if err != nil {
@@ -72,11 +72,11 @@ func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill strin
 
 func (client *FirestoreClient) ResetSession(userID string) error {
 	userSession := UserSession{
-		Skill:        "",
-		Handedness:   "",
-		UserState:    None,
-		ActionStep:   Empty,
-		UpdatingDate: "",
+		Skill:       "",
+		Handedness:  "",
+		UserState:   None,
+		ActionStep:  Empty,
+		UpdatedDate: "",
 	}
 	err := client.UpdateUserSession(userID, userSession)
 	if err != nil {
@@ -101,7 +101,7 @@ func (client *FirestoreClient) UpdateSessionUpdatingDate(userID string, date str
 		return err
 	}
 
-	userSession.UpdatingDate = date
+	userSession.UpdatedDate = date
 	return client.UpdateUserSession(userID, *userSession)
 }
 

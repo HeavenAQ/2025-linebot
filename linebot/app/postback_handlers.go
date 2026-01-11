@@ -153,13 +153,24 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			msg = message.Text
 		}
 
-        // Add the message to GPT conversation and get reply
-        conversationID := app.getUserGPTConversation(user, session.Skill)
-        response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
-        if err != nil {
-            app.handleAddMessageToGPTConversationError(err, replyToken)
-            return
-        }
+		// Add the message to GPT conversation and get reply
+		conversationID := app.getUserGPTConversation(user, session.Skill)
+		response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
+		if err != nil {
+			app.handleAddMessageToGPTConversationError(err, replyToken)
+			return
+		}
+
+		// Persist the user/assistant exchange to Firestore chat history
+		if err := app.FirestoreClient.AppendChatExchange(
+			user.ID,
+			session.Skill,
+			conversationID,
+			msg,
+			response,
+		); err != nil {
+			app.Logger.Error.Printf("failed to append chat history: %v\n", err)
+		}
 
 		if _, err := app.LineBot.SendGPTChattingModeReply(replyToken, response); err != nil {
 			handleLineMessageResponseError(err)
@@ -250,7 +261,7 @@ func (app *App) forceStateToWritingNotes(user *db.UserData, session *db.UserSess
 	}
 
 	session.ActionStep = actionStep
-	session.UpdatingDate = data.WorkDate
+	session.UpdatedDate = data.WorkDate
 	session.UserState = db.WritingNotes
 	session.Skill = data.Skill
 
@@ -278,7 +289,7 @@ func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, sess
 	}
 
 	session.ActionStep = actionStep
-	session.UpdatingDate = data.WorkDate
+	session.UpdatedDate = data.WorkDate
 
 	if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
 		app.handleUpdateSessionError(err, replyToken)
@@ -306,14 +317,14 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 		app.FirestoreClient.UpdateUserPortfolioPreviewNote(
 			user,
 			&portfolio,
-			session.UpdatingDate,
+			session.UpdatedDate,
 			note.Text,
 		)
 	} else {
 		app.FirestoreClient.UpdateUserPortfolioReflection(
 			user,
 			&portfolio,
-			session.UpdatingDate,
+			session.UpdatedDate,
 			note.Text,
 		)
 	}
@@ -347,12 +358,31 @@ func (app *App) handleAnalyzePortfolioWithGPT(
 		return
 	}
 
-    conversationID := app.getUserGPTConversation(user, data.Skill)
-    aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, conversationID)
+	conversationID := app.getUserGPTConversation(user, data.Skill)
+	aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, conversationID)
 	if err := app.FirestoreClient.UpdateUserPortfolioAINote(user, portfolio, data.WorkDate, aiResponse); err != nil {
 		app.Logger.Error.Println("Failed to update AI note:", err)
 		app.LineBot.SendReply(replyToken, "無法更新AI筆記，請再試一次")
 		return
+	}
+
+	// Store the analysis query + GPT reply only if GPT succeeded
+	if aiResponse != "無法取得建議，請再試一次" {
+		msg := fmt.Sprintf(
+			"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
+			data.Handedness,
+			data.Skill,
+			string(preprocessedUsedAnglesData),
+		)
+		if err := app.FirestoreClient.AppendChatExchange(
+			user.ID,
+			data.Skill,
+			conversationID,
+			msg,
+			aiResponse,
+		); err != nil {
+			app.Logger.Error.Printf("failed to append analysis chat history: %v\n", err)
+		}
 	}
 
 	err = app.LineBot.SendPortfolio(
@@ -387,8 +417,8 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 	}
 	app.Logger.Info.Println("AI total grade: ", resp.Grade.TotalGrade)
 
-	// Stitches the video with expert video
-	stitchedVideoPath := app.stitchVideoWithExpertVideo(user, resp.ProcessedVideo, session.Skill, session.Handedness)
+	// Stitch the video with expert video; return stitched and skeleton paths
+	stitchedVideoPath, skeletonVideoPath := app.stitchVideoWithExpertVideo(user, resp.ProcessedVideo, session.Skill, session.Handedness)
 
 	// Create thumbnail
 	thumbnailPath, err := app.createVideoThumbnail(event, user, stitchedVideoPath)
@@ -397,8 +427,8 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 		return
 	}
 
-	// 5. Upload AI-processed video and update user portfolio
-	app.uploadVideoContent(event, user, session, resp.Grade, stitchedVideoPath, thumbnailPath, replyToken)
+	// 5. Upload AI-processed video(s) and update user portfolio
+	app.uploadVideoContent(event, user, session, resp.Grade, stitchedVideoPath, skeletonVideoPath, thumbnailPath, replyToken)
 }
 
 // ============================================================================
@@ -461,9 +491,9 @@ func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWith
 // --------------------------------------------------------------------
 
 func (app *App) analyzeWithGPT(
-    data *line.AnalyzingWithGPTPostback,
-    preprocessedUsedAnglesData []byte,
-    conversationID string,
+	data *line.AnalyzingWithGPTPostback,
+	preprocessedUsedAnglesData []byte,
+	conversationID string,
 ) string {
 	msg := fmt.Sprintf(
 		"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
@@ -471,12 +501,12 @@ func (app *App) analyzeWithGPT(
 		data.Skill,
 		string(preprocessedUsedAnglesData),
 	)
-    response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
-    if err != nil {
-        app.Logger.Error.Println("Failed to get GPT response:", err)
-        return "無法取得建議，請再試一次"
-    }
-    return response
+	response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
+	if err != nil {
+		app.Logger.Error.Println("Failed to get GPT response:", err)
+		return "無法取得建議，請再試一次"
+	}
+	return response
 }
 
 // --------------------------------------------------------------------
@@ -502,23 +532,29 @@ func (app *App) uploadVideoContent(
 	session *db.UserSession,
 	grade commons.GradingOutcome,
 	stitchedVideoPath string,
+	skeletonVideoPath string,
 	thumbnailPath string,
 	replyToken string,
 ) {
 	timestamp := time.Now().Format("2006-01-02-15-04")
 
-	// Decode AI-processed video
+	// Decode AI-processed videos
 	videoData, err := os.ReadFile(stitchedVideoPath)
-    if err != nil {
-        app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video: %w", err), replyToken)
-        return
-    }
+	if err != nil {
+		app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video: %w", err), replyToken)
+		return
+	}
+	skeletonData, err := os.ReadFile(skeletonVideoPath)
+	if err != nil {
+		app.handleUploadToDriveError(fmt.Errorf("failed to find skeleton video: %w", err), replyToken)
+		return
+	}
 
-	// Upload video + thumbnail to cloud storage (placeholder function)
-	videoLink, thumbLink, err := app.uploadVideoToBucket(
+	// Upload skeleton video + thumbnail to cloud storage
+	skeletonLink, thumbLink, err := app.uploadVideoToBucket(
 		user,
 		session,
-		videoData,
+		skeletonData,
 		thumbnailPath,
 		timestamp,
 	)
@@ -527,8 +563,20 @@ func (app *App) uploadVideoContent(
 		return
 	}
 
+	// Upload comparison (stitched) video to cloud storage
+	comparisonLink, err := app.uploadComparisonVideoToBucket(
+		user,
+		session,
+		videoData,
+		timestamp,
+	)
+	if err != nil {
+		app.handleUploadToDriveError(err, replyToken)
+		return
+	}
+
 	// Update user portfolio with AI grading
-	if err := app.updateUserPortfolioVideo(user, session, timestamp, grade, videoLink, thumbLink); err != nil {
+	if err := app.updateUserPortfolioVideo(user, session, timestamp, grade, skeletonLink, comparisonLink, thumbLink); err != nil {
 		app.handleUpdateUserPortfolioError(err, replyToken)
 		return
 	}

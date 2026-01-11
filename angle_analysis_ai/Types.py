@@ -1,5 +1,7 @@
 from enum import IntEnum
-from typing import Dict, Tuple, TypedDict
+from typing import Dict, Tuple
+
+from pydantic import BaseModel
 
 
 class COCOKeypoints(IntEnum):
@@ -49,20 +51,20 @@ class Handedness(IntEnum):
 Body2DCoordinates = Dict[COCOKeypoints, Tuple[float, float]]
 
 
-# Response related types
+# Response related models (Pydantic)
 
 
-class GradingDetail(TypedDict):
+class GradingDetail(BaseModel):
     description: str
     grade: float
 
 
-class GradingOutcome(TypedDict):
+class GradingOutcome(BaseModel):
     total_grade: float
     grading_details: list[GradingDetail]
 
 
-class VideoAnalysisResponse(TypedDict):
+class VideoAnalysisResponse(BaseModel):
     grade: GradingOutcome
     used_angles_data: list[dict[str, float] | None]
     processed_video: str

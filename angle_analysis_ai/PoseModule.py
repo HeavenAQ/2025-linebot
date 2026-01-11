@@ -1,10 +1,12 @@
+import os
 import time
-from typing import Any, Optional
+from typing import Any, Optional, final
 
 import cv2
 import numpy as np
 from cv2.typing import MatLike
 from ultralytics import YOLO
+import torch
 
 from Logger import Logger
 from Types import Body2DCoordinates, COCOKeypoints
@@ -12,6 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from Joints import SKELETON_CONNECTIONS
 
 
+@final
 class PoseDetector:
     """
     A class to detect and handle human poses using YOLOv8.
@@ -42,6 +45,21 @@ class PoseDetector:
 
         # Initialize the YOLOv8 pose model
         self.model = YOLO(model_path)
+
+        # Select compute device: prefer CUDA, then MPS (Apple Silicon), else CPU
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
+
+        # Move model to the selected device
+        try:
+            self.model.to(self.device)
+        except Exception:
+            # In case Ultralytics handles device internally, keep a safe fallback
+            self.device = "cpu"
 
         # FPS settings
         self.__cur_time = 0
@@ -85,7 +103,12 @@ class PoseDetector:
             f"Processing image for pose detection, image shape: {img.shape}"
         )
         # Run pose estimation
-        results = self.model.predict(img, conf=self.min_detection_confidence)
+        # Run pose estimation on the selected device
+        results = self.model.predict(
+            img,
+            conf=self.min_detection_confidence,
+            device=self.device,
+        )
         self.logger.debug("Pose estimation completed")
         return results
 
@@ -102,24 +125,51 @@ class PoseDetector:
                                         and its corresponding x, y coordinates
                                         or None if no landmarks are detected.
         """
-        if results and results[0].keypoints is not None:
-            self.logger.debug("Getting pose landmarks")
-            # Get the keypoints for the first detection
-            keypoints_xy = (
-                results[0].keypoints.xy[0].cpu().numpy()
-            )  # Shape: (num_keypoints, 2)
-            keypoints_conf = (
-                results[0].keypoints.conf[0].cpu().numpy()
-            )  # Shape: (num_keypoints,)
-            body_coordinates = {}
+        try:
+            # Validate results and keypoints container
+            if not results or len(results) == 0:
+                self.logger.debug("No results returned from model")
+                return None
+
+            keypoints = getattr(results[0], "keypoints", None)
+            if keypoints is None:
+                self.logger.debug("No keypoints in the first result")
+                return None
+
+            # Extract XY coordinates for the first detection
+            kpt_xy = getattr(keypoints, "xy", None)
+            if kpt_xy is None or len(kpt_xy) == 0:
+                self.logger.debug("Keypoints.xy missing or empty")
+                return None
+
+            xy = kpt_xy[0]
+            keypoints_xy = xy.cpu().numpy() if hasattr(xy, "cpu") else xy
+
+            # Confidence scores are optional; treat as 1.0 if absent
+            kpt_conf = getattr(keypoints, "conf", None)
+            keypoints_conf = None
+            if kpt_conf is not None and len(kpt_conf) > 0 and kpt_conf[0] is not None:
+                conf0 = kpt_conf[0]
+                keypoints_conf = conf0.cpu().numpy() if hasattr(conf0, "cpu") else conf0
+
+            body_coordinates: Body2DCoordinates = {}
             for idx, (x, y) in enumerate(keypoints_xy):
-                conf = keypoints_conf[idx]
-                if conf > self.min_detection_confidence:
+                # If confidence not provided, assume 1.0
+                conf_val = 1.0
+                if keypoints_conf is not None and idx < len(keypoints_conf):
+                    conf_val = float(keypoints_conf[idx])
+
+                if conf_val > self.min_detection_confidence:
                     body_coordinates[COCOKeypoints(idx)] = (float(x), float(y))
-            self.logger.debug("Retrieved pose landmarks")
-            return body_coordinates
-        else:
-            self.logger.error("No pose landmarks detected")
+
+            if body_coordinates:
+                self.logger.debug("Retrieved pose landmarks")
+                return body_coordinates
+            else:
+                self.logger.debug("No landmarks above confidence threshold")
+                return None
+        except Exception as e:
+            self.logger.error(f"Error parsing keypoints: {e}")
             return None
 
     def compute_angle(

@@ -8,32 +8,32 @@ import (
 )
 
 type UserData struct {
-    Portfolio           Portfolios          `json:"portfolio"`
-    FolderPaths         FolderPaths         `json:"folderIDs"`
-    GPTConversationIDs  GPTConversationIDs  `json:"gptConversationIDs"`
-    Name                string              `json:"name"`
-    ID                  string              `json:"id"`
-    Handedness          Handedness          `json:"handedness"`
+	Portfolio          Portfolios         `json:"portfolio" firestore:"portfolio"`
+	FolderPaths        FolderPaths        `json:"folder_paths" firestore:"folder_paths"`
+	GPTConversationIDs GPTConversationIDs `json:"gpt_conversation_ids" firestore:"gpt_conversation_ids"`
+	Name               string             `json:"name" firestore:"name"`
+	ID                 string             `json:"id" firestore:"id"`
+	Handedness         Handedness         `json:"handedness" firestore:"handedness"`
 }
 
 type FolderPaths struct {
-	Root      string `json:"root"`
-	Serve     string `json:"serve"`
-	Smash     string `json:"smash"`
-	Clear     string `json:"clear"`
-	Thumbnail string `json:"thumbnail"`
+	Root      string `json:"root" firestore:"root"`
+	Serve     string `json:"serve" firestore:"serve"`
+	Smash     string `json:"smash" firestore:"smash"`
+	Clear     string `json:"clear" firestore:"clear"`
+	Thumbnail string `json:"thumbnail" firestore:"thumbnail"`
 }
 
 type Portfolios struct {
-    Serve map[string]Work `json:"serve"`
-    Smash map[string]Work `json:"smash"`
-    Clear map[string]Work `json:"clear"`
+	Serve map[string]Work `json:"serve" firestore:"serve"`
+	Smash map[string]Work `json:"smash" firestore:"smash"`
+	Clear map[string]Work `json:"clear" firestore:"clear"`
 }
 
 type GPTConversationIDs struct {
-    Serve string `json:"serve"`
-    Smash string `json:"smash"`
-    Clear string `json:"clear"`
+	Serve string `json:"serve" firestore:"serve"`
+	Smash string `json:"smash" firestore:"smash"`
+	Clear string `json:"clear" firestore:"clear"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
@@ -50,22 +50,22 @@ func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 }
 
 type Work struct {
-	DateTime                string                 `json:"date"`
-	Thumbnail               string                 `json:"thumbnail"`
-	SkeletonVideo           string                 `json:"video"`
-	SkeletonComparisonVideo string                 `json:"comparisonVideo"`
-	Reflection              string                 `json:"reflection"`
-	PreviewNote             string                 `json:"previewNote"`
-	AINote                  string                 `json:"aiNote"`
-	GradingOutcome          commons.GradingOutcome `json:"gradingOutcome"`
+	DateTime                string                 `json:"date" firestore:"date"`
+	Thumbnail               string                 `json:"thumbnail" firestore:"thumbnail"`
+	SkeletonVideo           string                 `json:"skeleton_video" firestore:"skeleton_video"`
+	SkeletonComparisonVideo string                 `json:"skeleton_comparison_video" firestore:"skeleton_comparison_video"`
+	Reflection              string                 `json:"reflection" firestore:"reflection"`
+	PreviewNote             string                 `json:"preview_note" firestore:"preview_note"`
+	AINote                  string                 `json:"ai_note" firestore:"ai_note"`
+	GradingOutcome          commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
 }
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptConvs *GPTConversationIDs) (*UserData, error) {
-    ref := client.Data.Doc(userFolders.UserID)
-    newUserTemplate := &UserData{
-        Name:       userFolders.UserName,
-        ID:         userFolders.UserID,
-        Handedness: Right,
+	ref := client.Data.Doc(userFolders.UserID)
+	newUserTemplate := &UserData{
+		Name:       userFolders.UserName,
+		ID:         userFolders.UserID,
+		Handedness: Right,
 		FolderPaths: FolderPaths{
 			Root:      userFolders.RootPath,
 			Serve:     userFolders.RootPath + "serve/",
@@ -78,12 +78,12 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 			Smash: map[string]Work{},
 			Clear: map[string]Work{},
 		},
-        GPTConversationIDs: GPTConversationIDs{
-            Serve: gptConvs.Serve,
-            Smash: gptConvs.Smash,
-            Clear: gptConvs.Clear,
-        },
-    }
+		GPTConversationIDs: GPTConversationIDs{
+			Serve: gptConvs.Serve,
+			Smash: gptConvs.Smash,
+			Clear: gptConvs.Clear,
+		},
+	}
 
 	_, err := ref.Set(*client.Ctx, newUserTemplate)
 	if err != nil {
@@ -93,16 +93,16 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 }
 
 func (client *FirestoreClient) GetUserData(userID string) (*UserData, error) {
-    docsnap, err := client.Data.Doc(userID).Get(*client.Ctx)
+	docsnap, err := client.Data.Doc(userID).Get(*client.Ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting user data: %w", err)
 	}
-    user := &UserData{}
-    err = docsnap.DataTo(user)
-    if err != nil {
-        return nil, fmt.Errorf("error converting user data: %w", err)
-    }
-    return user, nil
+	user := &UserData{}
+	err = docsnap.DataTo(user)
+	if err != nil {
+		return nil, fmt.Errorf("error converting user data: %w", err)
+	}
+	return user, nil
 }
 
 func (client *FirestoreClient) updateUserData(user *UserData) error {
@@ -123,7 +123,8 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 	userPortfolio *map[string]Work,
 	date string,
 	session *UserSession,
-	videoFile *storage.UploadedFile,
+	skeletonFile *storage.UploadedFile,
+	comparisonFile *storage.UploadedFile,
 	thumbnailFile *storage.UploadedFile,
 	aiGrading commons.GradingOutcome,
 ) error {
@@ -133,8 +134,8 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		Reflection:              "尚未填寫心得",
 		PreviewNote:             "尚未填寫課前檢視要點",
 		AINote:                  "尚未詢問 AI 改善建議",
-		SkeletonVideo:           videoFile.Path,
-		SkeletonComparisonVideo: "",
+		SkeletonVideo:           skeletonFile.Path,
+		SkeletonComparisonVideo: comparisonFile.Path,
 		Thumbnail:               thumbnailFile.Path,
 	}
 	(*userPortfolio)[date] = work
@@ -190,20 +191,20 @@ func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
 }
 
 func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill string, id string) error {
-    switch skill {
-    case "serve":
-        user.GPTConversationIDs.Serve = id
-    case "smash":
-        user.GPTConversationIDs.Smash = id
-    case "clear":
-        user.GPTConversationIDs.Clear = id
-    }
-    return client.updateUserData(user)
+	switch skill {
+	case "serve":
+		user.GPTConversationIDs.Serve = id
+	case "smash":
+		user.GPTConversationIDs.Smash = id
+	case "clear":
+		user.GPTConversationIDs.Clear = id
+	}
+	return client.updateUserData(user)
 }
 
 func (client *FirestoreClient) UpdateUserGPTConversationIDs(user *UserData, ids *GPTConversationIDs) error {
-    user.GPTConversationIDs = *ids
-    return client.updateUserData(user)
+	user.GPTConversationIDs = *ids
+	return client.updateUserData(user)
 }
 
 func (client *FirestoreClient) UpdateUserPortfolioAINote(
@@ -225,4 +226,22 @@ func (client *FirestoreClient) UpdateUserPortfolioAINote(
 	}
 	(*userPortfolio)[date] = work
 	return client.updateUserData(user)
+}
+
+func (client *FirestoreClient) ListUsers() (*[]UserData, error) {
+	iter := client.Data.Documents(*client.Ctx)
+	var all []UserData
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			break
+		}
+
+		var u UserData
+		if err := doc.DataTo(&u); err != nil {
+			return nil, fmt.Errorf("[db.users] decode failed id=%s err=%v", doc.Ref.ID, err)
+		}
+		all = append(all, u)
+	}
+	return &all, nil
 }

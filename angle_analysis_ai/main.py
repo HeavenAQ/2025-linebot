@@ -1,20 +1,27 @@
-from flask import Flask, request, jsonify
 import os
 import uuid
+import shutil
 from threading import Semaphore
-from Middleware import Middleware
-from Types import Handedness, Skill
-from VideoProcessor import VideoProcessor  # Your VideoProcessor class
+from typing import Annotated, Callable
+from collections.abc import Awaitable
 
-# Flask app initialization
-app = Flask(__name__)
-app.wsgi_app = Middleware(app.wsgi_app)
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Request
+from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.status import HTTP_401_UNAUTHORIZED
+
+from Types import Handedness, Skill, VideoAnalysisResponse
+from VideoProcessor import VideoProcessor
+
+
+# FastAPI app initialization
+app = FastAPI(title="Angle Analysis API", version="1.0.0")
 
 
 # Configuration
 UPLOAD_FOLDER = "./uploads"
 OUTPUT_FOLDER = "./output"
-CSV_FILE = "./training_dataset.csv"  # CSV for storing training data
+CSV_FILE = "./training_dataset.csv"  # CSV for storing training data (unused)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -23,68 +30,96 @@ MAX_CONNECTIONS = 10
 sema = Semaphore(MAX_CONNECTIONS)
 
 
-@app.before_request
-def limit_connections():
-    """
-    Prevent too many simultaneous connections.
-    """
+# Basic Auth setup
+security = HTTPBasic()
+BASIC_AUTH_USERNAME = "admin"
+BASIC_AUTH_PASSWORD = "thisisacomplicatedpassword"
+
+
+def require_basic_auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+    if not (
+        credentials.username == BASIC_AUTH_USERNAME
+        and credentials.password == BASIC_AUTH_PASSWORD
+    ):
+        raise HTTPException(
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+@app.middleware("http")
+async def limit_connections(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    # Prevent too many simultaneous connections
     if not sema.acquire(blocking=False):
-        return jsonify({"error": "Too many connections. Please try again later"}), 502
-
-
-@app.after_request
-def release_connection(response):
-    """
-    Release the semaphore after the request is processed.
-    """
-    sema.release()
+        return JSONResponse(
+            status_code=502,
+            content={"error": "Too many connections. Please try again later"},
+        )
+    try:
+        response = await call_next(request)
+    finally:
+        sema.release()
     return response
 
 
-@app.route("/upload", methods=["POST"])
-def training_set():
+@app.post("/upload", response_model=VideoAnalysisResponse)
+async def training_set(
+    _: Annotated[str, Depends(require_basic_auth)],
+    video: Annotated[UploadFile, File(...)],
+    skill: Annotated[str, Form(...)],
+    handedness: Annotated[str, Form(...)],
+) -> VideoAnalysisResponse:
     """
-    Endpoint to process a video and save training angles data.
+    Endpoint to process a video and return grading and processed segment.
     """
-    if "video" not in request.files:
-        return jsonify({"error": "No video file provided"}), 400
+    if not skill:
+        raise HTTPException(status_code=400, detail="No skill provided")
+    if not handedness:
+        raise HTTPException(status_code=400, detail="No handedness provided")
 
-    # Ensure the parameters are given correctly
-    if not (file := request.files.get("video")):
-        return jsonify({"error": "No video file provided"}), 400
-    if not (skill := request.form.get("skill")):
-        return jsonify({"error": "No skill provided"}), 400
-    if not (handedness := request.form.get("handedness")):
-        return jsonify({"error": "No handedness provided"}), 400
-
-    # Preprocess the paramteres
-    skill = Skill.convert_to_enum(skill)
-    handedness = Handedness.convert_to_enum(handedness)
+    # Convert enums, with validation
+    try:
+        skill_enum = Skill.convert_to_enum(skill)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid skill value")
+    try:
+        handedness_enum = Handedness.convert_to_enum(handedness)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid handedness value")
 
     # Save the uploaded video
     prefix = str(uuid.uuid4())
-    filename = f"{prefix}_{file.filename}"
+    filename = f"{prefix}_{video.filename}"
     file_path = os.path.join(UPLOAD_FOLDER, filename)
-    file.save(file_path)
+    try:
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(video.file, f)
+    finally:
+        await video.close()
 
     # Process the video using VideoProcessor
     processor = VideoProcessor(
         video_path=file_path, out_filename=filename, output_folder=OUTPUT_FOLDER
     )
-    response = processor.process_video(skill, handedness)
-    print(response["grade"])
+    response = processor.process_video(skill_enum, handedness_enum)
 
-    # Response
-    return jsonify(response), 200
+    return response
 
 
-@app.route("/health", methods=["GET"])
-def health():
+@app.get("/health", response_model=dict[str, str])
+async def health() -> dict[str, str]:
     """
     Health check endpoint.
     """
-    return jsonify({"status": "healthy"}), 200
+    return {"status": "healthy"}
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -13,6 +13,7 @@ type FirestoreClient struct {
 	Client   *firestore.Client
 	Data     *firestore.CollectionRef
 	Sessions *firestore.CollectionRef
+    ChatHistory *firestore.CollectionRef
 }
 
 func NewFirestoreClient(projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
@@ -32,9 +33,10 @@ func NewFirestoreClient(projectID string, dataCollection string, sessionCollecti
 
 	// return firestore client
 	return &FirestoreClient{
-		&ctx,
-		client,
-		client.Collection(dataCollection),
-		client.Collection(sessionCollection),
+		Ctx:         &ctx,
+		Client:      client,
+		Data:        client.Collection(dataCollection),
+		Sessions:    client.Collection(sessionCollection),
+		ChatHistory: client.Collection("chat_history"),
 	}, nil
 }

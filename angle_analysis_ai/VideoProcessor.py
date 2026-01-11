@@ -2,16 +2,23 @@ import os
 import threading
 import time
 import base64
-from typing import Optional
+from typing import Optional, final
 import cv2
 import numpy as np
 from queue import Queue
 from Grader import GraderRegistry
 from PoseModule import PoseDetector
 from Joints import JOINTS
-from Types import COCOKeypoints, Handedness, Skill, VideoAnalysisResponse
+from Types import (
+    COCOKeypoints,
+    Handedness,
+    Skill,
+    VideoAnalysisResponse,
+    GradingOutcome,
+)
 
 
+@final
 class VideoProcessor:
     def __init__(self, video_path: str, out_filename: str, output_folder: str) -> None:
         self.video_path = video_path
@@ -51,7 +58,9 @@ class VideoProcessor:
             for i in range(1, len(positions))
         ]
 
-    def calculate_acceleration_dynamic(self, velocities, time_intervals):
+    def calculate_acceleration_dynamic(
+        self, velocities: list[float], time_intervals: list[float]
+    ) -> list[float]:
         """Calculate acceleration dynamically."""
         return [
             (velocities[i] - velocities[i - 1]) / time_intervals[i + 1]
@@ -126,11 +135,11 @@ class VideoProcessor:
         self, org_fps: float, skill: Skill, handedness: Handedness
     ) -> VideoAnalysisResponse:
         """Calculate velocities, accelerations, and save results."""
-        response: VideoAnalysisResponse = {
-            "grade": {"total_grade": 0, "grading_details": []},
-            "used_angles_data": [],
-            "processed_video": "",
-        }
+        response = VideoAnalysisResponse(
+            grade=GradingOutcome(total_grade=0, grading_details=[]),
+            used_angles_data=[],
+            processed_video="",
+        )
 
         if len(self.right_hand_positions) > 2:
             # Smooth positions and calculate velocities/accelerations
@@ -198,8 +207,9 @@ class VideoProcessor:
             video_base64 = base64.b64encode(video_data).decode("utf-8")
 
             # Return the response
-            response["grade"] = grade
-            response["processed_video"] = video_base64
+            response.grade = grade
+            response.used_angles_data = angle_lists
+            response.processed_video = video_base64
             return response
         return response
 

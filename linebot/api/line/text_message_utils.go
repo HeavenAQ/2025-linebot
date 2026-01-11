@@ -10,8 +10,11 @@ import (
 )
 
 func (client *Client) SendReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
-	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
-	return res, fmt.Errorf("failed to reply message: %w", err)
+    res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+    if err != nil {
+        return nil, fmt.Errorf("failed to reply message: %w", err)
+    }
+    return res, nil
 }
 
 func (client *Client) SendDefaultReply(replyToken string) (*linebot.BasicResponse, error) {
@@ -80,12 +83,15 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 }
 
 func (client *Client) SendSyllabus(replyToken string) (*linebot.BasicResponse, error) {
-	const syllabus = "課程大綱：\n"
+    const syllabus = "課程大綱：\n"
 
-	const msg = syllabus + "https://drive.google.com/open?id=1PeWkePHtq30ArcGqZwzWP64olL9F7Tqw&usp=drive_fs"
+    const msg = syllabus + "https://drive.google.com/open?id=1PeWkePHtq30ArcGqZwzWP64olL9F7Tqw&usp=drive_fs"
 
-	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
-	return res, fmt.Errorf("failed to reply message: %w", err)
+    res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
+    if err != nil {
+        return nil, fmt.Errorf("failed to reply message: %w", err)
+    }
+    return res, nil
 }
 
 func (client *Client) getSkillQuickReplyItems(userState db.UserState) *linebot.QuickReplyItems {
@@ -121,12 +127,12 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 }
 
 func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
-	videoLink := "https://storage.googleapis.com/" + client.bucketName + "/" + video.VideoID
-	thumbnailLink := "https://storage.googleapis.com/" + client.bucketName + "/" + video.ThumbnailID
-	return client.bot.ReplyMessage(
-		replyToken,
-		linebot.NewVideoMessage(videoLink, thumbnailLink),
-	).Do()
+    videoLink := video.VideoID
+    thumbnailLink := video.ThumbnailID
+    return client.bot.ReplyMessage(
+        replyToken,
+        linebot.NewVideoMessage(videoLink, thumbnailLink),
+    ).Do()
 }
 
 type NoPortfolioError struct {
@@ -139,24 +145,19 @@ func (e *NoPortfolioError) Error() string {
 }
 
 func (client *Client) SendPortfolio(
-	event *linebot.Event,
-	user *db.UserData,
-	skill db.BadmintonSkill,
-	handedness string,
-	userState db.UserState,
-	textMsg string,
-	showBtns bool,
+    event *linebot.Event,
+    user *db.UserData,
+    skill db.BadmintonSkill,
+    handedness string,
+    userState db.UserState,
+    textMsg string,
+    showBtns bool,
 ) error {
-	// If handedness is not specified, return error
-	if handedness == "" {
-		return errors.New("handedness not specified")
-	}
-
-	// get works from user portfolio
-	works := user.Portfolio.GetSkillPortfolio(skill.String())
-	if len(works) == 0 {
-		return &NoPortfolioError{Skill: skill, Err: errors.New("No portfolio found")}
-	}
+    // get works from user portfolio
+    works := user.Portfolio.GetSkillPortfolio(skill.String())
+    if len(works) == 0 {
+        return &NoPortfolioError{Skill: skill, Err: errors.New("No portfolio found")}
+    }
 
 	// generate carousels from works
 	carousels, err := client.getCarousels(works, skill.String(), handedness, showBtns)

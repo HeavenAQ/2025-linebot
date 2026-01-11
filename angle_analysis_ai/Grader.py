@@ -175,24 +175,24 @@ class ServeRightHandedGrader(Grader):
         check5 = self.grade_checkpoint_5(angles[4])
         total = check1_arms + check1_legs + check2 + check3 + check4 + check5
         grading_details: list[GradingDetail] = [
-            {"description": "雙手平舉", "grade": check1_arms},
-            {"description": "將重心放至持拍腳", "grade": check1_legs},
-            {"description": "身體重心轉移至非持拍腳", "grade": check2},
-            {"description": "髖關節前旋", "grade": check4},
-            {"description": "持拍手手腕發力", "grade": check4},
-            {"description": "肩膀旋轉朝前", "grade": check5},
+            GradingDetail(description="雙手平舉", grade=check1_arms),
+            GradingDetail(description="將重心放至持拍腳", grade=check1_legs),
+            GradingDetail(description="身體重心轉移至非持拍腳", grade=check2),
+            GradingDetail(description="髖關節前旋", grade=check4),
+            GradingDetail(description="持拍手手腕發力", grade=check4),
+            GradingDetail(description="肩膀旋轉朝前", grade=check5),
         ]
 
-        return {
-            "grading_details": grading_details,
-            "total_grade": total,
-        }
+        return GradingOutcome(
+            grading_details=grading_details,
+            total_grade=total,
+        )
 
 
 class ServeLeftHandedGrader(Grader):
     def grade(self, angles: AngleDicts) -> GradingOutcome:
         print(angles)
-        return {"grading_details": [], "total_grade": 0}
+        return GradingOutcome(grading_details=[], total_grade=0)
         # Example grading logic for right-handed serve
         # score = 100 - abs(angles[1]["Left Shoulder"] - 90)
         # return max(0, score)

@@ -59,7 +59,13 @@ func (app *App) uploadVideoToBucket(user *db.UserData, session *db.UserSession, 
 		},
 	}
 
-	// Upload file
+	// Build Cloud Storage object paths
+	// Videos are stored under the skill-specific folder with .mp4 extension
+	// Thumbnails are stored under the user's thumbnail folder with .jpeg extension
+	fileInfo.Bucket.VideoPath = fmt.Sprintf("%s%s.mp4", folderID, filename)
+	fileInfo.Bucket.ThumbnailPath = fmt.Sprintf("%s/%s.jpeg", user.FolderPaths.Thumbnail, filename)
+
+	// Upload video file
 	driveFile, err := app.StorageClient.UploadVideo(&fileInfo)
 	if err != nil {
 		app.Logger.Error.Println("Failed to upload the video")
@@ -75,17 +81,28 @@ func (app *App) uploadVideoToBucket(user *db.UserData, session *db.UserSession, 
 	return driveFile, thumbnailFile, nil
 }
 
-func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, grade commons.GradingOutcome, videoFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
+func (app *App) updateUserPortfolioVideo(user *db.UserData, session *db.UserSession, date string, grade commons.GradingOutcome, skeletonFile *storage.UploadedFile, comparisonFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
 	app.Logger.Info.Println("Updating user portfolio:")
 	userPortfolio := app.getUserPortfolio(user, session.Skill)
+
+	// Build direct GCS URLs for LINE/LIFF consumption
+	bucket := app.Config.GCP.Storage.BucketName
+	videoURL := "https://storage.googleapis.com/" + bucket + "/" + skeletonFile.Path
+	comparisonURL := "https://storage.googleapis.com/" + bucket + "/" + comparisonFile.Path
+	thumbURL := "https://storage.googleapis.com/" + bucket + "/" + thumbnailFile.Path
+
+	urlVideo := &storage.UploadedFile{Name: skeletonFile.Name, Path: videoURL}
+	urlComparison := &storage.UploadedFile{Name: comparisonFile.Name, Path: comparisonURL}
+	urlThumb := &storage.UploadedFile{Name: thumbnailFile.Name, Path: thumbURL}
 
 	return app.FirestoreClient.CreateUserPortfolioVideo(
 		user,
 		userPortfolio,
 		date,
 		session,
-		videoFile,
-		thumbnailFile,
+		urlVideo,
+		urlComparison,
+		urlThumb,
 		grade,
 	)
 }
@@ -206,6 +223,10 @@ func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, vi
 	app.Logger.Info.Println("Extracting thumbnail from the video")
 	outFileName := tmpFolder + user.ID + ".jpeg"
 
+	if err := os.Remove(outFileName); !errors.Is(err, os.ErrNotExist) {
+		app.Logger.Error.Println("Something goes wrong when removing previous thumbnail")
+	}
+
 	var stderr bytes.Buffer
 	err := ffmpeg_go.Input(videoPath, ffmpeg_go.KwArgs{
 		"ss": "00:00:01", // place ss before input file to avoid seeking issues
@@ -231,12 +252,12 @@ func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, vi
 	return outFileName, nil
 }
 
-func (app *App) stitchVideoWithExpertVideo(user *db.UserData, encodedVideo string, skill string, handedness string) string {
+func (app *App) stitchVideoWithExpertVideo(user *db.UserData, encodedVideo string, skill string, handedness string) (string, string) {
 	// extract video data from base64 string
 	videoData, err := base64.StdEncoding.DecodeString(encodedVideo)
 	if err != nil {
 		app.Logger.Error.Println("Error decoding video data:", err)
-		return ""
+		return "", ""
 	}
 
 	// save it to a tmp file
@@ -274,14 +295,23 @@ func (app *App) stitchVideoWithExpertVideo(user *db.UserData, encodedVideo strin
 	if err != nil {
 		app.Logger.Error.Println("Error stitching video with expert video:", err)
 		app.Logger.Error.Println("ffmpeg stderr:", stderr.String())
-		return ""
+		return "", videoPath
 	}
 
 	app.Logger.Info.Println("Video stitched successfully.")
-	return outputPath
+	return outputPath, videoPath
 }
 
-func uploadError(app App, event *linebot.Event, err error, message string) {
-	app.Logger.Error.Println(message, err)
-	app.LineBot.SendDefaultErrorReply(event.ReplyToken)
+// uploadComparisonVideoToBucket uploads the stitched comparison video to the user's skill folder
+func (app *App) uploadComparisonVideoToBucket(user *db.UserData, session *db.UserSession, comparisonVideo []byte, filename string) (*storage.UploadedFile, error) {
+	folderID := app.getVideoFolder(user, session.Skill)
+	fileInfo := storage.FileInfo{}
+	fileInfo.Bucket.VideoPath = fmt.Sprintf("%s%s_comparison.mp4", folderID, filename)
+	fileInfo.Local.VideoBlob = comparisonVideo
+	videoFile, err := app.StorageClient.UploadVideo(&fileInfo)
+	if err != nil {
+		app.Logger.Error.Println("Failed to upload the comparison video")
+		return nil, err
+	}
+	return videoFile, nil
 }

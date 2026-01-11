@@ -18,9 +18,9 @@ import (
 // 3. Read the generated text directly from the returned Response.
 
 type Client struct {
-	Ctx      *context.Context
-	Client   *openai.Client
-	PromptID string
+    Ctx      *context.Context
+    Client   *openai.Client
+    PromptID string
 }
 
 func NewGPTClient(apiKey, promptID string) *Client {
@@ -87,4 +87,29 @@ func (client *Client) AddMessageToConversation(conversationID, message string) (
 		return "", fmt.Errorf("no assistant text output available")
 	}
 	return output, nil
+}
+
+// Summarize takes arbitrary text and returns a short summary using the configured prompt.
+func (client *Client) Summarize(content string) (string, error) {
+    req := responses.ResponseNewParams{
+        Prompt: responses.ResponsePromptParam{
+            ID: client.PromptID,
+        },
+        Input: responses.ResponseNewParamsInputUnion{
+            OfString: param.Opt[string]{
+                Value: "Summarize this learning summary under 100 words: " + content,
+            },
+        },
+    }
+
+    resp, err := client.Client.Responses.New(*client.Ctx, req)
+    if err != nil {
+        return "", fmt.Errorf("error creating summary response: %w", err)
+    }
+
+    output := resp.OutputText()
+    if output == "" {
+        return "", fmt.Errorf("no assistant text output available")
+    }
+    return output, nil
 }

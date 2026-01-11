@@ -28,17 +28,17 @@ func main() {
 	// Backend APIs for chat history and summarization
 	r.GET("/api/chat/history", func(c *gin.Context) {
 		start := time.Now()
-		userID := c.Query("userId")
+		userID := c.Query("user_id")
 		if userID == "" {
-			application.Logger.Warn.Println("[chat.history] missing userId")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing userId"})
+			application.Logger.Warn.Println("[chat.history] missing user_id")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
 			return
 		}
 		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
-		application.Logger.Info.Printf("[chat.history] userId=%s skill=%s", userID, skill)
+		application.Logger.Info.Printf("[chat.history] user_id=%s skill=%s", userID, skill)
 		history, err := application.FirestoreClient.GetChatHistory(userID)
 		if err != nil {
-			application.Logger.Error.Printf("[chat.history] userId=%s error=%v", userID, err)
+			application.Logger.Error.Printf("[chat.history] user_id=%s error=%v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch chat history"})
 			return
 		}
@@ -50,34 +50,74 @@ func main() {
 					filtered = append(filtered, m)
 				}
 			}
-			application.Logger.Info.Printf("[chat.history] userId=%s skill=%s count=%d took=%s", userID, skill, len(filtered), time.Since(start))
+			application.Logger.Info.Printf("[chat.history] user_id=%s skill=%s count=%d took=%s", userID, skill, len(filtered), time.Since(start))
 			c.JSON(http.StatusOK, gin.H{"data": filtered})
 			return
 		}
-		application.Logger.Info.Printf("[chat.history] userId=%s count=%d took=%s", userID, len(messages), time.Since(start))
+		application.Logger.Info.Printf("[chat.history] user_id=%s count=%d took=%s", userID, len(messages), time.Since(start))
 		c.JSON(http.StatusOK, gin.H{"data": messages})
 	})
 
 	type summarizeReq struct {
 		Content string `json:"content"`
+		UserID  string `json:"user_id"`
+		Skill   string `json:"skill"`
 	}
 	r.POST("/api/chat/summarize", func(c *gin.Context) {
 		start := time.Now()
 		var req summarizeReq
-		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
-			application.Logger.Warn.Printf("[chat.summarize] invalid body len=%d", len(req.Content))
+		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.Skill) == "" {
+			application.Logger.Warn.Printf("[chat.summarize] invalid body content_len=%d user_id_present=%t skill_present=%t", len(req.Content), strings.TrimSpace(req.UserID) != "", strings.TrimSpace(req.Skill) != "")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 			return
 		}
-		application.Logger.Info.Printf("[chat.summarize] content_len=%d", len(req.Content))
+
+		// Determine today's date in server local time (YYYY-MM-DD)
+		today := time.Now().Format("2006-01-02")
+
+		// Compute current chat message count for the user+skill
+		history, err := application.FirestoreClient.GetChatHistory(req.UserID)
+		if err != nil {
+			application.Logger.Error.Printf("[chat.summarize] user_id=%s history_error=%v", req.UserID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch chat history"})
+			return
+		}
+		skillLower := strings.ToLower(strings.TrimSpace(req.Skill))
+		currentCount := 0
+		if skillLower == "" {
+			currentCount = len(history.Messages)
+		} else {
+			for _, m := range history.Messages {
+				if strings.ToLower(m.Skill) == skillLower {
+					currentCount++
+				}
+			}
+		}
+
+		// Try cache first
+		cached, err := application.FirestoreClient.GetDailySummary(req.UserID, today, skillLower)
+		if err == nil && cached != nil && cached.LastCount == currentCount && strings.TrimSpace(cached.Summary) != "" {
+			application.Logger.Info.Printf("[chat.summarize] cache_hit user_id=%s date=%s skill=%s count=%d took=%s", req.UserID, today, skillLower, currentCount, time.Since(start))
+			c.JSON(http.StatusOK, gin.H{"summary": cached.Summary, "cached": true})
+			return
+		}
+
+		// Cache miss or count changed; generate new summary
+		application.Logger.Info.Printf("[chat.summarize] cache_miss user_id=%s date=%s skill=%s count=%d content_len=%d", req.UserID, today, skillLower, currentCount, len(req.Content))
 		sum, err := application.GPTClient.Summarize(req.Content)
 		if err != nil {
 			application.Logger.Error.Printf("[chat.summarize] error=%v took=%s", err, time.Since(start))
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to summarize"})
 			return
 		}
+
+		// Store/Update cache
+		if err := application.FirestoreClient.SetDailySummary(req.UserID, today, skillLower, sum, currentCount); err != nil {
+			application.Logger.Warn.Printf("[chat.summarize] failed_cache_store user_id=%s date=%s skill=%s err=%v", req.UserID, today, skillLower, err)
+		}
+
 		application.Logger.Info.Printf("[chat.summarize] ok summary_len=%d took=%s", len(sum), time.Since(start))
-		c.JSON(http.StatusOK, gin.H{"summary": sum})
+		c.JSON(http.StatusOK, gin.H{"summary": sum, "cached": false})
 	})
 
 	// DB convenience endpoints
@@ -85,8 +125,8 @@ func main() {
 		start := time.Now()
 		userID := c.Query("user_id")
 		if userID == "" {
-			application.Logger.Warn.Println("[db.user] missing userId")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing userId"})
+			application.Logger.Warn.Println("[db.user] missing user_id")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
 			return
 		}
 		application.Logger.Info.Printf("[db.user] user_id=%s", userID)

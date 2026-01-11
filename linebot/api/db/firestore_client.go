@@ -9,11 +9,12 @@ import (
 )
 
 type FirestoreClient struct {
-	Ctx      *context.Context
-	Client   *firestore.Client
-	Data     *firestore.CollectionRef
-	Sessions *firestore.CollectionRef
+    Ctx      *context.Context
+    Client   *firestore.Client
+    Data     *firestore.CollectionRef
+    Sessions *firestore.CollectionRef
     ChatHistory *firestore.CollectionRef
+    DailySummaries *firestore.CollectionRef
 }
 
 func NewFirestoreClient(projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
@@ -32,11 +33,12 @@ func NewFirestoreClient(projectID string, dataCollection string, sessionCollecti
 	}
 
 	// return firestore client
-	return &FirestoreClient{
-		Ctx:         &ctx,
-		Client:      client,
-		Data:        client.Collection(dataCollection),
-		Sessions:    client.Collection(sessionCollection),
-		ChatHistory: client.Collection("chat_history"),
-	}, nil
+    return &FirestoreClient{
+        Ctx:         &ctx,
+        Client:      client,
+        Data:        client.Collection(dataCollection),
+        Sessions:    client.Collection(sessionCollection),
+        ChatHistory: client.Collection("chat_history"),
+        DailySummaries: client.Collection("daily_summaries"),
+    }, nil
 }

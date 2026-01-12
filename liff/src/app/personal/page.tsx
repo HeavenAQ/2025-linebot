@@ -16,6 +16,7 @@ import {
 import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
+import { getBackendBaseUrl } from '@/utils/env'
 
 interface MovementDetailBarChartProps {
   userData: UserData
@@ -262,16 +263,13 @@ export default function PersonalPage() {
   const { liff, profile } = useLiff()
 
   useEffect(() => {
-    if (liff) {
-      if (!liff.isLoggedIn || !profile) {
-        liff.login()
-        return
-      }
-    }
+    if (!liff) return
+    if (!profile?.userId) return
 
     const fetchData = async () => {
       try {
-        const response = await fetch(`/api/db/user?user_id=${profile?.userId}`)
+        const base = getBackendBaseUrl()
+        const response = await fetch(`${base}/api/db/user?user_id=${profile?.userId}`)
         if (!response.ok) {
           throw new Error(`Failed to fetch user data: ${response.statusText}`)
         }

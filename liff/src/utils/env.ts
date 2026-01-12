@@ -1,13 +1,10 @@
-export function getRequiredEnv(name: string): string {
-  const value = process.env[name]
-  if (!value || value.trim() === '') {
-    throw new Error(`Environment variable ${name} is not defined`)
-  }
-  return value
-}
-
 export function getBackendBaseUrl(): string {
-  const base = getRequiredEnv('BACKEND_BASE_URL')
+  // Prefer public var for client-side usage; fallback to server var in SSR/dev
+  const base =
+    (process.env.NEXT_PUBLIC_BACKEND_BASE_URL && process.env.NEXT_PUBLIC_BACKEND_BASE_URL.trim())
+
+  if (!base) {
+    throw new Error('Environment variable NEXT_PUBLIC_BACKEND_BASE_URL or BACKEND_BASE_URL is not defined')
+  }
   return base.replace(/\/+$/, '')
 }
-

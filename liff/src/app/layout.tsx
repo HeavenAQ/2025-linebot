@@ -17,8 +17,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${mPlusRounded1c.className} duration-200`}>
-      <body className="bg-[#eee7d7] text-black dark:bg-zinc-900 dark:text-white">
+    <html lang="en" className={`${mPlusRounded1c.className} duration-200`} suppressHydrationWarning>
+      <body
+        className="bg-[#eee7d7] text-black dark:bg-zinc-900 dark:text-white"
+        suppressHydrationWarning
+      >
         <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
           <Hero />

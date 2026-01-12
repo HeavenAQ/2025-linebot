@@ -1,8 +1,10 @@
 import { ErrorResponseSchema } from '@/schemas/error.schema'
 import { StatsByDateSchema, type StatsByDate } from '@/schemas/stats.schema'
+import { getBackendBaseUrl } from '@/utils/env'
 
 export async function fetchClassStats(skill: string): Promise<StatsByDate> {
-  const url = `/api/db/stats/class?skill=${encodeURIComponent(skill)}`
+  const base = getBackendBaseUrl()
+  const url = `${base}/api/db/stats/class?skill=${encodeURIComponent(skill)}`
   const res = await fetch(url, { method: 'GET', cache: 'no-store' })
   const json = await res.json()
   if (!res.ok) {
@@ -14,7 +16,8 @@ export async function fetchClassStats(skill: string): Promise<StatsByDate> {
 }
 
 export async function fetchUserStats(userId: string, skill: string): Promise<StatsByDate> {
-  const url = `/api/db/stats/users/${encodeURIComponent(userId)}?skill=${encodeURIComponent(skill)}`
+  const base = getBackendBaseUrl()
+  const url = `${base}/api/db/stats/users/${encodeURIComponent(userId)}?skill=${encodeURIComponent(skill)}`
   const res = await fetch(url, { method: 'GET', cache: 'no-store' })
   const json = await res.json()
   if (!res.ok) {

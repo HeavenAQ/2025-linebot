@@ -5,6 +5,7 @@ import { useLiff } from '../LiffProvider'
 import type { UserData } from '@/types'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
+import { getBackendBaseUrl } from '@/utils/env'
 
 type ChatMessage = {
   role: string
@@ -35,7 +36,8 @@ export default function GptChatPage() {
       setSummary('')
       try {
         const qs = new URLSearchParams({ user_id: userId, skill })
-        const response = await fetch(`/api/chat/history?${qs.toString()}`)
+        const base = getBackendBaseUrl()
+        const response = await fetch(`${base}/api/chat/history?${qs.toString()}`)
         if (!response.ok) throw new Error(`Failed to fetch chat history: ${response.statusText}`)
 
         const json = await response.json()
@@ -49,7 +51,8 @@ export default function GptChatPage() {
           .filter(Boolean)
         if (lastMessages.length > 0) {
           const body = { content: lastMessages.join('\n'), user_id: userId, skill }
-          const sumRes = await fetch('/api/chat/summarize', {
+          const base = getBackendBaseUrl()
+          const sumRes = await fetch(`${base}/api/chat/summarize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -72,7 +75,8 @@ export default function GptChatPage() {
 
     const fetchData = async () => {
       try {
-        const response = await fetch(`/api/db/user?user_id=${profile?.userId}`)
+        const base = getBackendBaseUrl()
+        const response = await fetch(`${base}/api/db/user?user_id=${profile?.userId}`)
         if (!response.ok) {
           throw new Error(`Failed to fetch user data: ${response.statusText}`)
         }

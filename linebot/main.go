@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,6 +18,16 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+
+	// Middleware for routing
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			"https://linebot-liff-nstc-2025.heavian.work",
+			"http://localhost:3000",
+		},
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+	}))
 
 	// Routes (parity with previous net/http handlers)
 	r.POST("/callback", func(c *gin.Context) {

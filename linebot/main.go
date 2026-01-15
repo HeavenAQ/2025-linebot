@@ -14,6 +14,7 @@ import (
 // (runtime snake_case conversion removed; DB is migrated instead)
 
 func main() {
+	gin.SetMode(gin.ReleaseMode)
 	application := app.NewApp(".env")
 
 	r := gin.New()

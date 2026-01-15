@@ -14,6 +14,7 @@ RUN go build -o main .
 FROM alpine:latest
 WORKDIR /root
 COPY --from=builder /app/main .
+COPY --from=builder /app/pro_videos ./pro_videos
 
 # download the tool needed to run the app
 RUN apk update

@@ -19,7 +19,7 @@ import (
 	ffmpeg_go "github.com/u2takey/ffmpeg-go"
 )
 
-const tmpFolder = "./tmp/"
+const tmpFolder = "/tmp/"
 
 type AnalyzedResult struct {
 	SkeletonVideo string   `json:"skeleton_video"`

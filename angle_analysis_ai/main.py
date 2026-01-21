@@ -36,7 +36,9 @@ BASIC_AUTH_USERNAME = "admin"
 BASIC_AUTH_PASSWORD = "thisisacomplicatedpassword"
 
 
-def require_basic_auth(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+def require_basic_auth(
+    credentials: Annotated[HTTPBasicCredentials, Depends(security)],
+) -> str:
     if not (
         credentials.username == BASIC_AUTH_USERNAME
         and credentials.password == BASIC_AUTH_PASSWORD
@@ -113,6 +115,16 @@ async def training_set(
 
 @app.get("/health", response_model=dict[str, str])
 async def health() -> dict[str, str]:
+    """
+    Health check endpoint.
+    """
+    return {"status": "healthy"}
+
+
+@app.get("/health/sec", response_model=dict[str, str])
+async def health_sec(
+    _: Annotated[str, Depends(require_basic_auth)],
+) -> dict[str, str]:
     """
     Health check endpoint.
     """

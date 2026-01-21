@@ -1,6 +1,15 @@
 from abc import ABC, abstractmethod
+from tracemalloc import start
+from typing import override
 import pandas as pd
-from Types import GradingDetail, GradingOutcome, Handedness, Skill
+from Types import (
+    Body2DCoordinates,
+    COCOKeypoints,
+    GradingDetail,
+    GradingOutcome,
+    Handedness,
+    Skill,
+)
 
 # Types
 AngleDict = dict[str, float] | None
@@ -48,7 +57,9 @@ class Grader(ABC):
     """
 
     @abstractmethod
-    def grade(self, angles: AngleDicts) -> GradingOutcome:
+    def grade(
+        self, angles: AngleDicts, landmark_list: list[Body2DCoordinates]
+    ) -> GradingOutcome:
         """
         Abstract method to grade the performance based on angles.
 
@@ -99,18 +110,22 @@ class GraderRegistry:
 class ServeRightHandedGrader(Grader):
     def grade_checkpoint_1_arms(self, angle_dict: AngleDict) -> float:
         """
-        The preparation phase of the serve. Full score for this checkpoint: 20
+        The preparation phase of the serve. Full score for this checkpoint: 10
         """
         if not angle_dict:
             return 0
+
         grade = 0
-        grade += serve_angle_grader(5, "Right Shoulder", "check1", angle_dict)
-        grade += serve_angle_grader(5, "Left Shoulder", "check1", angle_dict)
+        if angle_dict["Right Shoulder"] >= 25:
+            grade += serve_angle_grader(5, "Right Shoulder", "check1", angle_dict)
+
+        if angle_dict["Left Shoulder"] >= 25:
+            grade += serve_angle_grader(5, "Left Shoulder", "check1", angle_dict)
         return grade
 
     def grade_checkpoint_1_legs(self, angle_dict: AngleDict) -> float:
         """
-        The preparation phase of the serve. Full score for this checkpoint: 20
+        The preparation phase of the serve. Full score for this checkpoint: 10
         """
         if not angle_dict:
             return 0
@@ -118,18 +133,41 @@ class ServeRightHandedGrader(Grader):
             return 10
         return 0
 
-    def grade_checkpoint_2(self, angle_dict1: AngleDict, angle_dict2) -> float:
+    def grade_checkpoint_2_lower_body(
+        self, angles_start: AngleDict, angles_end: AngleDict
+    ) -> float:
         """
-        Body weight transfer. Full score for this checkpoint: 20
+        Lower Body weight transfer. Full score for this checkpoint: 10
         """
-        if not angle_dict1 or not angle_dict2:
+        if not angles_start or not angles_end:
             return 0
+
         grade = 0
-        if angle_dict1["Right Crotch"] < angle_dict2["Right Crotch"]:
-            grade += 10
-        if angle_dict1["Left Crotch"] > angle_dict2["Left Crotch"]:
-            grade += 10
+        if (angles_start["Right Crotch"] - angles_end["Right Crotch"]) <= -3:
+            grade += 5
+        if (angles_start["Left Crotch"] - angles_end["Left Crotch"]) >= 3:
+            grade += 5
         return grade
+
+    def grade_checkpoint_2_upper_body(
+        self, start_frame: Body2DCoordinates, end_frame: Body2DCoordinates
+    ) -> float:
+        """
+        Upper Body weight transfer. Full score for this checkpoint: 10
+        """
+        # extract the coordinates needed for analysis
+        start_left_shoulder = start_frame[COCOKeypoints.LEFT_SHOULDER][0]
+        start_right_shoulder = start_frame[COCOKeypoints.RIGHT_SHOULDER][0]
+        end_left_shoulder = end_frame[COCOKeypoints.LEFT_SHOULDER][0]
+        end_right_shoulder = end_frame[COCOKeypoints.RIGHT_SHOULDER][0]
+
+        # calculate the displacement between coordinates
+        left_shoulder_disp = end_left_shoulder - start_left_shoulder
+        right_shoulder_disp = end_right_shoulder - start_right_shoulder
+        if left_shoulder_disp > 5 and right_shoulder_disp > 5:
+            return 10
+        else:
+            return 0
 
     def grade_checkpoint_3(self, angle_dict: AngleDict) -> float:
         """
@@ -165,20 +203,37 @@ class ServeRightHandedGrader(Grader):
 
         # full score for this frame: 20
 
-    def grade(self, angles: AngleDicts) -> GradingOutcome:
+    @override
+    def grade(
+        self, angles: AngleDicts, landmark_list: list[Body2DCoordinates]
+    ) -> GradingOutcome:
         # full score for this: 100
         check1_arms = self.grade_checkpoint_1_arms(angles[0])
         check1_legs = self.grade_checkpoint_1_legs(angles[0])
-        check2 = self.grade_checkpoint_2(angles[0], angles[1])
+        check2_lower = self.grade_checkpoint_2_lower_body(angles[0], angles[1])
+        check2_upper = self.grade_checkpoint_2_upper_body(
+            landmark_list[1],
+            landmark_list[3],
+        )
         check3 = self.grade_checkpoint_3(angles[2])
         check4 = self.grade_checkpoint_4(angles[3])
         check5 = self.grade_checkpoint_5(angles[4])
-        total = check1_arms + check1_legs + check2 + check3 + check4 + check5
+        total = (
+            check1_arms
+            + check1_legs
+            + check2_lower
+            + check2_upper
+            + check3
+            + check4
+            + check5
+        )
+        print(f"Total grade: {total}")
         grading_details: list[GradingDetail] = [
             GradingDetail(description="雙手平舉", grade=check1_arms),
             GradingDetail(description="將重心放至持拍腳", grade=check1_legs),
-            GradingDetail(description="身體重心轉移至非持拍腳", grade=check2),
-            GradingDetail(description="髖關節前旋", grade=check4),
+            GradingDetail(description="下盤重心轉移至非持拍腳", grade=check2_lower),
+            GradingDetail(description="上肢重心轉移至非持拍腳", grade=check2_upper),
+            GradingDetail(description="髖關節前旋", grade=check3),
             GradingDetail(description="持拍手手腕發力", grade=check4),
             GradingDetail(description="肩膀旋轉朝前", grade=check5),
         ]
@@ -190,7 +245,10 @@ class ServeRightHandedGrader(Grader):
 
 
 class ServeLeftHandedGrader(Grader):
-    def grade(self, angles: AngleDicts) -> GradingOutcome:
+    @override
+    def grade(
+        self, angles: AngleDicts, landmark_list: list[Body2DCoordinates]
+    ) -> GradingOutcome:
         print(angles)
         return GradingOutcome(grading_details=[], total_grade=0)
         # Example grading logic for right-handed serve

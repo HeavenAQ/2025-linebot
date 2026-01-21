@@ -10,6 +10,7 @@ from Grader import GraderRegistry
 from PoseModule import PoseDetector
 from Joints import JOINTS
 from Types import (
+    Body2DCoordinates,
     COCOKeypoints,
     Handedness,
     Skill,
@@ -29,7 +30,7 @@ class VideoProcessor:
         self.right_elbow_positions = []
         self.time_intervals = []
         self.frames = []
-        self.landmarks = []
+        self.landmarks: list[Body2DCoordinates] = []
         self.output_path = os.path.join(self.output_folder, self.out_filename)
 
     def moving_average(
@@ -105,8 +106,8 @@ class VideoProcessor:
                 # Pose estimation
                 results = self.pose_detector.get_pose(frame)
                 landmarks = self.pose_detector.get_2d_landmarks(results)
-                self.landmarks.append(landmarks)
-                if landmarks:
+                if landmarks is not None:
+                    self.landmarks.append(landmarks)
                     wrist = (
                         COCOKeypoints.RIGHT_WRIST
                         if handedness == Handedness.RIGHT
@@ -119,11 +120,12 @@ class VideoProcessor:
                     )
                     wrist = landmarks.get(wrist)
                     elbow = landmarks.get(elbow)
-                    if wrist:
+                    if wrist is not None:
                         self.right_hand_positions.append(wrist)
-                        self.frames.append(frame.copy())
-                    if elbow:
+                    if elbow is not None:
                         self.right_elbow_positions.append(elbow)
+                    if frame is not None:
+                        self.frames.append(frame.copy())
             else:
                 if not capture_thread.is_alive():
                     break
@@ -181,8 +183,8 @@ class VideoProcessor:
             end_index = min(len(self.frames), max_y_index)
 
             # Calculate angles for the selected frames
-            angle_lists = [
-                self.compute_angles(self.frames[i])
+            landmark_list = [
+                self.landmarks[i]
                 for i in (
                     start_index,
                     (start_index + final_peak_frame) // 2,
@@ -191,10 +193,11 @@ class VideoProcessor:
                     end_index,
                 )
             ]
+            angle_list = list(map(self.compute_angles, landmark_list))
 
             # Dynamically get and use the grader
             grader = GraderRegistry.get(skill, handedness)
-            grade = grader.grade(angle_lists)
+            grade = grader.grade(angle_list, landmark_list)
 
             # Save video segment
             output_path = self.save_video_segment(
@@ -208,7 +211,7 @@ class VideoProcessor:
 
             # Return the response
             response.grade = grade
-            response.used_angles_data = angle_lists
+            response.used_angles_data = angle_list
             response.processed_video = video_base64
             return response
         return response
@@ -260,12 +263,9 @@ class VideoProcessor:
         print(f"Segment video saved as '{output_video_path}'")
         return output_video_path
 
-    def compute_angles(self, frame: np.ndarray) -> Optional[dict[str, float]]:
-        results = self.pose_detector.get_pose(frame)
-        landmarks = self.pose_detector.get_2d_landmarks(results)
-        if not landmarks:
-            return None
-
+    def compute_angles(
+        self, landmarks: Body2DCoordinates
+    ) -> Optional[dict[str, float]]:
         angles: dict[str, float] = {key: 0.0 for key in JOINTS.keys()}
         for joint_name, (point_a_id, point_b_id, point_c_id) in JOINTS.items():
             if all(kp in landmarks for kp in (point_a_id, point_b_id, point_c_id)):

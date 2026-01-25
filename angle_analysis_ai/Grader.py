@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from math import atan2, degrees, exp, sqrt
 
-from typing import override
+from typing_extensions import override
 import pandas as pd
 from pathlib import Path
 from Types import (

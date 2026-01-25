@@ -1,0 +1,58 @@
+name: Angle Analysis CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-angle-analysis:
+    defaults:
+      run:
+        working-directory: ./angle_analysis_ai
+    runs-on: ubuntu-latest
+    environment: nstc-linebot-2025
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authorize Google Cloud SDK
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Who am I?
+        run: |
+          gcloud auth list
+          gcloud config get-value account
+
+      - name: Build and push Docker image
+        run: |-
+          gcloud builds submit \
+            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/angle-analysis-ai
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy angle-analysis-ai \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/angle-analysis-ai \
+            --platform managed \
+            --region asia-southeast1 \
+            --allow-unauthenticated \
+            --service-account ${{ secrets.GCP_SA_EMAIL }} \
+            --execution-environment=gen2 \
+            --gpu-type=nvidia-l4 \
+            --cpu=4 \
+            --memory=16Gi \
+            --concurrency=1 \
+            --timeout=3600 \
+            --max-instances=1

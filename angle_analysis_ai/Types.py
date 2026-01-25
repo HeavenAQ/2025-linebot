@@ -1,7 +1,8 @@
 import numpy as np
 
 from enum import IntEnum
-from typing import Dict, Tuple, TypedDict, override
+from typing import Dict, Tuple, TypedDict
+from typing_extensions import override
 
 from numpy._typing import NDArray
 from pydantic import BaseModel

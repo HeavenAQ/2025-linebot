@@ -5,6 +5,7 @@ import base64
 from typing import Optional, final
 import cv2
 import numpy as np
+from Normalizer import BodyCentricNormalizer
 from queue import Queue
 from Grader import GraderRegistry
 from PoseModule import PoseDetector
@@ -23,6 +24,7 @@ from Types import (
 class VideoProcessor:
     def __init__(self, video_path: str, out_filename: str, output_folder: str) -> None:
         self.video_path = video_path
+        self.normalizer = BodyCentricNormalizer()
         self.out_filename = out_filename
         self.output_folder = output_folder
         self.pose_detector = PoseDetector()
@@ -238,7 +240,10 @@ class VideoProcessor:
 
                 # Overlay angle arcs
                 for key, (point_a_id, point_b_id, point_c_id) in JOINTS.items():
-                    if key in ("Nose Right Shoulder Elbow", "Nose Left Shoulder Elbow"):
+                    if key in (
+                        "Nose Right Shoulder Elbow Angle",
+                        "Nose Left Shoulder Elbow Angle",
+                    ):
                         continue
                     if all(
                         kp in landmarks for kp in (point_a_id, point_b_id, point_c_id)

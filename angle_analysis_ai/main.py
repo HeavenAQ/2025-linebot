@@ -19,9 +19,10 @@ app = FastAPI(title="Angle Analysis API", version="1.0.0")
 
 
 # Configuration
-UPLOAD_FOLDER = "./uploads"
-OUTPUT_FOLDER = "./output"
-CSV_FILE = "./training_dataset.csv"  # CSV for storing training data (unused)
+# On Cloud Run, only /tmp is writable. Use it for transient data.
+UPLOAD_FOLDER = "/tmp/uploads"
+OUTPUT_FOLDER = "/tmp/output"
+CSV_FILE = "/tmp/training_dataset.csv"  # CSV for storing training data (unused)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -134,4 +135,4 @@ async def health_sec(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0")

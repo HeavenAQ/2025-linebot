@@ -1,6 +1,5 @@
-import os
 import time
-from typing import Any, Optional, final
+from typing import Any, final
 
 import cv2
 import numpy as np
@@ -112,7 +111,7 @@ class PoseDetector:
         self.logger.debug("Pose estimation completed")
         return results
 
-    def get_2d_landmarks(self, results: Any) -> Optional[Body2DCoordinates]:
+    def get_2d_landmarks(self, results: Any) -> Body2DCoordinates | None:
         """
         Retrieves the pose landmarks as a dictionary with body part numbers as keys
         with their corresponding x, y coordinates being the value.
@@ -177,7 +176,7 @@ class PoseDetector:
         point_a: tuple[float, float],
         point_b: tuple[float, float],
         point_c: tuple[float, float],
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Computes the angle between three 2D points.
 
@@ -215,7 +214,7 @@ class PoseDetector:
         angle_radian = np.arccos(cos_theta)
         return np.degrees(angle_radian)
 
-    def show_pose(self, img: MatLike, landmarks: Optional[Body2DCoordinates]) -> None:
+    def show_pose(self, img: MatLike, landmarks: Body2DCoordinates | None) -> None:
         """
         Draws only the pose skeleton (landmarks and connections) on the given image.
 

@@ -1,0 +1,20 @@
+# Files and directories to exclude from upload to Cloud Build
+# This overrides .gitignore so we can include needed data files (e.g., stats/)
+
+# VCS and editor junk
+.git
+.DS_Store
+
+# Python caches and venvs
+__pycache__/
+.venv/
+
+# Large or generated artifacts we don't need in the image
+output/
+uploads/
+expert_videos/
+test_videos/
+validation/
+*.pt
+
+# Note: intentionally NOT ignoring stats/

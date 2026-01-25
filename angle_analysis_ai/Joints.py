@@ -1,52 +1,52 @@
 from Types import COCOKeypoints
 
 JOINTS = {
-    "Left Elbow": (
+    "Left Elbow Angle": (
         COCOKeypoints.LEFT_SHOULDER,
         COCOKeypoints.LEFT_ELBOW,
         COCOKeypoints.LEFT_WRIST,
     ),
-    "Right Elbow": (
+    "Right Elbow Angle": (
         COCOKeypoints.RIGHT_SHOULDER,
         COCOKeypoints.RIGHT_ELBOW,
         COCOKeypoints.RIGHT_WRIST,
     ),
-    "Left Knee": (
+    "Left Knee Angle": (
         COCOKeypoints.LEFT_HIP,
         COCOKeypoints.LEFT_KNEE,
         COCOKeypoints.LEFT_ANKLE,
     ),
-    "Right Knee": (
+    "Right Knee Angle": (
         COCOKeypoints.RIGHT_HIP,
         COCOKeypoints.RIGHT_KNEE,
         COCOKeypoints.RIGHT_ANKLE,
     ),
-    "Left Shoulder": (
+    "Left Shoulder Angle": (
         COCOKeypoints.LEFT_HIP,
         COCOKeypoints.LEFT_SHOULDER,
         COCOKeypoints.LEFT_ELBOW,
     ),
-    "Right Shoulder": (
+    "Right Shoulder Angle": (
         COCOKeypoints.RIGHT_HIP,
         COCOKeypoints.RIGHT_SHOULDER,
         COCOKeypoints.RIGHT_ELBOW,
     ),
-    "Left Crotch": (
+    "Left Crotch Angle": (
         COCOKeypoints.LEFT_KNEE,
         COCOKeypoints.LEFT_HIP,
         COCOKeypoints.RIGHT_HIP,
     ),
-    "Right Crotch": (
+    "Right Crotch Angle": (
         COCOKeypoints.RIGHT_KNEE,
         COCOKeypoints.RIGHT_HIP,
         COCOKeypoints.LEFT_HIP,
     ),
-    "Nose Right Shoulder Elbow": (
+    "Nose Right Shoulder Elbow Angle": (
         COCOKeypoints.NOSE,
         COCOKeypoints.RIGHT_SHOULDER,
         COCOKeypoints.RIGHT_ELBOW,
     ),
-    "Nose Left Shoulder Elbow": (
+    "Nose Left Shoulder Elbow Angle": (
         COCOKeypoints.NOSE,
         COCOKeypoints.LEFT_SHOULDER,
         COCOKeypoints.LEFT_ELBOW,

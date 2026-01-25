@@ -1,6 +1,9 @@
-from enum import IntEnum
-from typing import Dict, Tuple
+import numpy as np
 
+from enum import IntEnum
+from typing import Dict, Tuple, TypedDict, override
+
+from numpy._typing import NDArray
 from pydantic import BaseModel
 
 
@@ -22,6 +25,10 @@ class COCOKeypoints(IntEnum):
     RIGHT_KNEE = 14
     LEFT_ANKLE = 15
     RIGHT_ANKLE = 16
+
+    @override
+    def __str__(self) -> str:
+        return self.name.replace("_", " ").title()
 
 
 class Skill(IntEnum):
@@ -68,3 +75,9 @@ class VideoAnalysisResponse(BaseModel):
     grade: GradingOutcome
     used_angles_data: list[dict[str, float] | None]
     processed_video: str
+
+
+class BodyCoordinateSystem(TypedDict):
+    origin: NDArray[np.float64]
+    x_axis: NDArray[np.float64]
+    y_axis: NDArray[np.float64]

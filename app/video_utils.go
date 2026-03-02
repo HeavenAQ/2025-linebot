@@ -18,29 +18,27 @@ const tmpFolder = "/tmp/"
 func (app *App) getVideoFolderPath(user *db.UserData, skill string) string {
 	var folderPath string
 	switch skill {
-	case "jumping_clear":
-		folderPath = user.FolderPaths.JumpingClear
-	case "front_court_high_point_drop":
-		folderPath = user.FolderPaths.FrontCourtHighPointDrop
-	case "defensive_clear":
-		folderPath = user.FolderPaths.DefensiveClear
-	case "front_court_low_point_lift":
-		folderPath = user.FolderPaths.FrontCourtLowPointLift
-	case "jumping_smash":
-		folderPath = user.FolderPaths.JumpingSmash
-	case "mid_court_chasse_to_back":
-		folderPath = user.FolderPaths.MidCourtChasseToBack
-	case "forward_cross_step":
-		folderPath = user.FolderPaths.ForwardCrossStep
-	case "mid_court_back_cross_step":
-		folderPath = user.FolderPaths.MidCourtBackCrossStep
-	case "defensive_slide_step":
-		folderPath = user.FolderPaths.DefensiveSlideStep
+	case "smash":
+		folderPath = user.FolderPaths.Smash
+	case "backhand_drive":
+		folderPath = user.FolderPaths.BackhandDrive
+	case "forehand_drive":
+		folderPath = user.FolderPaths.ForehandDrive
+	case "backhand_netkill":
+		folderPath = user.FolderPaths.BackhandNetKill
+	case "forehand_netkill":
+		folderPath = user.FolderPaths.ForehandNetKill
+	case "frontcourt_footwork":
+		folderPath = user.FolderPaths.FrontCourtFootwork
+	case "backcourt_footwork":
+		folderPath = user.FolderPaths.BackCourtFootwork
 	}
 	return folderPath
 }
 
 func (app *App) uploadVideoToBucket(user *db.UserData, session *db.UserSession, videoBlob []byte, thumbnailPath string, filename string) (*storage.UploadedFile, *storage.UploadedFile, error) {
+	defer app.rmTmpThumbnailFile(thumbnailPath)
+
 	app.Logger.Info.Println("Getting folder path...")
 	folderPath := app.getVideoFolderPath(user, session.Skill)
 
@@ -132,8 +130,15 @@ func (app *App) createTmpVideoFile(blob io.Reader, user *db.UserData) (string, e
 
 func (app App) rmTmpVideoFile(filename string) {
 	app.Logger.Info.Println("Removing tmp video file")
-	if err := os.Remove(filename); err != nil {
+	if err := os.Remove(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
 		app.Logger.Warn.Println("Failed to remove tmp video file:", err)
+	}
+}
+
+func (app App) rmTmpThumbnailFile(filename string) {
+	app.Logger.Info.Println("Removing tmp thumbnail file")
+	if err := os.Remove(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
+		app.Logger.Warn.Println("Failed to remove tmp thumbnail file:", err)
 	}
 }
 
@@ -204,14 +209,9 @@ func (app *App) createVideoThumbnail(event *linebot.Event, user *db.UserData, bl
 
 	// Asynchronously remove the original file
 	go func() {
-		if err := os.Remove(filename); err != nil {
+		if err := os.Remove(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
 			app.Logger.Info.Println("Failed to remove temp file:", err)
 		}
 	}()
 	return outFileName, nil
-}
-
-func uploadError(app App, event *linebot.Event, err error, message string) {
-	app.Logger.Error.Println(message, err)
-	app.LineBot.SendDefaultErrorReply(event.ReplyToken)
 }

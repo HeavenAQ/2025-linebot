@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
-	"google.golang.org/api/option"
 )
 
 type BucketClient struct {
@@ -24,11 +23,11 @@ type UserFolders struct {
 	RootPath string
 }
 
-func NewBucketClient(credentials []byte, bucketName string) (*BucketClient, error) {
+func NewBucketClient(bucketName string) (*BucketClient, error) {
 	ctx := context.Background()
 
 	// init google cloud storage client
-	client, err := storage.NewClient(ctx, option.WithCredentialsJSON(credentials))
+	client, err := storage.NewClient(ctx)
 	if err != nil {
 		return nil, err
 	}

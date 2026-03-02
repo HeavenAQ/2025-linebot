@@ -56,20 +56,6 @@ func (client *Client) SendGPTChattingModeReply(replyToken string, msg string) (*
 	})).Do()
 }
 
-func (client *Client) SendVideoUploadedReply(
-	replyToken string,
-	skill string,
-	videoFolder string,
-) (*linebot.BasicResponse, error) {
-	s := db.SkillStrToEnum(skill)
-	skillFolder := "https://drive.google.com/drive/u/0/folders/" + videoFolder
-	return client.bot.ReplyMessage(
-		replyToken,
-		linebot.NewTextMessage("已成功上傳影片!"),
-		linebot.NewTextMessage("以下為【"+s.ChnString()+"】的影片資料夾：\n"+skillFolder),
-	).Do()
-}
-
 func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {
 	_, err := client.bot.ReplyMessage(
 		replyToken,
@@ -161,8 +147,8 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 }
 
 func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
-	videoLink := "https://storage.googleapis.com/moe-linebot-2026-storage/" + video.VideoID
-	thumbnailLink := "https://storage.googleapis.com/moe-linebot-2026-storage/" + video.ThumbnailID
+	videoLink := client.getObjectURL(video.VideoID)
+	thumbnailLink := client.getObjectURL(video.ThumbnailID)
 	return client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewVideoMessage(videoLink, thumbnailLink),
@@ -220,29 +206,22 @@ func (client *Client) SendPortfolio(
 func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
 	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
 		db.Right: {
-			db.JumpingClear:            []string{},
-			db.FrontCourtHighPointDrop: []string{},
-			db.DefensiveClear:          []string{},
-			db.FrontCourtLowPointLift:  []string{},
-			db.JumpingSmash:            []string{},
-			db.MidCourtChasseToBack:    []string{},
-			db.ForwardCrossStep:        []string{},
-			db.MidCourtBackCrossStep:   []string{},
-			db.DefensiveSlideStep:      []string{},
+			db.Smash:              []string{},
+			db.BackhandDrive:      []string{},
+			db.ForehandDrive:      []string{},
+			db.BackhandNetKill:    []string{},
+			db.ForehandNetKill:    []string{},
+			db.FrontCourtFootwork: []string{},
+			db.BackCourtFootwork:  []string{},
 		},
 		db.Left: {
-			db.JumpingClear: []string{
-				"https://youtu.be/yyjC-xXOsdg",
-				"https://youtu.be/AzF44kouBBQ",
-			},
-			db.FrontCourtHighPointDrop: []string{},
-			db.DefensiveClear:          []string{},
-			db.FrontCourtLowPointLift:  []string{},
-			db.JumpingSmash:            []string{},
-			db.MidCourtChasseToBack:    []string{},
-			db.ForwardCrossStep:        []string{},
-			db.MidCourtBackCrossStep:   []string{},
-			db.DefensiveSlideStep:      []string{},
+			db.Smash:              []string{},
+			db.BackhandDrive:      []string{},
+			db.ForehandDrive:      []string{},
+			db.BackhandNetKill:    []string{},
+			db.ForehandNetKill:    []string{},
+			db.FrontCourtFootwork: []string{},
+			db.BackCourtFootwork:  []string{},
 		},
 	}
 	return actionUrls[hand][skill]

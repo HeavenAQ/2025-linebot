@@ -118,79 +118,68 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 type BadmintonSkill int8
 
 const (
-	JumpingClear BadmintonSkill = iota
-	FrontCourtHighPointDrop
-	DefensiveClear
-	FrontCourtLowPointLift
-	JumpingSmash
-	MidCourtChasseToBack
-	ForwardCrossStep
-	MidCourtBackCrossStep
-	DefensiveSlideStep
+	Smash BadmintonSkill = iota
+	BackhandDrive
+	ForehandDrive
+	BackhandNetKill
+	ForehandNetKill
+	FrontCourtFootwork
+	BackCourtFootwork
 )
 
 func BadmintonSkillSlice() []BadmintonSkill {
 	return []BadmintonSkill{
-		JumpingClear,
-		FrontCourtHighPointDrop,
-		DefensiveClear,
-		FrontCourtLowPointLift,
-		JumpingSmash,
-		MidCourtChasseToBack,
-		ForwardCrossStep,
-		MidCourtBackCrossStep,
-		DefensiveSlideStep,
+		Smash,
+		BackhandDrive,
+		ForehandDrive,
+		BackhandNetKill,
+		ForehandNetKill,
+		FrontCourtFootwork,
+		BackCourtFootwork,
 	}
 }
 
 func (s BadmintonSkill) String() string {
 	return [...]string{
-		"jumping_clear",
-		"front_court_high_point_drop",
-		"defensive_clear",
-		"front_court_low_point_lift",
-		"jumping_smash",
-		"mid_court_chasse_to_back",
-		"forward_cross_step",
-		"mid_court_back_cross_step",
-		"defensive_slide_step",
+		"smash",
+		"backhand_drive",
+		"forehand_drive",
+		"backhand_netkill",
+		"forehand_netkill",
+		"frontcourt_footwork",
+		"backcourt_footwork",
 	}[s]
 }
 
 func (s BadmintonSkill) ChnString() string {
 	return [...]string{
-		"後場起跳擊高遠球",
-		"前場高點小球",
-		"後場被動高遠球",
-		"前場低點挑球",
-		"後場起跳擊殺球",
-		"中場墊步至後場",
-		"前交叉步法",
-		"中場後交叉步至後場",
-		"被動滑步",
+		"殺球",
+		"反手平球",
+		"正手平球",
+		"反手推球",
+		"正手推球",
+		"前場腳步",
+		"後場腳步",
 	}[s]
 }
 
 func SkillStrToEnum(str string) BadmintonSkill {
 	switch str {
-	case "jumping_clear":
-		return JumpingClear
-	case "front_court_high_point_drop":
-		return FrontCourtHighPointDrop
-	case "defensive_clear":
-		return DefensiveClear
-	case "front_court_low_point_lift":
-		return FrontCourtLowPointLift
-	case "jumping_smash":
-		return JumpingSmash
-	case "mid_court_chasse_to_back":
-		return MidCourtChasseToBack
-	case "forward_cross_step":
-		return ForwardCrossStep
-	case "mid_court_back_cross_step":
-		return MidCourtBackCrossStep
-	case "defensive_slide_step":
-		return DefensiveSlideStep
+
+	case "smash":
+		return Smash
+	case "backhand_drive":
+		return BackhandDrive
+	case "forehand_drive":
+		return ForehandDrive
+	case "backhand_netkill":
+		return BackhandNetKill
+	case "forehand_netkill":
+		return ForehandNetKill
+	case "frontcourt_footwork":
+		return FrontCourtFootwork
+	case "backcourt_footwork":
+		return BackCourtFootwork
 	default:
 		return -1
 	}

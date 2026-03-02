@@ -8,17 +8,18 @@ import (
 )
 
 type Client struct {
-	bot *linebot.Client
+	bot        *linebot.Client
+	bucketName string
 }
 
 // NewBotClient creates a new BotClient instance
-func NewBotClient(channelSecret, channelToken string) (*Client, error) {
+func NewBotClient(channelSecret, channelToken, bucketName string) (*Client, error) {
 	bot, err := linebot.New(channelSecret, channelToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create linebot client: %w", err)
 	}
 
-	return &Client{bot: bot}, nil
+	return &Client{bot: bot, bucketName: bucketName}, nil
 }
 
 // ParseRequest wraps the linebot.Client's ParseRequest method
@@ -28,4 +29,8 @@ func (client *Client) ParseRequest(r *http.Request) ([]*linebot.Event, error) {
 		return nil, fmt.Errorf("failed to parse request: %w", err)
 	}
 	return res, nil
+}
+
+func (client *Client) getObjectURL(path string) string {
+	return fmt.Sprintf("https://storage.googleapis.com/%s/%s", client.bucketName, path)
 }

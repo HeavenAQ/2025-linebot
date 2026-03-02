@@ -16,66 +16,50 @@ type UserData struct {
 }
 
 type FolderPaths struct {
-	Root                    string `json:"root"`
-	JumpingClear            string `json:"jumping_clear"`
-	FrontCourtHighPointDrop string `json:"front_court_high_point_drop"`
-	DefensiveClear          string `json:"defensive_clear"`
-	FrontCourtLowPointLift  string `json:"front_court_low_point_lift"`
-	JumpingSmash            string `json:"jumping_smash"`
-	MidCourtChasseToBack    string `json:"mid_court_chasse_to_back"`
-	ForwardCrossStep        string `json:"forward_cross_step"`
-	MidCourtBackCrossStep   string `json:"mid_court_back_cross_step"`
-	DefensiveSlideStep      string `json:"defensive_slide_step"`
-	Thumbnail               string `json:"thumbnail"`
+	Root               string `json:"root"`
+	Smash              string `json:"smash"`
+	BackhandDrive      string `json:"backhand_drive"`
+	ForehandDrive      string `json:"forehand_drive"`
+	BackhandNetKill    string `json:"backhand_netkill"`
+	ForehandNetKill    string `json:"forehand_netkill"`
+	FrontCourtFootwork string `json:"frontcourt_footwork"`
+	BackCourtFootwork  string `json:"backcourt_footwork"`
+	Thumbnail          string `json:"thumbnail"`
 }
 
 type Portfolios struct {
-	JumpingClear            map[string]Work `json:"jumping_clear"`
-	FrontCourtHighPointDrop map[string]Work `json:"front_court_high_point_drop"`
-	DefensiveClear          map[string]Work `json:"defensive_clear"`
-	FrontCourtLowPointLift  map[string]Work `json:"front_court_low_point_lift"`
-	JumpingSmash            map[string]Work `json:"jumping_smash"`
-	MidCourtChasseToBack    map[string]Work `json:"mid_court_chasse_to_back"`
-	ForwardCrossStep        map[string]Work `json:"forward_cross_step"`
-	MidCourtBackCrossStep   map[string]Work `json:"mid_court_back_cross_step"`
-	DefensiveSlideStep      map[string]Work `json:"defensive_slide_step"`
+	Smash              map[string]Work `json:"smash"`
+	BackhandDrive      map[string]Work `json:"backhand_drive"`
+	ForehandDrive      map[string]Work `json:"forehand_drive"`
+	BackhandNetKill    map[string]Work `json:"backhand_netkill"`
+	ForehandNetKill    map[string]Work `json:"forehand_netkill"`
+	FrontCourtFootwork map[string]Work `json:"frontcourt_footwork"`
+	BackCourtFootwork  map[string]Work `json:"backcourt_footwork"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 	switch skill {
-	case "jumping_clear":
-		return p.JumpingClear
-	case "front_court_high_point_drop":
-		return p.FrontCourtHighPointDrop
-	case "defensive_clear":
-		return p.DefensiveClear
-	case "front_court_low_point_lift":
-		return p.FrontCourtLowPointLift
-	case "jumping_smash":
-		return p.JumpingSmash
-	case "mid_court_chasse_to_back":
-		return p.MidCourtChasseToBack
-	case "forward_cross_step":
-		return p.ForwardCrossStep
-	case "mid_court_back_cross_step":
-		return p.MidCourtBackCrossStep
-	case "defensive_slide_step":
-		return p.DefensiveSlideStep
+	case "smash":
+		return p.Smash
+	case "backhand_drive":
+		return p.BackhandDrive
+	case "forehand_drive":
+		return p.ForehandDrive
+	case "backhand_netkill":
+		return p.BackhandNetKill
+	case "forehand_netkill":
+		return p.ForehandNetKill
+	case "frontcourt_footwork":
+		return p.FrontCourtFootwork
+	case "backcourt_footwork":
+		return p.BackCourtFootwork
 	default:
 		return nil
 	}
 }
 
 type GPTThreadIDs struct {
-	JumpingClear            string `json:"jumping_clear"`
-	FrontCourtHighPointDrop string `json:"front_court_high_point_drop"`
-	DefensiveClear          string `json:"defensive_clear"`
-	FrontCourtLowPointLift  string `json:"front_court_low_point_lift"`
-	JumpingSmash            string `json:"jumping_smash"`
-	MidCourtChasseToBack    string `json:"mid_court_chasse_to_back"`
-	ForwardCrossStep        string `json:"forward_cross_step"`
-	MidCourtBackCrossStep   string `json:"mid_court_back_cross_step"`
-	DefensiveSlideStep      string `json:"defensive_slide_step"`
+	Chat string `json:"chat"`
 }
 
 type Work struct {
@@ -88,6 +72,10 @@ type Work struct {
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptThreads *GPTThreadIDs) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
 
+	if gptThreads == nil {
+		gptThreads = &GPTThreadIDs{}
+	}
+
 	// In GCS, folders are just path prefixes
 	rootPath := userFolders.RootPath
 	newUserTemplate := &UserData{
@@ -95,39 +83,27 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 		ID:         userFolders.UserID,
 		Handedness: Right,
 		FolderPaths: FolderPaths{
-			Root:                    rootPath,
-			JumpingClear:            rootPath + "jumping_clear/",
-			FrontCourtHighPointDrop: rootPath + "front_court_high_point_drop/",
-			DefensiveClear:          rootPath + "defensive_clear/",
-			FrontCourtLowPointLift:  rootPath + "front_court_low_point_lift/",
-			JumpingSmash:            rootPath + "jumping_smash/",
-			MidCourtChasseToBack:    rootPath + "mid_court_chasse_to_back/",
-			ForwardCrossStep:        rootPath + "forward_cross_step/",
-			MidCourtBackCrossStep:   rootPath + "mid_court_back_cross_step/",
-			DefensiveSlideStep:      rootPath + "defensive_slide_step/",
-			Thumbnail:               rootPath + "thumbnails/",
+			Root:               rootPath,
+			Smash:              rootPath + "smash/",
+			BackhandDrive:      rootPath + "backhand_drive/",
+			ForehandDrive:      rootPath + "forehand_drive/",
+			BackhandNetKill:    rootPath + "backhand_netkill/",
+			ForehandNetKill:    rootPath + "forehand_netkill/",
+			FrontCourtFootwork: rootPath + "frontcourt_footwork/",
+			BackCourtFootwork:  rootPath + "backcourt_footwork/",
+			Thumbnail:          rootPath + "thumbnails/",
 		},
 		Portfolio: Portfolios{
-			JumpingClear:            map[string]Work{},
-			FrontCourtHighPointDrop: map[string]Work{},
-			DefensiveClear:          map[string]Work{},
-			FrontCourtLowPointLift:  map[string]Work{},
-			JumpingSmash:            map[string]Work{},
-			MidCourtChasseToBack:    map[string]Work{},
-			ForwardCrossStep:        map[string]Work{},
-			MidCourtBackCrossStep:   map[string]Work{},
-			DefensiveSlideStep:      map[string]Work{},
+			Smash:              map[string]Work{},
+			BackhandDrive:      map[string]Work{},
+			ForehandDrive:      map[string]Work{},
+			BackhandNetKill:    map[string]Work{},
+			ForehandNetKill:    map[string]Work{},
+			FrontCourtFootwork: map[string]Work{},
+			BackCourtFootwork:  map[string]Work{},
 		},
 		GPTThreadIDs: GPTThreadIDs{
-			JumpingClear:            gptThreads.JumpingClear,
-			FrontCourtHighPointDrop: gptThreads.FrontCourtHighPointDrop,
-			DefensiveClear:          gptThreads.DefensiveClear,
-			FrontCourtLowPointLift:  gptThreads.FrontCourtLowPointLift,
-			JumpingSmash:            gptThreads.JumpingSmash,
-			MidCourtChasseToBack:    gptThreads.MidCourtChasseToBack,
-			ForwardCrossStep:        gptThreads.ForwardCrossStep,
-			MidCourtBackCrossStep:   gptThreads.MidCourtBackCrossStep,
-			DefensiveSlideStep:      gptThreads.DefensiveSlideStep,
+			Chat: gptThreads.Chat,
 		},
 	}
 
@@ -166,6 +142,13 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 }
 
 func (client *FirestoreClient) CreateUserPortfolioVideo(user *UserData, userPortfolio *map[string]Work, date string, session *UserSession, videoFile *storage.UploadedFile, thumbnailFile *storage.UploadedFile) error {
+	if userPortfolio == nil {
+		return fmt.Errorf("error creating user portfolio video: missing portfolio for skill %q", session.Skill)
+	}
+	if *userPortfolio == nil {
+		*userPortfolio = make(map[string]Work)
+	}
+
 	work := Work{
 		DateTime:   date,
 		Reflection: "尚未填寫心得",
@@ -187,6 +170,10 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	date string,
 	reflection string,
 ) error {
+	if userPortfolio == nil || *userPortfolio == nil {
+		return fmt.Errorf("error updating user portfolio reflection: portfolio does not exist for date %q", date)
+	}
+
 	targetWork := (*userPortfolio)[date]
 	work := Work{
 		DateTime:   targetWork.DateTime,
@@ -199,27 +186,8 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	return client.updateUserData(user)
 }
 
-func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, skill string, threadID string) error {
-	switch skill {
-	case "jumping_clear":
-		user.GPTThreadIDs.JumpingClear = threadID
-	case "front_court_high_point_drop":
-		user.GPTThreadIDs.FrontCourtHighPointDrop = threadID
-	case "defensive_clear":
-		user.GPTThreadIDs.DefensiveClear = threadID
-	case "front_court_low_point_lift":
-		user.GPTThreadIDs.FrontCourtLowPointLift = threadID
-	case "jumping_smash":
-		user.GPTThreadIDs.JumpingSmash = threadID
-	case "mid_court_chasse_to_back":
-		user.GPTThreadIDs.MidCourtChasseToBack = threadID
-	case "forward_cross_step":
-		user.GPTThreadIDs.ForwardCrossStep = threadID
-	case "mid_court_back_cross_step":
-		user.GPTThreadIDs.MidCourtBackCrossStep = threadID
-	case "defensive_slide_step":
-		user.GPTThreadIDs.DefensiveSlideStep = threadID
-	}
+func (client *FirestoreClient) UpdateUserGPTThreadID(user *UserData, threadID string) error {
+	user.GPTThreadIDs.Chat = threadID
 	return client.updateUserData(user)
 }
 

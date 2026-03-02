@@ -19,7 +19,7 @@ COPY --from=builder /app/main .
 RUN apk update
 RUN apk add libc6-compat
 RUN apk add --no-cache ffmpeg bash
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache tzdata ca-certificates
 
 # set timezone to Asia/Taipei
 ENV TZ="Asia/Taipei"

@@ -14,7 +14,7 @@ type FirestoreClient struct {
 	Sessions *firestore.CollectionRef
 }
 
-func NewFirestoreClient(credentials []byte, projectID string, databaseID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
+func NewFirestoreClient(projectID string, databaseID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
 	// initialize firebase app
 	ctx := context.Background()
 

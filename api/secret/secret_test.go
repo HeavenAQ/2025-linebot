@@ -1,22 +1,12 @@
 package secret
 
 import (
-	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-// TestSecretManagerAccess tests retrieving credentials from Secret Manager
-func TestSecretManagerAccess(t *testing.T) {
-	// Replace with your actual secret name from Google Secret Manager
-	secretName := fmt.Sprintf("projects/%v/secrets/%v/versions/%v", cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
-
-	// Fetch the secret
-	secretData, err := AccessSecretVersion(secretName)
-	require.NoError(t, err)
-	require.NotNil(t, secretData)
-}
 
 // TestGetSecretString tests the GetSecretString function
 func TestGetSecretString(t *testing.T) {
@@ -31,4 +21,31 @@ func TestGetSecretString(t *testing.T) {
 
 	// Validate the result
 	require.Equal(t, expectedSecretString, result)
+}
+
+func TestDownloadSecretToFileRequiresRealSecretAccess(t *testing.T) {
+	projectID := os.Getenv("GCP_PROJECT_ID")
+	if projectID == "" {
+		projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
+	}
+
+	secretID := os.Getenv("GCP_ENV_SECRET_ID")
+	secretVersion := os.Getenv("GCP_ENV_SECRET_VERSION")
+	if secretVersion == "" {
+		secretVersion = "latest"
+	}
+
+	if projectID == "" || secretID == "" {
+		t.Skip("Skipping Secret Manager integration test: env secret is not configured")
+	}
+
+	path := filepath.Join(t.TempDir(), ".env")
+	secretName := GetSecretString(projectID, secretID, secretVersion)
+
+	err := DownloadSecretToFile(secretName, path)
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotEmpty(t, content)
 }

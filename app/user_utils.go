@@ -21,14 +21,14 @@ func (app *App) createUser(userID string) *db.UserData {
 	}
 	app.Logger.Info.Println("User's folder structure has been created")
 
-	// create GPT threads for users
-	app.Logger.Info.Println("Creating the user's GPT threads")
-	gptThreadIDs, err := app.createUserGPTThreads()
+	// Create a single GPT chat thread for the user.
+	app.Logger.Info.Println("Creating the user's GPT chat thread")
+	gptThreadIDs, err := app.createUserGPTThread()
 	if err != nil {
-		app.Logger.Error.Println("Error creating user's GPT threads:", err)
+		app.Logger.Error.Println("Error creating user's GPT chat thread:", err)
 		return nil
 	}
-	app.Logger.Info.Println("User's GPT threads have been created")
+	app.Logger.Info.Println("User's GPT chat thread has been created")
 
 	// Store user's data in database
 	app.Logger.Info.Println("Add the user's data to database")
@@ -41,48 +41,17 @@ func (app *App) createUser(userID string) *db.UserData {
 	return userData
 }
 
-func (app *App) createUserGPTThreads() (*db.GPTThreadIDs, error) {
-	userGPTThreads := db.GPTThreadIDs{}
-	threadIDAddrs := []*string{
-		&userGPTThreads.JumpingClear,
-		&userGPTThreads.FrontCourtHighPointDrop,
-		&userGPTThreads.DefensiveClear,
-		&userGPTThreads.FrontCourtLowPointLift,
-		&userGPTThreads.JumpingSmash,
-		&userGPTThreads.MidCourtChasseToBack,
-		&userGPTThreads.ForwardCrossStep,
-		&userGPTThreads.MidCourtBackCrossStep,
-		&userGPTThreads.DefensiveSlideStep,
-	}
-	resultChannel, errChannel := make(chan string), make(chan error)
-
-	// create gpt threads concurrently
-	for i := 0; i < len(threadIDAddrs); i++ {
-		go func() {
-			app.Logger.Info.Println("Creating GPT thread...")
-			thread, err := app.GPTClient.CreateThread()
-			if err != nil {
-				app.Logger.Error.Println("Error creating GPT thread:", err)
-				errChannel <- err
-				return
-			}
-			resultChannel <- thread.ID
-		}()
+func (app *App) createUserGPTThread() (*db.GPTThreadIDs, error) {
+	app.Logger.Info.Println("Creating GPT thread...")
+	thread, err := app.GPTClient.CreateThread()
+	if err != nil {
+		app.Logger.Error.Println("Error creating GPT thread:", err)
+		return nil, err
 	}
 
-	// check the result of each thread creation and update the thread ID
-	for i := range threadIDAddrs {
-		select {
-		case res := <-resultChannel:
-			*threadIDAddrs[i] = res
-		case err := <-errChannel:
-			app.Logger.Error.Println("Error creating GPT thread:", err)
-			return nil, err
-		}
-	}
-
-	// return the user's GPT threads
-	return &userGPTThreads, nil
+	return &db.GPTThreadIDs{
+		Chat: thread.ID,
+	}, nil
 }
 
 func (app *App) createUserIfNotExist(userID string) *db.UserData {
@@ -102,6 +71,24 @@ func (app *App) createUserIfNotExist(userID string) *db.UserData {
 	return user
 }
 
+func (app *App) ensureUserGPTThread(user *db.UserData) (string, error) {
+	threadID := user.GPTThreadIDs.Chat
+	if threadID != "" {
+		return threadID, nil
+	}
+
+	thread, err := app.GPTClient.CreateThread()
+	if err != nil {
+		return "", err
+	}
+
+	if err := app.FirestoreClient.UpdateUserGPTThreadID(user, thread.ID); err != nil {
+		return "", err
+	}
+
+	return thread.ID, nil
+}
+
 func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 	session, err := app.FirestoreClient.GetUserSession(userID)
 	if err != nil {
@@ -117,26 +104,22 @@ func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 }
 
 func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db.Work {
-	var work map[string]db.Work
 	switch skill {
-	case "jumping_clear":
-		work = user.Portfolio.JumpingClear
-	case "front_court_high_point_drop":
-		work = user.Portfolio.FrontCourtHighPointDrop
-	case "defensive_clear":
-		work = user.Portfolio.DefensiveClear
-	case "front_court_low_point_lift":
-		work = user.Portfolio.FrontCourtLowPointLift
-	case "jumping_smash":
-		work = user.Portfolio.JumpingSmash
-	case "mid_court_chasse_to_back":
-		work = user.Portfolio.MidCourtChasseToBack
-	case "forward_cross_step":
-		work = user.Portfolio.ForwardCrossStep
-	case "mid_court_back_cross_step":
-		work = user.Portfolio.MidCourtBackCrossStep
-	case "defensive_slide_step":
-		work = user.Portfolio.DefensiveSlideStep
+	case "smash":
+		return &user.Portfolio.Smash
+	case "backhand_drive":
+		return &user.Portfolio.BackhandDrive
+	case "forehand_drive":
+		return &user.Portfolio.ForehandDrive
+	case "backhand_netkill":
+		return &user.Portfolio.BackhandNetKill
+	case "forehand_netkill":
+		return &user.Portfolio.ForehandNetKill
+	case "frontcourt_footwork":
+		return &user.Portfolio.FrontCourtFootwork
+	case "backcourt_footwork":
+		return &user.Portfolio.BackCourtFootwork
+	default:
+		return nil
 	}
-	return &work
 }

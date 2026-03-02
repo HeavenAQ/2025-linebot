@@ -3,12 +3,12 @@ name: Deploy to Cloud Run
 on:
   push:
     branches:
-      - moe-2026
+      - moe-114
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: moe-linebot-2026
+    environment: moe-linebot-114
     permissions:
       contents: read
       id-token: write
@@ -16,38 +16,22 @@ jobs:
     steps:
       - name: Validate required secrets
         env:
-          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
-          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-          GCP_SECRET_VERSION: ${{ secrets.GCP_SECRET_VERSION }}
-          GOOGLE_DRIVE_ROOT_FOLDER: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER }}
-          FIREBASE_ID: ${{ secrets.FIREBASE_ID }}
-          FIREBASE_DATA_DB: ${{ secrets.FIREBASE_DATA_DB }}
-          FIREBASE_SESSION_DB: ${{ secrets.FIREBASE_SESSION_DB }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_PROMPT_ID: ${{ secrets.OPENAI_PROMPT_ID }}
+          GCP_ENV_SECRET_ID: ${{ secrets.GCP_ENV_SECRET_ID }}
+          GCP_ENV_SECRET_VERSION: ${{ secrets.GCP_ENV_SECRET_VERSION }}
           TIMEZONE: ${{ secrets.TIMEZONE }}
           GCP_SA_EMAIL: ${{ secrets.GCP_SA_EMAIL }}
-          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
         run: |
           echo "Validating required environment secrets..."
 
           required_secrets=(
-            LINE_CHANNEL_SECRET
-            LINE_CHANNEL_TOKEN
             GCP_PROJECT_ID
-            GCP_CREDENTIALS
-            GCP_SECRET_VERSION
-            GOOGLE_DRIVE_ROOT_FOLDER
-            FIREBASE_ID
-            FIREBASE_DATA_DB
-            FIREBASE_SESSION_DB
-            OPENAI_API_KEY
-            OPENAI_PROMPT_ID 
+            GCP_ENV_SECRET_ID
+            GCP_ENV_SECRET_VERSION
             TIMEZONE
             GCP_SA_EMAIL
-            GCS_BUCKET_NAME
+            GCP_WORKLOAD_IDENTITY_PROVIDER
           )
 
           for secret in "${required_secrets[@]}"; do
@@ -92,18 +76,9 @@ jobs:
 
       - name: Deploy to Cloud Run
         env:
-          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
-          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
-          GCP_SECRET_VERSION: ${{ secrets.GCP_SECRET_VERSION }}
-          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
-          GOOGLE_DRIVE_ROOT_FOLDER: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER }}
-          FIREBASE_ID: ${{ secrets.FIREBASE_ID }}
-          FIREBASE_DATA_DB: ${{ secrets.FIREBASE_DATA_DB }}
-          FIREBASE_SESSION_DB: ${{ secrets.FIREBASE_SESSION_DB }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_PROMPT_ID: ${{ secrets.OPENAI_PROMPT_ID }}
+          GCP_ENV_SECRET_ID: ${{ secrets.GCP_ENV_SECRET_ID }}
+          GCP_ENV_SECRET_VERSION: ${{ secrets.GCP_ENV_SECRET_VERSION }}
           TZ: ${{ secrets.TIMEZONE }}
         run: |
           gcloud run deploy moe-linebot-2026 \
@@ -114,17 +89,8 @@ jobs:
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 1Gi \
             --set-env-vars "
-              LINE_CHANNEL_SECRET=${LINE_CHANNEL_SECRET},
-              LINE_CHANNEL_TOKEN=${LINE_CHANNEL_TOKEN},
               GCP_PROJECT_ID=${GCP_PROJECT_ID},
-              GCP_CREDENTIALS=${GCP_CREDENTIALS},
-              GCP_SECRET_VERSION=${GCP_SECRET_VERSION},
-              GOOGLE_DRIVE_ROOT_FOLDER=${GOOGLE_DRIVE_ROOT_FOLDER},
-              FIREBASE_ID=${FIREBASE_ID},
-              FIREBASE_DATA_DB=${FIREBASE_DATA_DB},
-              FIREBASE_SESSION_DB=${FIREBASE_SESSION_DB},
-              OPENAI_API_KEY=${OPENAI_API_KEY},
-              OPENAI_PROMPT_ID=${OPENAI_PROMPT_ID},
-              GCS_BUCKET_NAME=${GCS_BUCKET_NAME},
+              GCP_ENV_SECRET_ID=${GCP_ENV_SECRET_ID},
+              GCP_ENV_SECRET_VERSION=${GCP_ENV_SECRET_VERSION},
               TZ=${TZ}
             "

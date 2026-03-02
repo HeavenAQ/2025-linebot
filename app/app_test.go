@@ -4,12 +4,14 @@ import (
 	"testing"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
+	"github.com/HeavenAQ/nstc-linebot-2025/config"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewApp(t *testing.T) {
-	// Set required environment variables to simulate configuration loading
-	// This simulates the expected env vars for your app to load the configuration
+	if _, err := config.LoadConfig("../.env"); err != nil {
+		t.Skip("Skipping app integration test: failed to load config")
+	}
 
 	// Call NewApp to create the app
 	app := app.NewApp("../.env")

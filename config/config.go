@@ -2,7 +2,9 @@ package config
 
 import (
 	"log"
+	"os"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
 	env "github.com/Netflix/go-env"
 	"github.com/joho/godotenv"
 )
@@ -13,18 +15,18 @@ type LineConfig struct {
 }
 
 type GCPConfig struct {
-	ProjectID   string `env:"GCP_PROJECT_ID"`
-	Credentials string `env:"GCP_CREDENTIALS"`
-	Storage     StorageConfig
-	Secrets     SecretManagerConfig
-	Database    FirestoreConfig
+	ProjectID string `env:"GCP_PROJECT_ID"`
+	Storage   StorageConfig
+	Secrets   SecretManagerConfig
+	Database  FirestoreConfig
 }
 
 type StorageConfig struct {
 	BucketName string `env:"GCS_BUCKET_NAME"`
 }
 type SecretManagerConfig struct {
-	SecretVersion string `env:"GCP_SECRET_VERSION"`
+	EnvFileSecretID      string `env:"GCP_ENV_SECRET_ID"`
+	EnvFileSecretVersion string `env:"GCP_ENV_SECRET_VERSION"`
 }
 
 type FirestoreConfig struct {
@@ -50,9 +52,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.Line.ChannelSecret == "" &&
 		c.Line.ChannelToken == "" &&
 		c.GCP.ProjectID == "" &&
-		c.GCP.Credentials == "" &&
 		c.GCP.Storage.BucketName == "" &&
-		c.GCP.Secrets.SecretVersion == "" &&
 		c.GCP.Database.DatabaseID == "" &&
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
@@ -60,6 +60,10 @@ func (c *Config) isConfigEmpty() bool {
 }
 
 func LoadConfig(path string) (*Config, error) {
+	if err := BootstrapEnvFile(path); err != nil {
+		return nil, err
+	}
+
 	// try to load .env file
 	err := godotenv.Load(path)
 	if err != nil {
@@ -77,4 +81,38 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+func BootstrapEnvFile(path string) error {
+	secretID := firstNonEmptyEnv("GCP_ENV_SECRET_ID")
+	if secretID == "" {
+		return nil
+	}
+
+	projectID := firstNonEmptyEnv("GCP_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT")
+	if projectID == "" {
+		return secret.ErrMissingProjectID
+	}
+
+	version := firstNonEmptyEnv("GCP_ENV_SECRET_VERSION")
+	if version == "" {
+		version = "latest"
+	}
+
+	if path == "" {
+		path = ".env"
+	}
+
+	secretName := secret.GetSecretString(projectID, secretID, version)
+	return secret.DownloadSecretToFile(secretName, path)
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+	}
+
+	return ""
 }

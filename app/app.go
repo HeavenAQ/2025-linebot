@@ -4,7 +4,6 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
-	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/config"
 )
@@ -29,21 +28,17 @@ func NewApp(configPath string) *App {
 	}
 
 	// Set up the LineBot client
-	lineBot, err := line.NewBotClient(cfg.Line.ChannelSecret, cfg.Line.ChannelToken)
-	if err != nil {
-		panic(err)
-	}
-
-	// Set up secret manager
-	secretName := secret.GetSecretString(cfg.GCP.ProjectID, cfg.GCP.Credentials, cfg.GCP.Secrets.SecretVersion)
-	credentials, err := secret.AccessSecretVersion(secretName)
+	lineBot, err := line.NewBotClient(
+		cfg.Line.ChannelSecret,
+		cfg.Line.ChannelToken,
+		cfg.GCP.Storage.BucketName,
+	)
 	if err != nil {
 		panic(err)
 	}
 
 	// Set up firestore client
 	firestoreClient, err := db.NewFirestoreClient(
-		credentials,
 		cfg.GCP.ProjectID,
 		cfg.GCP.Database.DatabaseID,
 		cfg.GCP.Database.DataDB,
@@ -55,7 +50,6 @@ func NewApp(configPath string) *App {
 
 	// Set up Google Cloud Storage bucket client
 	bucketClient, err := storage.NewBucketClient(
-		credentials,
 		cfg.GCP.Storage.BucketName,
 	)
 	if err != nil {

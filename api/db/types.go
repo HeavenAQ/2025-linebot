@@ -34,7 +34,7 @@ func UserStateChnStrToEnum(str string) (UserState, error) {
 		return WritingNotes, nil
 	case "GPT對談":
 		return ChattingWithGPT, nil
-	case "專家示範短影音":
+	case "專家影片":
 		return ViewingExpertVideos, nil
 	case "學習歷程":
 		return ViewingPortfoilo, nil

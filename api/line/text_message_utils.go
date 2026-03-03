@@ -206,22 +206,42 @@ func (client *Client) SendPortfolio(
 func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) []string {
 	actionUrls := map[db.Handedness]map[db.BadmintonSkill][]string{
 		db.Right: {
-			db.Smash:              []string{},
-			db.BackhandDrive:      []string{},
-			db.ForehandDrive:      []string{},
-			db.BackhandNetKill:    []string{},
-			db.ForehandNetKill:    []string{},
-			db.FrontCourtFootwork: []string{},
-			db.BackCourtFootwork:  []string{},
+			db.Smash: []string{
+				"https://youtu.be/bV7Y5REm5d4",
+			},
+			db.BackhandDrive: []string{
+				"https://youtu.be/ybrmmW-1YGo",
+			},
+			db.ForehandDrive: []string{
+				"https://youtu.be/p05j6VSugQ8",
+			},
+			db.BackhandNetKill: []string{
+				"https://youtu.be/l8Mo3tGvV08",
+			},
+			db.ForehandNetKill: []string{
+				"https://youtu.be/PNGns5H6CHU",
+			},
+			db.FrontCourtFootwork: []string{
+				"https://youtu.be/6vfl82W_aKs",
+			},
+			db.BackCourtFootwork: []string{
+				"https://youtu.be/UItFrLQiegk",
+			},
 		},
 		db.Left: {
-			db.Smash:              []string{},
-			db.BackhandDrive:      []string{},
-			db.ForehandDrive:      []string{},
-			db.BackhandNetKill:    []string{},
-			db.ForehandNetKill:    []string{},
-			db.FrontCourtFootwork: []string{},
-			db.BackCourtFootwork:  []string{},
+			db.Smash: []string{},
+			db.BackhandDrive: []string{
+				"https://youtu.be/rzTVxWUYd4I",
+			},
+			db.ForehandDrive: []string{},
+			db.BackhandNetKill: []string{
+				"https://youtu.be/B0saAimLoE0",
+			},
+			db.ForehandNetKill: []string{},
+			db.FrontCourtFootwork: []string{
+				"https://youtu.be/-19GLNuROoM",
+			},
+			db.BackCourtFootwork: []string{},
 		},
 	}
 	return actionUrls[hand][skill]

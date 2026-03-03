@@ -57,7 +57,9 @@ func (app *App) handleRichMenuMessage(
 	case db.WritingNotes:
 		app.processWritingNotes(user, userState, replyToken)
 	case db.ChattingWithGPT:
-		app.processChattingWithGPT(user, replyToken)
+		_, err := app.LineBot.SendYetSupportedReply(replyToken)
+		app.handleSendingReplyMessageError(err, replyToken)
+		// app.processChattingWithGPT(user, replyToken)
 	default:
 		app.handleUnsupportedMessage(replyToken)
 	}

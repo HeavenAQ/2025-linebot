@@ -11,7 +11,14 @@ import (
 
 func (client *Client) SendReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
 	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
-	return res, fmt.Errorf("failed to reply message: %w", err)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (client *Client) SendYetSupportedReply(replyToken string) (*linebot.BasicResponse, error) {
+	return client.SendReply(replyToken, "目前尚未開啟此項服務")
 }
 
 func (client *Client) SendDefaultReply(replyToken string) (*linebot.BasicResponse, error) {

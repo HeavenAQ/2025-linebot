@@ -215,18 +215,23 @@ func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) 
 		db.Right: {
 			db.Smash: []string{
 				"https://youtu.be/bV7Y5REm5d4",
+				"https://youtu.be/4xMCmyENOKg",
 			},
 			db.BackhandDrive: []string{
 				"https://youtu.be/ybrmmW-1YGo",
+				"https://youtu.be/-pFsgKPOkVU",
 			},
 			db.ForehandDrive: []string{
 				"https://youtu.be/p05j6VSugQ8",
+				"https://youtu.be/qmd48C135BM",
 			},
 			db.BackhandNetKill: []string{
 				"https://youtu.be/l8Mo3tGvV08",
+				"https://youtu.be/gsGkkyvhgS0",
 			},
 			db.ForehandNetKill: []string{
 				"https://youtu.be/PNGns5H6CHU",
+				"https://youtu.be/yatLV_BiczI",
 			},
 			db.FrontCourtFootwork: []string{
 				"https://youtu.be/6vfl82W_aKs",
@@ -236,19 +241,32 @@ func (client *Client) getSkillUrls(hand db.Handedness, skill db.BadmintonSkill) 
 			},
 		},
 		db.Left: {
-			db.Smash: []string{},
+			db.Smash: []string{
+				"https://youtu.be/yMQJrYu1VZE",
+				"https://youtu.be/Wyeku_khb74",
+			},
 			db.BackhandDrive: []string{
 				"https://youtu.be/rzTVxWUYd4I",
+				"https://youtu.be/LQfUp8sfMl0",
 			},
-			db.ForehandDrive: []string{},
+			db.ForehandDrive: []string{
+				"https://youtu.be/zlYo0mYLJEk",
+				"https://youtu.be/zoFNHTxBnHI",
+			},
 			db.BackhandNetKill: []string{
 				"https://youtu.be/B0saAimLoE0",
+				"https://youtu.be/iMBs1_3SEjQ",
 			},
-			db.ForehandNetKill: []string{},
+			db.ForehandNetKill: []string{
+				"https://youtu.be/sKR38MNNbQ4",
+				"https://youtu.be/zq-dFpyHZ1U",
+			},
 			db.FrontCourtFootwork: []string{
 				"https://youtu.be/-19GLNuROoM",
 			},
-			db.BackCourtFootwork: []string{},
+			db.BackCourtFootwork: []string{
+				"https://youtu.be/8T5ahxN8z5s",
+			},
 		},
 	}
 	return actionUrls[hand][skill]

@@ -1,11 +1,10 @@
 import * as React from 'react'
-import { ChevronDown } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
 /**
- * Skinned native <select> — keeps the OS picker on mobile, which is the whole
- * audience here, while matching the report's hairline chrome.
+ * Native <select> on a single underline. Boxing every control makes a page
+ * look busy; a rule states "this is editable" with one line.
  */
 const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
   ({ className, children, ...props }, ref) => (
@@ -13,17 +12,16 @@ const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HT
       <select
         ref={ref}
         className={cn(
-          'select-reset h-10 w-full rounded-lg border border-border bg-card pl-3 pr-9 text-sm font-semibold text-foreground transition-colors duration-150 hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40',
+          'select-reset w-full border-b border-border bg-transparent py-2 pl-0 pr-6 text-sm text-foreground transition-colors duration-300 hover:border-foreground focus:border-foreground disabled:cursor-not-allowed disabled:opacity-40',
           className
         )}
         {...props}
       >
         {children}
       </select>
-      <ChevronDown
+      <span
         aria-hidden="true"
-        size={15}
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute right-1 top-1/2 h-1.5 w-1.5 -translate-y-2/3 rotate-45 border-b border-r border-muted-foreground"
       />
     </div>
   )
@@ -37,8 +35,8 @@ interface SelectFieldProps extends React.SelectHTMLAttributes<HTMLSelectElement>
 
 const SelectField = React.forwardRef<HTMLSelectElement, SelectFieldProps>(
   ({ label, className, ...props }, ref) => (
-    <label className={cn('block min-w-0 space-y-1.5', className)}>
-      <span className="eyebrow">{label}</span>
+    <label className={cn('block min-w-0', className)}>
+      <span className="text-[11px] tracking-[0.12em] text-muted-foreground">{label}</span>
       <Select ref={ref} {...props} />
     </label>
   )

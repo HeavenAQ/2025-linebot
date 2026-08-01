@@ -2,32 +2,38 @@
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 import React, { useEffect, useMemo, useState } from 'react'
 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+
 import {
   ChartConfig,
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent
 } from '@/components/ui/chart'
 import { Alert } from '@/components/ui/alert'
-import { Card } from '@/components/ui/card'
 import { PageContainer } from '@/components/ui/page'
+import { Select } from '@/components/ui/select'
 import Spinner from '@/components/ui/spinner'
-import SkillChips from '@/components/report/SkillChips'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { useLiff } from '../LiffProvider'
 import { fetchClassStats, fetchUserStats } from '@/lib/api/fetchStats'
 import type { StatsByDate } from '@/schemas/stats.schema'
 
-const chartConfig = {
-  personalTotalGrade: { label: '你', color: 'hsl(var(--chart-1))' },
-  classTotalGrade: { label: '班級平均', color: 'hsl(var(--muted-foreground))' }
-} satisfies ChartConfig
-
-const ALL_SKILLS = Object.keys(SkillNameMap) as Skill[]
-
-export default function ClassPage() {
-  const { liff, profile } = useLiff()
+const ClassProgressChart = () => {
+  const chartConfig = {
+    classTotalGrade: {
+      label: '班級',
+      color: 'hsl(var(--chart-1))'
+    },
+    personalTotalGrade: {
+      label: '個人',
+      color: 'hsl(var(--chart-2))'
+    }
+  } satisfies ChartConfig
   const [selectedSkill, setSelectedSkill] = useState<Skill>('serve')
+  const { profile } = useLiff()
   const [loading, setLoading] = useState(true)
   const [classStatsByDate, setClassStatsByDate] = useState<StatsByDate | null>(null)
   const [personalStatsByDate, setPersonalStatsByDate] = useState<StatsByDate | null>(null)
@@ -43,8 +49,10 @@ export default function ClassPage() {
           fetchUserStats(profile.userId, selectedSkill)
         ])
         if (!cancelled) {
-          setClassStatsByDate(clsRes.status === 'fulfilled' ? clsRes.value : null)
-          setPersonalStatsByDate(usrRes.status === 'fulfilled' ? usrRes.value : null)
+          if (clsRes.status === 'fulfilled') setClassStatsByDate(clsRes.value)
+          else setClassStatsByDate(null)
+          if (usrRes.status === 'fulfilled') setPersonalStatsByDate(usrRes.value)
+          else setPersonalStatsByDate(null)
         }
       } catch (e) {
         console.error(e)
@@ -63,11 +71,12 @@ export default function ClassPage() {
   }, [profile?.userId, selectedSkill])
 
   const chartData = useMemo(() => {
-    // Backend-provided dates; class timeline is the base when present.
+    // Use backend-provided dates. Prefer class dates as base timeline.
     const baseDatesRaw =
       (classStatsByDate && Object.keys(classStatsByDate)) ||
       (personalStatsByDate && Object.keys(personalStatsByDate)) ||
       []
+    // Sort ascending (YYYY-MM-DD sorts chronologically) and take the latest 6
     const dates = baseDatesRaw.sort().slice(-6)
     return dates.map(date => ({
       date,
@@ -82,105 +91,98 @@ export default function ClassPage() {
     }))
   }, [classStatsByDate, personalStatsByDate])
 
-  // Latest point where both series exist, so the gap statement is comparable.
-  const latestPair = useMemo(
-    () =>
-      [...chartData]
-        .reverse()
-        .find(d => d.personalTotalGrade !== undefined && d.classTotalGrade !== undefined),
-    [chartData]
+  return (
+    <Card className="enter">
+      <CardHeader>
+        <CardTitle>班級學習概況</CardTitle>
+        <CardDescription>比較個人成績與班級平均</CardDescription>
+        <Select
+          value={selectedSkill}
+          onChange={e => setSelectedSkill(e.target.value as Skill)}
+          aria-label="選擇技能"
+          className="mt-2 max-w-[12rem]"
+        >
+          {Object.keys(SkillNameMap).map(skill => (
+            <option key={skill} value={skill}>
+              {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
+            </option>
+          ))}
+        </Select>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <Spinner />
+        ) : chartData.length === 0 ? (
+          <Alert variant="info" title="尚無班級資料">
+            這個技能還沒有累積足夠的分析記錄。
+          </Alert>
+        ) : (
+          <ChartContainer config={chartConfig}>
+            <LineChart accessibilityLayer data={chartData} width={500} height={500}>
+              <CartesianGrid vertical={false} />
+              <XAxis
+                dataKey="date"
+                type="category"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={9}
+                angle={-35}
+                tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')} // Format dates to month
+                dx={-8}
+                dy={5}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={value => `${value}`}
+                domain={[0, 100]}
+                width={40}
+                dx={-10}
+              />
+              <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+              <ChartLegend content={<ChartLegendContent />} />
+              <Line
+                dataKey="classTotalGrade"
+                type="monotone"
+                stroke="var(--color-classTotalGrade)"
+                strokeWidth={2}
+                dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-classTotalGrade)' }}
+                activeDot={{ r: 5 }}
+              />
+              <Line
+                dataKey="personalTotalGrade"
+                type="monotone"
+                stroke="var(--color-personalTotalGrade)"
+                strokeWidth={2}
+                dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-personalTotalGrade)' }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
   )
-  const gap =
-    latestPair && latestPair.personalTotalGrade! - latestPair.classTotalGrade!
+}
+
+export default function ClassPage() {
+  const { liff, profile } = useLiff()
 
   if (!liff || !profile) {
     return (
-      <PageContainer className="pt-8">
-        <Alert title="尚未取得個人資料">請從 LINE 重新開啟這個頁面。</Alert>
+      <PageContainer className="pt-6">
+        <Alert variant="warning" title="尚未取得個人資料">
+          請重新從 LINE 開啟此頁面。
+        </Alert>
       </PageContainer>
     )
   }
 
   return (
-    <>
-      <SkillChips skills={ALL_SKILLS} value={selectedSkill} onChange={setSelectedSkill} />
-
-      <PageContainer className="pt-5">
-        <h1 className="eyebrow">班級對照</h1>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          你與班級平均在{SkillNameMap[selectedSkill]}上的最近六次表現。
-        </p>
-
-        {loading ? (
-          <Spinner />
-        ) : chartData.length === 0 ? (
-          <Alert className="mt-4" title="這個技能還沒有班級資料">
-            等班上累積幾次分析後就會出現對照曲線。
-          </Alert>
-        ) : (
-          <>
-            {gap !== undefined && (
-              <p className="num mt-4 font-data text-metric">
-                {gap >= 0 ? '+' : ''}
-                {gap.toFixed(1)}
-                <span className="ml-2 font-sans text-sm font-medium text-muted-foreground">
-                  {gap >= 0 ? '高於班級平均' : '低於班級平均'}
-                </span>
-              </p>
-            )}
-
-            <Card className="mt-4 p-4">
-              <div className="mb-3 flex items-center gap-4 text-xs font-medium">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-0.5 w-4 bg-[hsl(var(--chart-1))]" />你
-                </span>
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-0.5 w-4 bg-[hsl(var(--muted-foreground))]" />
-                  班級平均
-                </span>
-              </div>
-              <ChartContainer config={chartConfig}>
-                <LineChart accessibilityLayer data={chartData} width={500} height={500}>
-                  <CartesianGrid vertical={false} strokeDasharray="2 4" />
-                  <XAxis
-                    dataKey="date"
-                    type="category"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={10}
-                    tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')}
-                    fontSize={11}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    domain={[0, 100]}
-                    width={30}
-                    fontSize={11}
-                  />
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                  <Line
-                    dataKey="classTotalGrade"
-                    type="monotone"
-                    stroke="var(--color-classTotalGrade)"
-                    strokeWidth={1.5}
-                    strokeDasharray="3 3"
-                    dot={false}
-                  />
-                  <Line
-                    dataKey="personalTotalGrade"
-                    type="monotone"
-                    stroke="var(--color-personalTotalGrade)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-personalTotalGrade)' }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ChartContainer>
-            </Card>
-          </>
-        )}
-      </PageContainer>
-    </>
+    <PageContainer className="pt-6">
+      <main>
+        <ClassProgressChart />
+      </main>
+    </PageContainer>
   )
 }

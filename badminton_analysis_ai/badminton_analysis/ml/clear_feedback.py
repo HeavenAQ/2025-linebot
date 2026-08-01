@@ -60,7 +60,7 @@ class FeedbackProblem(BaseModel):
     evidence: str = Field(min_length=10, max_length=240)
     frame_index: int = Field(ge=0, le=63)
     phase: FeedbackPhase
-    joint_ids: list[CanonicalJointId] = Field(min_length=1, max_length=4)
+    joint_ids: list[CanonicalJointId] = Field(min_length=1, max_length=6)
     rule_reference: RuleReference
     confidence: float = Field(ge=0.0, le=1.0)
 

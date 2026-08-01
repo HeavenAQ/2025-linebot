@@ -14,76 +14,55 @@ interface SegmentedProps<T extends string> {
   options: readonly SegmentedOption<T>[]
   value: T
   onChange: (_value: T) => void
+  /** `tablist` drives tab panels, `group` is a plain toggle set. */
   role?: 'tablist' | 'group'
   label: string
-  /** `underline` for page-level views, `solid` for a compact in-panel toggle. */
-  variant?: 'underline' | 'solid'
+  size?: 'sm' | 'md'
   className?: string
 }
 
+/**
+ * Tabs marked by a vermilion rule rather than a filled pill — the selected
+ * state is stated once, quietly, and the row stays flat.
+ */
 export function Segmented<T extends string>({
   options,
   value,
   onChange,
   role = 'group',
   label,
-  variant = 'underline',
+  size = 'md',
   className
 }: SegmentedProps<T>) {
   const isTabs = role === 'tablist'
 
-  if (variant === 'solid') {
-    return (
-      <div
-        role={role}
-        aria-label={label}
-        className={cn('inline-grid h-8 gap-px rounded-lg bg-border p-px', className)}
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
-      >
-        {options.map(({ value: v, label: l }) => {
-          const selected = v === value
-          return (
-            <button
-              key={v}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => onChange(v)}
-              className={cn(
-                'rounded-md px-3 text-xs font-semibold transition-colors duration-150',
-                selected
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-card text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {l}
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
-
   return (
-    <div role={role} aria-label={label} className={cn('flex gap-6 border-b border-border', className)}>
-      {options.map(({ value: v, label: l, icon: Icon }) => {
-        const selected = v === value
+    <div
+      role={role}
+      aria-label={label}
+      className={cn('flex items-stretch gap-7 border-b border-border', className)}
+    >
+      {options.map(({ value: optionValue, label: optionLabel, icon: Icon }) => {
+        const selected = optionValue === value
         return (
           <button
-            key={v}
+            key={optionValue}
             type="button"
             role={isTabs ? 'tab' : undefined}
             aria-selected={isTabs ? selected : undefined}
-            onClick={() => onChange(v)}
+            aria-pressed={isTabs ? undefined : selected}
+            onClick={() => onChange(optionValue)}
             className={cn(
-              // -1px pulls the active rule onto the container's border
-              'relative -mb-px flex items-center gap-2 border-b-2 pb-2.5 pt-1 text-sm font-semibold transition-colors duration-150',
+              // -1px lifts the marker onto the container rule
+              'relative -mb-px flex min-w-0 items-center gap-2 border-b pb-3 pt-1 tracking-[0.06em] transition-colors duration-300',
+              size === 'sm' ? 'text-xs' : 'text-[13px]',
               selected
-                ? 'border-primary text-foreground'
+                ? 'border-highlight text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
             )}
           >
-            {Icon ? <Icon aria-hidden size={15} /> : null}
-            {l}
+            {Icon ? <Icon aria-hidden size={size === 'sm' ? 13 : 15} /> : null}
+            <span className="truncate">{optionLabel}</span>
           </button>
         )
       })}

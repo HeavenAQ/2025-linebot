@@ -14,6 +14,7 @@ from badminton_analysis.ml.clear_feedback import (
     ClearFeedbackAnalysis,
     DEFAULT_PHASE_INDICES,
     RawSkillFeedbackAnalysis,
+    SkillFeedbackAnalysis,
     coaching_target_joint_ids,
     feedback_frame_indices,
     handedness_note_zh_tw,
@@ -249,3 +250,28 @@ def test_serve_prompt_compares_first_and_last_full_body_frames() -> None:
     prompt = build_response_input(context, (), spec)[0]["content"][0]["text"]
     assert "下肢支撐轉換" in prompt
     assert "雙肩相對雙髖是否向前傾" in prompt
+
+
+def test_serve_weight_transfer_accepts_upper_and_lower_body_circle_targets() -> None:
+    payload = {
+        "skill": "serve",
+        "language": "zh-TW",
+        "overall_feedback": "發球的完整重心轉移仍需要同時調整下肢支撐與軀幹前傾。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": "重心轉移至非持拍腳",
+                "feedback": "由預備到隨揮時，請讓下肢完成支撐轉換並讓軀幹自然向前傾。",
+                "evidence": "第一與最後畫面的腳部支撐和雙肩相對雙髖位置仍與專家動作不同。",
+                "frame_index": DEFAULT_PHASE_INDICES[2],
+                "phase": "weight_transfer",
+                "joint_ids": [5, 6, 11, 12, 15, 16],
+                "rule_reference": "weight_transfer",
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    analysis = SkillFeedbackAnalysis.model_validate(payload)
+
+    assert analysis.problems[0].joint_ids == [5, 6, 11, 12, 15, 16]

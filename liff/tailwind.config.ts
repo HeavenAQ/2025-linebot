@@ -37,6 +37,10 @@ export default {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))'
         },
+        highlight: {
+          DEFAULT: 'hsl(var(--highlight))',
+          foreground: 'hsl(var(--highlight-foreground))'
+        },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))'
@@ -57,29 +61,31 @@ export default {
         }
       },
       fontFamily: {
-        // Archivo's unicode-range covers Latin + figures only, so any Chinese
-        // inside a data element still resolves to the same face as body text.
         data: ['Archivo', 'PingFang TC', 'Noto Sans TC', 'system-ui', 'sans-serif']
       },
       fontSize: {
-        // One deliberate jump from body to score. Nothing lives in between.
-        score: ['3.75rem', { lineHeight: '0.88', letterSpacing: '-0.035em', fontWeight: '700' }],
-        metric: ['1.375rem', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '600' }]
+        // Large figures are set light and wide, not heavy — restraint at scale.
+        figure: ['3rem', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '400' }]
       },
       borderRadius: {
-        '2xl': 'calc(var(--radius) * 2)',
-        xl: 'calc(var(--radius) + 2px)',
+        '2xl': 'calc(var(--radius) * 3)',
+        xl: 'calc(var(--radius) * 2)',
         lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 1px)',
-        sm: 'calc(var(--radius) - 2px)'
+        md: 'var(--radius)',
+        sm: 'calc(var(--radius) - 1px)'
+      },
+      spacing: {
+        // 間 — the deliberate gaps between sections.
+        ma: '3.5rem',
+        'ma-sm': '2rem'
       },
       boxShadow: {
-        // Barely-there. Structure comes from rules and colour, not elevation.
-        card: '0 1px 2px hsl(193 30% 12% / 0.05)',
-        elevated: '0 8px 28px -12px hsl(193 30% 12% / 0.28)'
+        // Depth is not part of this language. Kept only so old utilities resolve.
+        card: 'none',
+        elevated: '0 12px 40px -20px hsl(33 20% 12% / 0.35)'
       },
       maxWidth: {
-        content: '46rem'
+        content: '44rem'
       }
     }
   },

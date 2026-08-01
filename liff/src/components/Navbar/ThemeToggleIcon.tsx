@@ -1,16 +1,18 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Moon, Sun } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 
+/**
+ * 陽 / 陰 rather than a sun and moon glyph — one character says it, and it
+ * keeps the bar free of icon clutter.
+ */
 export default function ThemeToggleIcon() {
   const [isMounted, setIsMounted] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   useEffect(() => {
-    // The inline script in the layout already applied the class; mirror it into state.
     setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
     setIsMounted(true)
   }, [])
@@ -21,22 +23,23 @@ export default function ThemeToggleIcon() {
   }, [isMounted, theme])
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light'
-    localStorage.setItem('theme', newTheme)
-    setTheme(newTheme)
+    const next = theme === 'light' ? 'dark' : 'light'
+    localStorage.setItem('theme', next)
+    setTheme(next)
   }
 
-  // Reserve the slot before hydration so the navbar does not shift.
+  // Hold the slot before hydration so the bar does not shift.
   if (!isMounted) return <div className="h-10 w-10" aria-hidden />
 
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       size="icon"
-      aria-label={theme === 'light' ? '切換至深色模式' : '切換至淺色模式'}
+      aria-label={theme === 'light' ? '切換至深色' : '切換至淺色'}
       onClick={toggleTheme}
+      className="mincho text-[15px]"
     >
-      {theme === 'light' ? <Sun size={17} /> : <Moon size={17} />}
+      {theme === 'light' ? '陽' : '陰'}
     </Button>
   )
 }

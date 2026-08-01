@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react'
 import { useLiff } from '../LiffProvider'
 import type { UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageContainer } from '@/components/ui/page'
+import { SelectField } from '@/components/ui/select'
 import Spinner from '@/components/ui/spinner'
-import SkillChips from '@/components/report/SkillChips'
-import { Skill } from '@/lib/types'
+import { Skill, SkillNameMap } from '@/lib/types'
 import { getBackendBaseUrl } from '@/utils/env'
 
 type ChatMessage = {
@@ -18,7 +18,6 @@ type ChatMessage = {
   conversation_id?: string
   timestamp?: string
 }
-
 export default function GptChatPage() {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -49,19 +48,25 @@ export default function GptChatPage() {
         const messages: ChatMessage[] = Array.isArray(json.data) ? json.data : []
         setChatHistory(messages)
 
-        // Summarize the latest exchanges only.
+        // Prepare latest up to 10 messages' content for summarization
         const lastMessages = messages
           .slice(-10)
           .map(m => m.text)
           .filter(Boolean)
         if (lastMessages.length > 0) {
           const body = { content: lastMessages.join('\n'), user_id: userId, skill }
+          const base = getBackendBaseUrl()
           const sumRes = await fetch(`${base}/api/chat/summarize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
           })
-          setSummary(sumRes.ok ? (await sumRes.json()).summary || '' : '')
+          if (sumRes.ok) {
+            const sumJson = await sumRes.json()
+            setSummary(sumJson.summary || '')
+          } else {
+            setSummary('')
+          }
         } else {
           setSummary('')
         }
@@ -76,11 +81,16 @@ export default function GptChatPage() {
       try {
         const base = getBackendBaseUrl()
         const response = await fetch(`${base}/api/db/user?user_id=${profile?.userId}`)
-        if (!response.ok) throw new Error(`Failed to fetch user data: ${response.statusText}`)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch user data: ${response.statusText}`)
+        }
         const data = await response.json()
         setUserData(data)
 
-        if (profile?.userId) await fetchChatHistory(profile.userId, selectedSkill)
+        // Load chat history for the selected skill
+        if (profile?.userId) {
+          await fetchChatHistory(profile.userId, selectedSkill)
+        }
       } catch (err) {
         if (err instanceof Error) console.log(err.message)
       } finally {
@@ -93,57 +103,81 @@ export default function GptChatPage() {
 
   const availableSkills = Object.keys(userData?.gpt_conversation_ids || {}) as Skill[]
 
-  if (loading && !userData) return <Spinner fullscreen />
+  if (loading) {
+    return <Spinner fullscreen />
+  }
 
-  if (!userData || availableSkills.length === 0) {
+  if (!userData) {
     return (
-      <PageContainer className="pt-8">
-        <Alert title="還沒有教練對話">在 LINE 裡向教練機器人提問，紀錄與重點會整理到這裡。</Alert>
+      <PageContainer className="pt-6">
+        <Alert variant="info" title="目前尚無聊天紀錄">
+          與教練機器人對話後，摘要與紀錄會顯示在這裡。
+        </Alert>
       </PageContainer>
     )
   }
 
   return (
-    <>
-      <SkillChips skills={availableSkills} value={selectedSkill} onChange={setSelectedSkill} />
+    <PageContainer className="pt-6">
+      <main className="space-y-5">
+        <Card className="enter">
+          <CardHeader>
+            <CardTitle>動作學習總結</CardTitle>
+            <SelectField
+              label="選擇技能"
+              className="mt-2 max-w-[12rem]"
+              value={selectedSkill}
+              onChange={e => setSelectedSkill(e.target.value as Skill)}
+            >
+              {availableSkills.map(skill => (
+                <option key={skill} value={skill}>
+                  {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
+                </option>
+              ))}
+            </SelectField>
+          </CardHeader>
+          <CardContent>
+            {summary ? (
+              <p className="whitespace-pre-line break-words text-sm leading-7">{summary}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">這個技能還沒有可摘要的對話。</p>
+            )}
+          </CardContent>
+        </Card>
 
-      <PageContainer className="pt-5">
-        <h1 className="eyebrow">重點整理</h1>
-        {loading ? (
-          <Spinner />
-        ) : summary ? (
-          <p className="mt-2 whitespace-pre-line text-[15px] leading-7">{summary}</p>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">這個技能還沒有可整理的對話。</p>
-        )}
-
-        <h2 className="eyebrow mt-8">對話紀錄</h2>
-        {!loading && chatHistory.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">尚無訊息。</p>
-        ) : (
-          <div className="mt-3 space-y-2.5">
-            {chatHistory.map((message, idx) => {
-              const isUser = message.role === 'user'
-              return (
-                <div
-                  key={`${message.timestamp || 't'}-${idx}`}
-                  className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                >
-                  {isUser ? (
-                    <p className="max-w-[85%] break-words rounded-lg bg-primary px-3.5 py-2.5 text-sm leading-6 text-primary-foreground">
-                      {message.text}
-                    </p>
-                  ) : (
-                    <Card className="max-w-[85%] break-words px-3.5 py-2.5 text-sm leading-6">
-                      {message.text}
-                    </Card>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </PageContainer>
-    </>
+        <Card className="enter">
+          <CardHeader>
+            <CardTitle>聊天記錄</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chatHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">尚無訊息。</p>
+            ) : (
+              <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+                {chatHistory.map((message, idx) => {
+                  const isUser = message.role === 'user'
+                  return (
+                    <div
+                      key={`${message.timestamp || 't'}-${idx}`}
+                      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] break-words px-4 py-3 text-[13px] leading-7 ${
+                          isUser
+                            ? 'bg-primary text-primary-foreground'
+                            : 'border border-border bg-card text-foreground'
+                        }`}
+                      >
+                        {message.text}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </PageContainer>
   )
 }

@@ -3,10 +3,10 @@ import './globals.css'
 import React from 'react'
 import { LiffProvider } from './LiffProvider'
 import Navbar from '@/components/Navbar/Navbar'
-import BottomNav from '@/components/Navbar/BottomNav'
+import Hero from '@/components/Hero'
 
 export const metadata: Metadata = {
-  title: '羽球動作分析',
+  title: '動作分析 Badminton',
   description: '個人動作評分、班級對照與教練建議'
 }
 
@@ -24,10 +24,12 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body suppressHydrationWarning>
+        <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
-          <Navbar />
-          <main className="pb-24 pt-14">{children}</main>
-          <BottomNav />
+          <div className="pb-ma pt-16">
+            <Hero />
+            {children}
+          </div>
         </LiffProvider>
       </body>
     </html>

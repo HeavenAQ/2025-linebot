@@ -240,7 +240,8 @@ export default function PersonalPage() {
           >
             {availableDates.map(date => (
               <option key={date} value={date}>
-                {date}
+                {date} ·{' '}
+                {userData.portfolio[selectedSkill][date].handedness === 'left' ? '左手' : '右手'}
               </option>
             ))}
           </SelectField>

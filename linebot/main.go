@@ -203,6 +203,7 @@ func main() {
 		work.Expert.Video.SignedURLExpires = videos[1].SignedURLExpires
 		c.JSON(http.StatusOK, gin.H{
 			"analysis_id":      work.AnalysisID,
+			"handedness":       work.Handedness,
 			"student_video":    work.StudentVideo,
 			"expert":           work.Expert,
 			"timeline":         work.Timeline,

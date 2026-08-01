@@ -142,6 +142,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	}
 	analysis := commons.AnalysisOutcome{
 		AnalysisID: "analysis-live-test",
+		Handedness: "left",
 		Grade: commons.GradingOutcome{GradingDetails: []commons.GradingDetail{
 			{
 				CriterionID: "serve.contact",
@@ -171,6 +172,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updatedUser.Portfolio.Serve[today])
 	require.Equal(t, analysis.Grade, updatedUser.Portfolio.Serve[today].GradingOutcome)
+	require.Equal(t, analysis.Handedness, updatedUser.Portfolio.Serve[today].Handedness)
 	require.Equal(t, analysis.StudentVideo.ObjectPath, updatedUser.Portfolio.Serve[today].StudentVideo.ObjectPath)
 
 	// Clean up the created data after the test

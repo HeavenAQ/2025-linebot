@@ -197,7 +197,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">動作同步比較</h2>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            專家 {playback.expert.display_name} · 骨架距離{' '}
+            {playback.handedness === 'left' ? '左手' : '右手'} · 專家{' '}
+            {playback.expert.display_name} · 骨架距離{' '}
             {playback.expert.correction_distance.toFixed(3)}
           </p>
         </div>

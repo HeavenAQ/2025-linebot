@@ -56,6 +56,7 @@ func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 
 type Work struct {
 	DateTime                string                 `json:"date" firestore:"date"`
+	Handedness              string                 `json:"handedness" firestore:"handedness"`
 	Thumbnail               string                 `json:"thumbnail" firestore:"thumbnail"`
 	SkeletonVideo           string                 `json:"skeleton_video" firestore:"skeleton_video"`
 	SkeletonComparisonVideo string                 `json:"skeleton_comparison_video" firestore:"skeleton_comparison_video"`
@@ -142,6 +143,7 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 ) error {
 	work := Work{
 		DateTime:                date,
+		Handedness:              analysis.Handedness,
 		GradingOutcome:          analysis.Grade,
 		Reflection:              "尚未填寫心得",
 		PreviewNote:             "尚未填寫課前檢視要點",

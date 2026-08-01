@@ -53,6 +53,7 @@ export const CoachingCueSchema = z.object({
 
 export const WorkSchema = z.object({
   date: z.string(),
+  handedness: z.enum(['left', 'right']).optional().default('right'),
   thumbnail: z.string(),
   skeleton_video: z.string().optional().default(''),
   skeleton_comparison_video: z.string().optional().default(''),
@@ -104,6 +105,7 @@ export const UserDataSchema = z.object({
 
 export const PlaybackResponseSchema = z.object({
   analysis_id: z.string(),
+  handedness: z.enum(['left', 'right']).optional().default('right'),
   student_video: MediaRefSchema,
   expert: ExpertMatchSchema,
   timeline: z.array(PhaseMarkerSchema),

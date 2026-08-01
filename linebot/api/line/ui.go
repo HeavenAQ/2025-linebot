@@ -67,8 +67,8 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 	}
 
 	videoData, err := json.Marshal(VideoPostback{
-		VideoID:     client.assetURL(work.SkeletonVideo),
-		ThumbnailID: client.assetURL(work.Thumbnail),
+		WorkDate: work.DateTime,
+		Skill:    skill,
 	})
 	if err != nil {
 		return nil, err

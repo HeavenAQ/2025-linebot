@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 
 	// 3. Video watching action
 	if data, ok := app.isWatchVideoAction(rawData); ok {
-		app.LineBot.SendVideoMessage(replyToken, data)
+		app.handleWatchPortfolioVideo(user, data, replyToken)
 		return
 	}
 
@@ -376,6 +377,40 @@ func (app *App) handleAnalyzePortfolioWithGPT(
 	app.LineBot.SendReply(replyToken, work.AINote)
 }
 
+func (app *App) handleWatchPortfolioVideo(
+	user *db.UserData,
+	data *line.VideoPostback,
+	replyToken string,
+) {
+	portfolio := user.Portfolio.GetSkillPortfolio(data.Skill)
+	work, ok := portfolio[data.WorkDate]
+	if !ok {
+		app.LineBot.SendReply(replyToken, "找不到這次影片紀錄，請重新開啟學習歷程")
+		return
+	}
+
+	videoURL := work.SkeletonVideo
+	if work.StudentVideo.ObjectPath != "" {
+		videos, err := app.AnalysisClient.RefreshPlaybackURLs(
+			context.Background(), work.StudentVideo.ObjectPath,
+		)
+		if err == nil && len(videos) == 1 {
+			videoURL = videos[0].SignedURL
+		} else if work.StudentVideo.SignedURLExpires <= time.Now().Unix() {
+			app.Logger.Error.Printf("failed to refresh portfolio video URL: %v", err)
+			app.LineBot.SendReply(replyToken, "影片連結更新失敗，請稍後再試")
+			return
+		}
+	}
+
+	_, err := app.LineBot.SendVideoMessage(
+		replyToken, videoURL, work.Thumbnail,
+	)
+	if err != nil {
+		app.Logger.Error.Printf("failed to send portfolio video through LINE: %v", err)
+	}
+}
+
 // handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
 	// Get video content
@@ -431,11 +466,13 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 		app.handleUpdateUserPortfolioError(err, replyToken)
 		return
 	}
+	if err := app.FirestoreClient.ResetSession(user.ID); err != nil {
+		app.Logger.Error.Printf("failed to reset session after completed analysis: %v", err)
+	}
 	if err := app.sendVideoUploadedReply(event, session, user); err != nil {
-		app.handleSendingReplyMessageError(err, replyToken)
+		app.Logger.Error.Printf("failed to send completed analysis through LINE: %v", err)
 		return
 	}
-	app.FirestoreClient.ResetSession(user.ID)
 }
 
 // ============================================================================

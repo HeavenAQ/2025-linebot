@@ -126,9 +126,9 @@ func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
 	return err
 }
 
-func (client *Client) SendVideoMessage(replyToken string, video *VideoPostback) (*linebot.BasicResponse, error) {
-	videoLink := video.VideoID
-	thumbnailLink := video.ThumbnailID
+func (client *Client) SendVideoMessage(replyToken, videoURL, thumbnailURL string) (*linebot.BasicResponse, error) {
+	videoLink := client.assetURL(videoURL)
+	thumbnailLink := client.assetURL(thumbnailURL)
 	return client.bot.ReplyMessage(
 		replyToken,
 		linebot.NewVideoMessage(videoLink, thumbnailLink),

@@ -6,8 +6,8 @@ type PostbackData interface {
 }
 
 type VideoPostback struct {
-	VideoID     string `json:"video_id" validate:"required"`
-	ThumbnailID string `json:"thumbnail_id" validate:"required"`
+	WorkDate string `json:"work_date" validate:"required"`
+	Skill    string `json:"skill" validate:"required"`
 }
 
 type WritingNotePostback struct {

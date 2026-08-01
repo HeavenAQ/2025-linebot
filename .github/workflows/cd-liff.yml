@@ -1,0 +1,49 @@
+name: LIFF CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'liff/**'
+      - '.github/workflows/cd-liff.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: liff
+    env:
+      NEXT_PUBLIC_BACKEND_BASE_URL: https://nstc-linebot-2025-bfn4xpszya-de.a.run.app
+      NEXT_PUBLIC_LIFF_ID: ${{ secrets.NEXT_PUBLIC_LIFF_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: liff/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Verify production backend is compiled into LIFF
+        run: |
+          ! grep -R --fixed-strings '127.0.0.1:8080' out/_next/static
+          grep -R --quiet --fixed-strings "${NEXT_PUBLIC_BACKEND_BASE_URL}" out/_next/static
+
+      - name: Deploy production LIFF
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@26.1.0 deploy \
+            --prod \
+            --no-build \
+            --auth "${NETLIFY_AUTH_TOKEN}" \
+            --site "${NETLIFY_SITE_ID}" \
+            --dir out \
+            --message "${GITHUB_SHA}"

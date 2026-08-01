@@ -143,6 +143,9 @@ class SkeletonCorrectionBackend:
             )
             cache_path = cache_root / "correctors" / self.spec.slug
             cache_path.mkdir(parents=True, exist_ok=True)
+            hardware_compatible = os.getenv(
+                "TENSORRT_ENGINE_HW_COMPATIBLE", "true"
+            ).lower() == "true"
             providers: list[Any] = [
                 (
                     "TensorrtExecutionProvider",
@@ -154,7 +157,7 @@ class SkeletonCorrectionBackend:
                             f"skeleton_{self.spec.slug}"
                         ),
                         "trt_fp16_enable": True,
-                        "trt_engine_hw_compatible": True,
+                        "trt_engine_hw_compatible": hardware_compatible,
                         "trt_timing_cache_enable": True,
                     },
                 ),

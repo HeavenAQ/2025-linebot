@@ -90,6 +90,7 @@ def test_rtmw3d_configures_tensorrt_with_cuda_fallback(
     detector.device = "cuda"
     detector.execution_provider = "tensorrt"
     monkeypatch.setenv("POSE_TENSORRT_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("TENSORRT_ENGINE_HW_COMPATIBLE", "false")
     monkeypatch.setitem(
         sys.modules,
         "onnxruntime",
@@ -125,6 +126,7 @@ def test_rtmw3d_configures_tensorrt_with_cuda_fallback(
         assert options["trt_fp16_enable"] is True
         assert options["trt_engine_cache_enable"] is True
         assert options["trt_engine_cache_path"] == str(tmp_path / name)
+        assert options["trt_engine_hw_compatible"] is False
         assert "TopK" in options["trt_op_types_to_exclude"]
         assert detector.active_execution_providers[name][0] == (
             "TensorrtExecutionProvider"

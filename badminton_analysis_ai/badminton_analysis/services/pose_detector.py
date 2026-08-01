@@ -89,6 +89,9 @@ class PoseDetector:
             cache_root = os.path.abspath(
                 os.getenv("POSE_TENSORRT_CACHE_DIR", _DEFAULT_TENSORRT_CACHE)
             )
+            hardware_compatible = os.getenv(
+                "TENSORRT_ENGINE_HW_COMPATIBLE", "true"
+            ).lower() == "true"
             for name, component in (
                 ("detector", model.det_model),
                 ("pose", model.pose_model),
@@ -101,7 +104,7 @@ class PoseDetector:
                     "trt_engine_cache_path": cache_path,
                     "trt_engine_cache_prefix": f"rtmw3d_{name}",
                     "trt_fp16_enable": True,
-                    "trt_engine_hw_compatible": True,
+                    "trt_engine_hw_compatible": hardware_compatible,
                     "trt_timing_cache_enable": True,
                     "trt_op_types_to_exclude": (
                         "TopK,NonMaxSuppression,NonZero,RoiAlign"

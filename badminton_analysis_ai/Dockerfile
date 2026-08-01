@@ -21,8 +21,6 @@ RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
       tensorrt-cu12==10.14.1.48.post1 && \
     find /opt/conda/lib/python3.11/site-packages/tensorrt_libs \
       -type f -name 'libnvinfer_builder_resource_*' \
-      ! -name 'libnvinfer_builder_resource_sm80.so.10.14.1' \
-      ! -name 'libnvinfer_builder_resource_sm86.so.10.14.1' \
       ! -name 'libnvinfer_builder_resource_sm89.so.10.14.1' -delete && \
     pip install --no-deps -r requirements-pose.txt
 

@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from badminton_analysis.ml.clear_feedback import (
     RawSkillFeedbackAnalysis,
+    SampledFrame,
     SkillFeedbackAnalysis,
     build_response_input,
     coaching_target_joint_ids,
@@ -70,6 +71,49 @@ class CoachingGenerator:
             ],
         }
 
+    @staticmethod
+    def _normalize_analysis(
+        analysis: dict[str, Any],
+        *,
+        spec: SkillCorrectionSpec,
+        correction_grade: dict[str, Any],
+        phase_indices: tuple[int, ...],
+        samples: list[SampledFrame],
+    ) -> dict[str, Any]:
+        criteria = {
+            str(item["rule_reference"]): item
+            for item in correction_grade["criteria"]
+        }
+        anchors = tuple(int(value) for value in phase_indices)
+        for problem in analysis["problems"]:
+            reference = str(problem["rule_reference"])
+            try:
+                rule = spec.rule(reference)
+            except KeyError:
+                rule = next(
+                    (candidate for candidate in spec.rules if candidate.name_zh_tw == reference),
+                    None,
+                )
+                if rule is None:
+                    raise
+            problem["rule_reference"] = rule.id
+            problem["title"] = rule.name_zh_tw
+            problem["phase"] = rule.phase
+            allowed = [anchors[index] for index in rule.allowed_anchor_indices]
+            problem["frame_index"] = min(
+                allowed, key=lambda frame: abs(frame - int(problem["frame_index"]))
+            )
+            problem["joint_ids"] = coaching_target_joint_ids(rule.id, spec)
+            criterion = criteria[rule.id]
+            problem["criterion_score"] = float(criterion["score"])
+            problem["criterion_maximum"] = float(criterion["maximum"])
+        validated = SkillFeedbackAnalysis.model_validate(analysis)
+        validate_analysis_frames(validated, samples, anchors, spec)
+        timestamps = {sample.frame_index: sample.timestamp_seconds for sample in samples}
+        for problem in analysis["problems"]:
+            problem["timestamp_seconds"] = timestamps[problem["frame_index"]]
+        return analysis
+
     def generate(
         self,
         *,
@@ -105,7 +149,7 @@ class CoachingGenerator:
         )
         request_input = build_response_input(context, samples, spec)
         response = None
-        parsed = None
+        analysis = None
         last_error: Exception | None = None
         llm_started = time.perf_counter()
         for attempt in range(1, self.max_attempts + 1):
@@ -122,6 +166,13 @@ class CoachingGenerator:
                 parsed = response.output_parsed
                 if parsed is None:
                     raise ValueError("OpenAI response did not contain parsed coaching")
+                analysis = self._normalize_analysis(
+                    parsed.model_dump(),
+                    spec=spec,
+                    correction_grade=correction_grade,
+                    phase_indices=tuple(int(value) for value in phase_indices),
+                    samples=samples,
+                )
                 break
             except Exception as exc:  # OpenAI and schema errors share this boundary.
                 last_error = exc
@@ -133,42 +184,29 @@ class CoachingGenerator:
                     type(exc).__name__,
                 )
         llm_finished = time.perf_counter()
-        if parsed is None:
-            analysis = self._fallback_analysis(spec, correction_grade)
+        if analysis is None:
+            analysis = self._normalize_analysis(
+                self._fallback_analysis(spec, correction_grade),
+                spec=spec,
+                correction_grade=correction_grade,
+                phase_indices=tuple(int(value) for value in phase_indices),
+                samples=samples,
+            )
             response_id = ""
             source = "deterministic_fallback"
         else:
-            analysis = parsed.model_dump()
             response_id = response.id if response is not None else ""
             source = "openai"
-        criteria = {
-            item["name_zh_tw"]: item
-            for item in correction_grade["criteria"]
-        }
-        anchors = tuple(int(value) for value in phase_indices)
-        for problem in analysis["problems"]:
-            rule = spec.rule(problem["rule_reference"])
-            problem["title"] = rule.name_zh_tw
-            problem["phase"] = rule.phase
-            allowed = [anchors[index] for index in rule.allowed_anchor_indices]
-            problem["frame_index"] = min(
-                allowed, key=lambda frame: abs(frame - int(problem["frame_index"]))
-            )
-            problem["joint_ids"] = coaching_target_joint_ids(rule.id, spec)
-            criterion = criteria[rule.name_zh_tw]
-            problem["criterion_score"] = float(criterion["score"])
-            problem["criterion_maximum"] = float(criterion["maximum"])
-        validated = SkillFeedbackAnalysis.model_validate(analysis)
-        validate_analysis_frames(validated, samples, anchors, spec)
-        timestamps = {sample.frame_index: sample.timestamp_seconds for sample in samples}
-        for problem in analysis["problems"]:
-            problem["timestamp_seconds"] = timestamps[problem["frame_index"]]
         payload = {
             "model": self.model,
             "response_id": response_id,
             "source": source,
-            "attempts": self.max_attempts if parsed is None else attempt,
-            "fallback_error": type(last_error).__name__ if parsed is None and last_error else "",
+            "attempts": attempt,
+            "fallback_error": (
+                type(last_error).__name__
+                if source == "deterministic_fallback" and last_error
+                else ""
+            ),
             "latency_llm_inference_seconds": llm_finished - llm_started,
             "context": context,
             "analysis": analysis,

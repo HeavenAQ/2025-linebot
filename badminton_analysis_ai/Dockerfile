@@ -30,6 +30,8 @@ RUN python -c "from pathlib import Path; from rtmlib.tools.file import download_
 
 COPY . .
 
+RUN python -c "import service.server; print('Python service imports verified')"
+
 RUN test "$(find models/tensorrt-cache/detector -name '*.engine' | wc -l)" -ge 1 && \
     test "$(find models/tensorrt-cache/pose -name '*.engine' | wc -l)" -ge 1 && \
     test "$(find models/tensorrt-cache/correctors -name '*.engine' | wc -l)" -ge 4 && \

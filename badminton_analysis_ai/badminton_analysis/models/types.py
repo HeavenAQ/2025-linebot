@@ -1,5 +1,7 @@
 from enum import IntEnum, auto
-from typing import Literal, NotRequired, TypedDict, TypeAlias, override
+from typing import Literal, NotRequired, TypedDict, TypeAlias
+
+from typing_extensions import override
 
 import numpy as np
 from numpy.typing import NDArray

@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,39 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 )
+
+func TestLiveAnalysisRejectsOppositeHandFallback(t *testing.T) {
+	if os.Getenv("RUN_LIVE_ANALYSIS_NO_MATCH") != "1" {
+		t.Skip("set RUN_LIVE_ANALYSIS_NO_MATCH=1 to verify strict expert matching")
+	}
+	_ = godotenv.Load("../../.env")
+	target := os.Getenv("ANALYSIS_GRPC_TARGET")
+	apiKey := os.Getenv("ANALYSIS_GRPC_API_KEY")
+	videoPath := os.Getenv("LIVE_ANALYSIS_VIDEO")
+	skill := os.Getenv("LIVE_ANALYSIS_SKILL")
+	require.NotEmpty(t, target)
+	require.NotEmpty(t, apiKey)
+	require.NotEmpty(t, videoPath)
+	require.NotEmpty(t, skill)
+
+	video, err := os.ReadFile(videoPath)
+	require.NoError(t, err)
+	client, err := analysis.NewClient(target, apiKey, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	_, err = client.AnalyzeVideo(
+		context.Background(),
+		fmt.Sprintf("go-live-no-match-%d", time.Now().UnixNano()),
+		"integration-test",
+		filepath.Base(videoPath),
+		skill,
+		"left",
+		video,
+	)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, analysis.ErrNoMatchingExpert), err)
+}
 
 func TestLiveAnalysisService(t *testing.T) {
 	if os.Getenv("RUN_LIVE_ANALYSIS") != "1" {

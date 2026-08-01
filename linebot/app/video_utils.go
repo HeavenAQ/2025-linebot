@@ -19,7 +19,12 @@ func (app *App) analyzeVideo(
 	video []byte,
 	requestID, userID, skill, handedness string,
 ) (*commons.AnalysisOutcome, error) {
-	app.Logger.Info.Printf("streaming video to analysis service request_id=%s skill=%s", requestID, skill)
+	app.Logger.Info.Printf(
+		"streaming video to analysis service request_id=%s skill=%s bytes=%d",
+		requestID,
+		skill,
+		len(video),
+	)
 	return app.AnalysisClient.AnalyzeVideo(
 		context.Background(), requestID, userID, "line-upload.mp4", skill, handedness, video,
 	)

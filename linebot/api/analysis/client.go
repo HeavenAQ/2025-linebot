@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,12 +11,16 @@ import (
 	analysisv1 "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	insecurecredentials "google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const chunkSize = 1024 * 1024
+
+var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
 
 type Client struct {
 	connection *grpc.ClientConn
@@ -96,6 +101,9 @@ func (c *Client) AnalyzeVideo(
 	requestID, userID, filename, skill, handedness string,
 	video []byte,
 ) (*commons.AnalysisOutcome, error) {
+	if len(video) == 0 {
+		return nil, fmt.Errorf("video is empty")
+	}
 	skillEnum, err := skillValue(skill)
 	if err != nil {
 		return nil, err
@@ -128,6 +136,10 @@ func (c *Client) AnalyzeVideo(
 	}
 	response, err := stream.CloseAndRecv()
 	if err != nil {
+		if status.Code(err) == codes.FailedPrecondition &&
+			strings.Contains(status.Convert(err).Message(), "expert reference") {
+			return nil, fmt.Errorf("%w: %s", ErrNoMatchingExpert, status.Convert(err).Message())
+		}
 		return nil, fmt.Errorf("receive analysis: %w", err)
 	}
 	return outcome(response), nil

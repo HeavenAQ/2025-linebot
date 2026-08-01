@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
@@ -398,6 +399,15 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 		session.Handedness,
 	)
 	if err != nil {
+		if errors.Is(err, analysis.ErrNoMatchingExpert) {
+			app.Logger.Warn.Printf("same-handed expert unavailable: %v", err)
+			_, replyErr := app.LineBot.SendReply(
+				replyToken,
+				"目前沒有同慣用手的專家影片可供比較，本次不會跨左右手評分。請聯絡教練新增同手別的專家資料。",
+			)
+			handleLineMessageResponseError(replyErr)
+			return
+		}
 		app.handleVideoAnalysisError(err, replyToken)
 		return
 	}

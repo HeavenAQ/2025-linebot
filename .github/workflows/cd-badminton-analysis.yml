@@ -56,6 +56,7 @@ jobs:
 
       - name: Deploy gRPC analysis service
         run: |
+          candidate_tag="candidate-${GITHUB_RUN_ID}"
           gcloud run deploy badminton-analysis-ai \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
@@ -71,8 +72,20 @@ jobs:
             --timeout 3600 \
             --min 1 \
             --max-instances 1 \
+            --no-traffic \
+            --tag "${candidate_tag}" \
             --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=true,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
             --set-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest,OPENAI_API_KEY=openai-api-key:latest
+          candidate_revision="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 --format='value(status.latestCreatedRevisionName)')"
+          candidate_url="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 --format=json | jq -r \
+            --arg tag "${candidate_tag}" '.status.traffic[] | select(.tag == $tag) | .url')"
+          test -n "${candidate_revision}"
+          test -n "${candidate_url}"
+          echo "ANALYSIS_CANDIDATE_TAG=${candidate_tag}" >> "${GITHUB_ENV}"
+          echo "ANALYSIS_CANDIDATE_REVISION=${candidate_revision}" >> "${GITHUB_ENV}"
+          echo "ANALYSIS_CANDIDATE_URL=${candidate_url}" >> "${GITHUB_ENV}"
 
       - name: Run real gRPC video analysis
         env:
@@ -82,9 +95,7 @@ jobs:
           gcloud storage cp \
             gs://${{ env.GCS_BUCKET_NAME }}/integration-fixtures/clear/EG3.mp4 \
             /tmp/analysis-e2e/EG3.mp4
-          service_url="$(gcloud run services describe badminton-analysis-ai \
-            --region asia-southeast1 --format='value(status.url)')"
-          export ANALYSIS_GRPC_TARGET="${service_url#https://}"
+          export ANALYSIS_GRPC_TARGET="${ANALYSIS_CANDIDATE_URL#https://}"
           export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
             --secret analysis-grpc-api-key)"
           export LIVE_ANALYSIS_VIDEO=/tmp/analysis-e2e/EG3.mp4
@@ -100,3 +111,12 @@ jobs:
             fi
           done
           exit 1
+
+      - name: Promote verified GPU revision
+        run: |
+          gcloud run services update-traffic badminton-analysis-ai \
+            --region asia-southeast1 \
+            --to-revisions "${ANALYSIS_CANDIDATE_REVISION}=100"
+          gcloud run services update-traffic badminton-analysis-ai \
+            --region asia-southeast1 \
+            --remove-tags "${ANALYSIS_CANDIDATE_TAG}"

@@ -46,6 +46,35 @@ def _split_files(
     )
 
 
+def _split_expert_files(
+    files: list[Path], seed: int
+) -> tuple[list[Path], list[Path], list[Path]]:
+    grouped: dict[str, list[Path]] = {}
+    for path in files:
+        grouped.setdefault(_load_handedness(path), []).append(path)
+    splits: list[list[Path]] = [[], [], []]
+    for index, handedness in enumerate(sorted(grouped)):
+        group = grouped[handedness]
+        if len(group) < 3:
+            raise ValueError(
+                f"at least three {handedness}-handed experts are required"
+            )
+        shuffled = group.copy()
+        random.Random(seed + index).shuffle(shuffled)
+        test_count = max(1, round(len(shuffled) * 0.2))
+        validation_count = max(1, round(len(shuffled) * 0.1))
+        group_splits = (
+            shuffled[test_count + validation_count :],
+            shuffled[test_count : test_count + validation_count],
+            shuffled[:test_count],
+        )
+        for split, values in zip(splits, group_splits, strict=True):
+            split.extend(values)
+    for index, split in enumerate(splits):
+        random.Random(seed + 100 + index).shuffle(split)
+    return splits[0], splits[1], splits[2]
+
+
 def _load_aligned(path: Path) -> tuple[np.ndarray, np.ndarray]:
     sample = load_sequence(path)
     phases = sample["phase_indices"].astype(np.int64)
@@ -67,11 +96,14 @@ def _load_expert_bank(
 
 
 def _load_expert_handedness(files: list[Path]) -> list[str]:
-    values: list[str] = []
-    for path in files:
-        with np.load(path, allow_pickle=False) as sample:
-            values.append(str(sample["handedness"].item()).lower())
-    return values
+    return [_load_handedness(path) for path in files]
+
+
+def _load_handedness(path: Path) -> str:
+    with np.load(path, allow_pickle=False) as sample:
+        if "handedness" not in sample:
+            raise ValueError(f"dataset {path} has no handedness metadata")
+        return str(sample["handedness"].item()).lower()
 
 
 def _build_student_targets(
@@ -80,19 +112,27 @@ def _build_student_targets(
     joint_weights: np.ndarray = JOINT_WEIGHTS,
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[dict[str, Any]]]:
     expert_skeletons, expert_confidence = _load_expert_bank(expert_files)
+    expert_handedness = np.asarray(_load_expert_handedness(expert_files))
     targets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     rows: list[dict[str, Any]] = []
     for path in student_files:
         source, source_confidence = _load_aligned(path)
-        nearest_index, target, target_confidence, selection_distance = (
+        student_handedness = _load_handedness(path)
+        allowed_indices = np.flatnonzero(expert_handedness == student_handedness)
+        if not len(allowed_indices):
+            raise ValueError(
+                f"no {student_handedness}-handed expert is available for {path.name}"
+            )
+        local_index, target, target_confidence, selection_distance = (
             select_bone_adapted_expert(
                 source,
-                expert_skeletons,
+                expert_skeletons[allowed_indices],
                 source_confidence,
-                expert_confidence,
+                expert_confidence[allowed_indices],
                 joint_weights,
             )
         )
+        nearest_index = int(allowed_indices[local_index])
         target_distance = expert_euclidean_distances(
             target,
             expert_skeletons[nearest_index : nearest_index + 1],
@@ -187,21 +227,44 @@ def _evaluate_expert_distance(
     expert_range_threshold: float,
     joint_weights: np.ndarray,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
-    correction_experts, correction_expert_confidence = _load_expert_bank(
+    correction_expert_bank, correction_confidence_bank = _load_expert_bank(
         correction_expert_files
     )
-    unseen_experts, unseen_expert_confidence = _load_expert_bank(expert_files)
-    expert_skeletons = np.concatenate(
-        (correction_experts, unseen_experts), axis=0
+    unseen_expert_bank, unseen_confidence_bank = _load_expert_bank(expert_files)
+    correction_handedness = np.asarray(
+        _load_expert_handedness(correction_expert_files)
     )
-    expert_confidence = np.concatenate(
-        (correction_expert_confidence, unseen_expert_confidence), axis=0
-    )
-    all_expert_files = (*correction_expert_files, *expert_files)
+    unseen_handedness = np.asarray(_load_expert_handedness(expert_files))
     rows: list[dict[str, Any]] = []
     model.eval()
     for path in student_files:
         sample = load_sequence(path)
+        student_handedness = str(sample["handedness"].item()).lower()
+        correction_indices = np.flatnonzero(
+            correction_handedness == student_handedness
+        )
+        unseen_indices = np.flatnonzero(unseen_handedness == student_handedness)
+        if not len(correction_indices) or not len(unseen_indices):
+            raise ValueError(
+                f"same-handed expert validation data is unavailable for {path.name}"
+            )
+        correction_experts = correction_expert_bank[correction_indices]
+        correction_expert_confidence = correction_confidence_bank[
+            correction_indices
+        ]
+        unseen_experts = unseen_expert_bank[unseen_indices]
+        unseen_expert_confidence = unseen_confidence_bank[unseen_indices]
+        expert_skeletons = np.concatenate(
+            (correction_experts, unseen_experts), axis=0
+        )
+        expert_confidence = np.concatenate(
+            (correction_expert_confidence, unseen_expert_confidence), axis=0
+        )
+        allowed_correction_files = [
+            correction_expert_files[int(index)] for index in correction_indices
+        ]
+        allowed_unseen_files = [expert_files[int(index)] for index in unseen_indices]
+        all_expert_files = (*allowed_correction_files, *allowed_unseen_files)
         phases = sample["phase_indices"].astype(np.int64)
         raw_source = sample["skeleton_3d"].astype(np.float32)
         raw_confidence = sample["confidence"].astype(np.float32)
@@ -303,7 +366,7 @@ def _evaluate_expert_distance(
                     int(np.argmin(corrected_distances))
                 ].name,
                 "correction_reference_expert": correction_expert_files[
-                    correction_reference_index
+                    int(correction_indices[correction_reference_index])
                 ].name,
                 "within_expert_range": corrected_nearest
                 <= expert_range_threshold,
@@ -456,7 +519,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError(
                 f"dataset {path} contains skill {sample_skill}, expected {spec.slug}"
             )
-    expert_train, expert_validation, expert_test = _split_files(
+    expert_train, expert_validation, expert_test = _split_expert_files(
         expert_files, args.seed
     )
     student_train, student_validation, student_test = _split_files(

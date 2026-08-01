@@ -34,7 +34,10 @@ from badminton_analysis.ml.skeleton_scoring import (
     project_bone_lengths,
     select_bone_adapted_expert,
 )
-from badminton_analysis.ml.train_skeleton_corrector import _build_student_targets
+from badminton_analysis.ml.train_skeleton_corrector import (
+    _build_student_targets,
+    _split_expert_files,
+)
 from badminton_analysis.models.types import Handedness
 
 
@@ -454,6 +457,7 @@ def test_reference_conditioned_target_is_full_expert_pose(
     archive_values = {
         "confidence": confidence,
         "phase_indices": np.asarray(CANONICAL_PHASE_INDICES),
+        "handedness": np.asarray("right"),
     }
     np.savez(student_path, skeleton_3d=student, **archive_values)
     np.savez(expert_path, skeleton_3d=expert, **archive_values)
@@ -471,6 +475,66 @@ def test_reference_conditioned_target_is_full_expert_pose(
     item = dataset[0]
     assert item["features"].shape == (64, 17, 7)
     np.testing.assert_allclose(item["features"][..., 3:6], expected)
+
+
+def test_student_target_pairing_rejects_nearer_opposite_handed_expert(
+    tmp_path: Path,
+) -> None:
+    student = resample_sequence(_pose_sequence(), 64)
+    confidence = np.ones(student.shape[:2], dtype=np.float32)
+    archive_values = {
+        "confidence": confidence,
+        "phase_indices": np.asarray(CANONICAL_PHASE_INDICES),
+    }
+    student_path = tmp_path / "student.npz"
+    left_expert_path = tmp_path / "left-expert.npz"
+    right_expert_path = tmp_path / "right-expert.npz"
+    right_expert = student.copy()
+    right_expert[:, 10, 0] += 0.5
+    np.savez(
+        student_path,
+        skeleton_3d=student,
+        handedness=np.asarray("right"),
+        **archive_values,
+    )
+    np.savez(
+        left_expert_path,
+        skeleton_3d=student,
+        handedness=np.asarray("left"),
+        **archive_values,
+    )
+    np.savez(
+        right_expert_path,
+        skeleton_3d=right_expert,
+        handedness=np.asarray("right"),
+        **archive_values,
+    )
+
+    _, rows = _build_student_targets(
+        [student_path], [left_expert_path, right_expert_path]
+    )
+
+    assert rows[0]["target_expert_file"] == right_expert_path.name
+
+
+def test_expert_split_preserves_each_handedness_in_every_split(
+    tmp_path: Path,
+) -> None:
+    paths: list[Path] = []
+    for handedness, count in (("left", 9), ("right", 10)):
+        for index in range(count):
+            path = tmp_path / f"{handedness}-{index}.npz"
+            np.savez(path, handedness=np.asarray(handedness))
+            paths.append(path)
+
+    splits = _split_expert_files(paths, seed=2026)
+
+    for split in splits:
+        hands = {
+            str(np.load(path, allow_pickle=False)["handedness"].item())
+            for path in split
+        }
+        assert hands == {"left", "right"}
 
 
 def test_handedness_estimate_uses_decisive_wrist_motion() -> None:

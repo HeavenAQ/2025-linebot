@@ -43,8 +43,8 @@ jobs:
           gcloud storage rsync --recursive \
             gs://${{ env.GCS_BUCKET_NAME }}/models/rtmw3d-ort1.24.4-trt10.14-sm80plus \
             badminton_analysis_ai/models/tensorrt-cache
-          cd badminton_analysis_ai
-          sha256sum --check models/tensorrt-cache.sha256
+          cd badminton_analysis_ai/models/tensorrt-cache
+          sha256sum --check ../tensorrt-cache.sha256
 
       - name: Build GPU analysis image
         working-directory: badminton_analysis_ai

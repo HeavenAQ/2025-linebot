@@ -162,13 +162,18 @@ class PoseDetector:
                 "rtmlib and onnxruntime-gpu are required for RTMW3D inference"
             ) from exc
 
+        bootstrap_device = (
+            "cpu"
+            if self.backend == "onnxruntime" and self.device == "cuda"
+            else self.device
+        )
         model = Wholebody3d(
             det=self.detector_model_name,
             det_input_size=(640, 640),
             pose=self.model_name,
             pose_input_size=(288, 384),
             backend=self.backend,
-            device=self.device,
+            device=bootstrap_device,
         )
         self._configure_execution_providers(model)
         return model

@@ -28,7 +28,7 @@ jobs:
         working-directory: badminton_analysis_ai
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
-          pip install numpy==1.26.4 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
+          pip install numpy==1.26.4 openai==2.14.0 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
       - name: Test correction and skill contracts
         working-directory: badminton_analysis_ai
         run: PYTHONPATH=. pytest -q tests

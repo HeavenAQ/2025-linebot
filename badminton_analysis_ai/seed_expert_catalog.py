@@ -19,10 +19,10 @@ from service.expert_catalog import expert_document_id
 
 LEGACY_VIDEO_DIRS = {
     "clear": Path("scoring_videos/高遠球/專家高遠球"),
-    "serve": Path("scoring_videos/發球/羽球隊同學"),
     "lift": Path("scoring_videos/挑球/專家挑球"),
     "smash": Path("scoring_videos/殺球/專家殺球"),
 }
+SKILLS = ("clear", "serve", "lift", "smash")
 NSTC_EXPERT_COUNTS = {
     "clear": {"left": 20, "right": 30},
     "serve": {"left": 10, "right": 16},
@@ -51,14 +51,16 @@ def _video_files(directory: Path) -> list[Path]:
 
 def _expert_sources(source_root: Path, skill: str) -> dict[str, ExpertSource]:
     sources: dict[str, ExpertSource] = {}
-    legacy_dir = source_root / LEGACY_VIDEO_DIRS[skill]
-    for video_path in _video_files(legacy_dir):
-        sources[video_path.stem] = ExpertSource(
-            expert_id=video_path.stem,
-            video_path=video_path,
-            known_handedness="right",
-            dataset_source="legacy",
-        )
+    legacy_relative_dir = LEGACY_VIDEO_DIRS.get(skill)
+    if legacy_relative_dir is not None:
+        legacy_dir = source_root / legacy_relative_dir
+        for video_path in _video_files(legacy_dir):
+            sources[video_path.stem] = ExpertSource(
+                expert_id=video_path.stem,
+                video_path=video_path,
+                known_handedness="right",
+                dataset_source="legacy",
+            )
 
     for handedness in ("left", "right"):
         video_dir = source_root / "training_videos" / "nstc" / skill / handedness
@@ -83,8 +85,12 @@ def _expert_sources(source_root: Path, skill: str) -> dict[str, ExpertSource]:
     legacy_count = sum(
         source.dataset_source == "legacy" for source in sources.values()
     )
-    if legacy_count != 50:
-        raise ValueError(f"expected 50 legacy {skill} experts, found {legacy_count}")
+    expected_legacy_count = 50 if legacy_relative_dir is not None else 0
+    if legacy_count != expected_legacy_count:
+        raise ValueError(
+            f"expected {expected_legacy_count} legacy {skill} experts, "
+            f"found {legacy_count}"
+        )
     return sources
 
 
@@ -120,6 +126,7 @@ def seed(
     bucket_name: str,
     collection_name: str,
     dry_run: bool,
+    prune: bool = False,
     workers: int = 8,
     credentials: Credentials | None = None,
 ) -> dict[str, int]:
@@ -140,7 +147,7 @@ def seed(
     counts: dict[str, int] = {}
     documents: list[tuple[str, dict[str, Any]]] = []
     uploads: list[tuple[Path, str, str]] = []
-    for skill in LEGACY_VIDEO_DIRS:
+    for skill in SKILLS:
         vector_dir = (
             source_root / "datasets" / "skeleton_sequences" / skill / "experts"
         )
@@ -239,6 +246,41 @@ def seed(
                 batch.set(collection.document(document_id), document)
             batch.commit()
             print(f"committed {min(start + 25, len(documents))}/{len(documents)} documents")
+        if prune:
+            expected_document_ids = {document_id for document_id, _ in documents}
+            stale_document_ids = [
+                snapshot.id
+                for snapshot in collection.stream()
+                if snapshot.id not in expected_document_ids
+            ]
+            for start in range(0, len(stale_document_ids), 25):
+                batch = firestore_client.batch()
+                for document_id in stale_document_ids[start : start + 25]:
+                    batch.delete(collection.document(document_id))
+                batch.commit()
+            expected_objects = {object_path for _, object_path, _ in uploads}
+            managed_prefixes = tuple(
+                f"experts/{version}/{skill}/{kind}/"
+                for version, kind in (
+                    (VIDEO_CATALOG_VERSION, "videos"),
+                    (VECTOR_CATALOG_VERSION, "vectors"),
+                )
+                for skill in SKILLS
+            )
+            stale_blobs = [
+                blob
+                for blob in bucket.list_blobs(prefix="experts/")
+                if blob.name.startswith(managed_prefixes)
+                and blob.name not in expected_objects
+            ]
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [executor.submit(blob.delete) for blob in stale_blobs]
+                for future in as_completed(futures):
+                    future.result()
+            print(
+                f"pruned {len(stale_document_ids)} documents and "
+                f"{len(stale_blobs)} objects"
+            )
     return counts
 
 
@@ -254,6 +296,11 @@ def main() -> int:
         default=os.getenv("EXPERT_VIDEOS_COLLECTION", "badminton_experts_v2"),
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Delete catalog documents and managed objects absent from the source set",
+    )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument(
         "--gcloud-user-credentials",
@@ -283,6 +330,7 @@ def main() -> int:
         bucket_name=args.bucket,
         collection_name=args.collection,
         dry_run=args.dry_run,
+        prune=args.prune,
         workers=args.workers,
         credentials=credentials,
     )

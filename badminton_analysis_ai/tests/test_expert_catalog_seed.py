@@ -55,3 +55,24 @@ def test_expert_sources_use_only_nstc_hand_directories(
     assert sources["nstc_left_1"].known_handedness == "left"
     assert sources["nstc_right_1"].known_handedness == "right"
     assert "ignored" not in sources
+
+
+def test_serve_expert_sources_exclude_legacy_team_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    skill = "serve"
+    legacy_dir = tmp_path / "scoring_videos" / "發球" / "羽球隊同學"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "must-not-be-used.mp4").touch()
+
+    monkeypatch.setitem(NSTC_EXPERT_COUNTS, skill, {"left": 1, "right": 1})
+    nstc_root = tmp_path / "training_videos" / "nstc" / skill
+    for hand in ("left", "right"):
+        directory = nstc_root / hand
+        directory.mkdir(parents=True)
+        (directory / f"{hand}.mp4").touch()
+
+    sources = _expert_sources(tmp_path, skill)
+
+    assert set(sources) == {"nstc_left_left", "nstc_right_right"}
+    assert {source.dataset_source for source in sources.values()} == {"nstc"}

@@ -72,6 +72,9 @@ LIFF /personal -> Go playback API -> refreshed student/expert signed URLs
 Videos never cross the Python-to-Go boundary as base64. The request is streamed
 in 1 MiB gRPC chunks. The rendered result is uploaded by Python, and Go receives
 only structured analysis data, GCS object paths, and expiring signed URLs.
+LINE may return HTTP 202 with no bytes while an uploaded video is still being
+transcoded. The Go adapter retries that pending response and refuses to open a
+gRPC stream until it has non-empty `video/*` content.
 
 ## Motion Pipeline
 
@@ -95,10 +98,12 @@ only structured analysis data, GCS object paths, and expiring signed URLs.
    estimate from amplifying the entire skeleton.
 5. **Phase alignment**: five skill checkpoints map preparation through completion
    to a common timeline, so motion speed does not dominate comparison.
-6. **Expert selection**: every training expert is first adapted to the
-   student's bone lengths, then ranked with the same confidence-masked,
-   skill-weighted position, angle, velocity, and bone distance used for
-   grading. This is not cosine similarity or an unrelated embedding score.
+6. **Expert selection**: the checkpoint bank is filtered to the student's
+   handedness before distance is calculated. Every remaining training expert
+   is first adapted to the student's bone lengths, then ranked with the same
+   confidence-masked, skill-weighted position, angle, velocity, and bone
+   distance used for grading. This is not cosine similarity or an unrelated
+   embedding score, and there is no cross-handed fallback.
 7. **Correction**: a temporal/spatial Transformer consumes seven features per
    joint: student XYZ, selected expert XYZ, and observation confidence. Its
    output is optionally blended toward the selected expert according to the
@@ -167,10 +172,19 @@ records with:
 - GCS video and vector object paths;
 - duration, FPS, width, height, and the expert action-window timestamps.
 
+The current catalog contains no left-handed clear, lift, or serve expert and two
+left-handed smash experts. The current training split includes one of those
+left-handed smash experts. An unsupported left-handed skill is rejected with a
+user-facing data-availability message; it is never paired with a right-handed
+expert. Adding same-handed expert recordings and retraining the affected
+checkpoint is required to enable those combinations.
+
 The checkpoint contains the training expert reference bank and filenames. The
 selected filename becomes the catalog lookup key, so the video displayed by LIFF
 is the same expert motion used to condition correction. LIFF maps its shared
-timeline to that expert action window rather than to the entire raw clip.
+timeline to that expert action window rather than to the entire raw clip. The
+mobile personal page exposes this under the `影片比較` tab; legacy records without
+synchronized media show an explicit re-upload message.
 
 Seed or verify the catalog with:
 

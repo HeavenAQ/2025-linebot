@@ -1,8 +1,8 @@
 export const SkillNameMap = {
-  serve: "發球",
-  smash: "殺球",
-  clear: "高遠球",
+  serve: '發球',
+  smash: '殺球',
+  clear: '高遠球',
+  lift: '挑球'
 } as const
 
 export type Skill = keyof typeof SkillNameMap
-

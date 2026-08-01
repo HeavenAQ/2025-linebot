@@ -136,11 +136,18 @@ D = position(S,C,M)
   + 0.5 * angle(S,C,M)
   + 0.5 * velocity(S,C,M)
   + 0.25 * bone_length(S,C,M)
+  + serve_only(0.65 * support_transition(S,C,M)
+             + 0.35 * torso_lean_transition(S,C,M))
 ```
 
 Position and velocity are confidence- and skill-joint-weighted means. Angle is
 the normalized error over eight limb triplets. Bone length covers twelve body
-segments. The final score is calibrated per skill:
+segments. For serve, the transition terms compare the complete first-to-last
+lower-body support trajectory and signed shoulder-midpoint-to-hip-midpoint
+forward lean.
+They affect expert selection, training, the total score, the 20-point weight
+transfer criterion, and the evidence sent to GPT. The final score is calibrated
+per skill:
 
 ```text
 score = 100 * exp(-alpha * max(D - distance_offset, 0))
@@ -148,11 +155,11 @@ score = 100 * exp(-alpha * max(D - distance_offset, 0))
 
 `alpha` and `distance_offset` are fit from held-out expert and beginner
 correction-distance distributions, targeting approximately 99.8 for experts and
-45 for beginners. The current 50-expert/50-beginner evaluation means are:
+45 for beginners. The current evaluation means are:
 
 | Skill | Beginner mean | Expert mean | Separation AUC |
 |---|---:|---:|---:|
-| Serve | 45.00 | 99.80 | 0.99 |
+| Serve | 45.00 | 99.82 | 1.00 |
 | Lift | 45.00 | 99.80 | 1.00 |
 | Clear | 45.00 | 99.79 | 1.00 |
 | Smash | 45.00 | 99.81 | 0.98 |
@@ -164,20 +171,30 @@ both quantitative grading and the feedback an LLM is allowed to provide.
 
 ## Expert Catalog
 
-Each skill currently has 50 expert videos and 50 precomputed skeleton vectors.
-Firestore collection `badminton_experts_v2` stores RTMW3D-derived deterministic
-records with:
+The legacy corpus contributes 50 right-handed experts for clear, lift, and
+smash. Serve excludes `scoring_videos/發球/羽球隊同學`; its expert bank is NSTC
+only. NSTC experts are included only from each skill's direct `left/` and
+`right/` directories; person-named NSTC directories are excluded. The deployed
+inventory is:
+
+| Skill | Right | Left | Total |
+|---|---:|---:|---:|
+| Clear | 80 | 20 | 100 |
+| Serve | 16 | 10 | 26 |
+| Lift | 72 | 10 | 82 |
+| Smash | 66 | 9 | 75 |
+
+Firestore collection `badminton_experts_v2` stores one deterministic RTMW3D
+record per video and vector with:
 
 - skill, expert ID, display name, and handedness;
 - GCS video and vector object paths;
 - duration, FPS, width, height, and the expert action-window timestamps.
 
-The current catalog contains no left-handed clear, lift, or serve expert and two
-left-handed smash experts. The current training split includes one of those
-left-handed smash experts. An unsupported left-handed skill is rejected with a
-user-facing data-availability message; it is never paired with a right-handed
-expert. Adding same-handed expert recordings and retraining the affected
-checkpoint is required to enable those combinations.
+All legacy experts are authoritative right-handed samples. NSTC sequence IDs
+use `nstc_left_` and `nstc_right_` prefixes so same-named videos cannot collide.
+Training is stratified by handedness, and pseudo-target selection, checkpoint
+reference selection, and catalog validation all reject cross-handed matches.
 
 The checkpoint contains the training expert reference bank and filenames. The
 selected filename becomes the catalog lookup key, so the video displayed by LIFF
@@ -195,10 +212,13 @@ python seed_expert_catalog.py \
   --bucket nstc-2025-storage \
   --collection badminton_experts_v2 \
   --source-root /path/to/badminton-analysis \
+  --prune \
   --workers 8
 ```
 
-The seeder is deterministic and skips existing objects, so reruns are safe.
+The seeder is deterministic. It skips existing videos, refreshes vectors,
+validates exact handedness/source counts, and with `--prune` removes obsolete
+managed catalog documents, videos, and vectors.
 
 ## API Contract
 

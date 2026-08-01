@@ -78,7 +78,7 @@ jobs:
             --max-instances 1 \
             --no-traffic \
             --tag "${candidate_tag}" \
-            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=false,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
+            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=true,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
             --set-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest,OPENAI_API_KEY=openai-api-key:latest
           candidate_revision="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.latestCreatedRevisionName)')"

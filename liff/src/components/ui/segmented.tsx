@@ -22,8 +22,8 @@ interface SegmentedProps<T extends string> {
 }
 
 /**
- * Tabs marked by a vermilion rule rather than a filled pill — the selected
- * state is stated once, quietly, and the row stays flat.
+ * One segmented control for every page-level view switch — the personal page
+ * tabs and the video view-mode toggle previously each rolled their own.
  */
 export function Segmented<T extends string>({
   options,
@@ -40,7 +40,12 @@ export function Segmented<T extends string>({
     <div
       role={role}
       aria-label={label}
-      className={cn('flex items-stretch gap-7 border-b border-border', className)}
+      className={cn(
+        'grid gap-1 rounded-xl border border-border bg-muted/60 p-1',
+        size === 'sm' ? 'h-9' : 'h-11',
+        className
+      )}
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map(({ value: optionValue, label: optionLabel, icon: Icon }) => {
         const selected = optionValue === value
@@ -53,15 +58,14 @@ export function Segmented<T extends string>({
             aria-pressed={isTabs ? undefined : selected}
             onClick={() => onChange(optionValue)}
             className={cn(
-              // -1px lifts the marker onto the container rule
-              'relative -mb-px flex min-w-0 items-center gap-2 border-b pb-3 pt-1 tracking-[0.06em] transition-colors duration-300',
-              size === 'sm' ? 'text-xs' : 'text-[13px]',
+              'flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 font-medium transition-colors duration-200',
+              size === 'sm' ? 'text-xs' : 'text-sm',
               selected
-                ? 'border-highlight text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
             )}
           >
-            {Icon ? <Icon aria-hidden size={size === 'sm' ? 13 : 15} /> : null}
+            {Icon ? <Icon aria-hidden size={size === 'sm' ? 14 : 16} /> : null}
             <span className="truncate">{optionLabel}</span>
           </button>
         )

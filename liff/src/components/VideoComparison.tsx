@@ -189,9 +189,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const showExpert = viewMode !== 'student'
 
   return (
-    // `dark` pins the player to the dark token set in both themes — video reads
-    // best on a dark surface, but it still uses the shared tokens, not one-off greys.
-    <section className="dark enter overflow-hidden border border-border bg-card text-card-foreground">
+    // The player is a panel like any other: same surface, same border, same
+    // radius. Only the video frames themselves are black, because footage needs
+    // a neutral backing — everything around them belongs to the page.
+    <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
       <div className="flex items-start justify-between gap-3 p-4">
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">動作同步比較</h2>
@@ -201,7 +202,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <span className="num font-data text-figure">
+          <span className="text-2xl font-semibold tabular-nums text-primary">
             {playback.grade.total_grade.toFixed(1)}
           </span>
           <span className="ml-1 text-xs text-muted-foreground">分</span>
@@ -217,15 +218,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         className="mx-4 mb-3"
       />
 
-      <div className={`grid bg-black ${showStudent && showExpert ? 'md:grid-cols-2' : ''}`}>
+      <div className={`mx-5 grid overflow-hidden rounded-lg bg-neutral-900 ${showStudent && showExpert ? 'md:grid-cols-2' : ''}`}>
         <div className={showStudent ? 'relative' : 'hidden'}>
-          <span className="absolute left-2 top-2 z-10 bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
+          <span className="absolute left-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
             學員修正
           </span>
           <video
             ref={studentRef}
             src={playback.student_video.signed_url}
-            className="aspect-[4/3] w-full bg-black object-contain"
+            className="aspect-[4/3] w-full bg-neutral-900 object-contain"
             playsInline
             muted
             preload="metadata"
@@ -236,15 +237,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           />
         </div>
         <div
-          className={showExpert ? 'relative border-t border-border md:border-l md:border-t-0' : 'hidden'}
+          className={showExpert ? 'relative border-t border-white/10 md:border-l md:border-l-white/10 md:border-t-0' : 'hidden'}
         >
-          <span className="absolute left-2 top-2 z-10 bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
+          <span className="absolute left-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
             最近專家
           </span>
           <video
             ref={expertRef}
             src={playback.expert.video.signed_url}
-            className="aspect-[4/3] w-full bg-black object-contain"
+            className="aspect-[4/3] w-full bg-neutral-900 object-contain"
             playsInline
             muted
             preload="metadata"
@@ -278,7 +279,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               title={marker.label}
               aria-label={`前往${marker.label}`}
               onClick={() => seek(marker.normalized_position)}
-              className="absolute top-0 h-4 w-px bg-success"
+              className="absolute top-0 h-4 w-0.5 rounded-full bg-success"
               style={{ left: `${clamp(marker.normalized_position) * 100}%` }}
             />
           ))}
@@ -289,7 +290,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               title={cue.title}
               aria-label={`前往問題：${cue.title}`}
               onClick={() => seek(cue.normalized_position, cue)}
-              className="absolute top-0 h-3 w-3 -translate-x-1.5 border border-card bg-highlight"
+              className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive"
               style={{ left: `${clamp(cue.normalized_position) * 100}%` }}
             />
           ))}
@@ -332,20 +333,20 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           {playback.timeline.map(marker => (
             <span key={marker.id} className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 bg-success" /> {marker.label}
+              <span className="h-2 w-2 rounded-full bg-success" /> {marker.label}
             </span>
           ))}
           {pauses.length > 0 && (
             <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 bg-highlight" /> GPT 暫停點
+              <span className="h-2 w-2 rounded-full bg-destructive" /> GPT 暫停點
             </span>
           )}
         </div>
 
         {activeCue && (
-          <div className="mt-5 border-l border-highlight pl-4">
-            <p className="mincho text-sm text-highlight">{activeCue.title}</p>
-            <p className="mt-1 text-sm leading-6 text-card-foreground">{activeCue.feedback}</p>
+          <div className="mt-4 border-t border-border pt-4">
+            <p className="text-sm font-semibold text-destructive">{activeCue.title}</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">{activeCue.feedback}</p>
           </div>
         )}
       </div>

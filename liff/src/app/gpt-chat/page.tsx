@@ -120,7 +120,7 @@ export default function GptChatPage() {
   return (
     <PageContainer className="pt-6">
       <main className="space-y-5">
-        <Card className="enter">
+        <Card className="animate-fade-down">
           <CardHeader>
             <CardTitle>動作學習總結</CardTitle>
             <SelectField
@@ -145,7 +145,7 @@ export default function GptChatPage() {
           </CardContent>
         </Card>
 
-        <Card className="enter">
+        <Card className="animate-fade-down">
           <CardHeader>
             <CardTitle>聊天記錄</CardTitle>
           </CardHeader>
@@ -162,10 +162,10 @@ export default function GptChatPage() {
                       className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[80%] break-words px-4 py-3 text-[13px] leading-7 ${
+                        className={`max-w-[80%] break-words rounded-xl px-3.5 py-2.5 text-sm leading-6 ${
                           isUser
-                            ? 'bg-primary text-primary-foreground'
-                            : 'border border-border bg-card text-foreground'
+                            ? 'rounded-br-sm bg-primary text-primary-foreground'
+                            : 'rounded-bl-sm bg-muted text-foreground'
                         }`}
                       >
                         {message.text}

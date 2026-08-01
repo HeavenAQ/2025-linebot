@@ -4,15 +4,16 @@ import { cn } from '@/lib/utils'
 
 interface SpinnerProps {
   size?: 'sm' | 'md' | 'lg'
+  /** Centre in the viewport. Off by default so it can sit inline inside a card. */
   fullscreen?: boolean
   label?: string
   className?: string
 }
 
 const sizes = {
-  sm: 'h-4 w-4',
-  md: 'h-6 w-6',
-  lg: 'h-9 w-9'
+  sm: 'h-5 w-5 border-2',
+  md: 'h-8 w-8 border-2',
+  lg: 'h-12 w-12 border-[3px]'
 } as const
 
 export default function Spinner({
@@ -27,14 +28,13 @@ export default function Spinner({
       aria-label={label}
       className={cn(
         'flex items-center justify-center',
-        fullscreen ? 'min-h-[50vh]' : 'py-14',
+        fullscreen ? 'min-h-[60vh]' : 'py-10',
         className
       )}
     >
-      {/* A single hairline arc, turning slowly. */}
       <div
         className={cn(
-          'animate-spin rounded-full border border-border border-t-foreground [animation-duration:1.1s]',
+          'animate-spin rounded-full border-border border-t-primary',
           sizes[size]
         )}
       />

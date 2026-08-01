@@ -61,31 +61,27 @@ export default {
         }
       },
       fontFamily: {
-        data: ['Archivo', 'PingFang TC', 'Noto Sans TC', 'system-ui', 'sans-serif']
+        // Latin + figures only; Chinese resolves through the CJK stack in body.
+        data: ['Instrument Sans', 'PingFang TC', 'Noto Sans TC', 'system-ui', 'sans-serif']
       },
       fontSize: {
-        // Large figures are set light and wide, not heavy — restraint at scale.
-        figure: ['3rem', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '400' }]
+        // One deliberate jump from body copy to a headline figure.
+        figure: ['2.5rem', { lineHeight: '1.05', letterSpacing: '-0.03em', fontWeight: '600' }]
       },
       borderRadius: {
-        '2xl': 'calc(var(--radius) * 3)',
-        xl: 'calc(var(--radius) * 2)',
+        '2xl': 'calc(var(--radius) + 4px)',
+        xl: 'var(--radius)',
         lg: 'var(--radius)',
-        md: 'var(--radius)',
-        sm: 'calc(var(--radius) - 1px)'
-      },
-      spacing: {
-        // 間 — the deliberate gaps between sections.
-        ma: '3.5rem',
-        'ma-sm': '2rem'
+        md: 'calc(var(--radius) - 4px)',
+        sm: 'calc(var(--radius) - 6px)'
       },
       boxShadow: {
-        // Depth is not part of this language. Kept only so old utilities resolve.
+        // Structure comes from hairlines and surface contrast, not elevation.
         card: 'none',
-        elevated: '0 12px 40px -20px hsl(33 20% 12% / 0.35)'
+        elevated: '0 10px 32px -16px hsl(30 12% 14% / 0.30)'
       },
       maxWidth: {
-        content: '44rem'
+        content: '48rem'
       }
     }
   },

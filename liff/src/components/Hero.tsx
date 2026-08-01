@@ -22,23 +22,25 @@ export default function Hero() {
   }
 
   return (
-    <PageContainer className="enter pt-ma-sm">
-      <header className="flex items-center gap-4 border-b border-border pb-7">
+    <PageContainer className="pt-6">
+      <header className="flex animate-fade-down items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-card">
         {profile?.pictureUrl ? (
           <Image
             src={profile.pictureUrl}
-            alt=""
-            width={96}
-            height={96}
+            alt={profile.displayName ?? '使用者頭像'}
+            width={112}
+            height={112}
             priority
-            className="h-12 w-12 shrink-0 rounded-full object-cover grayscale"
+            className="h-14 w-14 shrink-0 rounded-full border border-border object-cover"
           />
         ) : (
-          <div className="h-12 w-12 shrink-0 rounded-full bg-muted" aria-hidden />
+          <div className="h-14 w-14 shrink-0 rounded-full bg-muted" aria-hidden />
         )}
         <div className="min-w-0">
-          <p className="caption-latin">Welcome back</p>
-          <p className="mincho mt-1.5 truncate text-lg leading-none">{profile?.displayName}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            歡迎回來
+          </p>
+          <p className="truncate text-lg font-semibold tracking-tight">{profile?.displayName}</p>
         </div>
       </header>
     </PageContainer>

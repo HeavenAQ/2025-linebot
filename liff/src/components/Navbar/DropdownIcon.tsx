@@ -1,15 +1,17 @@
 'use client'
 import React, { Fragment } from 'react'
 import { Menu, Transition } from '@headlessui/react'
+import { BarChart3, Menu as MenuIcon, MessageSquareText, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
+import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const items = [
-  { displayName: '個人成績', latin: 'Personal', href: '/personal' },
-  { displayName: '班級排名', latin: 'Class', href: '/class' },
-  { displayName: '教練建議', latin: 'Coaching', href: '/gpt-chat' }
+  { displayName: '個人成績', href: '/personal', icon: BarChart3 },
+  { displayName: '班級排名', href: '/class', icon: Users },
+  { displayName: 'GPT評估建議', href: '/gpt-chat', icon: MessageSquareText }
 ]
 
 export default function DropDownIcon() {
@@ -19,21 +21,20 @@ export default function DropDownIcon() {
     <Menu as="div" className="relative inline-block text-left">
       <Menu.Button
         aria-label="開啟選單"
-        className="flex h-10 w-10 flex-col items-center justify-center gap-[5px] text-foreground"
+        className={cn(buttonVariants({ variant: 'outline', size: 'icon' }))}
       >
-        <span aria-hidden className="block h-px w-4 bg-current" />
-        <span aria-hidden className="block h-px w-4 bg-current" />
+        <MenuIcon size={17} />
       </Menu.Button>
       <Transition
         as={Fragment}
-        enter="transition ease-out duration-300"
-        enterFrom="opacity-0 translate-y-1"
-        enterTo="opacity-100 translate-y-0"
-        leave="transition ease-in duration-200"
-        leaveFrom="opacity-100"
-        leaveTo="opacity-0"
+        enter="transition ease-out duration-150"
+        enterFrom="transform opacity-0 scale-95"
+        enterTo="transform opacity-100 scale-100"
+        leave="transition ease-in duration-100"
+        leaveFrom="transform opacity-100 scale-100"
+        leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items className="absolute right-0 top-full z-40 mt-3 w-52 origin-top-right border border-border bg-popover text-popover-foreground shadow-elevated focus:outline-none">
+        <Menu.Items className="absolute right-0 top-full z-40 mt-2 w-56 origin-top-right rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-elevated focus:outline-none">
           {items.map(item => {
             const isActive = pathname === item.href
             return (
@@ -42,15 +43,16 @@ export default function DropDownIcon() {
                   <Link
                     href={item.href}
                     className={cn(
-                      'flex items-baseline justify-between gap-3 border-b border-border px-5 py-4 transition-colors duration-200 last:border-b-0',
-                      active && 'bg-accent'
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : active
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-popover-foreground'
                     )}
                   >
-                    <span className="mincho flex items-center gap-2.5 text-sm">
-                      {isActive && <span aria-hidden className="h-[3px] w-[3px] bg-highlight" />}
-                      <span className={cn(!isActive && 'pl-[13px]')}>{item.displayName}</span>
-                    </span>
-                    <span className="caption-latin">{item.latin}</span>
+                    <item.icon aria-hidden size={16} />
+                    {item.displayName}
                   </Link>
                 )}
               </Menu.Item>

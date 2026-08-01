@@ -3,16 +3,16 @@
 @tailwind utilities;
 
 /*
- * Archivo (SIL OFL 1.1), vendored latin subset so the build never reaches the
- * network. unicode-range limits it to Latin and figures, so Traditional
- * Chinese always resolves to the CJK stack below.
+ * Instrument Sans (SIL OFL 1.1), vendored latin subset so the build never
+ * reaches the network. unicode-range limits it to Latin and figures, so
+ * Traditional Chinese resolves to the CJK stack in `body`.
  */
 @font-face {
-  font-family: 'Archivo';
+  font-family: 'Instrument Sans';
   font-style: normal;
   font-weight: 400 700;
   font-display: swap;
-  src: url('/fonts/archivo-latin.woff2') format('woff2');
+  src: url('/fonts/instrument-sans-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
     U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
     U+FEFF, U+FFFD;
@@ -20,91 +20,88 @@
 
 @layer base {
   :root {
-    /* 和紙 washi ground — the warmth stays, the saturation does not. */
-    --background: 38 24% 96%;
-    --foreground: 33 9% 13%;
+    /* Warm paper surface — the cream identity, expressed as tokens. */
+    --background: 42 36% 90%;
+    --foreground: 30 12% 14%;
 
-    --card: 40 33% 99%;
-    --card-foreground: 33 9% 13%;
+    --card: 40 46% 97%;
+    --card-foreground: 30 12% 14%;
 
-    --popover: 40 33% 99%;
-    --popover-foreground: 33 9% 13%;
+    --popover: 40 46% 97%;
+    --popover-foreground: 30 12% 14%;
 
-    /* 墨 sumi. The primary is ink, not a brand colour. */
-    --primary: 33 9% 13%;
-    --primary-foreground: 40 33% 98%;
+    /* Deep teal reads as "sport" against cream and stays legible at small sizes. */
+    --primary: 176 58% 26%;
+    --primary-foreground: 40 46% 98%;
 
-    --secondary: 38 18% 92%;
-    --secondary-foreground: 33 9% 18%;
+    --secondary: 40 26% 85%;
+    --secondary-foreground: 30 14% 20%;
 
-    --muted: 38 18% 93%;
-    --muted-foreground: 33 6% 46%;
+    --muted: 40 24% 87%;
+    --muted-foreground: 32 8% 42%;
 
-    --accent: 38 20% 92%;
-    --accent-foreground: 33 9% 18%;
+    /* accent = subtle hover surface (shadcn semantics), highlight = the amber brand pop. */
+    --accent: 40 30% 88%;
+    --accent-foreground: 30 14% 20%;
+    --highlight: 32 88% 50%;
+    --highlight-foreground: 30 32% 12%;
 
-    /* 朱 vermilion — the single accent. Used like a seal: rarely, and it means something. */
-    --highlight: 8 62% 47%;
-    --highlight-foreground: 40 33% 98%;
+    --destructive: 4 70% 46%;
+    --destructive-foreground: 40 46% 98%;
+    --success: 152 48% 32%;
+    --success-foreground: 40 46% 98%;
 
-    --destructive: 6 56% 44%;
-    --destructive-foreground: 40 33% 98%;
-    --success: 150 18% 33%;
-    --success-foreground: 40 33% 98%;
+    --border: 38 20% 79%;
+    --input: 38 20% 79%;
+    --ring: 176 58% 32%;
 
-    --border: 36 14% 87%;
-    --input: 36 14% 87%;
-    --ring: 33 9% 13%;
+    --chart-1: 176 58% 34%;
+    --chart-2: 32 86% 50%;
+    --chart-3: 256 48% 58%;
+    --chart-4: 198 70% 42%;
+    --chart-5: 342 60% 54%;
 
-    --chart-1: 33 9% 20%;
-    --chart-2: 8 62% 47%;
-    --chart-3: 150 18% 36%;
-    --chart-4: 210 16% 48%;
-    --chart-5: 36 30% 55%;
-
-    /* Near-square. Softness comes from space, not from corners. */
-    --radius: 2px;
+    --radius: 10px;
   }
 
   .dark {
-    --background: 33 8% 8%;
-    --foreground: 38 18% 92%;
+    --background: 30 10% 8%;
+    --foreground: 40 28% 94%;
 
-    --card: 33 7% 11%;
-    --card-foreground: 38 18% 92%;
+    --card: 30 9% 12%;
+    --card-foreground: 40 28% 94%;
 
-    --popover: 33 7% 12%;
-    --popover-foreground: 38 18% 92%;
+    --popover: 30 9% 13%;
+    --popover-foreground: 40 28% 94%;
 
-    --primary: 38 18% 92%;
-    --primary-foreground: 33 8% 8%;
+    --primary: 174 54% 46%;
+    --primary-foreground: 30 20% 8%;
 
-    --secondary: 33 6% 17%;
-    --secondary-foreground: 38 18% 92%;
+    --secondary: 30 7% 19%;
+    --secondary-foreground: 40 28% 94%;
 
-    --muted: 33 6% 16%;
-    --muted-foreground: 36 8% 62%;
+    --muted: 30 7% 18%;
+    --muted-foreground: 38 10% 64%;
 
-    --accent: 33 6% 19%;
-    --accent-foreground: 38 18% 92%;
+    --accent: 30 7% 20%;
+    --accent-foreground: 40 28% 94%;
+    --highlight: 34 92% 58%;
+    --highlight-foreground: 30 20% 8%;
 
-    --highlight: 8 70% 60%;
-    --highlight-foreground: 33 8% 8%;
+    --destructive: 4 70% 58%;
+    --destructive-foreground: 30 20% 8%;
+    --success: 152 46% 50%;
+    --success-foreground: 30 20% 8%;
 
-    --destructive: 6 64% 58%;
-    --destructive-foreground: 33 8% 8%;
-    --success: 150 26% 52%;
-    --success-foreground: 33 8% 8%;
+    --border: 30 7% 22%;
+    --input: 30 7% 22%;
+    --ring: 174 54% 52%;
 
-    --border: 33 6% 20%;
-    --input: 33 6% 20%;
-    --ring: 38 18% 82%;
-
-    --chart-1: 38 18% 86%;
-    --chart-2: 8 70% 62%;
-    --chart-3: 150 26% 52%;
-    --chart-4: 210 22% 64%;
-    --chart-5: 36 34% 64%;
+    --chart-1: 174 54% 50%;
+    --chart-2: 34 92% 58%;
+    --chart-3: 256 62% 70%;
+    --chart-4: 198 76% 58%;
+    --chart-5: 342 72% 66%;
   }
 }
 
@@ -119,83 +116,36 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Archivo', 'PingFang TC', 'Noto Sans TC', 'Hiragino Sans TC',
+    font-family: 'Instrument Sans', 'PingFang TC', 'Noto Sans TC', 'Hiragino Sans TC',
       'Microsoft JhengHei', system-ui, sans-serif;
-    /* CJK wants air: long line-height and a little tracking is what makes
-       dense Chinese read as composed rather than cramped. */
-    line-height: 1.85;
-    letter-spacing: 0.015em;
+    line-height: 1.75;
   }
 
+  /* One focus treatment for every interactive element. */
   :focus-visible {
-    @apply outline-none ring-1 ring-foreground ring-offset-2 ring-offset-background;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-    }
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 }
 
 @layer components {
-  /*
-   * 明朝 mincho for headings, gothic for the interface — the standard
-   * Japanese editorial pairing. Every one of these faces ships with iOS or
-   * Android, so it costs nothing to download.
-   */
-  .mincho {
-    font-family: 'Songti TC', 'Noto Serif TC', 'Source Han Serif TC', 'Shippori Mincho',
-      'Yu Mincho', 'MingLiU', serif;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-  }
-
-  /* Section label: a vermilion seal-mark, then the name. Nothing shouts. */
-  .section-label {
-    @apply relative flex items-center gap-2.5 text-[13px] font-medium tracking-[0.08em];
-  }
-
-  .section-label::before {
-    content: '';
-    @apply block h-[3px] w-[3px] shrink-0 bg-highlight;
-  }
-
-  /* Latin captions sit small and wide, the way they do on Japanese signage. */
-  .caption-latin {
-    @apply font-data text-[10px] uppercase tracking-[0.22em] text-muted-foreground;
-  }
-
+  /* Measurements align in columns and never reflow as digits change. */
   .num {
     font-feature-settings: 'tnum' 1, 'lnum' 1;
     font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: -0.015em;
   }
 
+  /* Section label: sentence case, weight does the work. */
+  .eyebrow {
+    @apply text-[13px] font-semibold text-foreground;
+  }
+
+  /* Native <select> reset so it can be skinned like the rest of the controls. */
   .select-reset {
     @apply appearance-none bg-none;
   }
 
   .select-reset::-ms-expand {
     display: none;
-  }
-
-  /* Slow, single-direction entrance. No bounce, no stagger. */
-  .enter {
-    animation: enter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-
-  @keyframes enter {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
   }
 }

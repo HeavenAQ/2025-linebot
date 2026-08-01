@@ -1,13 +1,12 @@
 'use client'
 
-import { Line, LineChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
+import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import React, { useEffect, useMemo, useState } from 'react'
 import { BarChart3, Columns2 } from 'lucide-react'
+
 import { useLiff } from '../LiffProvider'
 import type { GradingDetail, PlaybackResponse, UserData } from '@/types'
-
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   ChartConfig,
   ChartContainer,
@@ -18,7 +17,7 @@ import Spinner from '@/components/ui/spinner'
 import { Alert } from '@/components/ui/alert'
 import { PageContainer } from '@/components/ui/page'
 import { Segmented } from '@/components/ui/segmented'
-import { Select, SelectField } from '@/components/ui/select'
+import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
@@ -31,184 +30,66 @@ const TAB_OPTIONS = [
 
 type TabValue = (typeof TAB_OPTIONS)[number]['value']
 
-interface MovementDetailBarChartProps {
-  userData: UserData
-  selectedDate: string
-  selectedSkill: Skill
+const MAX_CRITERION = 20
+
+const chartConfig = {
+  totalGrade: { label: '總分', color: 'hsl(var(--chart-1))' }
+} satisfies ChartConfig
+
+/** Sort the "YYYY-MM-DD-HH-mm" keys chronologically. */
+const chronological = (a: string, b: string) => {
+  const parse = (v: string) => {
+    const [y, mo, d, h, mi] = v.split('-').map(Number)
+    return new Date(y, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0).getTime()
+  }
+  return parse(a) - parse(b)
 }
 
-const MovementDetailBarChart = ({
-  userData,
-  selectedDate,
-  selectedSkill
-}: MovementDetailBarChartProps) => {
-  // Get grading details for the selected skill and date
-  const gradingDetails =
-    selectedSkill &&
-    selectedDate &&
-    userData.portfolio[selectedSkill][selectedDate]?.grading_outcome?.grading_details
-
-  const chartData =
-    gradingDetails !== ''
-      ? gradingDetails?.map((detail: GradingDetail) => ({
-          description: detail.description,
-          grade: detail.grade.toFixed(2)
-        }))
-      : []
-
-  const chartConfig = {
-    grade: {
-      label: '得分',
-      color: 'hsl(var(--chart-1))'
-    },
-    label: {
-      color: 'hsl(var(--primary-foreground))'
-    }
+/**
+ * Criteria as labelled rows. The labels are Chinese phrases that never fit
+ * inside a bar at phone width, so the name sits above its own bar and the
+ * scores align down the right edge.
+ */
+const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
+  if (details.length === 0) {
+    return <p className="text-[13px] text-muted-foreground">這次分析沒有細項評分。</p>
   }
 
-  return (
-    <Card className="enter">
-      <CardHeader>
-        <CardTitle>動作細節評分</CardTitle>
-        <CardDescription>
-          {SkillNameMap[selectedSkill]} · {selectedDate}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig}>
-          <BarChart
-            data={chartData}
-            layout="vertical"
-            margin={{
-              right: 30
-            }}
-            width={500}
-            height={chartData.length * 50} // Dynamic height based on data
-          >
-            <CartesianGrid horizontal={false} />
-            <YAxis
-              dataKey="description"
-              type="category"
-              tickLine={false}
-              tickMargin={10}
-              axisLine={false}
-              hide
-            />
-            <XAxis domain={[0, 20]} type="number" hide />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-            <Bar dataKey="grade" layout="vertical" fill="var(--color-grade)" radius={1}>
-              <LabelList
-                dataKey="description"
-                position="insideLeft"
-                offset={8}
-                className="fill-[--color-label]"
-                fontSize={12}
-              />
-              <LabelList
-                dataKey="grade"
-                position="right"
-                offset={8}
-                className="fill-foreground"
-                fontSize={12}
-              />
-            </Bar>
-          </BarChart>
-        </ChartContainer>
-      </CardContent>
-    </Card>
-  )
-}
-
-interface PersonalProgressChartProps {
-  userData: UserData
-}
-const PersonalProgressChart = ({ userData }: PersonalProgressChartProps) => {
-  const chartConfig = {
-    totalGrade: {
-      label: '成績',
-      color: 'hsl(var(--chart-1))'
-    }
-  } satisfies ChartConfig
-  const [selectedSkill, setSelectedSkill] = useState<Skill>('serve') // Default skill
-  const availableSkills = Object.keys(SkillNameMap) as Skill[]
+  const weakest = details.reduce((low, d) => (d.grade < low.grade ? d : low), details[0])
 
   return (
-    <Card className="enter">
-      <CardHeader>
-        <CardTitle>每週進步</CardTitle>
-        <CardDescription>依技能查看歷次總分趨勢</CardDescription>
-        <Select
-          value={selectedSkill}
-          onChange={e => setSelectedSkill(e.target.value as Skill)}
-          aria-label="選擇技能"
-          className="mt-2 max-w-[12rem]"
-        >
-          {availableSkills
-            .filter(
-              skill => userData.portfolio[skill] && Object.keys(userData.portfolio[skill]).length > 0
-            ) // Only show skills with records
-            .map(skill => (
-              <option key={skill} value={skill}>
-                {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
-              </option>
-            ))}
-        </Select>
-      </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig}>
-          <LineChart
-            accessibilityLayer
-            data={Object.keys(userData.portfolio[selectedSkill])
-              .sort((a, b) => {
-                const [yearA, monthA, dayA, hourA, minuteA] = a.split('-').map(Number)
-                const [yearB, monthB, dayB, hourB, minuteB] = b.split('-').map(Number)
-
-                const dateA = new Date(yearA, monthA - 1, dayA, hourA, minuteA) // Adjust month (0-based index)
-                const dateB = new Date(yearB, monthB - 1, dayB, hourB, minuteB)
-
-                return dateA.getTime() - dateB.getTime() // Ascending order
-              })
-              .map(date => ({
-                date,
-                totalGrade:
-                  userData.portfolio[selectedSkill][date].grading_outcome.total_grade.toFixed(2)
-              }))}
-            width={500}
-            height={500}
-          >
-            <CartesianGrid vertical={false} />
-            <XAxis
-              dataKey="date"
-              type="category"
-              tickLine={false}
-              axisLine={false}
-              tickMargin={9}
-              angle={-35}
-              tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')} // Format dates to month
-              dx={-8}
-              dy={5}
-            />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={value => `${value}`}
-              domain={[0, 100]}
-              width={40}
-              dx={-10}
-            />
-            <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-            <Line
-              dataKey="totalGrade"
-              type="monotone"
-              stroke="var(--color-totalGrade)"
-              strokeWidth={2}
-              dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
-              activeDot={{ r: 5 }}
-            />
-          </LineChart>
-        </ChartContainer>
-      </CardContent>
-    </Card>
+    <ul className="space-y-4">
+      {details.map((detail, i) => {
+        const ratio = Math.max(0, Math.min(1, detail.grade / MAX_CRITERION))
+        const isWeakest = details.length > 1 && detail === weakest
+        return (
+          <li key={`${detail.description}-${i}`}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0 text-sm leading-snug">
+                {detail.description}
+                {isWeakest && (
+                  <span className="ml-2 whitespace-nowrap text-[11px] font-medium text-destructive">
+                    最需改進
+                  </span>
+                )}
+              </span>
+              <span className="num shrink-0 font-data text-sm font-semibold">
+                {detail.grade.toFixed(1)}
+                <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">
+                  /{MAX_CRITERION}
+                </span>
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full ${isWeakest ? 'bg-destructive' : 'bg-primary'}`}
+                style={{ width: `${ratio * 100}%` }}
+              />
+            </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -224,8 +105,7 @@ export default function PersonalPage() {
   const { liff, profile } = useLiff()
 
   useEffect(() => {
-    if (!liff) return
-    if (!profile?.userId) return
+    if (!liff || !profile?.userId) return
 
     const fetchData = async () => {
       try {
@@ -259,10 +139,24 @@ export default function PersonalPage() {
         : [],
     [userData]
   )
+
   const availableDates = useMemo(
     () => (userData ? Object.keys(userData.portfolio[selectedSkill]).sort().reverse() : []),
     [selectedSkill, userData]
   )
+
+  /** Oldest first, for the trend line. Driven by the page's skill, not its own. */
+  const trend = useMemo(() => {
+    if (!userData) return []
+    return Object.keys(userData.portfolio[selectedSkill])
+      .sort(chronological)
+      .map(date => ({
+        date,
+        totalGrade: Number(
+          userData.portfolio[selectedSkill][date].grading_outcome.total_grade.toFixed(2)
+        )
+      }))
+  }, [selectedSkill, userData])
 
   useEffect(() => {
     if (activeTab !== 'comparison' || !profile?.userId || !selectedDate) {
@@ -291,15 +185,13 @@ export default function PersonalPage() {
     }
   }, [activeTab, profile?.userId, selectedDate, selectedSkill])
 
-  if (loading) {
-    return <Spinner fullscreen />
-  }
+  if (loading) return <Spinner fullscreen />
 
   if (!userData) {
     return (
       <PageContainer className="pt-6">
-        <Alert variant="warning" title="尚無資料">
-          目前查不到您的學習資料，請稍後再試。
+        <Alert variant="warning" title="查不到學習資料">
+          請從 LINE 重新開啟這個頁面。
         </Alert>
       </PageContainer>
     )
@@ -308,17 +200,22 @@ export default function PersonalPage() {
   if (availableSkills.length === 0) {
     return (
       <PageContainer className="pt-6">
-        <Alert variant="info" title="尚無動作分析記錄">
-          上傳一段練習影片後，這裡就會顯示評分與比較。
-        </Alert>
+        <Alert title="還沒有動作分析">上傳一段練習影片，分析完成後這裡會顯示評分。</Alert>
       </PageContainer>
     )
   }
 
+  const outcome = userData.portfolio[selectedSkill][selectedDate]?.grading_outcome
+  const details = Array.isArray(outcome?.grading_details) ? outcome.grading_details : []
+  const total = outcome?.total_grade
+  const currentIndex = trend.findIndex(t => t.date === selectedDate)
+  const previous = currentIndex > 0 ? trend[currentIndex - 1] : undefined
+  const delta = previous && total !== undefined ? total - previous.totalGrade : undefined
+
   return (
-    <PageContainer className="pt-ma-sm">
-      <main className="space-y-ma-sm">
-        <div className="flex gap-8">
+    <PageContainer className="pt-6">
+      <main className="space-y-6">
+        <div className="flex gap-3">
           <SelectField
             label="技能"
             className="flex-1"
@@ -337,7 +234,7 @@ export default function PersonalPage() {
           </SelectField>
           <SelectField
             label="分析日期"
-            className="flex-[1.5]"
+            className="flex-[1.4]"
             value={selectedDate}
             onChange={event => setSelectedDate(event.target.value)}
           >
@@ -349,6 +246,28 @@ export default function PersonalPage() {
           </SelectField>
         </div>
 
+        {/* The score sits on the page itself, not in a card — it is the answer,
+            not one more item in a list of panels. */}
+        {total !== undefined && (
+          <div className="flex items-end gap-4 border-b border-border pb-6">
+            <p className="num font-data text-figure">{total.toFixed(1)}</p>
+            <div className="mb-1.5">
+              <p className="text-[13px] text-muted-foreground">總分 / 100</p>
+              {delta !== undefined && (
+                <p
+                  className={`num text-sm font-semibold ${
+                    delta >= 0 ? 'text-primary' : 'text-destructive'
+                  }`}
+                >
+                  {delta >= 0 ? '+' : ''}
+                  {delta.toFixed(1)}
+                  <span className="ml-1.5 font-normal text-muted-foreground">較上次</span>
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         <Segmented
           role="tablist"
           label="學習歷程檢視"
@@ -357,8 +276,57 @@ export default function PersonalPage() {
           onChange={setActiveTab}
         />
 
+        {activeTab === 'scores' && (
+          <div role="tabpanel" className="space-y-6">
+            <section>
+              <h2 className="eyebrow mb-3">動作細節</h2>
+              <Criteria details={details} />
+            </section>
+
+            {trend.length > 1 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{SkillNameMap[selectedSkill]}　歷次總分</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={chartConfig}>
+                    <LineChart
+                      accessibilityLayer
+                      data={trend}
+                      width={500}
+                      height={500}
+                      margin={{ left: -16, right: 10, top: 6 }}
+                    >
+                      <CartesianGrid vertical={false} strokeDasharray="3 4" />
+                      <XAxis
+                        dataKey="date"
+                        type="category"
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={10}
+                        tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')}
+                        fontSize={11}
+                      />
+                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                      <Line
+                        dataKey="totalGrade"
+                        type="monotone"
+                        stroke="var(--color-totalGrade)"
+                        strokeWidth={2}
+                        dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
+                        activeDot={{ r: 5 }}
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
         {activeTab === 'comparison' && (
-          <div role="tabpanel" className="space-y-ma-sm">
+          <div role="tabpanel" className="space-y-5">
             {playbackLoading && <Spinner />}
             {!playbackLoading && playback && <VideoComparison playback={playback} />}
             {!playbackLoading && playbackError && (
@@ -366,17 +334,6 @@ export default function PersonalPage() {
                 {playbackError}
               </Alert>
             )}
-          </div>
-        )}
-
-        {activeTab === 'scores' && (
-          <div role="tabpanel" className="space-y-ma-sm">
-            <MovementDetailBarChart
-              userData={userData}
-              selectedDate={selectedDate}
-              selectedSkill={selectedSkill}
-            />
-            <PersonalProgressChart userData={userData} />
           </div>
         )}
       </main>

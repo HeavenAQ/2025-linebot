@@ -92,7 +92,7 @@ const ClassProgressChart = () => {
   }, [classStatsByDate, personalStatsByDate])
 
   return (
-    <Card className="enter">
+    <Card className="animate-fade-down">
       <CardHeader>
         <CardTitle>班級學習概況</CardTitle>
         <CardDescription>比較個人成績與班級平均</CardDescription>

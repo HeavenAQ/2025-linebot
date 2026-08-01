@@ -321,20 +321,26 @@ def load_correction_grade_context(
                 ),
             }
         )
+    component_names = (
+        "position_distance",
+        "angle_distance",
+        "velocity_distance",
+        "bone_length_distance",
+        "support_transition_distance",
+        "torso_lean_transition_distance",
+        "transition_distance",
+    )
     return {
         "score_method_zh_tw": (
-            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準"
+            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
+            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化"
         ),
         "total_score": float(row["total_grade"]),
         "correction_distance": float(row["correction_distance"]),
         "distance_components": {
             name: float(row[name])
-            for name in (
-                "position_distance",
-                "angle_distance",
-                "velocity_distance",
-                "bone_length_distance",
-            )
+            for name in component_names
+            if name in row.index and not pd.isna(row[name])
         },
         "criteria": criteria,
     }
@@ -472,6 +478,15 @@ def prompt_context(
             rule.name_zh_tw: [anchors[index] for index in rule.allowed_anchor_indices]
             for rule in resolved_spec.rules
         },
+        "criterion_comparison_frames": {
+            rule.name_zh_tw: (
+                [anchors[0], anchors[-1]]
+                if resolved_spec.skill == Skill.SERVE
+                and rule.id == "weight_transfer"
+                else [anchors[index] for index in rule.allowed_anchor_indices]
+            )
+            for rule in resolved_spec.rules
+        },
         "criterion_coaching_target_joint_ids": {
             rule.name_zh_tw: list(rule.coaching_joints)
             for rule in resolved_spec.rules
@@ -501,6 +516,9 @@ def build_response_input(
                 "標準的問題，title必須逐字使用標準名稱。"
                 "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"
                 "而且每項標準只能選criterion_allowed_frames指定的原始評分關鍵幀。"
+                "判斷發球的重心轉移時，必須同時比較criterion_comparison_frames的"
+                "第一與最後畫面，檢查下肢支撐轉換，以及雙肩相對雙髖是否向前傾；"
+                "回報問題時仍使用criterion_allowed_frames指定的停格畫面。"
                 "請只圈選criterion_coaching_target_joint_ids指定的教練提示目標。所有"
                 "overall_feedback、"
                 "feedback與evidence必須使用臺灣繁體中文，禁止英文句子與簡體中文。"

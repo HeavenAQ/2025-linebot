@@ -249,6 +249,9 @@ class SkeletonCorrectionBackend:
                 joint_weights=self.spec.joint_weights_array,
                 inference_session=self.inference_session,
                 allowed_reference_indices=allowed_reference_indices,
+                transition_weight=self.spec.transition_weight,
+                transition_joints=self.spec.transition_joints,
+                transition_lean_joints=self.spec.transition_lean_joints,
             )
         )
         total_distance, components = correction_distance(
@@ -256,6 +259,9 @@ class SkeletonCorrectionBackend:
             corrected,
             confidence,
             joint_weights=self.spec.joint_weights_array,
+            transition_weight=self.spec.transition_weight,
+            transition_joints=self.spec.transition_joints,
+            transition_lean_joints=self.spec.transition_lean_joints,
         )
         quality = correction_quality_metrics(skeleton, corrected, confidence)
         total_grade = float(self.calibration.score(total_distance))

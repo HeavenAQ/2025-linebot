@@ -110,6 +110,9 @@ def _build_student_targets(
     student_files: list[Path],
     expert_files: list[Path],
     joint_weights: np.ndarray = JOINT_WEIGHTS,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[dict[str, Any]]]:
     expert_skeletons, expert_confidence = _load_expert_bank(expert_files)
     expert_handedness = np.asarray(_load_expert_handedness(expert_files))
@@ -130,6 +133,9 @@ def _build_student_targets(
                 source_confidence,
                 expert_confidence[allowed_indices],
                 joint_weights,
+                transition_weight=transition_weight,
+                transition_joints=transition_joints,
+                transition_lean_joints=transition_lean_joints,
             )
         )
         nearest_index = int(allowed_indices[local_index])
@@ -183,12 +189,22 @@ def _run_epoch(
     device: torch.device,
     optimizer: torch.optim.Optimizer | None,
     joint_weights: np.ndarray | None = None,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(training)
     totals = {
         key: 0.0
-        for key in ("loss", "position", "velocity", "angle", "bone_length")
+        for key in (
+            "loss",
+            "position",
+            "velocity",
+            "angle",
+            "bone_length",
+            "transition",
+        )
     }
     batches = 0
     for batch in loader:
@@ -199,12 +215,14 @@ def _run_epoch(
             optimizer.zero_grad(set_to_none=True)
         with torch.set_grad_enabled(training):
             prediction = model(features)
-            losses = (
-                sequence_training_losses(prediction, target, confidence)
-                if joint_weights is None
-                else sequence_training_losses(
-                    prediction, target, confidence, joint_weights
-                )
+            losses = sequence_training_losses(
+                prediction,
+                target,
+                confidence,
+                JOINT_WEIGHTS if joint_weights is None else joint_weights,
+                transition_weight=transition_weight,
+                transition_joints=transition_joints,
+                transition_lean_joints=transition_lean_joints,
             )
             if optimizer is not None:
                 losses["loss"].backward()
@@ -226,6 +244,9 @@ def _evaluate_expert_distance(
     reference_guidance: float,
     expert_range_threshold: float,
     joint_weights: np.ndarray,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     correction_expert_bank, correction_confidence_bank = _load_expert_bank(
         correction_expert_files
@@ -283,6 +304,9 @@ def _evaluate_expert_distance(
             confidence,
             correction_expert_confidence,
             joint_weights,
+            transition_weight=transition_weight,
+            transition_joints=transition_joints,
+            transition_lean_joints=transition_lean_joints,
         )
         features = np.concatenate(
             (source, correction_reference, confidence[..., None]), axis=-1
@@ -526,7 +550,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         student_files, args.seed + 1
     )
     student_targets, pairing_rows = _build_student_targets(
-        student_train, expert_train, spec.joint_weights_array
+        student_train,
+        expert_train,
+        spec.joint_weights_array,
+        spec.transition_weight,
+        spec.transition_joints,
+        spec.transition_lean_joints,
     )
     validation_expert_variability = _expert_variability(expert_validation)
     validation_expert_threshold = validation_expert_variability[
@@ -588,6 +617,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             device,
             optimizer,
             spec.joint_weights_array,
+            spec.transition_weight,
+            spec.transition_joints,
+            spec.transition_lean_joints,
         )
         with torch.no_grad():
             validation_metrics = _run_epoch(
@@ -596,6 +628,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 device,
                 None,
                 spec.joint_weights_array,
+                spec.transition_weight,
+                spec.transition_joints,
+                spec.transition_lean_joints,
             )
         guidance, _ = _evaluate_expert_distance(
             model,
@@ -607,6 +642,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.reference_guidance,
             validation_expert_threshold,
             spec.joint_weights_array,
+            spec.transition_weight,
+            spec.transition_joints,
+            spec.transition_lean_joints,
         )
         if not all(
             np.isfinite(value)
@@ -655,6 +693,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "model_config": model.config(),
                     "skill": spec.slug,
                     "joint_weights": list(spec.joint_weights),
+                    "transition_weight": spec.transition_weight,
+                    "transition_joints": list(spec.transition_joints),
+                    "transition_lean_joints": list(spec.transition_lean_joints),
                     "criteria": [rule.as_prompt_dict() for rule in spec.rules],
                     "sequence_frames": 64,
                     "phase_aligned": True,
@@ -721,6 +762,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.reference_guidance,
         validation_expert_threshold,
         spec.joint_weights_array,
+        spec.transition_weight,
+        spec.transition_joints,
+        spec.transition_lean_joints,
     )
     test_summary, test_rows = _evaluate_expert_distance(
         model,
@@ -732,6 +776,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.reference_guidance,
         test_expert_threshold,
         spec.joint_weights_array,
+        spec.transition_weight,
+        spec.transition_joints,
+        spec.transition_lean_joints,
     )
     all_students_summary, _ = _evaluate_expert_distance(
         model,
@@ -743,6 +790,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.reference_guidance,
         test_expert_threshold,
         spec.joint_weights_array,
+        spec.transition_weight,
+        spec.transition_joints,
+        spec.transition_lean_joints,
     )
     _write_csv(metrics_dir / "expert_distance_validation.csv", validation_rows)
     _write_csv(metrics_dir / "expert_distance_test.csv", test_rows)

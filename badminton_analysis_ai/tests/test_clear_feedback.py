@@ -21,6 +21,8 @@ from badminton_analysis.ml.clear_feedback import (
     load_feedback_display_score,
     load_feedback_problems,
     phase_for_frame,
+    prompt_context,
+    build_response_input,
     sample_video_frames,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
@@ -228,3 +230,22 @@ def test_handedness_note_uses_physical_side() -> None:
     assert "身體左側" in handedness_note_zh_tw("left")
     assert "右手持拍" in handedness_note_zh_tw("right")
     assert "身體右側" in handedness_note_zh_tw("right")
+
+
+def test_serve_prompt_compares_first_and_last_full_body_frames() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    context = prompt_context(
+        {"filename": "serve.mp4", "handedness": "right"},
+        (),
+        phase_indices=DEFAULT_PHASE_INDICES,
+        correction_grade={"total_score": 45.0},
+        spec=spec,
+    )
+
+    assert context["criterion_comparison_frames"]["重心轉移至非持拍腳"] == [
+        DEFAULT_PHASE_INDICES[0],
+        DEFAULT_PHASE_INDICES[-1],
+    ]
+    prompt = build_response_input(context, (), spec)[0]["content"][0]["text"]
+    assert "下肢支撐轉換" in prompt
+    assert "雙肩相對雙髖是否向前傾" in prompt

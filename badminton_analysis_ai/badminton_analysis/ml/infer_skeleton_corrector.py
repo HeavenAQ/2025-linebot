@@ -21,6 +21,7 @@ from badminton_analysis.ml.skeleton_scoring import (
     correction_quality_metrics,
     expert_euclidean_distances,
     fit_score_calibration,
+    full_transition_distance,
     keypoint_correction_components,
     project_bone_lengths,
     select_bone_adapted_expert,
@@ -68,6 +69,10 @@ def predict_correction(
     phase_indices: np.ndarray | None = None,
     correction_strength: float = 1.0,
     reference_guidance: float = 0.0,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
+    joint_weights: np.ndarray | None = None,
 ) -> np.ndarray:
     corrected, _, _ = predict_correction_with_reference(
         model,
@@ -77,6 +82,10 @@ def predict_correction(
         phase_indices,
         correction_strength,
         reference_guidance,
+        joint_weights=joint_weights,
+        transition_weight=transition_weight,
+        transition_joints=transition_joints,
+        transition_lean_joints=transition_lean_joints,
     )
     return corrected
 
@@ -92,6 +101,9 @@ def predict_correction_with_reference(
     joint_weights: np.ndarray | None = None,
     inference_session: Any | None = None,
     allowed_reference_indices: np.ndarray | None = None,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> tuple[np.ndarray, int | None, float | None]:
     if not 0.0 <= correction_strength <= 1.0:
         raise ValueError("correction strength must be between zero and one")
@@ -155,6 +167,9 @@ def predict_correction_with_reference(
                 model_confidence,
                 expert_confidence,
                 joint_weights,
+                transition_weight=transition_weight,
+                transition_joints=transition_joints,
+                transition_lean_joints=transition_lean_joints,
             )
             reference_index = int(reference_indices[local_reference_index])
         feature_parts.append(reference_target)
@@ -208,17 +223,25 @@ def phase_grading_details(
         start = detail.start
         end = detail.end
         joints = detail.joints
-        source = original[start:end]
-        target = corrected[start:end]
-        mask = confidence[start:end]
-        if joints is not None:
-            source = source[:, joints]
-            target = target[:, joints]
-            mask = mask[:, joints]
+        if detail.metric == "full_transition":
+            distance = full_transition_distance(
+                original,
+                corrected,
+                confidence,
+                resolved_spec.transition_joints,
+                resolved_spec.transition_lean_joints,
+            )
+        elif joints is not None:
+            source = original[start:end, joints]
+            target = corrected[start:end, joints]
+            mask = confidence[start:end, joints]
             # correction_distance expects the canonical joint weight vector.
             magnitude = np.linalg.norm(source - target, axis=-1)
             distance = float(np.sum(magnitude * mask) / max(1e-8, np.sum(mask)))
         else:
+            source = original[start:end]
+            target = corrected[start:end]
+            mask = confidence[start:end]
             distance, _ = correction_distance(
                 source,
                 target,
@@ -505,12 +528,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sample["phase_indices"] if phase_aligned else None,
                 correction_strength,
                 reference_guidance,
+                transition_weight=spec.transition_weight,
+                transition_joints=spec.transition_joints,
+                transition_lean_joints=spec.transition_lean_joints,
+                joint_weights=spec.joint_weights_array,
             )
             distance, components = correction_distance(
                 skeleton,
                 corrected,
                 confidence,
                 joint_weights=spec.joint_weights_array,
+                transition_weight=spec.transition_weight,
+                transition_joints=spec.transition_joints,
+                transition_lean_joints=spec.transition_lean_joints,
             )
             quality = correction_quality_metrics(skeleton, corrected, confidence)
             filename = str(sample["video_name"].item())
@@ -646,6 +676,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             angle_distance=raw["angle_distance"],
             velocity_distance=raw["velocity_distance"],
             bone_length_distance=raw["bone_length_distance"],
+            support_transition_distance=raw["support_transition_distance"],
+            torso_lean_transition_distance=raw[
+                "torso_lean_transition_distance"
+            ],
+            transition_distance=raw["transition_distance"],
             model_path=str(model_path),
             scorer="skeleton-correction",
             score_status="diagnostic_group_calibrated",

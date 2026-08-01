@@ -30,9 +30,11 @@ from badminton_analysis.ml.skeleton_scoring import (
     correction_quality_metrics,
     expert_euclidean_distances,
     fit_score_calibration,
+    full_transition_components,
     keypoint_correction_components,
     project_bone_lengths,
     select_bone_adapted_expert,
+    sequence_training_losses,
 )
 from badminton_analysis.ml.train_skeleton_corrector import (
     _build_student_targets,
@@ -442,6 +444,76 @@ def test_bone_adapted_expert_selection_uses_skill_joint_weights() -> None:
     assert adapted.shape == source.shape
     assert selected_confidence.shape == confidence.shape
     assert distance >= 0.0
+
+
+def test_full_transition_separates_support_and_torso_lean() -> None:
+    source = _pose_sequence()
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    identical = full_transition_components(
+        source,
+        source,
+        confidence,
+        (11, 12, 13, 14, 15, 16),
+        (5, 6, 11, 12),
+    )
+    assert identical == {
+        "support_transition_distance": 0.0,
+        "torso_lean_transition_distance": 0.0,
+        "transition_distance": 0.0,
+    }
+
+    lower_body_difference = source.copy()
+    lower_body_difference[:, (15, 16), 0] += np.linspace(
+        0.0, 0.8, len(source)
+    )[:, None]
+    support = full_transition_components(
+        source,
+        lower_body_difference,
+        confidence,
+        (11, 12, 13, 14, 15, 16),
+        (5, 6, 11, 12),
+    )
+    assert support["support_transition_distance"] > 0.0
+    assert support["torso_lean_transition_distance"] == pytest.approx(0.0)
+
+    upper_body_difference = source.copy()
+    upper_body_difference[:, (5, 6), 2] += np.linspace(
+        0.0, 1.0, len(source)
+    )[:, None]
+    lean = full_transition_components(
+        source,
+        upper_body_difference,
+        confidence,
+        (11, 12, 13, 14, 15, 16),
+        (5, 6, 11, 12),
+    )
+    assert lean["support_transition_distance"] == pytest.approx(0.0)
+    assert lean["torso_lean_transition_distance"] > 0.0
+    assert lean["transition_distance"] == pytest.approx(
+        0.35 * lean["torso_lean_transition_distance"]
+    )
+
+
+def test_training_loss_penalizes_missing_torso_forward_lean() -> None:
+    target = _pose_sequence()
+    target[:, (5, 6), 2] += np.linspace(0.0, 0.8, len(target))[:, None]
+    prediction = torch.tensor(_pose_sequence()[None], requires_grad=True)
+    target_tensor = torch.tensor(target[None])
+    confidence = torch.ones((1, len(target), 17), dtype=torch.float32)
+
+    losses = sequence_training_losses(
+        prediction,
+        target_tensor,
+        confidence,
+        transition_weight=1.0,
+        transition_joints=(11, 12, 13, 14, 15, 16),
+        transition_lean_joints=(5, 6, 11, 12),
+    )
+    losses["loss"].backward()
+
+    assert losses["transition"].item() > 0.0
+    assert prediction.grad is not None
+    assert torch.isfinite(prediction.grad).all()
 
 
 def test_reference_conditioned_target_is_full_expert_pose(

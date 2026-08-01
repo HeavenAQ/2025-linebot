@@ -60,8 +60,11 @@ def sequence_training_losses(
     target: Tensor,
     confidence: Tensor,
     joint_weights: NDArray[np.floating] | Tensor = JOINT_WEIGHTS,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> dict[str, Tensor]:
-    """Differentiable position, velocity, angle, and bone-length losses."""
+    """Differentiable pose losses, including an optional full-body transition."""
     joint_weight_tensor = torch.as_tensor(
         joint_weights, dtype=prediction.dtype, device=prediction.device
     ).view(1, 1, -1)
@@ -110,13 +113,90 @@ def sequence_training_losses(
         angle_mask,
     )
 
-    total = position + 0.5 * velocity + 0.25 * angle + bone_length
+    transition = prediction.new_zeros(())
+    if transition_weight > 0.0:
+        if not transition_joints:
+            raise ValueError(
+                "transition_joints are required when transition_weight is positive"
+            )
+        indices = torch.as_tensor(
+            transition_joints, dtype=torch.long, device=prediction.device
+        )
+        source_trajectory = prediction[..., indices, :] - prediction[:, :1, indices, :]
+        target_trajectory = target[..., indices, :] - target[:, :1, indices, :]
+        trajectory_mask = confidence[..., indices] * confidence[:, :1, indices]
+        trajectory = _masked_weighted_mean(
+            (source_trajectory - target_trajectory).norm(dim=-1),
+            torch.ones_like(trajectory_mask),
+            trajectory_mask,
+        )
+        endpoint_mask = confidence[:, 0, indices] * confidence[:, -1, indices]
+        source_endpoint = prediction[:, -1, indices] - prediction[:, 0, indices]
+        target_endpoint = target[:, -1, indices] - target[:, 0, indices]
+        endpoint = _masked_weighted_mean(
+            (source_endpoint - target_endpoint).norm(dim=-1),
+            torch.ones_like(endpoint_mask),
+            endpoint_mask,
+        )
+        lower_transition = 0.5 * trajectory + 0.5 * endpoint
+        if len(transition_lean_joints) != 4:
+            raise ValueError(
+                "transition_lean_joints must contain both shoulders and both hips"
+            )
+        left_shoulder, right_shoulder, left_hip, right_hip = (
+            transition_lean_joints
+        )
+        source_torso = (
+            (prediction[..., left_shoulder, :] + prediction[..., right_shoulder, :])
+            - (prediction[..., left_hip, :] + prediction[..., right_hip, :])
+        ) * 0.5
+        target_torso = (
+            (target[..., left_shoulder, :] + target[..., right_shoulder, :])
+            - (target[..., left_hip, :] + target[..., right_hip, :])
+        ) * 0.5
+        source_lean = torch.atan2(source_torso[..., 2], source_torso[..., 1])
+        target_lean = torch.atan2(target_torso[..., 2], target_torso[..., 1])
+        lean_mask = (
+            confidence[..., left_shoulder]
+            * confidence[..., right_shoulder]
+            * confidence[..., left_hip]
+            * confidence[..., right_hip]
+        )
+        lean_trajectory_mask = lean_mask * lean_mask[:, :1]
+        lean_trajectory = _masked_weighted_mean(
+            (
+                (source_lean - source_lean[:, :1])
+                - (target_lean - target_lean[:, :1])
+            ).abs(),
+            torch.ones_like(lean_trajectory_mask),
+            lean_trajectory_mask,
+        )
+        lean_endpoint_mask = lean_mask[:, 0] * lean_mask[:, -1]
+        lean_endpoint = _masked_weighted_mean(
+            (
+                (source_lean[:, -1] - source_lean[:, 0])
+                - (target_lean[:, -1] - target_lean[:, 0])
+            ).abs(),
+            torch.ones_like(lean_endpoint_mask),
+            lean_endpoint_mask,
+        )
+        lean_transition = 0.5 * lean_trajectory + 0.5 * lean_endpoint
+        transition = 0.65 * lower_transition + 0.35 * lean_transition
+
+    total = (
+        position
+        + 0.5 * velocity
+        + 0.25 * angle
+        + bone_length
+        + transition_weight * transition
+    )
     return {
         "loss": total,
         "position": position,
         "velocity": velocity,
         "angle": angle,
         "bone_length": bone_length,
+        "transition": transition,
     }
 
 
@@ -205,7 +285,106 @@ def correction_distance_components(
         "angle_distance": angle,
         "velocity_distance": velocity,
         "bone_length_distance": bone_length,
+        "support_transition_distance": 0.0,
+        "torso_lean_transition_distance": 0.0,
+        "transition_distance": 0.0,
     }
+
+
+def full_transition_components(
+    original: NDArray[np.floating],
+    corrected: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    joints: tuple[int, ...],
+    lean_joints: tuple[int, ...],
+) -> dict[str, float]:
+    """Compare full support-transfer and signed torso-lean trajectories."""
+    if not joints:
+        raise ValueError("joints must contain the lower-body support joints")
+    source = np.asarray(original, dtype=np.float64)[:, joints]
+    target = np.asarray(corrected, dtype=np.float64)[:, joints]
+    mask = np.asarray(confidence, dtype=np.float64)[:, joints]
+    if source.shape != target.shape or source.ndim != 3 or source.shape[-1] != 3:
+        raise ValueError("original and corrected must have matching shape (T, J, 3)")
+    if mask.shape != source.shape[:2]:
+        raise ValueError("confidence must have shape (T, J)")
+    if len(source) < 2:
+        raise ValueError("transition distance requires at least two frames")
+
+    source_trajectory = source - source[:1]
+    target_trajectory = target - target[:1]
+    trajectory_mask = mask * mask[:1]
+    trajectory = _numpy_masked_mean(
+        np.linalg.norm(source_trajectory - target_trajectory, axis=-1),
+        trajectory_mask,
+    )
+    endpoint_mask = mask[0] * mask[-1]
+    source_endpoint = source[-1] - source[0]
+    target_endpoint = target[-1] - target[0]
+    endpoint = _numpy_masked_mean(
+        np.linalg.norm(source_endpoint - target_endpoint, axis=-1),
+        endpoint_mask,
+    )
+    lower_transition = 0.5 * trajectory + 0.5 * endpoint
+
+    if len(lean_joints) != 4:
+        raise ValueError("lean_joints must contain both shoulders and both hips")
+    left_shoulder, right_shoulder, left_hip, right_hip = lean_joints
+    full_source = np.asarray(original, dtype=np.float64)
+    full_target = np.asarray(corrected, dtype=np.float64)
+    full_mask = np.asarray(confidence, dtype=np.float64)
+    source_torso = (
+        (full_source[:, left_shoulder] + full_source[:, right_shoulder])
+        - (full_source[:, left_hip] + full_source[:, right_hip])
+    ) * 0.5
+    target_torso = (
+        (full_target[:, left_shoulder] + full_target[:, right_shoulder])
+        - (full_target[:, left_hip] + full_target[:, right_hip])
+    ) * 0.5
+    source_lean = np.arctan2(source_torso[:, 2], source_torso[:, 1])
+    target_lean = np.arctan2(target_torso[:, 2], target_torso[:, 1])
+    lean_mask = (
+        full_mask[:, left_shoulder]
+        * full_mask[:, right_shoulder]
+        * full_mask[:, left_hip]
+        * full_mask[:, right_hip]
+    )
+    lean_trajectory = _numpy_masked_mean(
+        np.abs(
+            (source_lean - source_lean[0])
+            - (target_lean - target_lean[0])
+        ),
+        lean_mask * lean_mask[0],
+    )
+    lean_endpoint = _numpy_masked_mean(
+        np.asarray(
+            [
+                abs(
+                    (source_lean[-1] - source_lean[0])
+                    - (target_lean[-1] - target_lean[0])
+                )
+            ]
+        ),
+        np.asarray([lean_mask[0] * lean_mask[-1]]),
+    )
+    lean_transition = 0.5 * lean_trajectory + 0.5 * lean_endpoint
+    return {
+        "support_transition_distance": lower_transition,
+        "torso_lean_transition_distance": lean_transition,
+        "transition_distance": 0.65 * lower_transition + 0.35 * lean_transition,
+    }
+
+
+def full_transition_distance(
+    original: NDArray[np.floating],
+    corrected: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    joints: tuple[int, ...],
+    lean_joints: tuple[int, ...],
+) -> float:
+    return full_transition_components(
+        original, corrected, confidence, joints, lean_joints
+    )["transition_distance"]
 
 
 def correction_distance(
@@ -214,15 +393,35 @@ def correction_distance(
     confidence: NDArray[np.floating],
     component_weights: Mapping[str, float] = DEFAULT_COMPONENT_WEIGHTS,
     joint_weights: NDArray[np.floating] = JOINT_WEIGHTS,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> tuple[float, dict[str, float]]:
     components = correction_distance_components(
         original, corrected, confidence, joint_weights
     )
+    transition_components = (
+        full_transition_components(
+            original,
+            corrected,
+            confidence,
+            transition_joints,
+            transition_lean_joints,
+        )
+        if transition_weight > 0.0
+        else {
+            "support_transition_distance": 0.0,
+            "torso_lean_transition_distance": 0.0,
+            "transition_distance": 0.0,
+        }
+    )
+    components.update(transition_components)
     total = (
         float(component_weights["position"]) * components["position_distance"]
         + float(component_weights["angle"]) * components["angle_distance"]
         + float(component_weights["velocity"]) * components["velocity_distance"]
         + float(component_weights["bone_length"]) * components["bone_length_distance"]
+        + float(transition_weight) * components["transition_distance"]
     )
     return float(total), components
 
@@ -421,6 +620,9 @@ def select_bone_adapted_expert(
     confidence: NDArray[np.floating],
     expert_confidence: NDArray[np.floating],
     joint_weights: NDArray[np.floating] = JOINT_WEIGHTS,
+    transition_weight: float = 0.0,
+    transition_joints: tuple[int, ...] = (),
+    transition_lean_joints: tuple[int, ...] = (),
 ) -> tuple[int, NDArray[np.float32], NDArray[np.float64], float]:
     """Select the adapted expert with the lowest grading distance."""
     source = np.asarray(sequence, dtype=np.float64)
@@ -441,6 +643,9 @@ def select_bone_adapted_expert(
             adapted,
             match_confidence,
             joint_weights=joint_weights,
+            transition_weight=transition_weight,
+            transition_joints=transition_joints,
+            transition_lean_joints=transition_lean_joints,
         )
         matches.append((distance, index, adapted, match_confidence))
     distance, index, adapted, match_confidence = min(

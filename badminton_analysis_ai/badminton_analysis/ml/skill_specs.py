@@ -58,6 +58,7 @@ class CorrectionDetailSpec:
     start: int
     end: int
     joints: tuple[int, ...] | None = None
+    metric: str = "window_distance"
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,9 @@ class SkillCorrectionSpec:
     details: tuple[CorrectionDetailSpec, ...]
     phase_windows: tuple[PhaseWindowSpec, ...]
     rules: tuple[FeedbackRuleSpec, ...]
+    transition_weight: float = 0.0
+    transition_joints: tuple[int, ...] = ()
+    transition_lean_joints: tuple[int, ...] = ()
     model_version: str = "v1"
 
     def __post_init__(self) -> None:
@@ -115,6 +119,12 @@ class SkillCorrectionSpec:
             detail.name_zh_tw for detail in self.details
         ):
             raise ValueError(f"{self.skill} rules and correction details are misaligned")
+        if self.transition_weight > 0.0 and (
+            not self.transition_joints or len(self.transition_lean_joints) != 4
+        ):
+            raise ValueError(
+                f"{self.skill} transition scoring requires support and torso joints"
+            )
 
     @property
     def slug(self) -> str:
@@ -305,9 +315,9 @@ _SERVE_RULES = (
         "重心轉移至非持拍腳",
         "weight_transfer",
         20,
-        "第1至第3關鍵幀：比較骨盆、膝蓋與腳踝的重心轉移相對專家發球動作所需的修正幅度。",
+        "比較第0至第4關鍵幀的完整重心轉移：下肢支撐軌跡、首尾位移，以及雙肩相對雙髖的軀幹前傾變化。",
         (5, 6, 11, 12, 13, 14, 15, 16),
-        (11, 12, 15, 16),
+        (5, 6, 11, 12, 15, 16),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -396,6 +406,11 @@ def _details(rules: tuple[FeedbackRuleSpec, ...], windows: tuple[tuple[int, int,
             start=start,
             end=end,
             joints=joints,
+            metric=(
+                "full_transition"
+                if rule.id == "weight_transfer"
+                else "window_distance"
+            ),
         )
         for rule, (start, end, joints) in zip(rules, windows, strict=True)
     )
@@ -497,7 +512,7 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             (
                 (8, 32, (5, 6, 7, 8, 9, 10)),
                 (8, 32, (11, 12, 13, 14, 15, 16)),
-                (12, 52, (5, 6, 11, 12, 13, 14, 15, 16)),
+                (0, 64, (11, 12, 13, 14, 15, 16)),
                 (16, 64, (5, 6, 11, 12)),
                 (36, 56, (6, 8, 10)),
                 (48, 64, (5, 6, 8, 10, 11, 12)),
@@ -510,6 +525,9 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             PhaseWindowSpec("follow_through", 48, 64),
         ),
         rules=_SERVE_RULES,
+        transition_weight=1.0,
+        transition_joints=(11, 12, 13, 14, 15, 16),
+        transition_lean_joints=(5, 6, 11, 12),
     ),
     Skill.LIFT: SkillCorrectionSpec(
         skill=Skill.LIFT,
@@ -581,4 +599,18 @@ def validate_checkpoint_spec(
     ):
         raise ValueError(
             f"{spec.slug} checkpoint joint weights do not match the current skill contract"
+        )
+    checkpoint_transition_weight = float(checkpoint.get("transition_weight", 0.0))
+    checkpoint_transition_joints = tuple(checkpoint.get("transition_joints", ()))
+    checkpoint_transition_lean_joints = tuple(
+        checkpoint.get("transition_lean_joints", ())
+    )
+    if (
+        checkpoint_transition_weight != spec.transition_weight
+        or checkpoint_transition_joints != spec.transition_joints
+        or checkpoint_transition_lean_joints != spec.transition_lean_joints
+    ):
+        raise ValueError(
+            f"{spec.slug} checkpoint transition scoring does not match the current "
+            "skill contract"
         )

@@ -116,6 +116,31 @@ def test_checkpoint_metadata_enforces_skill_separation() -> None:
         validate_checkpoint_spec({"skill": "lift"}, lift)
 
 
+def test_serve_contract_requires_full_body_transition_metadata() -> None:
+    serve = get_skill_spec(Skill.SERVE)
+    checkpoint = {
+        "skill": "serve",
+        "joint_weights": list(serve.joint_weights),
+        "transition_weight": serve.transition_weight,
+        "transition_joints": list(serve.transition_joints),
+        "transition_lean_joints": list(serve.transition_lean_joints),
+    }
+
+    validate_checkpoint_spec(checkpoint, serve)
+    weight_transfer_detail = next(
+        detail
+        for detail in serve.details
+        if detail.name_zh_tw == "重心轉移至非持拍腳"
+    )
+    assert weight_transfer_detail.metric == "full_transition"
+    assert serve.transition_joints == (11, 12, 13, 14, 15, 16)
+    assert serve.transition_lean_joints == (5, 6, 11, 12)
+
+    checkpoint["transition_lean_joints"] = [11, 12, 15, 16]
+    with pytest.raises(ValueError, match="transition scoring"):
+        validate_checkpoint_spec(checkpoint, serve)
+
+
 @pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
 def test_each_rule_anchor_has_the_rule_phase(skill: Skill) -> None:
     spec = get_skill_spec(skill)

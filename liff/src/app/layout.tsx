@@ -11,8 +11,6 @@ export const metadata: Metadata = {
   description: 'Student learning dashboard'
 }
 
-// Applies the stored theme before first paint so the page never flashes light-on-dark.
-const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()`
 
 export default function RootLayout({
   children
@@ -21,9 +19,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant" className={mPlusRounded1c.className} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
       <body suppressHydrationWarning>
         <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>

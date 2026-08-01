@@ -1,15 +1,17 @@
-name: Angle Analysis CD
+name: Skeleton Analysis CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - 'angle_analysis_ai/**'
+      - 'proto/**'
+      - 'linebot/api/analysis/**'
+      - '.github/workflows/cd-angle-analysis.yml'
+  workflow_dispatch:
 
 jobs:
-  deploy-angle-analysis:
-    defaults:
-      run:
-        working-directory: ./angle_analysis_ai
+  deploy:
     runs-on: ubuntu-latest
     environment: nstc-linebot-2025
     permissions:
@@ -17,42 +19,63 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Authorize Google Cloud SDK
-        uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-      - name: Set up Google Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Who am I?
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linebot/go.mod
+          cache-dependency-path: linebot/go.sum
+
+      - name: Build GPU analysis image
+        working-directory: angle_analysis_ai
         run: |
-          gcloud auth list
-          gcloud config get-value account
-
-      - name: Build and push Docker image
-        run: |-
           gcloud builds submit \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/angle-analysis-ai
+            --timeout=3600s \
+            --machine-type=e2-highcpu-8 \
+            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/skeleton-analysis:${{ github.sha }}
 
-      - name: Deploy to Cloud Run
+      - name: Deploy gRPC analysis service
         run: |
           gcloud run deploy angle-analysis-ai \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/angle-analysis-ai \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/skeleton-analysis:${{ github.sha }} \
             --platform managed \
             --region asia-southeast1 \
             --allow-unauthenticated \
+            --use-http2 \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
-            --execution-environment=gen2 \
-            --gpu-type=nvidia-l4 \
-            --cpu=4 \
-            --memory=16Gi \
-            --concurrency=1 \
-            --timeout=3600 \
-            --max-instances=1
+            --execution-environment gen2 \
+            --gpu-type nvidia-l4 \
+            --cpu 4 \
+            --memory 16Gi \
+            --concurrency 1 \
+            --timeout 3600 \
+            --max-instances 1 \
+            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v1,SKELETON_DEVICE=auto,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
+            --set-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest,OPENAI_API_KEY=openai-api-key:latest
+
+      - name: Run real gRPC video analysis
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          mkdir -p /tmp/analysis-e2e
+          gcloud storage cp \
+            gs://${{ secrets.GCS_BUCKET_NAME }}/integration-fixtures/clear/EG3.mp4 \
+            /tmp/analysis-e2e/EG3.mp4
+          service_url="$(gcloud run services describe angle-analysis-ai \
+            --region asia-southeast1 --format='value(status.url)')"
+          export ANALYSIS_GRPC_TARGET="${service_url#https://}"
+          export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
+            --secret analysis-grpc-api-key)"
+          export LIVE_ANALYSIS_VIDEO=/tmp/analysis-e2e/EG3.mp4
+          export RUN_LIVE_ANALYSIS=1
+          cd linebot
+          go test -count=1 -v ./api/analysis -run TestLiveAnalysisService

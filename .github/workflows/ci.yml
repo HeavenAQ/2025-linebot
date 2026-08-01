@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linebot/go.mod
+          cache-dependency-path: linebot/go.sum
+      - working-directory: linebot
+        run: go test ./...
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install checkpoint-test dependencies
+        working-directory: angle_analysis_ai
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+          pip install numpy==1.26.4 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
+      - name: Test correction and skill contracts
+        working-directory: angle_analysis_ai
+        run: pytest -q tests
+
+  liff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: liff/package-lock.json
+      - working-directory: liff
+        run: npm ci
+      - working-directory: liff
+        run: npm run build

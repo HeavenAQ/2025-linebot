@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+logs/
+output/
+uploads/
+validation/
+expert_videos/
+test_videos/
+coaching_frames/
+feedback.json
+sa-key.json
+.env

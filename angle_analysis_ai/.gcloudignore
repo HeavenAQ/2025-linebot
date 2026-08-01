@@ -15,6 +15,8 @@ uploads/
 expert_videos/
 test_videos/
 validation/
-*.pt
+yolo11m-pose.pt
+*.log
+logs/
 
 # Note: intentionally NOT ignoring stats/

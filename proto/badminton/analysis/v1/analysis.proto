@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package badminton.analysis.v1;
+
+option go_package = "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1;analysisv1";
+
+service BadmintonAnalysis {
+  rpc AnalyzeVideo(stream AnalyzeVideoChunk) returns (AnalyzeVideoResponse);
+  rpc RefreshPlaybackUrls(RefreshPlaybackUrlsRequest) returns (RefreshPlaybackUrlsResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+enum Skill {
+  SKILL_UNSPECIFIED = 0;
+  SKILL_SERVE = 1;
+  SKILL_LIFT = 2;
+  SKILL_CLEAR = 3;
+  SKILL_SMASH = 4;
+}
+
+enum Handedness {
+  HANDEDNESS_UNSPECIFIED = 0;
+  HANDEDNESS_AUTO = 1;
+  HANDEDNESS_RIGHT = 2;
+  HANDEDNESS_LEFT = 3;
+}
+
+message AnalyzeVideoHeader {
+  string request_id = 1;
+  string user_id = 2;
+  string filename = 3;
+  Skill skill = 4;
+  Handedness handedness = 5;
+}
+
+message AnalyzeVideoChunk {
+  oneof payload {
+    AnalyzeVideoHeader header = 1;
+    bytes data = 2;
+  }
+}
+
+message GradingDetail {
+  string criterion_id = 1;
+  string description = 2;
+  double grade = 3;
+  double maximum = 4;
+}
+
+message GradingOutcome {
+  double total_grade = 1;
+  repeated GradingDetail grading_details = 2;
+  string score_status = 3;
+}
+
+message PhaseMarker {
+  string id = 1;
+  string label = 2;
+  int32 normalized_frame = 3;
+  double normalized_position = 4;
+  double timestamp_seconds = 5;
+}
+
+message CoachingCue {
+  string title = 1;
+  string feedback = 2;
+  int32 normalized_frame = 3;
+  double normalized_position = 4;
+  double student_timestamp_seconds = 5;
+  double pause_duration_seconds = 6;
+  repeated int32 joint_ids = 7;
+}
+
+message StoredVideo {
+  string object_path = 1;
+  string gcs_uri = 2;
+  string signed_url = 3;
+  int64 signed_url_expires_at_unix = 4;
+  double duration_seconds = 5;
+  double fps = 6;
+  int32 width = 7;
+  int32 height = 8;
+}
+
+message ExpertMatch {
+  string expert_id = 1;
+  string display_name = 2;
+  double euclidean_distance = 3;
+  StoredVideo video = 4;
+}
+
+message DiagnosticValue {
+  string key = 1;
+  double value = 2;
+}
+
+message AnalyzeVideoResponse {
+  string analysis_id = 1;
+  Skill skill = 2;
+  Handedness handedness = 3;
+  GradingOutcome grade = 4;
+  StoredVideo student_video = 5;
+  ExpertMatch expert = 6;
+  repeated PhaseMarker timeline = 7;
+  repeated DiagnosticValue diagnostics = 8;
+  repeated CoachingCue coaching_cues = 9;
+  string overall_feedback = 10;
+}
+
+message RefreshPlaybackUrlsRequest {
+  repeated string object_paths = 1;
+}
+
+message RefreshPlaybackUrlsResponse {
+  repeated StoredVideo videos = 1;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  repeated Skill loaded_skills = 2;
+}

@@ -1,4 +1,4 @@
-from Types import COCOKeypoints
+from badminton_analysis.models.types import COCOKeypoints
 
 JOINTS = {
     "Left Elbow Angle": (

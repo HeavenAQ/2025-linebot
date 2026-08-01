@@ -22,10 +22,12 @@ RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
     find /opt/conda/lib/python3.11/site-packages/tensorrt_libs \
       -type f -name 'libnvinfer_builder_resource_*' \
       ! -name 'libnvinfer_builder_resource_sm80.so.10.14.1' \
+      ! -name 'libnvinfer_builder_resource_sm86.so.10.14.1' \
       ! -name 'libnvinfer_builder_resource_sm89.so.10.14.1' -delete && \
     pip install --no-deps -r requirements-pose.txt
 
 RUN test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm80.so.10.14.1 && \
+    test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm86.so.10.14.1 && \
     test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm89.so.10.14.1 && \
     python -c "import torch; assert torch.version.cuda == '12.4'; import tensorrt as trt; assert trt.__version__ == '10.14.1.48.post1'"
 

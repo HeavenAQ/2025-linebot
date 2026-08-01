@@ -5,7 +5,7 @@ import { AlertTriangle, Info, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const alertVariants = cva(
-  'flex items-start gap-3 rounded-xl border bg-card p-4 text-sm leading-6',
+  'flex items-start gap-3 glass rounded-xl p-4 text-sm leading-6',
   {
     variants: {
       variant: {

@@ -34,7 +34,7 @@ export default function DropDownIcon() {
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items className="absolute right-0 top-full z-40 mt-2 w-56 origin-top-right rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-elevated focus:outline-none">
+        <Menu.Items className="absolute right-0 top-full z-40 mt-2 w-56 origin-top-right glass rounded-xl p-1.5 text-popover-foreground shadow-elevated focus:outline-none">
           {items.map(item => {
             const isActive = pathname === item.href
             return (

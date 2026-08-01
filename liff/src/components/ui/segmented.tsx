@@ -41,7 +41,7 @@ export function Segmented<T extends string>({
       role={role}
       aria-label={label}
       className={cn(
-        'grid gap-1 rounded-xl border border-border bg-muted/60 p-1',
+        'grid gap-1 glass-inset rounded-xl border border-border/70 p-1',
         size === 'sm' ? 'h-9' : 'h-11',
         className
       )}
@@ -62,7 +62,7 @@ export function Segmented<T extends string>({
               size === 'sm' ? 'text-xs' : 'text-sm',
               selected
                 ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground'
             )}
           >
             {Icon ? <Icon aria-hidden size={size === 'sm' ? 14 : 16} /> : null}

@@ -192,7 +192,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     // The player is a panel like any other: same surface, same border, same
     // radius. Only the video frames themselves are black, because footage needs
     // a neutral backing — everything around them belongs to the page.
-    <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
+    <section className="glass overflow-hidden rounded-xl text-card-foreground">
       <div className="flex items-start justify-between gap-3 p-4">
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">動作同步比較</h2>

@@ -145,15 +145,15 @@ const ClassProgressChart = () => {
                 dataKey="classTotalGrade"
                 type="monotone"
                 stroke="var(--color-classTotalGrade)"
-                strokeWidth={2}
-                dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-classTotalGrade)' }}
-                activeDot={{ r: 5 }}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={false}
               />
               <Line
                 dataKey="personalTotalGrade"
                 type="monotone"
                 stroke="var(--color-personalTotalGrade)"
-                strokeWidth={2}
+                strokeWidth={2.5}
                 dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-personalTotalGrade)' }}
                 activeDot={{ r: 5 }}
               />

@@ -14,6 +14,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: nstc-linebot-2025
+    env:
+      GCS_BUCKET_NAME: nstc-2025-storage
     permissions:
       contents: read
       id-token: write
@@ -39,7 +41,7 @@ jobs:
         run: |
           mkdir -p badminton_analysis_ai/models/tensorrt-cache
           gcloud storage rsync --recursive \
-            gs://${{ secrets.GCS_BUCKET_NAME }}/models/rtmw3d-ort1.24.4-trt10.14-sm80plus \
+            gs://${{ env.GCS_BUCKET_NAME }}/models/rtmw3d-ort1.24.4-trt10.14-sm80plus \
             badminton_analysis_ai/models/tensorrt-cache
           cd badminton_analysis_ai
           sha256sum --check models/tensorrt-cache.sha256
@@ -68,7 +70,7 @@ jobs:
             --concurrency 1 \
             --timeout 3600 \
             --max-instances 1 \
-            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
+            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
             --set-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest,OPENAI_API_KEY=openai-api-key:latest
 
       - name: Run real gRPC video analysis
@@ -77,7 +79,7 @@ jobs:
         run: |
           mkdir -p /tmp/analysis-e2e
           gcloud storage cp \
-            gs://${{ secrets.GCS_BUCKET_NAME }}/integration-fixtures/clear/EG3.mp4 \
+            gs://${{ env.GCS_BUCKET_NAME }}/integration-fixtures/clear/EG3.mp4 \
             /tmp/analysis-e2e/EG3.mp4
           service_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.url)')"

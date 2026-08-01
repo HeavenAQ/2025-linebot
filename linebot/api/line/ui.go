@@ -66,38 +66,13 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 		return nil, err
 	}
 
-    videoData, err := json.Marshal(VideoPostback{
-        VideoID:     client.assetURL(work.SkeletonVideo),
-        ThumbnailID: client.assetURL(work.Thumbnail),
-    })
-    if err != nil {
-        return nil, err
-    }
-
-    // Optional: comparison video
-    var compareButton linebot.FlexComponent
-    if work.SkeletonComparisonVideo != "" {
-        compareData, err := json.Marshal(VideoPostback{
-            VideoID:     client.assetURL(work.SkeletonComparisonVideo),
-            ThumbnailID: client.assetURL(work.Thumbnail),
-        })
-        if err != nil {
-            return nil, err
-        }
-        compareButton = &linebot.ButtonComponent{
-            Type:   "button",
-            Style:  "link",
-            Height: "sm",
-            Action: linebot.NewPostbackAction(
-                "查看比較影片",
-                string(compareData),
-                "",
-                "",
-                "",
-                "",
-            ),
-        }
-    }
+	videoData, err := json.Marshal(VideoPostback{
+		VideoID:     client.assetURL(work.SkeletonVideo),
+		ThumbnailID: client.assetURL(work.Thumbnail),
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	askedAIForHelpData, err := json.Marshal(AnalyzingWithGPTPostback{
 		Handedness: handedness,
@@ -105,7 +80,7 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 		Skill:      skill,
 	})
 
-    return []linebot.FlexComponent{
+	return []linebot.FlexComponent{
 		&linebot.ButtonComponent{
 			Type:   "button",
 			Style:  "primary",
@@ -145,22 +120,20 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 				"",
 			),
 		},
-        &linebot.ButtonComponent{
-            Type:   "button",
-            Style:  "link",
-            Height: "sm",
-            Action: linebot.NewPostbackAction(
-                "查看影片",
-                string(videoData),
-                "",
-                "",
-                "",
-                "",
-            ),
-        },
-        // Conditionally rendered comparison video button
-        compareButton,
-    }, nil
+		&linebot.ButtonComponent{
+			Type:   "button",
+			Style:  "link",
+			Height: "sm",
+			Action: linebot.NewPostbackAction(
+				"查看影片",
+				string(videoData),
+				"",
+				"",
+				"",
+				"",
+			),
+		},
+	}, nil
 }
 
 // createNotesSection generates the notes sections for AI Note, Preview Note, and Reflection

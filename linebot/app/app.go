@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
@@ -18,6 +19,7 @@ type App struct {
 	FirestoreClient *db.FirestoreClient
 	StorageClient   *storage.BucketClient
 	GPTClient       *gpt.Client
+	AnalysisClient  *analysis.Client
 }
 
 func NewApp(configPath string) *App {
@@ -74,7 +76,16 @@ func NewApp(configPath string) *App {
 	}
 
 	// Set up GPT Client
-	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID)
+	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID, cfg.GPT.RewriteModel)
+
+	analysisClient, err := analysis.NewClient(
+		cfg.AnalysisServer.Target,
+		cfg.AnalysisServer.APIKey,
+		cfg.AnalysisServer.Insecure,
+	)
+	if err != nil {
+		panic(err)
+	}
 
 	return &App{
 		Config:          cfg,
@@ -83,5 +94,6 @@ func NewApp(configPath string) *App {
 		FirestoreClient: firestoreClient,
 		StorageClient:   storageClient,
 		GPTClient:       gptClient,
+		AnalysisClient:  analysisClient,
 	}
 }

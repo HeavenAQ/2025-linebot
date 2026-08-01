@@ -124,14 +124,15 @@ const (
 	Serve BadmintonSkill = iota
 	Smash
 	Clear
+	Lift
 )
 
 func (s BadmintonSkill) String() string {
-	return [...]string{"serve", "smash", "clear"}[s]
+	return [...]string{"serve", "smash", "clear", "lift"}[s]
 }
 
 func (s BadmintonSkill) ChnString() string {
-	return [...]string{"發球", "殺球", "高遠球"}[s]
+	return [...]string{"發球", "殺球", "高遠球", "挑球"}[s]
 }
 
 func SkillStrToEnum(str string) BadmintonSkill {
@@ -142,6 +143,8 @@ func SkillStrToEnum(str string) BadmintonSkill {
 		return Smash
 	case "clear":
 		return Clear
+	case "lift":
+		return Lift
 	default:
 		return -1
 	}

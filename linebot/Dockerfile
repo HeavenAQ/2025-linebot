@@ -1,5 +1,5 @@
 # Builder
-FROM golang:latest AS builder
+FROM golang:1.23-alpine AS builder
 WORKDIR /app
 
 # download the dependencies first so that they can be cached.
@@ -14,17 +14,12 @@ RUN go build -o main .
 FROM alpine:latest
 WORKDIR /root
 COPY --from=builder /app/main .
-COPY --from=builder /app/pro_videos ./pro_videos
 
-# download the tool needed to run the app
-RUN apk update
-RUN apk add libc6-compat
-RUN apk add --no-cache ffmpeg bash
-RUN apk add --no-cache tzdata
+RUN apk add --no-cache ca-certificates ffmpeg tzdata
 
 # set timezone to Asia/Taipei
 ENV TZ="Asia/Taipei"
 RUN date
 
-EXPOSE $PORT
+EXPOSE 8080
 CMD ["/root/main"]

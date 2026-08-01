@@ -33,22 +33,23 @@ type FirestoreConfig struct {
 }
 
 type GPTConfig struct {
-	APIKey   string `env:"OPENAI_API_KEY"`
-	PromptID string `env:"OPENAI_PROMPT_ID"`
+	APIKey       string `env:"OPENAI_API_KEY"`
+	PromptID     string `env:"OPENAI_PROMPT_ID"`
+	RewriteModel string `env:"OPENAI_REWRITE_MODEL"`
 }
 
-type PoseEstimationServerConfig struct {
-	Host     string `env:"POSE_ESTIMATION_SERVER_HOST"`
-	User     string `env:"POSE_ESTIMATION_SERVER_USER"`
-	Password string `env:"POSE_ESTIMATION_SERVER_PASSWORD"`
+type AnalysisServerConfig struct {
+	Target   string `env:"ANALYSIS_GRPC_TARGET"`
+	APIKey   string `env:"ANALYSIS_GRPC_API_KEY"`
+	Insecure bool   `env:"ANALYSIS_GRPC_INSECURE"`
 }
 
 type Config struct {
-	Port                 string `env:"PORT"`
-	Line                 LineConfig
-	GCP                  GCPConfig
-	GPT                  GPTConfig
-	PoseEstimationServer PoseEstimationServerConfig
+	Port           string `env:"PORT"`
+	Line           LineConfig
+	GCP            GCPConfig
+	GPT            GPTConfig
+	AnalysisServer AnalysisServerConfig
 }
 
 func (c *Config) isConfigEmpty() bool {
@@ -63,9 +64,8 @@ func (c *Config) isConfigEmpty() bool {
 		c.GCP.Database.SessionDB == "" &&
 		c.GPT.APIKey == "" &&
 		c.GPT.PromptID == "" &&
-		c.PoseEstimationServer.Host == "" &&
-		c.PoseEstimationServer.User == "" &&
-		c.PoseEstimationServer.Password == "")
+		c.AnalysisServer.Target == "" &&
+		c.AnalysisServer.APIKey == "")
 }
 
 func LoadConfig(path string) (*Config, error) {

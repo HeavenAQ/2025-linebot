@@ -1,15 +1,14 @@
 package app
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
-	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -153,9 +152,27 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			msg = message.Text
 		}
 
-		// Add the message to GPT conversation and get reply
+		// Resolve omitted references against persisted, skill-specific history.
+		history, err := app.FirestoreClient.GetChatHistory(user.ID)
+		if err != nil {
+			app.handleAddMessageToGPTConversationError(err, replyToken)
+			return
+		}
+		rewriteHistory := make([]gpt.HistoryMessage, 0, 12)
+		for _, value := range history.Messages {
+			if value.Skill == session.Skill {
+				rewriteHistory = append(rewriteHistory, gpt.HistoryMessage{Role: value.Role, Text: value.Text})
+			}
+		}
+		rewritten, err := app.GPTClient.RewriteQuery(rewriteHistory, msg)
+		if err != nil {
+			app.handleAddMessageToGPTConversationError(err, replyToken)
+			return
+		}
+
+		// Send the standalone query through the skill conversation.
 		conversationID := app.getUserGPTConversation(user, session.Skill)
-		response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
+		response, err := app.GPTClient.AddMessageToConversation(conversationID, rewritten)
 		if err != nil {
 			app.handleAddMessageToGPTConversationError(err, replyToken)
 			return
@@ -342,62 +359,20 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 
 // handleAnalyzePortfolioWithGPT processes the user's request to ask GPT for help.
 func (app *App) handleAnalyzePortfolioWithGPT(
-	event *linebot.Event,
+	_ *linebot.Event,
 	user *db.UserData,
 	data *line.AnalyzingWithGPTPostback,
-	session *db.UserSession,
+	_ *db.UserSession,
 	replyToken string,
 ) {
 	portfolio := app.getUserPortfolio(user, data.Skill)
-	gradingDetails := (*portfolio)[data.WorkDate].GradingOutcome.GradingDetails
-
-	preprocessedUsedAnglesData, err := json.Marshal(gradingDetails)
-	if err != nil {
-		app.Logger.Error.Println("Failed to marshal used angles data:", err)
-		app.LineBot.SendReply(replyToken, "無法取得動作資料，請再試一次")
+	work, ok := (*portfolio)[data.WorkDate]
+	if !ok || work.AINote == "" {
+		app.LineBot.SendReply(replyToken, "這次分析尚未產生教練建議，請重新上傳影片")
 		return
 	}
 
-	conversationID := app.getUserGPTConversation(user, data.Skill)
-	aiResponse := app.analyzeWithGPT(data, preprocessedUsedAnglesData, conversationID)
-	if err := app.FirestoreClient.UpdateUserPortfolioAINote(user, portfolio, data.WorkDate, aiResponse); err != nil {
-		app.Logger.Error.Println("Failed to update AI note:", err)
-		app.LineBot.SendReply(replyToken, "無法更新AI筆記，請再試一次")
-		return
-	}
-
-	// Store the analysis query + GPT reply only if GPT succeeded
-	if aiResponse != "無法取得建議，請再試一次" {
-		msg := fmt.Sprintf(
-			"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
-			data.Handedness,
-			data.Skill,
-			string(preprocessedUsedAnglesData),
-		)
-		if err := app.FirestoreClient.AppendChatExchange(
-			user.ID,
-			data.Skill,
-			conversationID,
-			msg,
-			aiResponse,
-		); err != nil {
-			app.Logger.Error.Printf("failed to append analysis chat history: %v\n", err)
-		}
-	}
-
-	err = app.LineBot.SendPortfolio(
-		event,
-		user,
-		db.SkillStrToEnum(data.Skill),
-		data.Handedness,
-		session.UserState,
-		"以下為您的學習歷程：",
-		false,
-	)
-	if err != nil {
-		app.handleSendPortfolioError(err, replyToken)
-		return
-	}
+	app.LineBot.SendReply(replyToken, work.AINote)
 }
 
 // handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
@@ -410,25 +385,47 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 	}
 
 	// Send video to AI server for analysis
-	resp, err := app.analyzeVideo(videoContent, session.Skill, session.Handedness)
+	videoMessage, ok := event.Message.(*linebot.VideoMessage)
+	if !ok {
+		app.handleVideoAnalysisError(errors.New("uploaded message is not a video"), replyToken)
+		return
+	}
+	resp, err := app.analyzeVideo(
+		videoContent,
+		videoMessage.ID,
+		user.ID,
+		session.Skill,
+		session.Handedness,
+	)
 	if err != nil {
 		app.handleVideoAnalysisError(err, replyToken)
 		return
 	}
 	app.Logger.Info.Println("AI total grade: ", resp.Grade.TotalGrade)
 
-	// Stitch the video with expert video; return stitched and skeleton paths
-	stitchedVideoPath, skeletonVideoPath := app.stitchVideoWithExpertVideo(user, resp.ProcessedVideo, session.Skill, session.Handedness)
-
 	// Create thumbnail
-	thumbnailPath, err := app.createVideoThumbnail(event, user, stitchedVideoPath)
+	thumbnailPath, err := app.createVideoThumbnail(videoContent, user.ID)
 	if err != nil {
 		app.handleThumbnailCreationError(err, replyToken)
 		return
 	}
+	defer os.RemoveAll(filepath.Dir(thumbnailPath))
 
-	// 5. Upload AI-processed video(s) and update user portfolio
-	app.uploadVideoContent(event, user, session, resp.Grade, stitchedVideoPath, skeletonVideoPath, thumbnailPath, replyToken)
+	timestamp := time.Now().Format("2006-01-02-15-04")
+	thumbnail, err := app.uploadThumbnail(user, thumbnailPath, timestamp)
+	if err != nil {
+		app.handleUploadToDriveError(err, replyToken)
+		return
+	}
+	if err := app.updateUserPortfolioVideo(user, session, timestamp, *resp, thumbnail); err != nil {
+		app.handleUpdateUserPortfolioError(err, replyToken)
+		return
+	}
+	if err := app.sendVideoUploadedReply(event, session, user); err != nil {
+		app.handleSendingReplyMessageError(err, replyToken)
+		return
+	}
+	app.FirestoreClient.ResetSession(user.ID)
 }
 
 // ============================================================================
@@ -487,30 +484,7 @@ func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWith
 }
 
 // --------------------------------------------------------------------
-// 4.3 GPT / AI Interaction
-// --------------------------------------------------------------------
-
-func (app *App) analyzeWithGPT(
-	data *line.AnalyzingWithGPTPostback,
-	preprocessedUsedAnglesData []byte,
-	conversationID string,
-) string {
-	msg := fmt.Sprintf(
-		"以下為我此次動作的資料，請分析並給出改善建議：\n慣用手：%v\n動作技能：%v\n動作評分細節：%v",
-		data.Handedness,
-		data.Skill,
-		string(preprocessedUsedAnglesData),
-	)
-	response, err := app.GPTClient.AddMessageToConversation(conversationID, msg)
-	if err != nil {
-		app.Logger.Error.Println("Failed to get GPT response:", err)
-		return "無法取得建議，請再試一次"
-	}
-	return response
-}
-
-// --------------------------------------------------------------------
-// 4.4 Video & Portfolio Updates
+// 4.3 Video & Portfolio Updates
 // --------------------------------------------------------------------
 
 // getVideoContent retrieves the video bytes from a linebot.VideoMessage.
@@ -526,70 +500,6 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 
 // uploadVideoContent handles the final step of uploading the processed video
 // to Google Drive (or your storage), then updating the user’s portfolio.
-func (app *App) uploadVideoContent(
-	event *linebot.Event,
-	user *db.UserData,
-	session *db.UserSession,
-	grade commons.GradingOutcome,
-	stitchedVideoPath string,
-	skeletonVideoPath string,
-	thumbnailPath string,
-	replyToken string,
-) {
-	timestamp := time.Now().Format("2006-01-02-15-04")
-
-	// Decode AI-processed videos
-	videoData, err := os.ReadFile(stitchedVideoPath)
-	if err != nil {
-		app.handleUploadToDriveError(fmt.Errorf("failed to find stitched video: %w", err), replyToken)
-		return
-	}
-	skeletonData, err := os.ReadFile(skeletonVideoPath)
-	if err != nil {
-		app.handleUploadToDriveError(fmt.Errorf("failed to find skeleton video: %w", err), replyToken)
-		return
-	}
-
-	// Upload skeleton video + thumbnail to cloud storage
-	skeletonLink, thumbLink, err := app.uploadVideoToBucket(
-		user,
-		session,
-		skeletonData,
-		thumbnailPath,
-		timestamp,
-	)
-	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
-		return
-	}
-
-	// Upload comparison (stitched) video to cloud storage
-	comparisonLink, err := app.uploadComparisonVideoToBucket(
-		user,
-		session,
-		videoData,
-		timestamp,
-	)
-	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
-		return
-	}
-
-	// Update user portfolio with AI grading
-	if err := app.updateUserPortfolioVideo(user, session, timestamp, grade, skeletonLink, comparisonLink, thumbLink); err != nil {
-		app.handleUpdateUserPortfolioError(err, replyToken)
-		return
-	}
-
-	// Notify user
-	if err := app.sendVideoUploadedReply(event, session, user); err != nil {
-		app.handleSendingReplyMessageError(err, replyToken)
-		return
-	}
-
-	app.FirestoreClient.ResetSession(user.ID)
-}
-
 // generateUpdateNoteMessage forms a response prompt for note updating.
 func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep) string {
 	skillStr := db.SkillStrToEnum(skill).ChnString()

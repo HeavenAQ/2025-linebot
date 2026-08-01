@@ -1,0 +1,1 @@
+"""Generated badminton API package."""

@@ -21,9 +21,10 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
 	t.Setenv("OPENAI_API_KEY", "test_openai_api_key")
 	t.Setenv("OPENAI_PROMPT_ID", "test_openai_prompt_id")
-	t.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
-	t.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
-	t.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")
+	t.Setenv("OPENAI_REWRITE_MODEL", "gpt-test-rewrite")
+	t.Setenv("ANALYSIS_GRPC_TARGET", "analysis.example.test:443")
+	t.Setenv("ANALYSIS_GRPC_API_KEY", "test_analysis_api_key")
+	t.Setenv("ANALYSIS_GRPC_INSECURE", "false")
 	t.Setenv("PORT", "8080")
 
 	// Load config
@@ -43,8 +44,9 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, "test_firebase_session_db", config.GCP.Database.SessionDB)
 	require.Equal(t, "test_openai_api_key", config.GPT.APIKey)
 	require.Equal(t, "test_openai_prompt_id", config.GPT.PromptID)
-	require.Equal(t, "test_pose_estimation_server_host", config.PoseEstimationServer.Host)
-	require.Equal(t, "test_pose_estimation_server_user", config.PoseEstimationServer.User)
-	require.Equal(t, "test_pose_estimation_server_password", config.PoseEstimationServer.Password)
+	require.Equal(t, "gpt-test-rewrite", config.GPT.RewriteModel)
+	require.Equal(t, "analysis.example.test:443", config.AnalysisServer.Target)
+	require.Equal(t, "test_analysis_api_key", config.AnalysisServer.APIKey)
+	require.False(t, config.AnalysisServer.Insecure)
 	require.Equal(t, "8080", config.Port)
 }

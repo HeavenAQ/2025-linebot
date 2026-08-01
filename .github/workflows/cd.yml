@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'linebot/**'
+      - '.github/workflows/cd.yml'
 
 jobs:
   deploy:
@@ -38,6 +41,7 @@ jobs:
       - name: Build and push Docker image
         run: |-
           gcloud builds submit \
+            --timeout=1800s \
             --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_PROJECT_ID }}
 
       - name: Deploy to Cloud Run
@@ -52,3 +56,9 @@ jobs:
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
             --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Verify deployed backend health
+        run: |
+          service_url="$(gcloud run services describe ${{ secrets.GCP_PROJECT_ID }} \
+            --region asia-east1 --format='value(status.url)')"
+          curl --fail --silent --show-error "${service_url}/test"

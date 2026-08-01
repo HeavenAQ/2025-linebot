@@ -1,205 +1,307 @@
-# 2025 LINE Bot Monorepo — Frontend, Backend, Pose Estimation
+# Badminton Motion Coaching
 
-This repository hosts a complete LINE-based coaching experience for racket skills (e.g., serve, smash, clear):
+This monorepo implements a LINE-based badminton coaching system for serve, lift,
+clear, and smash. A Python GPU service extracts and corrects skeleton motion, a Go
+service owns the LINE workflow and persistence, and a Next.js LIFF application
+plays the student and matched-expert videos on one synchronized timeline.
 
-- Frontend: a LIFF app built with Next.js that users open inside LINE.
-- Backend: a Go server that handles LINE webhooks, user state, storage, and analytics APIs.
-- Pose Estimation: a Python FastAPI service that analyzes uploaded videos, grades technique, and returns an annotated clip.
-
-The three services are developed and run independently, but work together in local and production environments.
-
----
+The current analyzer is `badminton_analysis_ai`. It replaces the retired
+angle-only HTTP analyzer, fixed expert video, base64 video response, and Go-side
+video suggestion logic.
 
 ## Repository Layout
 
-- `liff/` — Next.js 15 LIFF app, TailwindCSS, client-side auth with `@line/liff`.
-- `linebot/` — Go 1.23 backend, LINE webhook + APIs, Firestore, Cloud Storage, GPT summarization, ffmpeg processing.
-- `angle_analysis_ai/` — FastAPI server, Ultralytics YOLO pose detection, returns graded/annotated video.
+- `badminton_analysis_ai/`: Python gRPC motion-analysis service, four correction
+  checkpoints, OpenAI coaching, video renderer, and expert catalog seeder.
+- `linebot/`: Go LINE webhook/API service, Firestore persistence, gRPC client,
+  playback URL refresh, and conversation-aware GPT chat.
+- `liff/`: Next.js mobile portfolio and synchronized video comparison UI.
+- `proto/`: language-neutral gRPC contract.
+- `docs/`: architecture, operations, and measured benchmark results.
+- `.github/workflows/`: CI, Go backend CD, and GPU analyzer CD.
 
----
+## Knowledge Prerequisites
 
-## Prerequisites
+To follow the complete implementation, be comfortable with:
 
-- OS: macOS, Linux, or Windows (WSL recommended)
-- Node.js: 18+ (Next.js 15 recommends Node 18+)
-- Go: 1.23+
-- Python: 3.10–3.11 recommended
-- ffmpeg: CLI available on PATH (used by the backend for resize/thumbnail/stitching)
-- Disk: Sufficient space for model weights and temporary videos
+1. Python, NumPy array shapes, PyTorch inference/training, and confidence masks.
+2. COCO's 17 body keypoints and basic pose concepts: position, joint angle,
+   velocity, acceleration, body-relative coordinates, and bone length.
+3. Temporal resampling and phase alignment of variable-length motion sequences.
+4. gRPC client streaming and protobuf-generated Python/Go bindings.
+5. Firestore documents, Cloud Storage object paths, V4 signed URLs, and Cloud Run.
+6. Go HTTP handlers and LINE webhook state machines.
+7. React media elements and synchronization through normalized playback progress.
 
-Install ffmpeg examples:
-- macOS (Homebrew): `brew install ffmpeg`
-- Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y ffmpeg`
+Pose inference uses RTMW3D-X through `rtmlib` and ONNX Runtime. Production uses
+TensorRT 10.14 FP16 engines with CUDA fallback for unsupported operators for
+the YOLOX detector, RTMW3D pose network, and all four skeleton-correction
+Transformers. The versioned, hardware-compatible engine cache is checksum
+verified before the container build and included in the deployed image.
 
----
+## End-to-End Architecture
 
-## Quick Start (Local, 3 terminals)
-
-1) Pose Estimation API (Python/FastAPI)
-- Path: `angle_analysis_ai/`
-- Create venv and install dependencies:
-  - `python3 -m venv .venv && source .venv/bin/activate`
-  - `pip install -r requirements.txt`
-- Ensure the pose model file exists: `angle_analysis_ai/yolo11m-pose.pt` (already included in the repo)
-- Start API: `uvicorn main:app --host 0.0.0.0 --port 8000`
-- Health check: `curl http://127.0.0.1:8000/health`
-
-2) Backend (Go)
-- Path: `linebot/`
-- Ensure `ffmpeg` is installed and available on PATH
-- Copy and edit environment variables:
-  - `cp .env .env.local` (or create a secure `.env` with your own values)
-- Start server: `go run main.go`
-- Health check: `curl http://127.0.0.1:8080/test`
-
-3) Frontend (Next.js/LIFF)
-- Path: `liff/`
-- Configure `liff/.env`:
-  - `NEXT_PUBLIC_LIFF_ID=<your-liff-id>`
-  - `NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8080`
-- Install deps: `npm install`
-- Start dev server: `npm run dev`
-- Open `http://localhost:3000` in a browser (LIFF flows are intended to run inside LINE, but most pages render locally for development).
-
----
-
-## How It Works (End-to-End)
-
-- User opens the LIFF app in LINE and navigates to the skill workflow.
-- The backend receives LINE webhook events at `/callback` and guides the user through selecting skill/handedness and uploading a video.
-- When a video is received, the backend:
-  - Saves a temporary copy and resizes it with `ffmpeg`.
-  - Sends it to the Pose Estimation API at `POST /upload` with HTTP Basic Auth and form fields: `skill`, `handedness`, and the `video` file.
-  - Receives JSON containing a base64-encoded annotated clip and a grading payload.
-  - Stitches the annotated clip with a corresponding expert video using `ffmpeg` (see `linebot/pro_videos/`).
-  - Uploads the annotated and comparison videos (and a generated thumbnail) to Cloud Storage and persists metadata to Firestore.
-  - Optionally summarizes analysis chats via GPT and caches per-day summaries in Firestore.
-- LIFF fetches data from the backend APIs to render portfolio items, stats, and summaries.
-
----
-
-## Frontend (LIFF) — `liff/`
-
-- Framework: Next.js 15 + React 19 + TailwindCSS
-- LIFF integration: `@line/liff` with a provider at `src/app/LiffProvider.tsx`
-- Required env (`liff/.env`):
-  - `NEXT_PUBLIC_LIFF_ID` — your LIFF app ID
-  - `NEXT_PUBLIC_BACKEND_BASE_URL` — e.g. `http://127.0.0.1:8080`
-- Useful scripts:
-  - `npm run dev` — Dev server on `0.0.0.0:3000`
-  - `npm run build` — Build production bundle
-  - `npm start` — Start production server
-- Entry page: `liff/src/app/page.tsx` redirects to `/personal` after LIFF boot/login
-- Backend URL resolution: `liff/src/utils/env.ts`
-
----
-
-## Backend (Go) — `linebot/`
-
-- Language/Version: Go 1.23
-- Web framework: `gin`
-- External services: LINE Messaging API, Google Cloud Firestore/Storage, OpenAI GPT
-- ffmpeg usage: resize incoming videos, extract thumbnail, hstack with expert video
-- Core routes:
-  - `POST /callback` — LINE webhook endpoint
-  - `GET /test` — Simple health ping
-  - `GET /api/chat/history?user_id=...&skill=...` — Chat history (with optional skill filter)
-  - `POST /api/chat/summarize` — Summarize chat content and cache by user/day/skill
-  - `GET /api/db/user?user_id=...` — Fetch user profile
-  - `GET /api/db/users` — List users
-  - `GET /api/db/stats/users/:id?skill=...` — Per-user skill stats
-  - `GET /api/db/stats/class?skill=...` — Class-level aggregates by skill
-
-Environment variables (see `linebot/config/config.go` and `.env`):
-
-- General
-  - `PORT` — backend port (default used in this repo: `8080`)
-- LINE
-  - `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_TOKEN`
-- GCP
-  - `GCP_PROJECT_ID`
-  - `GCP_CREDENTIALS` — path or alias to service account credentials (see your setup)
-  - Storage: `GCS_BUCKET_NAME`
-  - Secret Manager: `GCP_SECRET_VERSION`
-  - Firestore: `FIREBASE_DATA_DB`, `FIREBASE_SESSION_DB`
-- GPT
-  - `OPENAI_API_KEY`, `OPENAI_PROMPT_ID`
-- Pose Estimation server
-  - `POSE_ESTIMATION_SERVER_HOST` — e.g. `http://127.0.0.1:8000`
-  - `POSE_ESTIMATION_SERVER_USER` — default FastAPI Basic Auth username: `admin`
-  - `POSE_ESTIMATION_SERVER_PASSWORD` — default password: `thisisacomplicatedpassword`
-- Debugging
-  - `SAVE_PROCESSED_VIDEOS=1` — persist intermediate videos locally
-  - `SKIP_EXTERNAL_CLIENTS=1` — start without Firestore/Storage/GPT clients (limited functionality)
-
-Run locally:
-- `go run main.go`
-- Requires `ffmpeg` installed and on PATH
-
-Docker (example):
-- Build: `docker build -t linebot:local ./linebot`
-- Run: `docker run --rm -p 8080:8080 --env-file ./linebot/.env linebot:local`
-
----
-
-## Pose Estimation API (Python) — `angle_analysis_ai/`
-
-- Framework: FastAPI
-- Model: Ultralytics YOLO (weights: `yolo11m-pose.pt` in the same folder)
-- Key modules: `PoseModule.py`, `VideoProcessor.py`, `Grader.py`, `Types.py`
-- Endpoints:
-  - `GET /health` — health probe
-  - `POST /upload` — Basic Auth protected, accepts multipart form data:
-    - file field `video` — user video (mp4)
-    - form `skill` — one of the supported skills (e.g., `serve`, `smash`, `clear`)
-    - form `handedness` — `left` or `right`
-    - Response: JSON `{ processed_video: <base64 mp4>, grade: {...} }`
-
-Start locally:
-- `python3 -m venv .venv && source .venv/bin/activate`
-- `pip install -r requirements.txt`
-- `uvicorn main:app --host 0.0.0.0 --port 8000`
-
-Example request:
-```
-curl -u admin:thisisacomplicatedpassword \
-  -F "video=@/path/to/video.mp4" \
-  -F "skill=serve" \
-  -F "handedness=right" \
-  http://127.0.0.1:8000/upload
+```text
+LINE video
+    |
+    v
+Go LINE webhook ---- client-streamed bytes ----> Python gRPC service on L4
+    |                                              |
+    |                                              +-- RTMW3D 2D/3D skeleton
+    |                                              +-- phase/handedness parser
+    |                                              +-- expert matching
+    |                                              +-- correction + grading
+    |                                              +-- constrained GPT coaching
+    |                                              +-- annotated H.264 renderer
+    |                                              +-- GCS upload/signing
+    |<---- grades, cues, metadata, signed URLs ----+
+    |
+    +-- thumbnail -> GCS
+    +-- complete analysis record -> Firestore
+    +-- LINE completion reply
+    |
+    v
+LIFF /personal -> Go playback API -> refreshed student/expert signed URLs
+    |
+    +-- two video elements, one normalized timeline
+    +-- expert freezes during student coaching pauses
 ```
 
-Notes:
-- The service auto-detects compute device: CUDA > Apple MPS > CPU.
-- Outputs an annotated segment and angle metrics for grading.
+Videos never cross the Python-to-Go boundary as base64. The request is streamed
+in 1 MiB gRPC chunks. The rendered result is uploaded by Python, and Go receives
+only structured analysis data, GCS object paths, and expiring signed URLs.
 
----
+## Motion Pipeline
 
-## Data & Storage
+`SkeletonAnalysisPipeline.analyze` executes these stages:
 
-- Expert videos for comparison: `linebot/pro_videos/pro_<handedness>_<skill>.mp4`
-- Temporary workspace: `linebot/tmp/` (resized/stiched/intermediate videos)
-- Backend uploads to Google Cloud Storage and stores metadata in Firestore.
-- LIFF consumes direct GCS object URLs for playback.
+1. **Pose extraction**: YOLOX detects the athlete periodically and RTMW3D-X
+   directly estimates 133 whole-body 2D/3D keypoints. The first 17 COCO body
+   joints enter motion analysis; all 133 2D joints remain available to the
+   renderer. There is no separate Human3.6M pose-lifting stage.
+2. **Handedness**: explicit left/right input is honored. `auto` compares the
+   motion and peak acceleration evidence of both wrists; left-handed motion is
+   mirrored into the canonical dominant-right representation. This prevents a
+   dominant left shoulder from being reported as the physical right shoulder.
+3. **Skill window**: wrist/elbow trajectories locate the start, peak/contact,
+   and end for the selected skill. Serve, lift, clear, and smash have separate
+   parsing rules.
+4. **Normalization**: missing observations are interpolated, the pelvis is the
+   origin, body orientation is canonicalized, coordinates are divided by the
+   median observed anatomical-segment length, and the window is resampled to 64
+   frames. Using all major body segments prevents one noisy shoulder-depth
+   estimate from amplifying the entire skeleton.
+5. **Phase alignment**: five skill checkpoints map preparation through completion
+   to a common timeline, so motion speed does not dominate comparison.
+6. **Expert selection**: every training expert is first adapted to the
+   student's bone lengths, then ranked with the same confidence-masked,
+   skill-weighted position, angle, velocity, and bone distance used for
+   grading. This is not cosine similarity or an unrelated embedding score.
+7. **Correction**: a temporal/spatial Transformer consumes seven features per
+   joint: student XYZ, selected expert XYZ, and observation confidence. Its
+   output is optionally blended toward the selected expert according to the
+   checkpoint, projected back onto the student's bone lengths, and restored to
+   the student's original phase timing.
+8. **Grading**: the magnitude of the required correction is scored globally and
+   within qualitative skill-rule windows.
+9. **Expert verification**: training accepts a checkpoint only when corrected
+   held-out students move closer to experts, fall within held-out expert
+   variability, preserve bone lengths, and satisfy correction smoothness bounds.
+10. **Coaching**: OpenAI sees sampled frames, deterministic grade components,
+    handedness, allowed rule IDs, allowed phase anchors, and permitted joints.
+    It writes Traditional Chinese feedback but does not invent the grade. Rule,
+    frame, and joint outputs are validated and snapped to the deterministic spec.
+11. **Rendering**: yellow is the detected student skeleton, green is the
+    corrected skeleton, red circles mark validated problematic joints, and the
+    video pauses at coaching frames. Output is H.264/yuv420p.
+12. **Storage**: the annotated student video is uploaded to GCS. The expert
+    catalog resolves the selected expert's GCS video, and both objects receive
+    short-lived V4 signed URLs.
 
----
+## Grading Algorithm
 
-## Troubleshooting
+Let `S` be the normalized student skeleton, `C` the corrected skeleton, and `M`
+the joint-confidence mask. Each skill supplies a 17-element importance vector.
+The correction distance is:
 
-- ffmpeg not found: Install and ensure it is on PATH (`ffmpeg -version`).
-- Pose API 401: Verify Basic Auth credentials match backend env.
-- Large Python installs: consider Python 3.10/3.11 and a clean venv; on Linux, preinstall `build-essential` and `python3-dev` if needed.
-- GPU not used: Verify CUDA drivers or Apple Metal support; service falls back to CPU.
-- GCP permission errors: Confirm service account credentials and bucket name; ensure Firestore/Storage APIs are enabled.
-- CORS issues in LIFF: Backend allows `http://localhost:3000` and the deployed LIFF origin; update CORS config if needed.
+```text
+D = position(S,C,M)
+  + 0.5 * angle(S,C,M)
+  + 0.5 * velocity(S,C,M)
+  + 0.25 * bone_length(S,C,M)
+```
 
----
+Position and velocity are confidence- and skill-joint-weighted means. Angle is
+the normalized error over eight limb triplets. Bone length covers twelve body
+segments. The final score is calibrated per skill:
 
-## Useful Paths
+```text
+score = 100 * exp(-alpha * max(D - distance_offset, 0))
+```
 
-- Frontend entry: `liff/src/app/page.tsx`
-- Backend entry: `linebot/main.go`
-- Pose API entry: `angle_analysis_ai/main.py`
-- Backend video pipeline: `linebot/app/video_utils.go`
-- Pose detection core: `angle_analysis_ai/PoseModule.py`, `angle_analysis_ai/VideoProcessor.py`
+`alpha` and `distance_offset` are fit from held-out expert and beginner
+correction-distance distributions, targeting approximately 99.8 for experts and
+45 for beginners. The current 50-expert/50-beginner evaluation means are:
 
+| Skill | Beginner mean | Expert mean | Separation AUC |
+|---|---:|---:|---:|
+| Serve | 45.00 | 99.80 | 0.99 |
+| Lift | 45.00 | 99.80 | 1.00 |
+| Clear | 45.00 | 99.79 | 1.00 |
+| Smash | 45.00 | 99.81 | 0.98 |
+
+Criterion scores use the same calibrated correction distance on rule-specific
+frames and joints, capped by each rule's maximum and reconciled to the total.
+The skill definitions in `skill_specs.py` are therefore the source of truth for
+both quantitative grading and the feedback an LLM is allowed to provide.
+
+## Expert Catalog
+
+Each skill currently has 50 expert videos and 50 precomputed skeleton vectors.
+Firestore collection `badminton_experts_v2` stores RTMW3D-derived deterministic
+records with:
+
+- skill, expert ID, display name, and handedness;
+- GCS video and vector object paths;
+- duration, FPS, width, height, and the expert action-window timestamps.
+
+The checkpoint contains the training expert reference bank and filenames. The
+selected filename becomes the catalog lookup key, so the video displayed by LIFF
+is the same expert motion used to condition correction. LIFF maps its shared
+timeline to that expert action window rather than to the entire raw clip.
+
+Seed or verify the catalog with:
+
+```bash
+cd badminton_analysis_ai
+python seed_expert_catalog.py \
+  --project-id nstc-linebot-2025 \
+  --bucket nstc-2025-storage \
+  --collection badminton_experts_v2 \
+  --source-root /path/to/badminton-analysis \
+  --workers 8
+```
+
+The seeder is deterministic and skips existing objects, so reruns are safe.
+
+## API Contract
+
+`proto/badminton/analysis/v1/analysis.proto` defines:
+
+- `AnalyzeVideo`: client-streamed header/video bytes to one structured response.
+- `RefreshPlaybackUrls`: validates stored analysis/expert paths and issues new
+  signed URLs without rerunning inference.
+- `Health`: reports service readiness and loaded skills.
+
+The Go playback endpoint is:
+
+```text
+GET /api/db/playback?user_id=<id>&skill=<skill>&work_date=<timestamp>
+```
+
+It loads the persisted analysis, refreshes both URLs through gRPC, and returns
+student/expert media metadata, phase markers, coaching cues, grade, and feedback.
+
+## Code Trace Order
+
+For online inference, read in this order:
+
+1. `proto/badminton/analysis/v1/analysis.proto`
+2. `badminton_analysis_ai/service/server.py`
+3. `badminton_analysis_ai/service/pipeline.py`
+4. `badminton_analysis_ai/badminton_analysis/services/pose_detector.py`
+5. `badminton_analysis_ai/badminton_analysis/services/video_analyzer.py`
+6. `badminton_analysis_ai/badminton_analysis/ml/handedness.py`
+7. `badminton_analysis_ai/badminton_analysis/ml/skeleton_normalization.py`
+8. `badminton_analysis_ai/badminton_analysis/ml/skill_specs.py`
+9. `badminton_analysis_ai/badminton_analysis/ml/skeleton_backend.py`
+10. `badminton_analysis_ai/badminton_analysis/ml/infer_skeleton_corrector.py`
+11. `badminton_analysis_ai/badminton_analysis/ml/models/skeleton_denoiser.py`
+12. `badminton_analysis_ai/badminton_analysis/ml/skeleton_scoring.py`
+13. `badminton_analysis_ai/service/coaching.py`
+14. `badminton_analysis_ai/service/renderer.py`
+15. `badminton_analysis_ai/service/expert_catalog.py` and `storage.py`
+16. `linebot/api/analysis/client.go`
+17. `linebot/app/postback_handlers.go` and `video_utils.go`
+18. `linebot/api/db/users.go` and `linebot/main.go`
+19. `liff/src/lib/api/fetchPlayback.ts`
+20. `liff/src/components/VideoComparison.tsx`
+
+For training, start with `train_skeleton_corrector.py`, then read
+`skeleton_dataset.py`, `skeleton_denoiser.py`, `skeleton_scoring.py`, and finally
+the checkpoint acceptance block in the training script.
+
+## Adding Another Skill
+
+1. Add its enum to Python/Go/protobuf and regenerate both language bindings.
+2. Define checkpoint anchors, joint weights, rule maxima, measured joints,
+   coaching joints, and allowed feedback anchors in `skill_specs.py`.
+3. Add its motion-window parser to `video_analyzer.py` and tests for edge cases.
+4. Extract expert/beginner normalized sequences and verify handedness labels.
+5. Train with disjoint train/validation/test splits and pass all expert-distance,
+   bone-preservation, and smoothness quality gates.
+6. Fit score calibration only from evaluation distributions; do not hardcode a
+   cosmetic score transformation in the API.
+7. Seed the expert videos/vectors into GCS and Firestore.
+8. Add the checkpoint to the service loader and expose the skill in Go/LIFF.
+9. Run contract tests, real GPU video analysis, qualitative rendering review,
+   signed playback checks, and latency benchmarks.
+
+## Local Development
+
+Python contract tests do not load RTMW3D or require a GPU:
+
+```bash
+cd badminton_analysis_ai
+pytest -q tests
+```
+
+The complete analyzer requires Linux, CUDA 12, cuDNN 9, TensorRT 10.14,
+ONNX Runtime GPU 1.24.4, `rtmlib` 0.0.15, PyTorch 2.5.1, FFmpeg, GCP ADC, and
+the environment variables used in `service/config.py`. Run it with:
+
+```bash
+PYTHONPATH="$PWD:$PWD/generated" python -m service.server
+```
+
+Run Go and LIFF checks:
+
+```bash
+cd linebot && go test ./...
+cd ../liff && npm ci && npm run build
+```
+
+Live integrations are intentionally explicit:
+
+```bash
+RUN_LIVE_ANALYSIS=1 LIVE_ANALYSIS_VIDEO=/path/video.mp4 \
+  go test -count=1 -v ./linebot/api/analysis -run TestLiveAnalysisService
+
+RUN_LIVE_OPENAI=1 go test -count=1 -v ./linebot/api/gpt
+RUN_LIVE_FIRESTORE=1 go test -count=1 -v ./linebot/api/db
+RUN_LIVE_SECRET=1 go test -count=1 -v ./linebot/api/secret
+```
+
+Required production variables include `ANALYSIS_GRPC_TARGET`,
+`ANALYSIS_GRPC_API_KEY`, `OPENAI_API_KEY`, `GCP_PROJECT_ID`, `GCS_BUCKET_NAME`,
+`GCP_SERVICE_ACCOUNT_EMAIL`, and the existing LINE/Firestore settings. Secrets
+belong in Secret Manager and local ignored `.env` files, never Git.
+
+The analyzer deployment sets `POSE_EXECUTION_PROVIDER=tensorrt`,
+`SKELETON_EXECUTION_PROVIDER=tensorrt`, and
+`POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache`. Set either provider to
+`cuda` only for a controlled compatibility or accuracy comparison.
+
+## Deployment
+
+- `ci.yml` runs Go tests, Python correction/spec tests, and the LIFF build.
+- `cd-badminton-analysis.yml` builds the CUDA image, deploys the
+  `badminton-analysis-ai` Cloud Run service with one L4 GPU and HTTP/2, then
+  streams a real beginner clear video through gRPC and verifies signed playback.
+- `cd.yml` builds/deploys the Go service and checks its live health endpoint.
+
+Generated videos, logs, local datasets, credentials, `.env` files, analysis
+working directories, and TensorRT caches are ignored. PyTorch checkpoints,
+calibration files, and portable ONNX graphs are tracked because they are
+required runtime artifacts. The ignored TensorRT cache is downloaded from GCS
+and SHA-256 verified by the GPU deployment workflow.

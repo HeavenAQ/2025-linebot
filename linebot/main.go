@@ -164,6 +164,54 @@ func main() {
 		c.JSON(http.StatusOK, *all)
 	})
 
+	r.GET("/api/db/playback", func(c *gin.Context) {
+		userID := strings.TrimSpace(c.Query("user_id"))
+		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
+		workDate := strings.TrimSpace(c.Query("work_date"))
+		if userID == "" || skill == "" || workDate == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id, skill, or work_date"})
+			return
+		}
+		user, err := application.FirestoreClient.GetUserData(userID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+		portfolio := user.Portfolio.GetSkillPortfolio(skill)
+		work, ok := portfolio[workDate]
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "analysis not found"})
+			return
+		}
+		if work.StudentVideo.ObjectPath == "" || work.Expert.Video.ObjectPath == "" {
+			c.JSON(http.StatusConflict, gin.H{"error": "analysis predates synchronized playback"})
+			return
+		}
+		videos, err := application.AnalysisClient.RefreshPlaybackURLs(
+			c.Request.Context(),
+			work.StudentVideo.ObjectPath,
+			work.Expert.Video.ObjectPath,
+		)
+		if err != nil || len(videos) != 2 {
+			application.Logger.Error.Printf("[db.playback] refresh failed user=%s skill=%s date=%s err=%v", userID, skill, workDate, err)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to refresh playback URLs"})
+			return
+		}
+		work.StudentVideo.SignedURL = videos[0].SignedURL
+		work.StudentVideo.SignedURLExpires = videos[0].SignedURLExpires
+		work.Expert.Video.SignedURL = videos[1].SignedURL
+		work.Expert.Video.SignedURLExpires = videos[1].SignedURLExpires
+		c.JSON(http.StatusOK, gin.H{
+			"analysis_id":      work.AnalysisID,
+			"student_video":    work.StudentVideo,
+			"expert":           work.Expert,
+			"timeline":         work.Timeline,
+			"coaching_cues":    work.CoachingCues,
+			"overall_feedback": work.AINote,
+			"grade":            work.GradingOutcome,
+		})
+	})
+
 	// Stats endpoints
 	r.GET("/api/db/stats/users/:id", func(c *gin.Context) {
 		start := time.Now()

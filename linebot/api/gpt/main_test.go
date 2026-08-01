@@ -3,7 +3,6 @@ package gpt_test
 import (
 	"log"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
@@ -17,19 +16,19 @@ var (
 
 // setup OpenAI client for integration tests
 func TestMain(m *testing.M) {
-	cfg, err := config.LoadConfig("../../.env")
-	if err != nil {
-		log.Println("Skipping GPT integration tests: failed to load config")
+	if os.Getenv("RUN_LIVE_OPENAI") != "1" {
+		log.Println("Skipping OpenAI live tests; set RUN_LIVE_OPENAI=1 to enable.")
 		os.Exit(0)
 	}
-
-	// Only run if real-looking credentials are provided
-	if cfg.GPT.APIKey == "" || strings.HasPrefix(cfg.GPT.APIKey, "test_") {
-		log.Println("Skipping GPT integration tests: missing or placeholder credentials")
-		os.Exit(0)
+	cfg, err := config.LoadConfig("../../.env")
+	if err != nil {
+		log.Fatal("Failed to load OpenAI integration-test config")
+	}
+	if cfg.GPT.APIKey == "" {
+		log.Fatal("OPENAI_API_KEY is required for live OpenAI tests")
 	}
 
 	runIntegration = true
-	gptClient = gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID)
+	gptClient = gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID, cfg.GPT.RewriteModel)
 	os.Exit(m.Run())
 }

@@ -1,9 +1,9 @@
 'use client'
 
 import { Line, LineChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
-import React, { useEffect, useState, Dispatch, SetStateAction } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useLiff } from '../LiffProvider'
-import type { GradingDetail, UserData } from '@/types'
+import type { GradingDetail, PlaybackResponse, UserData } from '@/types'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -16,28 +16,21 @@ import {
 import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
-import { getBackendBaseUrl } from '@/utils/env'
+import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
+import { fetchPlayback } from '@/lib/api/fetchPlayback'
+import VideoComparison from '@/components/VideoComparison'
 
 interface MovementDetailBarChartProps {
   userData: UserData
   selectedDate: string
-  setSelectedDate: Dispatch<SetStateAction<string>>
+  selectedSkill: Skill
 }
 
 const MovementDetailBarChart = ({
   userData,
   selectedDate,
-  setSelectedDate
+  selectedSkill
 }: MovementDetailBarChartProps) => {
-  const [selectedSkill, setSelectedSkill] = useState<Skill>('serve') // Default skill
-
-  // Get the available skills and dates
-  const availableSkills = Object.keys(SkillNameMap) as Skill[]
-  const availableDates =
-    selectedSkill && userData.portfolio[selectedSkill]
-      ? Object.keys(userData.portfolio[selectedSkill])
-      : []
-
   // Get grading details for the selected skill and date
   const gradingDetails =
     selectedSkill &&
@@ -66,43 +59,8 @@ const MovementDetailBarChart = ({
     >
       <CardHeader>
         <CardTitle className="mb-3">動作細節評分</CardTitle>
-        <CardDescription className="flex items-center justify-start gap-3">
-          {/* Skill Selector */}
-          <div>
-            <select
-              value={selectedSkill}
-              onChange={e => {
-                setSelectedSkill(e.target.value as Skill)
-                setSelectedDate('') // Reset date when skill changes
-              }}
-              className="rounded border px-2 py-1 text-zinc-700"
-            >
-              {availableSkills
-                .filter(
-                  skill =>
-                    userData.portfolio[skill] && Object.keys(userData.portfolio[skill]).length > 0
-                ) // Only show skills with records
-                .map(skill => (
-                  <option key={skill} value={skill}>
-                    {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
-                  </option>
-                ))}{' '}
-            </select>
-          </div>
-          {/* Date Selector */}
-          <div>
-            <select
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              className="rounded border px-2 py-1 text-zinc-700"
-            >
-              {availableDates.map(date => (
-                <option key={date} value={date}>
-                  {date}
-                </option>
-              ))}
-            </select>
-          </div>
+        <CardDescription>
+          {SkillNameMap[selectedSkill]} · {selectedDate}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -259,7 +217,11 @@ const PersonalProgressChart = ({ userData }: PersonalProgressChartProps) => {
 export default function PersonalPage() {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [selectedDate, setSelectedDate] = useState('') // Default date
+  const [selectedSkill, setSelectedSkill] = useState<Skill>('serve')
+  const [selectedDate, setSelectedDate] = useState('')
+  const [playback, setPlayback] = useState<PlaybackResponse | null>(null)
+  const [playbackError, setPlaybackError] = useState('')
+  const [playbackLoading, setPlaybackLoading] = useState(false)
   const { liff, profile } = useLiff()
 
   useEffect(() => {
@@ -268,17 +230,17 @@ export default function PersonalPage() {
 
     const fetchData = async () => {
       try {
-        const base = getBackendBaseUrl()
-        const response = await fetch(`${base}/api/db/user?user_id=${profile?.userId}`)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch user data: ${response.statusText}`)
-        }
-        const data = await response.json()
+        const result = await fetchUserDataSafe(profile.userId)
+        if (!result.ok) throw result.error
+        const data = result.data
         setUserData(data)
-
-        // Automatically set the first available date for the default skill
-        const dates = data.portfolio?.serve ? Object.keys(data.portfolio.serve) : []
-        setSelectedDate(dates[0] || '') // Set to the first date or an empty string
+        const firstSkill = (Object.keys(SkillNameMap) as Skill[]).find(
+          skill => Object.keys(data.portfolio[skill]).length > 0
+        )
+        if (firstSkill) {
+          setSelectedSkill(firstSkill)
+          setSelectedDate(Object.keys(data.portfolio[firstSkill]).sort().reverse()[0] || '')
+        }
       } catch (err) {
         if (err instanceof Error) console.log(err.message)
       } finally {
@@ -289,6 +251,47 @@ export default function PersonalPage() {
     fetchData()
   }, [liff, profile])
 
+  const availableSkills = useMemo(
+    () =>
+      userData
+        ? (Object.keys(SkillNameMap) as Skill[]).filter(
+            skill => Object.keys(userData.portfolio[skill]).length > 0
+          )
+        : [],
+    [userData]
+  )
+  const availableDates = useMemo(
+    () =>
+      userData ? Object.keys(userData.portfolio[selectedSkill]).sort().reverse() : [],
+    [selectedSkill, userData]
+  )
+
+  useEffect(() => {
+    if (!profile?.userId || !selectedDate) {
+      setPlayback(null)
+      return
+    }
+    let cancelled = false
+    setPlaybackLoading(true)
+    setPlaybackError('')
+    fetchPlayback(profile.userId, selectedSkill, selectedDate)
+      .then(value => {
+        if (!cancelled) setPlayback(value)
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setPlayback(null)
+          setPlaybackError(error instanceof Error ? error.message : '無法載入影片')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPlaybackLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [profile?.userId, selectedDate, selectedSkill])
+
   if (loading) {
     return <Spinner />
   }
@@ -297,14 +300,61 @@ export default function PersonalPage() {
     return <div className="mt-10 text-center font-semibold">No data available</div>
   }
 
+  if (availableSkills.length === 0) {
+    return <div className="mt-10 text-center font-semibold">尚無動作分析記錄</div>
+  }
+
   return (
-    <>
+    <main className="pb-8 pt-4">
+      <div className={`${mPlusRounded1c.className} mx-auto flex w-10/12 max-w-5xl gap-3`}>
+        <label className="min-w-0 flex-1 text-xs font-medium text-zinc-500">
+          技能
+          <select
+            value={selectedSkill}
+            onChange={event => {
+              const skill = event.target.value as Skill
+              setSelectedSkill(skill)
+              setSelectedDate(Object.keys(userData.portfolio[skill]).sort().reverse()[0] || '')
+            }}
+            className="mt-1 h-10 w-full border bg-white px-2 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-white"
+          >
+            {availableSkills.map(skill => (
+              <option key={skill} value={skill}>
+                {SkillNameMap[skill]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-0 flex-[1.5] text-xs font-medium text-zinc-500">
+          分析日期
+          <select
+            value={selectedDate}
+            onChange={event => setSelectedDate(event.target.value)}
+            className="mt-1 h-10 w-full border bg-white px-2 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-white"
+          >
+            {availableDates.map(date => (
+              <option key={date} value={date}>
+                {date}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {playbackLoading && <div className="mx-auto mt-8 w-fit"><Spinner /></div>}
+      {!playbackLoading && playback && <VideoComparison playback={playback} />}
+      {!playbackLoading && playbackError && (
+        <p className="mx-auto mt-5 w-10/12 max-w-5xl border-l-4 border-amber-500 px-3 py-2 text-sm text-zinc-600">
+          {playbackError}
+        </p>
+      )}
+
       <MovementDetailBarChart
         userData={userData}
         selectedDate={selectedDate}
-        setSelectedDate={setSelectedDate}
+        selectedSkill={selectedSkill}
       />
       <PersonalProgressChart userData={userData} />
-    </>
+    </main>
   )
 }

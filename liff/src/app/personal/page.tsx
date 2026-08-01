@@ -95,6 +95,7 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
 
 export default function PersonalPage() {
   const [userData, setUserData] = useState<UserData | null>(null)
+  const [userDataError, setUserDataError] = useState('')
   const [loading, setLoading] = useState(true)
   const [selectedSkill, setSelectedSkill] = useState<Skill>('serve')
   const [selectedDate, setSelectedDate] = useState('')
@@ -102,13 +103,19 @@ export default function PersonalPage() {
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
-  const { liff, profile } = useLiff()
+  const { liff, profile, liffError } = useLiff()
 
   useEffect(() => {
+    if (liffError) {
+      setUserDataError('LINE 登入失敗，請重新整理頁面後再試一次。')
+      setLoading(false)
+      return
+    }
     if (!liff || !profile?.userId) return
 
     const fetchData = async () => {
       try {
+        setUserDataError('')
         const result = await fetchUserDataSafe(profile.userId)
         if (!result.ok) throw result.error
         const data = result.data
@@ -121,14 +128,15 @@ export default function PersonalPage() {
           setSelectedDate(Object.keys(data.portfolio[firstSkill]).sort().reverse()[0] || '')
         }
       } catch (err) {
-        if (err instanceof Error) console.log(err.message)
+        if (err instanceof Error) console.error(err.message)
+        setUserDataError('無法讀取帳戶資料，請稍後再試。')
       } finally {
         setLoading(false)
       }
     }
 
     fetchData()
-  }, [liff, profile])
+  }, [liff, liffError, profile])
 
   const availableSkills = useMemo(
     () =>
@@ -190,8 +198,8 @@ export default function PersonalPage() {
   if (!userData) {
     return (
       <PageContainer className="pt-6">
-        <Alert variant="warning" title="查不到學習資料">
-          請從 LINE 重新開啟這個頁面。
+        <Alert variant="warning" title={liffError ? 'LINE 登入失敗' : '無法載入學習資料'}>
+          {userDataError || '請重新整理頁面後再試一次。'}
         </Alert>
       </PageContainer>
     )

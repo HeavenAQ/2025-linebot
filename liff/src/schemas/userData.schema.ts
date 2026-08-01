@@ -51,9 +51,14 @@ export const CoachingCueSchema = z.object({
   joint_ids: z.array(z.number())
 })
 
+const WorkHandednessSchema = z.preprocess(
+  value => (value === '' || value == null ? 'right' : value),
+  z.enum(['left', 'right'])
+)
+
 export const WorkSchema = z.object({
   date: z.string(),
-  handedness: z.enum(['left', 'right']).optional().default('right'),
+  handedness: WorkHandednessSchema,
   thumbnail: z.string(),
   skeleton_video: z.string().optional().default(''),
   skeleton_comparison_video: z.string().optional().default(''),

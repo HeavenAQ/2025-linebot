@@ -2,6 +2,7 @@
 
 import { Line, LineChart, Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
 import React, { useEffect, useMemo, useState } from 'react'
+import { BarChart3, Columns2 } from 'lucide-react'
 import { useLiff } from '../LiffProvider'
 import type { GradingDetail, PlaybackResponse, UserData } from '@/types'
 
@@ -37,11 +38,13 @@ const MovementDetailBarChart = ({
     selectedDate &&
     userData.portfolio[selectedSkill][selectedDate]?.grading_outcome?.grading_details
 
-  const chartData = (gradingDetails !== "") ?
-    gradingDetails?.map((detail: GradingDetail) => ({
-      description: detail.description,
-      grade: detail.grade.toFixed(2)
-    })) : []
+  const chartData =
+    gradingDetails !== ''
+      ? gradingDetails?.map((detail: GradingDetail) => ({
+          description: detail.description,
+          grade: detail.grade.toFixed(2)
+        }))
+      : []
 
   const chartConfig = {
     grade: {
@@ -222,6 +225,7 @@ export default function PersonalPage() {
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null)
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'scores' | 'comparison'>('scores')
   const { liff, profile } = useLiff()
 
   useEffect(() => {
@@ -261,17 +265,17 @@ export default function PersonalPage() {
     [userData]
   )
   const availableDates = useMemo(
-    () =>
-      userData ? Object.keys(userData.portfolio[selectedSkill]).sort().reverse() : [],
+    () => (userData ? Object.keys(userData.portfolio[selectedSkill]).sort().reverse() : []),
     [selectedSkill, userData]
   )
 
   useEffect(() => {
-    if (!profile?.userId || !selectedDate) {
+    if (activeTab !== 'comparison' || !profile?.userId || !selectedDate) {
       setPlayback(null)
       return
     }
     let cancelled = false
+    setPlayback(null)
     setPlaybackLoading(true)
     setPlaybackError('')
     fetchPlayback(profile.userId, selectedSkill, selectedDate)
@@ -290,7 +294,7 @@ export default function PersonalPage() {
     return () => {
       cancelled = true
     }
-  }, [profile?.userId, selectedDate, selectedSkill])
+  }, [activeTab, profile?.userId, selectedDate, selectedSkill])
 
   if (loading) {
     return <Spinner />
@@ -341,20 +345,67 @@ export default function PersonalPage() {
         </label>
       </div>
 
-      {playbackLoading && <div className="mx-auto mt-8 w-fit"><Spinner /></div>}
-      {!playbackLoading && playback && <VideoComparison playback={playback} />}
-      {!playbackLoading && playbackError && (
-        <p className="mx-auto mt-5 w-10/12 max-w-5xl border-l-4 border-amber-500 px-3 py-2 text-sm text-zinc-600">
-          {playbackError}
-        </p>
+      <div
+        role="tablist"
+        aria-label="學習歷程檢視"
+        className={`${mPlusRounded1c.className} mx-auto mt-5 grid h-11 w-10/12 max-w-5xl grid-cols-2 border border-zinc-300 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900`}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'scores'}
+          onClick={() => setActiveTab('scores')}
+          className={`flex min-w-0 items-center justify-center gap-2 px-2 text-sm ${
+            activeTab === 'scores'
+              ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-950'
+              : 'text-zinc-600 dark:text-zinc-300'
+          }`}
+        >
+          <BarChart3 aria-hidden="true" size={17} />
+          成績分析
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'comparison'}
+          onClick={() => setActiveTab('comparison')}
+          className={`flex min-w-0 items-center justify-center gap-2 px-2 text-sm ${
+            activeTab === 'comparison'
+              ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-950'
+              : 'text-zinc-600 dark:text-zinc-300'
+          }`}
+        >
+          <Columns2 aria-hidden="true" size={17} />
+          影片比較
+        </button>
+      </div>
+
+      {activeTab === 'comparison' && (
+        <div role="tabpanel">
+          {playbackLoading && (
+            <div className="mx-auto mt-8 w-fit">
+              <Spinner />
+            </div>
+          )}
+          {!playbackLoading && playback && <VideoComparison playback={playback} />}
+          {!playbackLoading && playbackError && (
+            <p className="mx-auto mt-5 w-10/12 max-w-5xl border-l-4 border-amber-500 bg-white px-3 py-3 text-sm leading-6 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+              {playbackError}
+            </p>
+          )}
+        </div>
       )}
 
-      <MovementDetailBarChart
-        userData={userData}
-        selectedDate={selectedDate}
-        selectedSkill={selectedSkill}
-      />
-      <PersonalProgressChart userData={userData} />
+      {activeTab === 'scores' && (
+        <div role="tabpanel">
+          <MovementDetailBarChart
+            userData={userData}
+            selectedDate={selectedDate}
+            selectedSkill={selectedSkill}
+          />
+          <PersonalProgressChart userData={userData} />
+        </div>
+      )}
     </main>
   )
 }

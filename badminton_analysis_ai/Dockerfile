@@ -15,7 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt requirements-pose.txt ./
 RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
     pip install -r requirements.txt && \
+    pip install --no-deps \
+      tensorrt-cu12-libs==10.14.1.48.post1 \
+      tensorrt-cu12-bindings==10.14.1.48.post1 \
+      tensorrt-cu12==10.14.1.48.post1 && \
     pip install --no-deps -r requirements-pose.txt
+
+RUN python -c "import torch; assert torch.version.cuda == '12.4'; import tensorrt as trt; assert trt.__version__ == '10.14.1.48.post1'"
 
 RUN python -c "from pathlib import Path; from rtmlib.tools.file import download_checkpoint; root=Path('/app/models/pose'); root.mkdir(parents=True, exist_ok=True); download_checkpoint('https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip', dst_dir=str(root), progress=False); download_checkpoint('https://huggingface.co/Soykaf/RTMW3D-x/resolve/main/onnx/rtmw3d-x_8xb64_cocktail14-384x288-b0a0eab7_20240626.onnx', dst_dir=str(root), progress=False); print('RTMW3D ONNX models cached')"
 

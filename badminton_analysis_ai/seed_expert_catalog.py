@@ -195,7 +195,13 @@ def seed(
             documents.append((expert_document_id(skill, expert_id), document))
             uploads.extend(
                 (
-                    (video_path, video_object, "video/mp4"),
+                    (
+                        video_path,
+                        video_object,
+                        "video/quicktime"
+                        if video_path.suffix.lower() == ".mov"
+                        else "video/mp4",
+                    ),
                     (vector_path, vector_object, "application/octet-stream"),
                 )
             )

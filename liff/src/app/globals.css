@@ -20,56 +20,51 @@
 
 @layer base {
   /*
-   * Sampled from the reference room: raw concrete, dark wood slats, walnut,
-   * and new foliage. One fixed scheme — there is no light mode to switch to.
+   * Notion's palette. Warm-neutral greys rather than blue-greys, a near-black
+   * that is actually #37352F, hairline dividers at very low contrast, and one
+   * blue for anything actionable.
    */
   :root {
-    /* Concrete in shadow */
-    --background: 70 6% 11%;
-    --foreground: 56 10% 88%;
+    --background: 45 20% 96%;      /* #F7F6F3 */
+    --foreground: 45 8% 20%;       /* #37352F */
 
-    /* Concrete catching light */
-    --card: 70 5% 15%;
-    --card-foreground: 56 10% 88%;
-    --popover: 70 5% 17%;
-    --popover-foreground: 56 10% 88%;
+    --card: 0 0% 100%;
+    --card-foreground: 45 8% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 45 8% 20%;
 
-    /* New leaves — the only living colour in the room, so it carries the UI */
-    --primary: 88 42% 63%;
-    --primary-foreground: 75 14% 10%;
+    --primary: 210 77% 46%;        /* #1B75D0, Notion's #2383E2 darkened so white labels clear AA */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 70 5% 20%;
-    --secondary-foreground: 56 10% 88%;
+    --secondary: 45 15% 94%;
+    --secondary-foreground: 45 8% 20%;
 
-    --muted: 70 5% 19%;
-    --muted-foreground: 66 5% 62%;
+    --muted: 48 12% 95%;           /* #F1F1EF */
+    --muted-foreground: 45 3% 43%; /* #716F6A, Notion's #787774 lifted to clear AA */
 
-    --accent: 70 6% 22%;
-    --accent-foreground: 56 10% 88%;
+    --accent: 45 10% 93%;
+    --accent-foreground: 45 8% 20%;
 
-    /* Walnut desk */
-    --highlight: 22 42% 44%;
-    --highlight-foreground: 56 12% 92%;
+    --highlight: 30 89% 45%;       /* #D9730D */
+    --highlight-foreground: 0 0% 100%;
 
-    /* Terracotta from the framed print, not a signal red */
-    --destructive: 352 58% 64%;
-    --destructive-foreground: 56 12% 94%;
+    --destructive: 2 62% 55%;      /* #D44C47 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 148 32% 39%;        /* #448361 */
+    --success-foreground: 0 0% 100%;
 
-    /* Mature foliage */
-    --success: 96 38% 58%;
-    --success-foreground: 75 14% 10%;
+    --border: 48 6% 91%;           /* #E9E9E7 */
+    --input: 48 6% 91%;
+    --ring: 210 77% 46%;
 
-    --border: 70 6% 22%;
-    --input: 70 6% 22%;
-    --ring: 88 42% 63%;
+    /* Notion's text colours — built to stay apart from one another. */
+    --chart-1: 202 54% 43%;        /* blue   #337EA9 */
+    --chart-2: 148 32% 33%;        /* green, darkened to separate from the blue it is plotted against */
+    --chart-3: 30 89% 45%;         /* orange #D9730D */
+    --chart-4: 274 32% 54%;        /* purple #9065B0 */
+    --chart-5: 2 62% 55%;          /* red    #D44C47 */
 
-    --chart-1: 88 42% 63%;
-    --chart-2: 199 58% 54%;
-    --chart-3: 45 74% 68%;
-    --chart-4: 275 44% 74%;
-    --chart-5: 340 52% 70%;
-
-    --radius: 10px;
+    --radius: 4px;
   }
 }
 
@@ -84,15 +79,6 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    /* Depth behind the glass: daylight from high on one side, a bloom of
-       foliage, and warmth off the walnut. Frosted panels blur these, which is
-       what stops the translucency from looking like flat grey plastic. */
-    background-image:
-      radial-gradient(120% 70% at 82% -12%, hsl(66 10% 26% / 0.9) 0%, transparent 58%),
-      radial-gradient(70% 45% at 88% 34%, hsl(88 32% 40% / 0.16) 0%, transparent 70%),
-      radial-gradient(85% 50% at 4% 82%, hsl(24 46% 34% / 0.16) 0%, transparent 72%);
-    background-attachment: fixed;
-    background-repeat: no-repeat;
     font-family: 'Instrument Sans', 'PingFang TC', 'Noto Sans TC', 'Hiragino Sans TC',
       'Microsoft JhengHei', system-ui, sans-serif;
     line-height: 1.75;
@@ -105,37 +91,15 @@
 }
 
 @layer components {
-  /*
-   * Frosted glass, as on the vase in the reference: the surface is partly
-   * transparent, what sits behind it is blurred rather than hidden, and the
-   * top edge catches a thin line of light the way a glass rim does.
-   */
+  /* A panel: white on the warm-grey page, separated by a hairline. */
   .glass {
-    background-color: hsl(var(--card) / 0.58);
-    -webkit-backdrop-filter: blur(22px) saturate(140%);
-    backdrop-filter: blur(22px) saturate(140%);
-    border: 1px solid hsl(var(--border) / 0.9);
-    box-shadow:
-      inset 0 1px 0 hsl(60 24% 92% / 0.07),
-      inset 0 -1px 0 hsl(70 10% 4% / 0.3);
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
   }
 
-  /* Where a control sits on top of a panel it needs less blur, or the two
-     frosted layers stack and turn milky. */
+  /* An inset control on a panel: the page grey, no border. */
   .glass-inset {
-    background-color: hsl(var(--muted) / 0.55);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-  }
-
-  @supports not (backdrop-filter: blur(1px)) {
-    .glass {
-      background-color: hsl(var(--card));
-    }
-
-    .glass-inset {
-      background-color: hsl(var(--muted));
-    }
+    background-color: hsl(var(--muted));
   }
 
   /* Measurements align in columns and never reflow as digits change. */

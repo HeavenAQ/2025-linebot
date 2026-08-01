@@ -48,6 +48,46 @@ class AnalysisResult:
     output_path: Path
 
 
+def _correction_grade_context(
+    grade: dict[str, Any],
+    diagnostics: dict[str, Any],
+    spec: SkillCorrectionSpec,
+    criterion_values: list[tuple[str, float, float]],
+) -> dict[str, Any]:
+    component_names = (
+        "position_distance",
+        "angle_distance",
+        "velocity_distance",
+        "bone_length_distance",
+        "support_transition_distance",
+        "torso_lean_transition_distance",
+        "transition_distance",
+    )
+    return {
+        "score_method_zh_tw": (
+            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
+            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化"
+        ),
+        "total_score": float(grade["total_grade"]),
+        "correction_distance": float(diagnostics["correction_distance"]),
+        "distance_components": {
+            key: float(diagnostics[key])
+            for key in component_names
+            if key in diagnostics
+        },
+        "criteria": [
+            {
+                "name_zh_tw": rule.name_zh_tw,
+                "rule_reference": rule.id,
+                "score": float(value[2]),
+                "maximum": rule.maximum,
+                "correction_distance": float(value[1]),
+            }
+            for rule, value in zip(spec.rules, criterion_values, strict=True)
+        ],
+    }
+
+
 def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
     if requested in ("left", "right"):
         return Handedness.convert_to_enum(requested)
@@ -139,32 +179,9 @@ class SkeletonAnalysisPipeline:
                 float(grade["total_grade"]),
                 spec,
             )
-            correction_grade = {
-                "score_method_zh_tw": (
-                    "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準"
-                ),
-                "total_score": float(grade["total_grade"]),
-                "correction_distance": float(diagnostics["correction_distance"]),
-                "distance_components": {
-                    key: float(diagnostics[key])
-                    for key in (
-                        "position_distance",
-                        "angle_distance",
-                        "velocity_distance",
-                        "bone_length_distance",
-                    )
-                },
-                "criteria": [
-                    {
-                        "name_zh_tw": rule.name_zh_tw,
-                        "rule_reference": rule.id,
-                        "score": float(value[2]),
-                        "maximum": rule.maximum,
-                        "correction_distance": float(value[1]),
-                    }
-                    for rule, value in zip(spec.rules, criterion_values, strict=True)
-                ],
-            }
+            correction_grade = _correction_grade_context(
+                grade, diagnostics, spec, criterion_values
+            )
             preview_path = output_path.with_name(output_path.stem + ".preview.mp4")
             render_correction_video(
                 tracking=tracking,

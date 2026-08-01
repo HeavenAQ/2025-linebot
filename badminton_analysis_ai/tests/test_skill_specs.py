@@ -88,6 +88,36 @@ def test_each_supported_skill_has_an_independent_complete_contract() -> None:
         assert spec.slug in spec.model_path.name
 
 
+def test_rules_retain_qualitative_grader_instructions() -> None:
+    expected_movements = {
+        Skill.SERVE: ("雙手平舉", "持拍腳", "非持拍腳", "髖關節", "手腕", "肩膀"),
+        Skill.LIFT: ("腰部", "往後引拍", "往前壓", "回到腰部"),
+        Skill.CLEAR: (
+            "球拍舉至腰部",
+            "轉身",
+            "手肘保持平衡",
+            "手肘往前",
+            "手腕發力",
+            "肩膀往前",
+        ),
+        Skill.SMASH: (
+            "球拍舉至腰部",
+            "轉身",
+            "手肘保持平衡",
+            "手肘往前",
+            "手腕發力",
+            "肩膀往前",
+        ),
+    }
+    for skill, movements in expected_movements.items():
+        calculations = tuple(rule.calculation_zh_tw for rule in get_skill_spec(skill).rules)
+        assert all(
+            expected in calculation
+            for expected, calculation in zip(movements, calculations, strict=True)
+        )
+        assert all("度" not in calculation for calculation in calculations)
+
+
 @pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
 def test_feedback_schema_accepts_each_skill_contract(skill: Skill) -> None:
     analysis = SkillFeedbackAnalysis.model_validate(_feedback_payload(skill))

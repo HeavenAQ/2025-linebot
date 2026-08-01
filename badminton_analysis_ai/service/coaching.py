@@ -48,16 +48,13 @@ class CoachingGenerator:
             "language": "zh-TW",
             "overall_feedback": (
                 f"本次{spec.name_zh_tw}應優先改善「{rule.name_zh_tw}」，"
-                "請依照專家動作的關鍵姿勢與節奏逐步修正。"
+                f"{rule.calculation_zh_tw}"
             ),
             "problems": [
                 {
                     "priority": "高",
                     "title": rule.name_zh_tw,
-                    "feedback": (
-                        f"請在「{rule.name_zh_tw}」階段對照專家姿勢，"
-                        "調整慣用側關節的位置、角度與動作速度。"
-                    ),
+                    "feedback": rule.calculation_zh_tw,
                     "evidence": (
                         f"此項得分為{score:.1f}/{maximum:.1f}分，"
                         "學生原始骨架與修正骨架在這個技術階段的差距最明顯。"

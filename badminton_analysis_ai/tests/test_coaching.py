@@ -57,6 +57,8 @@ def test_fallback_coaching_uses_lowest_normalized_criterion() -> None:
     problem = analysis["problems"][0]
     assert problem["rule_reference"] == "forward_extension"
     assert problem["joint_ids"] == [8, 10]
+    assert problem["feedback"] == spec.rule("forward_extension").calculation_zh_tw
+    assert "度" not in problem["feedback"]
     assert "7.0/35.0" in problem["evidence"]
 
 

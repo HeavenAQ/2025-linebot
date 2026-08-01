@@ -85,8 +85,10 @@ message StoredVideo {
 message ExpertMatch {
   string expert_id = 1;
   string display_name = 2;
-  double euclidean_distance = 3;
+  double correction_distance = 3;
   StoredVideo video = 4;
+  double motion_start_seconds = 5;
+  double motion_end_seconds = 6;
 }
 
 message DiagnosticValue {

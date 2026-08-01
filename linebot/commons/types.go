@@ -25,10 +25,12 @@ type MediaRef struct {
 }
 
 type ExpertMatch struct {
-	ExpertID          string   `json:"expert_id" firestore:"expert_id"`
-	DisplayName       string   `json:"display_name" firestore:"display_name"`
-	EuclideanDistance float64  `json:"euclidean_distance" firestore:"euclidean_distance"`
-	Video             MediaRef `json:"video" firestore:"video"`
+	ExpertID           string   `json:"expert_id" firestore:"expert_id"`
+	DisplayName        string   `json:"display_name" firestore:"display_name"`
+	CorrectionDistance float64  `json:"correction_distance" firestore:"correction_distance"`
+	Video              MediaRef `json:"video" firestore:"video"`
+	MotionStartSeconds float64  `json:"motion_start_seconds" firestore:"motion_start_seconds"`
+	MotionEndSeconds   float64  `json:"motion_end_seconds" firestore:"motion_end_seconds"`
 }
 
 type PhaseMarker struct {

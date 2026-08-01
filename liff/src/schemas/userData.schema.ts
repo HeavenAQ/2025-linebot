@@ -27,8 +27,10 @@ export const MediaRefSchema = z.object({
 export const ExpertMatchSchema = z.object({
   expert_id: z.string(),
   display_name: z.string(),
-  euclidean_distance: z.number(),
-  video: MediaRefSchema
+  correction_distance: z.number().optional().default(0),
+  video: MediaRefSchema,
+  motion_start_seconds: z.number().optional().default(0),
+  motion_end_seconds: z.number().optional().default(0)
 })
 
 export const PhaseMarkerSchema = z.object({

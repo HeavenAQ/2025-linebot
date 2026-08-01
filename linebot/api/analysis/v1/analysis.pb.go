@@ -683,13 +683,15 @@ func (x *StoredVideo) GetHeight() int32 {
 }
 
 type ExpertMatch struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	ExpertId          string                 `protobuf:"bytes,1,opt,name=expert_id,json=expertId,proto3" json:"expert_id,omitempty"`
-	DisplayName       string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	EuclideanDistance float64                `protobuf:"fixed64,3,opt,name=euclidean_distance,json=euclideanDistance,proto3" json:"euclidean_distance,omitempty"`
-	Video             *StoredVideo           `protobuf:"bytes,4,opt,name=video,proto3" json:"video,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ExpertId           string                 `protobuf:"bytes,1,opt,name=expert_id,json=expertId,proto3" json:"expert_id,omitempty"`
+	DisplayName        string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	CorrectionDistance float64                `protobuf:"fixed64,3,opt,name=correction_distance,json=correctionDistance,proto3" json:"correction_distance,omitempty"`
+	Video              *StoredVideo           `protobuf:"bytes,4,opt,name=video,proto3" json:"video,omitempty"`
+	MotionStartSeconds float64                `protobuf:"fixed64,5,opt,name=motion_start_seconds,json=motionStartSeconds,proto3" json:"motion_start_seconds,omitempty"`
+	MotionEndSeconds   float64                `protobuf:"fixed64,6,opt,name=motion_end_seconds,json=motionEndSeconds,proto3" json:"motion_end_seconds,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ExpertMatch) Reset() {
@@ -736,9 +738,9 @@ func (x *ExpertMatch) GetDisplayName() string {
 	return ""
 }
 
-func (x *ExpertMatch) GetEuclideanDistance() float64 {
+func (x *ExpertMatch) GetCorrectionDistance() float64 {
 	if x != nil {
-		return x.EuclideanDistance
+		return x.CorrectionDistance
 	}
 	return 0
 }
@@ -748,6 +750,20 @@ func (x *ExpertMatch) GetVideo() *StoredVideo {
 		return x.Video
 	}
 	return nil
+}
+
+func (x *ExpertMatch) GetMotionStartSeconds() float64 {
+	if x != nil {
+		return x.MotionStartSeconds
+	}
+	return 0
+}
+
+func (x *ExpertMatch) GetMotionEndSeconds() float64 {
+	if x != nil {
+		return x.MotionEndSeconds
+	}
+	return 0
 }
 
 type DiagnosticValue struct {
@@ -1146,12 +1162,14 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x10duration_seconds\x18\x05 \x01(\x01R\x0fdurationSeconds\x12\x10\n" +
 	"\x03fps\x18\x06 \x01(\x01R\x03fps\x12\x14\n" +
 	"\x05width\x18\a \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\b \x01(\x05R\x06height\"\xb6\x01\n" +
+	"\x06height\x18\b \x01(\x05R\x06height\"\x98\x02\n" +
 	"\vExpertMatch\x12\x1b\n" +
 	"\texpert_id\x18\x01 \x01(\tR\bexpertId\x12!\n" +
-	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12-\n" +
-	"\x12euclidean_distance\x18\x03 \x01(\x01R\x11euclideanDistance\x128\n" +
-	"\x05video\x18\x04 \x01(\v2\".badminton.analysis.v1.StoredVideoR\x05video\"9\n" +
+	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12/\n" +
+	"\x13correction_distance\x18\x03 \x01(\x01R\x12correctionDistance\x128\n" +
+	"\x05video\x18\x04 \x01(\v2\".badminton.analysis.v1.StoredVideoR\x05video\x120\n" +
+	"\x14motion_start_seconds\x18\x05 \x01(\x01R\x12motionStartSeconds\x12,\n" +
+	"\x12motion_end_seconds\x18\x06 \x01(\x01R\x10motionEndSeconds\"9\n" +
 	"\x0fDiagnosticValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value\"\xee\x04\n" +

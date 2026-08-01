@@ -31,7 +31,7 @@ class Settings:
             gcs_bucket_name=os.getenv("GCS_BUCKET_NAME", ""),
             gcp_service_account_email=os.getenv("GCP_SERVICE_ACCOUNT_EMAIL", ""),
             expert_collection=os.getenv(
-                "EXPERT_VIDEOS_COLLECTION", "badminton_experts_v1"
+                "EXPERT_VIDEOS_COLLECTION", "badminton_experts_v2"
             ),
             signed_url_minutes=int(os.getenv("SIGNED_URL_MINUTES", "60")),
             model_root=Path(

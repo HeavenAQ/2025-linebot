@@ -240,7 +240,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             expert=analysis_pb2.ExpertMatch(
                 expert_id=expert.expert_id,
                 display_name=expert.display_name,
-                euclidean_distance=result.expert_distance,
+                correction_distance=result.expert_distance,
                 video=self._stored_video(
                     expert_signed,
                     {
@@ -250,6 +250,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                         "height": expert.height,
                     },
                 ),
+                motion_start_seconds=expert.motion_start_seconds,
+                motion_end_seconds=expert.motion_end_seconds,
             ),
             timeline=[
                 analysis_pb2.PhaseMarker(

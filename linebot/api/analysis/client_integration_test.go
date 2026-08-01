@@ -45,12 +45,16 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.NotEmpty(t, result.StudentVideo.ObjectPath)
 	require.NotEmpty(t, result.Expert.ExpertID)
 	require.NotEmpty(t, result.Expert.Video.ObjectPath)
+	require.GreaterOrEqual(t, result.Expert.MotionStartSeconds, 0.0)
+	require.Greater(t, result.Expert.MotionEndSeconds, result.Expert.MotionStartSeconds)
 	require.NotEmpty(t, result.Timeline)
 	require.NotEmpty(t, result.OverallFeedback)
 	require.NotEmpty(t, result.CoachingCues)
 	require.Positive(t, result.Diagnostics["latency_pose_seconds"])
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
+	require.Equal(t, 1.0, result.Diagnostics["pose_tensorrt_active"])
+	require.Equal(t, 1.0, result.Diagnostics["skeleton_tensorrt_active"])
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
 
 	refreshed, err := client.RefreshPlaybackURLs(

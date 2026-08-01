@@ -23,6 +23,8 @@ class ExpertRecord:
     fps: float
     width: int
     height: int
+    motion_start_seconds: float
+    motion_end_seconds: float
 
 
 class ExpertCatalog:
@@ -47,4 +49,8 @@ class ExpertCatalog:
             fps=float(data.get("fps", 0.0)),
             width=int(data.get("width", 0)),
             height=int(data.get("height", 0)),
+            motion_start_seconds=float(data.get("motion_start_seconds", 0.0)),
+            motion_end_seconds=float(
+                data.get("motion_end_seconds", data.get("duration_seconds", 0.0))
+            ),
         )

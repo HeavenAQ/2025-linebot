@@ -66,6 +66,21 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauses]
   )
   const motionDuration = Math.max(0.01, studentDuration - totalPauseDuration)
+  const expertMotionStart = Math.min(
+    expertDuration,
+    Math.max(0, playback.expert.motion_start_seconds)
+  )
+  const configuredExpertEnd = playback.expert.motion_end_seconds
+  const expertMotionEnd = Math.min(
+    expertDuration,
+    configuredExpertEnd > expertMotionStart ? configuredExpertEnd : expertDuration
+  )
+  const expertMotionDuration = Math.max(0.01, expertMotionEnd - expertMotionStart)
+
+  const expertTimeFromMotionProgress = useCallback(
+    (position: number) => expertMotionStart + clamp(position) * expertMotionDuration,
+    [expertMotionDuration, expertMotionStart]
+  )
 
   const pauseAtTime = useCallback(
     (time: number) => pauses.find(pause => time >= pause.start && time < pause.end),
@@ -100,7 +115,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     (position: number, studentTime: number) => {
       const expert = expertRef.current
       if (!expert || !Number.isFinite(expertDuration) || expertDuration <= 0) return
-      const target = clamp(position) * expertDuration
+      const target = expertTimeFromMotionProgress(position)
       if (Math.abs(expert.currentTime - target) > 0.12) expert.currentTime = target
       if (pauseAtTime(studentTime)) {
         expert.pause()
@@ -108,7 +123,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         void expert.play().catch(() => undefined)
       }
     },
-    [expertDuration, pauseAtTime]
+    [expertDuration, expertTimeFromMotionProgress, pauseAtTime]
   )
 
   const seek = useCallback(
@@ -118,11 +133,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       const expert = expertRef.current
       const studentTime = cue?.student_timestamp_seconds ?? studentTimeFromMotionProgress(next)
       if (student) student.currentTime = studentTime
-      if (expert && expertDuration > 0) expert.currentTime = next * expertDuration
+      if (expert && expertDuration > 0) {
+        expert.currentTime = expertTimeFromMotionProgress(next)
+      }
       setProgress(next)
       if (cue) setActiveCue(cue)
     },
-    [expertDuration, studentTimeFromMotionProgress]
+    [expertDuration, expertTimeFromMotionProgress, studentTimeFromMotionProgress]
   )
 
   const setPlayback = useCallback(
@@ -174,7 +191,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           <h2 className="text-base font-semibold">動作同步比較</h2>
           <p className="mt-1 truncate text-xs text-zinc-400">
             專家 {playback.expert.display_name} · 骨架距離{' '}
-            {playback.expert.euclidean_distance.toFixed(3)}
+            {playback.expert.correction_distance.toFixed(3)}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -230,7 +247,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             playsInline
             muted
             preload="metadata"
-            onLoadedMetadata={event => setExpertDuration(event.currentTarget.duration)}
+            onLoadedMetadata={event => {
+              setExpertDuration(event.currentTarget.duration)
+              event.currentTarget.currentTime = Math.min(
+                event.currentTarget.duration,
+                Math.max(0, playback.expert.motion_start_seconds)
+              )
+            }}
             onClick={() => setPlayback(!playingRef.current)}
           />
         </div>

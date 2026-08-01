@@ -167,7 +167,7 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 		Handedness:   strings.TrimPrefix(strings.ToLower(response.Handedness.String()), "handedness_"),
 		Grade:        commons.GradingOutcome{TotalGrade: response.Grade.TotalGrade, GradingDetails: details, ScoreStatus: response.Grade.ScoreStatus},
 		StudentVideo: media(response.StudentVideo),
-		Expert:       commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, EuclideanDistance: response.Expert.EuclideanDistance, Video: media(response.Expert.Video)},
+		Expert:       commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, CorrectionDistance: response.Expert.CorrectionDistance, Video: media(response.Expert.Video), MotionStartSeconds: response.Expert.MotionStartSeconds, MotionEndSeconds: response.Expert.MotionEndSeconds},
 		Timeline:     timeline, CoachingCues: cues, OverallFeedback: response.OverallFeedback,
 		Diagnostics: diagnostics,
 	}

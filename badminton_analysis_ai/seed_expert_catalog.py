@@ -5,12 +5,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 from pathlib import Path
+import subprocess
 from typing import Any
 
 import cv2
-import numpy as np
+from google.auth.credentials import Credentials
 from google.cloud import firestore, storage
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
+from badminton_analysis.ml.expert_vector import expert_vector_payload
 from service.expert_catalog import expert_document_id
 
 SKILL_VIDEO_DIRS = {
@@ -19,6 +22,18 @@ SKILL_VIDEO_DIRS = {
     "lift": Path("scoring_videos/挑球/專家挑球"),
     "smash": Path("scoring_videos/殺球/專家殺球"),
 }
+VIDEO_CATALOG_VERSION = "v1"
+VECTOR_CATALOG_VERSION = "v2"
+
+
+def _gcloud_user_credentials() -> Credentials:
+    result = subprocess.run(
+        ("gcloud", "auth", "print-access-token"),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return OAuthCredentials(result.stdout.strip())
 
 
 def _video_metadata(path: Path) -> dict[str, float | int]:
@@ -36,26 +51,6 @@ def _video_metadata(path: Path) -> dict[str, float | int]:
         capture.release()
 
 
-def _vector_payload(path: Path) -> tuple[dict[str, Any], str]:
-    with np.load(path, allow_pickle=False) as sample:
-        skeleton = sample["skeleton_3d"].astype(np.float32)
-        confidence = sample["confidence"].astype(np.float32)
-        phases = sample["phase_indices"].astype(np.int32)
-        handedness = str(sample["handedness"].item())
-    if skeleton.shape != (64, 17, 3) or confidence.shape != (64, 17):
-        raise ValueError(f"unexpected expert vector shape: {path}")
-    return (
-        {
-            "vector": skeleton.reshape(-1).astype(float).tolist(),
-            "vector_shape": list(skeleton.shape),
-            "confidence": confidence.reshape(-1).astype(float).tolist(),
-            "confidence_shape": list(confidence.shape),
-            "phase_indices": phases.astype(int).tolist(),
-        },
-        handedness,
-    )
-
-
 def seed(
     source_root: Path,
     *,
@@ -64,9 +59,18 @@ def seed(
     collection_name: str,
     dry_run: bool,
     workers: int = 8,
+    credentials: Credentials | None = None,
 ) -> dict[str, int]:
-    storage_client = None if dry_run else storage.Client(project=project_id)
-    firestore_client = None if dry_run else firestore.Client(project=project_id)
+    storage_client = (
+        None
+        if dry_run
+        else storage.Client(project=project_id, credentials=credentials)
+    )
+    firestore_client = (
+        None
+        if dry_run
+        else firestore.Client(project=project_id, credentials=credentials)
+    )
     bucket = None if storage_client is None else storage_client.bucket(bucket_name)
     collection = (
         None if firestore_client is None else firestore_client.collection(collection_name)
@@ -95,9 +99,16 @@ def seed(
         for expert_id in sorted(videos):
             video_path = videos[expert_id]
             vector_path = vectors[expert_id]
-            video_object = f"experts/v1/{skill}/videos/{video_path.name}"
-            vector_object = f"experts/v1/{skill}/vectors/{vector_path.name}"
-            vector_payload, handedness = _vector_payload(vector_path)
+            video_object = (
+                f"experts/{VIDEO_CATALOG_VERSION}/{skill}/videos/{video_path.name}"
+            )
+            vector_object = (
+                f"experts/{VECTOR_CATALOG_VERSION}/{skill}/vectors/{vector_path.name}"
+            )
+            video_metadata = _video_metadata(video_path)
+            vector_payload, handedness = expert_vector_payload(
+                vector_path, float(video_metadata["fps"])
+            )
             document = {
                 "expert_id": expert_id,
                 "display_name": expert_id,
@@ -108,7 +119,7 @@ def seed(
                 "video_gcs_uri": f"gs://{bucket_name}/{video_object}",
                 "vector_object_path": vector_object,
                 "vector_gcs_uri": f"gs://{bucket_name}/{vector_object}",
-                **_video_metadata(video_path),
+                **video_metadata,
                 **vector_payload,
             }
             documents.append((expert_document_id(skill, expert_id), document))
@@ -122,9 +133,7 @@ def seed(
 
     if not dry_run:
         assert bucket is not None and collection is not None
-        existing = {
-            blob.name for blob in bucket.list_blobs(prefix="experts/v1/")
-        }
+        existing = {blob.name for blob in bucket.list_blobs(prefix="experts/")}
         pending = [upload for upload in uploads if upload[1] not in existing]
 
         def upload(item: tuple[Path, str, str]) -> str:
@@ -162,15 +171,21 @@ def main() -> int:
     parser.add_argument("--bucket", default=os.getenv("GCS_BUCKET_NAME", ""))
     parser.add_argument(
         "--collection",
-        default=os.getenv("EXPERT_VIDEOS_COLLECTION", "badminton_experts_v1"),
+        default=os.getenv("EXPERT_VIDEOS_COLLECTION", "badminton_experts_v2"),
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--gcloud-user-credentials",
+        action="store_true",
+        help="Use the active gcloud user's in-memory access token",
+    )
     args = parser.parse_args()
     if not args.project_id or not args.bucket:
         raise ValueError("--project-id and --bucket are required")
     if args.workers < 1:
         raise ValueError("--workers must be positive")
+    credentials = _gcloud_user_credentials() if args.gcloud_user_credentials else None
     counts = seed(
         args.source_root,
         project_id=args.project_id,
@@ -178,6 +193,7 @@ def main() -> int:
         collection_name=args.collection,
         dry_run=args.dry_run,
         workers=args.workers,
+        credentials=credentials,
     )
     print(json.dumps(counts, sort_keys=True))
     return 0

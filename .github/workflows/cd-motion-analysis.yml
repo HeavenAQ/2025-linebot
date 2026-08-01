@@ -101,22 +101,34 @@ jobs:
           gcloud storage cp \
             gs://${{ env.GCS_BUCKET_NAME }}/integration-fixtures/clear/EG3.mp4 \
             /tmp/analysis-e2e/EG3.mp4
+          gcloud storage cp \
+            gs://${{ env.GCS_BUCKET_NAME }}/experts/v1/serve/videos/nstc_left_IMG_5568.mov \
+            /tmp/analysis-e2e/nstc_left_IMG_5568.mov
           export ANALYSIS_GRPC_TARGET="${ANALYSIS_CANDIDATE_URL#https://}"
           export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
             --secret analysis-grpc-api-key)"
-          export LIVE_ANALYSIS_VIDEO=/tmp/analysis-e2e/EG3.mp4
           export RUN_LIVE_ANALYSIS=1
           cd linebot
-          for attempt in 1 2 3; do
-            if go test -count=1 -v ./api/analysis -run TestLiveAnalysisService; then
-              exit 0
-            fi
-            if [[ "$attempt" != "3" ]]; then
-              echo "GPU service was not ready; retrying after the current request drains"
-              sleep 180
-            fi
-          done
-          exit 1
+          run_fixture() {
+            export LIVE_ANALYSIS_VIDEO="$1"
+            export LIVE_ANALYSIS_SKILL="$2"
+            export LIVE_ANALYSIS_HANDEDNESS="$3"
+            export LIVE_ANALYSIS_MIN_GRADE="${4:-}"
+            export LIVE_ANALYSIS_EXPERT_PREFIX="${5:-}"
+            for attempt in 1 2 3; do
+              if go test -count=1 -v ./api/analysis -run TestLiveAnalysisService; then
+                return 0
+              fi
+              if [[ "$attempt" != "3" ]]; then
+                echo "GPU service was not ready; retrying after the current request drains"
+                sleep 180
+              fi
+            done
+            return 1
+          }
+          run_fixture /tmp/analysis-e2e/EG3.mp4 clear right
+          run_fixture /tmp/analysis-e2e/nstc_left_IMG_5568.mov \
+            serve left 99 nstc_left_
 
       - name: Promote verified GPU revision
         run: |

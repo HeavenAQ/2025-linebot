@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -56,6 +57,14 @@ func TestLiveAnalysisService(t *testing.T) {
 	target := os.Getenv("ANALYSIS_GRPC_TARGET")
 	apiKey := os.Getenv("ANALYSIS_GRPC_API_KEY")
 	videoPath := os.Getenv("LIVE_ANALYSIS_VIDEO")
+	skill := os.Getenv("LIVE_ANALYSIS_SKILL")
+	if skill == "" {
+		skill = "clear"
+	}
+	handedness := os.Getenv("LIVE_ANALYSIS_HANDEDNESS")
+	if handedness == "" {
+		handedness = "right"
+	}
 	require.NotEmpty(t, target)
 	require.NotEmpty(t, apiKey)
 	require.NotEmpty(t, videoPath)
@@ -71,13 +80,24 @@ func TestLiveAnalysisService(t *testing.T) {
 	analysisStarted := time.Now()
 	result, err := client.AnalyzeVideo(
 		context.Background(), requestID, "integration-test", filepath.Base(videoPath),
-		"clear", "right", video,
+		skill, handedness, video,
 	)
 	require.NoError(t, err)
+	require.Equal(t, skill, result.Skill)
+	require.Equal(t, handedness, result.Handedness)
 	require.InDelta(t, 50, result.Grade.TotalGrade, 50)
+	if rawMinimum := os.Getenv("LIVE_ANALYSIS_MIN_GRADE"); rawMinimum != "" {
+		minimum, parseErr := strconv.ParseFloat(rawMinimum, 64)
+		require.NoError(t, parseErr)
+		require.GreaterOrEqual(t, result.Grade.TotalGrade, minimum)
+	}
 	require.NotEmpty(t, result.Grade.GradingDetails)
 	require.NotEmpty(t, result.StudentVideo.ObjectPath)
 	require.NotEmpty(t, result.Expert.ExpertID)
+	if prefix := os.Getenv("LIVE_ANALYSIS_EXPERT_PREFIX"); prefix != "" {
+		require.True(t, len(result.Expert.ExpertID) >= len(prefix))
+		require.Equal(t, prefix, result.Expert.ExpertID[:len(prefix)])
+	}
 	require.NotEmpty(t, result.Expert.Video.ObjectPath)
 	require.GreaterOrEqual(t, result.Expert.MotionStartSeconds, 0.0)
 	require.Greater(t, result.Expert.MotionEndSeconds, result.Expert.MotionStartSeconds)

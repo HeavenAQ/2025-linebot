@@ -1,20 +1,20 @@
 package app_test
 
 import (
-    "testing"
+	"testing"
 
-    "github.com/HeavenAQ/nstc-linebot-2025/app"
-    "github.com/stretchr/testify/require"
+	"github.com/HeavenAQ/nstc-linebot-2025/app"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewApp(t *testing.T) {
-    // Skip external clients during this unit test
-    t.Setenv("SKIP_EXTERNAL_CLIENTS", "1")
-    // Set required environment variables to simulate configuration loading
-    // This simulates the expected env vars for your app to load the configuration
+	t.Setenv("SKIP_EXTERNAL_CLIENTS", "1")
+	t.Setenv("LINE_CHANNEL_SECRET", "test-channel-secret")
+	t.Setenv("LINE_CHANNEL_TOKEN", "test-channel-token")
+	t.Setenv("GCS_BUCKET_NAME", "test-bucket")
 
 	// Call NewApp to create the app
-    app := app.NewApp("../.env")
+	app := app.NewApp("../.env")
 
 	// Ensure the app was created successfully
 	require.NotNil(t, app, "App should not be nil")

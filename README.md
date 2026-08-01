@@ -312,8 +312,10 @@ The analyzer deployment sets `POSE_EXECUTION_PROVIDER=tensorrt`,
 
 - `ci.yml` runs Go tests, Python correction/spec tests, and the LIFF build.
 - `cd-badminton-analysis.yml` builds the CUDA image, deploys the
-  `badminton-analysis-ai` Cloud Run service with one L4 GPU and HTTP/2, then
-  streams a real beginner clear video through gRPC and verifies signed playback.
+  `badminton-analysis-ai` Cloud Run service with one L4 GPU and HTTP/2 at zero
+  traffic, then streams a real beginner clear video through the candidate URL
+  and verifies signed playback. Only a passing candidate is promoted to 100%.
+  Superseded GPU revisions and container images are removed after promotion.
 - `cd.yml` builds/deploys the Go service and checks its live health endpoint.
 
 Generated videos, logs, local datasets, credentials, `.env` files, analysis

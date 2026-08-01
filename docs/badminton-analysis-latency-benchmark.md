@@ -100,12 +100,20 @@ The raw observations, scores, expert IDs, object paths, provider flags, and all
 stage timings are committed in
 `docs/benchmarks/badminton-analysis-latency-2026-08-01.csv`.
 
-The initial deployment gate also measured the unoptimized cold path: exact L4
-detector and pose compilation plus one complete clear analysis took about 432
-seconds. Its client connection reset at 405.93 seconds even though the server
-finished and uploaded the video. Production now keeps one warm instance and the
-CD gate retries once after compilation; cold-build time is not mixed into the
-steady-state table.
+The verified revision-12 rollout measured the unoptimized cold path separately.
+The first candidate request returned after 269.93 seconds while exact L4
+detector and pose compilation continued on the zero-traffic instance. After a
+180-second drain interval, the second real-video request completed in 54.39
+seconds, including an OpenAI structured-output retry. The candidate was then
+promoted to 100% traffic. The CD gate permits up to three attempts and never
+mixes cold-build time into the steady-state table.
+
+Post-promotion production regression checks used the original LINE upload that
+previously returned an empty body. LINE download through Go and full analysis on
+revision 12 passed in 34.95 seconds. Left-handed clear EG29 was rejected because
+the catalog has no left clear expert. Left-handed smash EG29 completed in 38.57
+seconds and matched left-handed expert `張宸愷3`; pose and correction both reported
+TensorRT active.
 
 ## Interpretation
 

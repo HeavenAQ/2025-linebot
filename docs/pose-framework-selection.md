@@ -121,8 +121,10 @@ Production engines were built separately on the RTX A6000 (SM86) with ONNX
 Runtime 1.24.4 and TensorRT 10.14.1.48. The four FP16 correction engines are
 hardware-compatible SM80+ plans and load directly on the production L4. RTMW's
 ONNX Runtime graph partition hashes differ in the production image, so the CD
-gate builds exact SM89 detector and pose plans on that L4 before traffic is
-accepted. One warm instance retains those plans and loaded sessions.
+gate builds exact SM89 detector and pose plans on a zero-traffic L4 candidate.
+The workflow retries the same candidate after the cold request drains, promotes
+it only after real video analysis and signed playback pass, and keeps one warm
+instance. Failed candidates never receive production traffic.
 
 The portable ignored cache is stored at:
 

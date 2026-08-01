@@ -213,9 +213,30 @@ class SkeletonAnalysisPipeline:
                 "latency_preprocessing_seconds": preprocessing_finished - pose_finished,
                 "latency_scoring_seconds": scoring_finished - preprocessing_finished,
                 "latency_preview_render_seconds": preview_finished - scoring_finished,
-                "latency_openai_seconds": coaching_finished - preview_finished,
+                "latency_coaching_total_seconds": coaching_finished - preview_finished,
+                "latency_llm_inference_seconds": float(
+                    coaching_payload["latency_llm_inference_seconds"]
+                ),
+                "latency_coaching_preparation_seconds": (
+                    coaching_finished
+                    - preview_finished
+                    - float(coaching_payload["latency_llm_inference_seconds"])
+                ),
                 "latency_final_render_seconds": final_render_finished - coaching_finished,
                 "latency_pipeline_seconds": final_render_finished - pipeline_started,
+                "pose_execution_provider": self.pose_detector.execution_provider,
+                "pose_active_execution_providers": (
+                    self.pose_detector.active_execution_providers
+                ),
+                "pose_tensorrt_active": float(
+                    bool(self.pose_detector.active_execution_providers)
+                    and all(
+                        providers[0] == "TensorrtExecutionProvider"
+                        for providers in (
+                            self.pose_detector.active_execution_providers.values()
+                        )
+                    )
+                ),
             }
         )
 

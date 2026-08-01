@@ -4,6 +4,7 @@ google-auth==2.40.3
 google-cloud-firestore==2.21.0
 google-cloud-storage==3.4.0
 numpy==1.26.4
+onnxruntime-gpu==1.24.4
 opencv-python-headless==4.10.0.84
 openai==2.14.0
 pandas==2.2.3
@@ -12,3 +13,5 @@ pydantic==2.12.5
 python-dotenv==1.2.1
 scikit-learn==1.7.2
 shapely==2.1.2
+tqdm==4.67.1
+tensorrt-cu12==10.14.1.48.post1

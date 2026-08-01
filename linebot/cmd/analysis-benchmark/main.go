@@ -17,11 +17,15 @@ import (
 )
 
 var diagnosticColumns = []string{
+	"pose_tensorrt_active",
+	"skeleton_tensorrt_active",
 	"latency_pose_seconds",
 	"latency_preprocessing_seconds",
 	"latency_scoring_seconds",
 	"latency_preview_render_seconds",
-	"latency_openai_seconds",
+	"latency_coaching_preparation_seconds",
+	"latency_llm_inference_seconds",
+	"latency_coaching_total_seconds",
 	"latency_final_render_seconds",
 	"latency_pipeline_seconds",
 	"latency_catalog_seconds",
@@ -72,7 +76,8 @@ func main() {
 	header := []string{
 		"recorded_at", "skill", "video", "run", "health_seconds",
 		"client_analyze_seconds", "refresh_urls_seconds", "student_range_get_seconds",
-		"expert_range_get_seconds", "score", "expert_id", "handedness",
+		"expert_range_get_seconds", "score", "analysis_id", "expert_id", "handedness",
+		"coaching_cue_count", "student_object_path", "expert_object_path",
 	}
 	header = append(header, diagnosticColumns...)
 	if err := writer.Write(header); err != nil {
@@ -117,7 +122,9 @@ func main() {
 				time.Now().UTC().Format(time.RFC3339), benchmark.skill, benchmark.path, strconv.Itoa(run),
 				decimal(healthSeconds), decimal(analyzeSeconds), decimal(refreshSeconds),
 				decimal(studentGetSeconds), decimal(expertGetSeconds), decimal(result.Grade.TotalGrade),
-				result.Expert.ExpertID, result.Handedness,
+				result.AnalysisID, result.Expert.ExpertID, result.Handedness,
+				strconv.Itoa(len(result.CoachingCues)), result.StudentVideo.ObjectPath,
+				result.Expert.Video.ObjectPath,
 			}
 			for _, name := range diagnosticColumns {
 				row = append(row, decimal(result.Diagnostics[name]))

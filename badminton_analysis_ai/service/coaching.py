@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,7 @@ class CoachingGenerator:
             correction_grade=correction_grade,
             spec=spec,
         )
+        llm_started = time.perf_counter()
         response = self.client.responses.parse(
             model=self.model,
             instructions=system_instructions(spec),
@@ -66,6 +68,7 @@ class CoachingGenerator:
             max_output_tokens=2200,
             store=False,
         )
+        llm_finished = time.perf_counter()
         parsed = response.output_parsed
         if parsed is None:
             raise ValueError("OpenAI response did not contain parsed coaching")
@@ -95,6 +98,7 @@ class CoachingGenerator:
         payload = {
             "model": self.model,
             "response_id": response.id,
+            "latency_llm_inference_seconds": llm_finished - llm_started,
             "context": context,
             "analysis": analysis,
         }

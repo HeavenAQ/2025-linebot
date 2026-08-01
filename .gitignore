@@ -8,10 +8,11 @@ logs/
 !.env.example
 
 # Local/generated video analysis artifacts
-angle_analysis_ai/output/
-angle_analysis_ai/uploads/
-angle_analysis_ai/validation/
-angle_analysis_ai/expert_videos/
-angle_analysis_ai/test_videos/
+badminton_analysis_ai/output/
+badminton_analysis_ai/uploads/
+badminton_analysis_ai/validation/
+badminton_analysis_ai/expert_videos/
+badminton_analysis_ai/test_videos/
+badminton_analysis_ai/models/tensorrt-cache/
 linebot/tmp*/
 generated_videos/

@@ -1,5 +1,6 @@
+import os
 import time
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -20,89 +21,178 @@ from badminton_analysis.models.joints import JOINTS, SKELETON_CONNECTIONS
 Pose3DPrediction = dict[str, Any]
 _COCO_BODY_KEYPOINT_COUNT = 17
 
-_H36M_TO_COCO_BODY = {
-    0: 9,  # nose/head proxy
-    1: 10,  # left eye/head proxy
-    2: 10,  # right eye/head proxy
-    3: 10,  # left ear/head proxy
-    4: 10,  # right ear/head proxy
-    5: 11,  # left shoulder
-    6: 14,  # right shoulder
-    7: 12,  # left elbow
-    8: 15,  # right elbow
-    9: 13,  # left wrist
-    10: 16,  # right wrist
-    11: 4,  # left hip
-    12: 1,  # right hip
-    13: 5,  # left knee
-    14: 2,  # right knee
-    15: 6,  # left ankle
-    16: 3,  # right ankle
-}
+_DEFAULT_DETECTOR_MODEL = (
+    "/app/models/pose/yolox_m_8xb8-300e_humanart-c2c7a14a.onnx"
+)
+_DEFAULT_POSE_MODEL = (
+    "/app/models/pose/rtmw3d-x_8xb64_cocktail14-384x288-b0a0eab7_20240626.onnx"
+)
+_DEFAULT_TENSORRT_CACHE = "/app/models/tensorrt-cache"
+_DEFAULT_CAMERA_FOCAL_LENGTH = np.array(
+    (1145.04940459, 1143.78109572), dtype=np.float64
+)
+_DEFAULT_ROOT_DEPTH = 5.14388
 
 
 class PoseDetector:
     def __init__(
         self,
-        model_path: str = "image-pose-lift_tcn_8xb64-200e_h36m",
+        model_path: str | None = None,
         min_detection_confidence: float = 0.5,
-        pose2d_model: str = "rtmpose-m_8xb256-420e_coco-256x192",
-        wholebody_model: str = "rtmw-m_8xb1024-270e_cocktail14-256x192",
+        detector_model: str | None = None,
+        backend: str | None = None,
+        detection_frequency: int = 7,
     ):
         self.logger = Logger(self.__class__.__name__)
         self.min_detection_confidence = min_detection_confidence
         self.landmarks: CoordinateDict = {}
-
-        # MMPose supports CUDA and CPU reliably. Keep MPS out of the default
-        # path because the OpenMMLab stack commonly lacks MPS kernels.
-        if torch.cuda.is_available():
-            self.device = "cuda:0"
-        else:
-            self.device = "cpu"
-
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.logger.info(f"{self.device} is used")
-        self.model_name = model_path
-        self.pose2d_model = pose2d_model
-        self.wholebody_model_name = wholebody_model
+        self.model_name = model_path or os.getenv(
+            "RTMW3D_POSE_MODEL", _DEFAULT_POSE_MODEL
+        )
+        self.detector_model_name = detector_model or os.getenv(
+            "RTMW3D_DETECTOR_MODEL", _DEFAULT_DETECTOR_MODEL
+        )
+        self.backend = backend or os.getenv("POSE_INFERENCE_BACKEND", "onnxruntime")
+        self.execution_provider = os.getenv(
+            "POSE_EXECUTION_PROVIDER", "tensorrt" if self.device == "cuda" else "cpu"
+        ).lower()
+        self.onnx_device_id = int(os.getenv("ONNXRUNTIME_DEVICE_ID", "0"))
+        if detection_frequency < 1:
+            raise ValueError("detection_frequency must be positive")
+        self.detection_frequency = detection_frequency
         self.model: Any | None = None
-        self.wholebody_model: Any | None = None
 
         self.__cur_time: float = 0.0
         self.__prev_time: float = 0.0
         self._target_bbox_center: NDArray[np.float64] | None = None
         self._last_frame_shape: tuple[int, ...] | None = None
         self._last_wholebody_predictions: list[Pose3DPrediction] = []
+        self._last_bboxes: list[list[float]] = []
+        self._frame_index = 0
+        self.active_execution_providers: dict[str, tuple[str, ...]] = {}
 
-    def _load_inferencer(self, model_path: str) -> Any:
+    def _configure_execution_providers(self, model: Any) -> None:
+        if self.backend != "onnxruntime" or self.device != "cuda":
+            return
+
+        import onnxruntime as ort  # type: ignore[import-not-found]
+
+        available = set(ort.get_available_providers())
+        if self.execution_provider == "tensorrt":
+            if "TensorrtExecutionProvider" not in available:
+                raise RuntimeError(
+                    "POSE_EXECUTION_PROVIDER=tensorrt, but ONNX Runtime does not "
+                    "provide TensorrtExecutionProvider"
+                )
+            cache_root = os.path.abspath(
+                os.getenv("POSE_TENSORRT_CACHE_DIR", _DEFAULT_TENSORRT_CACHE)
+            )
+            for name, component in (
+                ("detector", model.det_model),
+                ("pose", model.pose_model),
+            ):
+                cache_path = os.path.join(cache_root, name)
+                os.makedirs(cache_path, exist_ok=True)
+                options = {
+                    "device_id": self.onnx_device_id,
+                    "trt_engine_cache_enable": True,
+                    "trt_engine_cache_path": cache_path,
+                    "trt_engine_cache_prefix": f"rtmw3d_{name}",
+                    "trt_fp16_enable": True,
+                    "trt_engine_hw_compatible": True,
+                    "trt_timing_cache_enable": True,
+                    "trt_op_types_to_exclude": (
+                        "TopK,NonMaxSuppression,NonZero,RoiAlign"
+                    ),
+                }
+                component.session.set_providers(
+                    [
+                        ("TensorrtExecutionProvider", options),
+                        (
+                            "CUDAExecutionProvider",
+                            {"device_id": self.onnx_device_id},
+                        ),
+                        "CPUExecutionProvider",
+                    ]
+                )
+                active = tuple(component.session.get_providers())
+                if not active or active[0] != "TensorrtExecutionProvider":
+                    raise RuntimeError(
+                        f"TensorRT did not activate for RTMW3D {name}: {active}"
+                    )
+                self.active_execution_providers[name] = active
+            return
+
+        if self.execution_provider != "cuda":
+            raise ValueError(
+                "POSE_EXECUTION_PROVIDER must be tensorrt, cuda, or cpu"
+            )
+        if "CUDAExecutionProvider" not in available:
+            raise RuntimeError(
+                "POSE_EXECUTION_PROVIDER=cuda, but ONNX Runtime does not provide "
+                "CUDAExecutionProvider"
+            )
+        for name, component in (
+            ("detector", model.det_model),
+            ("pose", model.pose_model),
+        ):
+            component.session.set_providers(
+                [
+                    (
+                        "CUDAExecutionProvider",
+                        {"device_id": self.onnx_device_id},
+                    ),
+                    "CPUExecutionProvider",
+                ]
+            )
+            self.active_execution_providers[name] = tuple(
+                component.session.get_providers()
+            )
+
+    def _load_inferencer(self) -> Any:
         try:
-            from mmpose.apis import MMPoseInferencer  # type: ignore[import-not-found]
+            from rtmlib import Wholebody3d  # type: ignore[import-not-found]
         except ImportError as exc:
             raise RuntimeError(
-                "MMPose is required for the 3D pose backend. Install mmpose, "
-                "mmcv, mmdet, and mmengine in the active environment."
+                "rtmlib and onnxruntime-gpu are required for RTMW3D inference"
             ) from exc
 
-        return MMPoseInferencer(
-            pose2d=self.pose2d_model,
-            pose3d=model_path,
+        model = Wholebody3d(
+            det=self.detector_model_name,
+            det_input_size=(640, 640),
+            pose=self.model_name,
+            pose_input_size=(288, 384),
+            backend=self.backend,
             device=self.device,
-            show_progress=False,
         )
+        self._configure_execution_providers(model)
+        return model
 
-    def _load_2d_inferencer(self, model_path: str) -> Any:
-        try:
-            from mmpose.apis import MMPoseInferencer
-        except ImportError as exc:
-            raise RuntimeError(
-                "MMPose is required for the whole-body 2D backend. Install mmpose, "
-                "mmcv, mmdet, and mmengine in the active environment."
-            ) from exc
-
-        return MMPoseInferencer(
-            pose2d=model_path,
-            device=self.device,
-            show_progress=False,
+    @staticmethod
+    def _camera_coordinates(
+        keypoints_3d: NDArray[np.float64],
+        keypoints_2d: NDArray[np.float64],
+        image_shape: tuple[int, ...],
+    ) -> NDArray[np.float64]:
+        """Match the camera-space conversion used by the RTMW3D demo."""
+        height, width = image_shape[:2]
+        center = np.array((width / 2.0, height / 2.0), dtype=np.float64)
+        depth = keypoints_3d[:, 2] + _DEFAULT_ROOT_DEPTH
+        camera = np.empty((len(keypoints_3d), 3), dtype=np.float64)
+        camera[:, :2] = (
+            (keypoints_2d[:, :2] - center)
+            / _DEFAULT_CAMERA_FOCAL_LENGTH
+            * depth[:, None]
         )
+        camera[:, 2] = depth
+
+        converted = camera[:, [0, 2, 1]]
+        converted[:, 0] = -converted[:, 0]
+        converted[:, 2] = -converted[:, 2]
+        converted[:, 2] -= np.min(converted[:, 2])
+        return converted
 
     @property
     def fps(self) -> float:
@@ -146,175 +236,49 @@ class PoseDetector:
     def reset_tracking(self) -> None:
         self._target_bbox_center = None
         self._last_wholebody_predictions = []
+        self._last_bboxes = []
+        self._frame_index = 0
 
     def get_pose(self, img: MatLike) -> list[Pose3DPrediction]:
         if self.model is None:
-            self.model = self._load_inferencer(self.model_name)
-        if self.wholebody_model is None:
-            self.wholebody_model = self._load_2d_inferencer(self.wholebody_model_name)
+            self.model = self._load_inferencer()
 
         self._last_frame_shape = tuple(img.shape)
-        wholebody_result = next(
-            self.wholebody_model(
-                img,
-                return_datasamples=False,
-                show=False,
-                draw_bbox=False,
-            )
+        if self._frame_index % self.detection_frequency == 0 or not self._last_bboxes:
+            detected = self.model.det_model(img)
+            self._last_bboxes = [
+                np.asarray(value, dtype=np.float64).reshape(-1)[:4].tolist()
+                for value in detected
+                if np.asarray(value).size >= 4
+            ]
+        bboxes = self._last_bboxes or [[0.0, 0.0, img.shape[1], img.shape[0]]]
+        keypoints_3d, scores, _, keypoints_2d = self.model.pose_model(
+            img, bboxes=bboxes
         )
-        self._last_wholebody_predictions = self._flatten_predictions(
-            wholebody_result.get("predictions", [])
-        )
-        return self._lift_wholebody_predictions_to_3d(self._last_wholebody_predictions)
+        self._frame_index += 1
 
-    def _lift_wholebody_predictions_to_3d(
-        self, predictions: list[Pose3DPrediction]
-    ) -> list[Pose3DPrediction]:
-        if not predictions:
-            return []
-
-        try:
-            from mmengine.structures import InstanceData  # type: ignore[import-untyped]
-            from mmpose.apis import (
-                convert_keypoint_definition,
-                inference_pose_lifter_model,
-            )
-            from mmpose.structures import PoseDataSample  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise RuntimeError(
-                "MMPose is required for lifting RTMW 2D keypoints to 3D."
-            ) from exc
-
-        lifter_model = self._pose_lifter_model()
-        pose_lift_dataset = lifter_model.dataset_meta.get("dataset_name", "h36m")
-        pose_samples: list[Any] = []
-        source_predictions: list[Pose3DPrediction] = []
-
-        for track_id, prediction in enumerate(predictions):
-            keypoints = self._as_keypoint_array(prediction.get("keypoints"))
-            if keypoints is None or len(keypoints) < _COCO_BODY_KEYPOINT_COUNT:
+        predictions_3d: list[Pose3DPrediction] = []
+        predictions_2d: list[Pose3DPrediction] = []
+        for raw_3d, raw_scores, raw_2d, bbox in zip(
+            keypoints_3d, scores, keypoints_2d, bboxes, strict=False
+        ):
+            pose_3d = np.asarray(raw_3d, dtype=np.float64)
+            pose_2d = np.asarray(raw_2d, dtype=np.float64)
+            pose_scores = np.asarray(raw_scores, dtype=np.float64)
+            if len(pose_3d) < _COCO_BODY_KEYPOINT_COUNT:
                 continue
-
-            scores = self._as_score_array(
-                prediction.get("keypoint_scores"), len(keypoints)
+            camera_pose = self._camera_coordinates(pose_3d, pose_2d, tuple(img.shape))
+            common = {
+                "keypoint_scores": pose_scores.tolist(),
+                "bbox": list(bbox),
+            }
+            predictions_3d.append(
+                {**common, "keypoints": camera_pose[:_COCO_BODY_KEYPOINT_COUNT].tolist()}
             )
-            body_keypoints = keypoints[:_COCO_BODY_KEYPOINT_COUNT, :2].astype(
-                np.float32
-            )
-            body_scores = scores[:_COCO_BODY_KEYPOINT_COUNT].astype(np.float32)
-            converted_keypoints = convert_keypoint_definition(
-                body_keypoints[None, :, :],
-                pose_det_dataset="coco",
-                pose_lift_dataset=pose_lift_dataset,
-            )
-            converted_scores = convert_keypoint_definition(
-                body_scores[None, :, None],
-                pose_det_dataset="coco",
-                pose_lift_dataset=pose_lift_dataset,
-            ).squeeze(-1)
+            predictions_2d.append({**common, "keypoints": pose_2d.tolist()})
 
-            bbox = self._bbox_from_prediction(prediction, keypoints)
-            if bbox is None:
-                bbox = self._bbox_from_prediction(prediction, body_keypoints)
-            if bbox is None:
-                continue
-
-            pred_instances = InstanceData()
-            pred_instances.keypoints = converted_keypoints.astype(np.float32)
-            pred_instances.keypoint_scores = converted_scores.astype(np.float32)
-            pred_instances.bboxes = np.asarray(bbox, dtype=np.float32).reshape(1, 4)
-            pred_instances.areas = (
-                pred_instances.bboxes[..., 2:] - pred_instances.bboxes[..., :2]
-            ).prod(-1)
-
-            data_sample = PoseDataSample()
-            data_sample.pred_instances = pred_instances
-            data_sample.gt_instances = InstanceData()
-            data_sample.set_field(track_id, "track_id")
-            pose_samples.append(data_sample)
-            source_predictions.append(prediction)
-
-        if not pose_samples:
-            return []
-
-        image_size = None
-        if self._last_frame_shape is not None and len(self._last_frame_shape) >= 2:
-            height, width = self._last_frame_shape[:2]
-            image_size = (width, height)
-
-        lift_results = inference_pose_lifter_model(
-            lifter_model,
-            [pose_samples],
-            with_track_id=True,
-            image_size=image_size,
-            norm_pose_2d=True,
-        )
-        return self._pose_lift_results_to_predictions(lift_results, source_predictions)
-
-    def _pose_lifter_model(self) -> Any:
-        inferencer = getattr(self.model, "inferencer", self.model)
-        lifter_model = getattr(inferencer, "model", None)
-        if lifter_model is None:
-            raise RuntimeError(
-                "The configured MMPose inferencer has no pose lifter model."
-            )
-        return lifter_model
-
-    def _pose_lift_results_to_predictions(
-        self,
-        lift_results: list[Any],
-        source_predictions: list[Pose3DPrediction],
-    ) -> list[Pose3DPrediction]:
-        predictions: list[Pose3DPrediction] = []
-        for result, source in zip(lift_results, source_predictions):
-            keypoints = np.asarray(result.pred_instances.keypoints, dtype=np.float64)
-            scores = np.asarray(result.pred_instances.keypoint_scores, dtype=np.float64)
-            if keypoints.ndim == 4:
-                keypoints = np.squeeze(keypoints, axis=1)
-            if keypoints.ndim == 3 and keypoints.shape[0] == 1:
-                keypoints = keypoints[0]
-            if scores.ndim == 3:
-                scores = np.squeeze(scores, axis=1)
-            if scores.ndim == 2 and scores.shape[0] == 1:
-                scores = scores[0]
-
-            keypoints = keypoints[..., [0, 2, 1]]
-            keypoints[..., 0] = -keypoints[..., 0]
-            keypoints[..., 2] = -keypoints[..., 2]
-            keypoints[..., 2] -= np.min(keypoints[..., 2], axis=-1, keepdims=True)
-
-            predictions.append(
-                {
-                    "keypoints": self._h36m_keypoints_to_coco(keypoints).tolist(),
-                    "keypoint_scores": self._h36m_scores_to_coco(scores).tolist(),
-                    "bbox": source.get("bbox"),
-                }
-            )
-        return predictions
-
-    def _h36m_keypoints_to_coco(
-        self, keypoints: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
-        if keypoints.ndim != 2 or keypoints.shape[0] != 17:
-            return keypoints
-        coco_keypoints = np.zeros((17, keypoints.shape[1]), dtype=np.float64)
-        for coco_idx, h36m_idx in _H36M_TO_COCO_BODY.items():
-            coco_keypoints[coco_idx] = keypoints[h36m_idx]
-        return coco_keypoints
-
-    def _h36m_scores_to_coco(self, scores: NDArray[np.float64]) -> NDArray[np.float64]:
-        if scores.ndim != 1 or scores.shape[0] != 17:
-            return scores
-        coco_scores = np.zeros(17, dtype=np.float64)
-        for coco_idx, h36m_idx in _H36M_TO_COCO_BODY.items():
-            coco_scores[coco_idx] = scores[h36m_idx]
-        return coco_scores
-
-    def _flatten_predictions(self, value: Any) -> list[Pose3DPrediction]:
-        predictions = cast(list[Any], value)
-        if len(predictions) == 1 and isinstance(predictions[0], list):
-            predictions = predictions[0]
-        return [pred for pred in predictions if isinstance(pred, dict)]
+        self._last_wholebody_predictions = predictions_2d
+        return predictions_3d
 
     def get_3d_landmarks(
         self, results: list[Pose3DPrediction]

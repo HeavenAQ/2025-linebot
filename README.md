@@ -36,8 +36,10 @@ To follow the complete implementation, be comfortable with:
 Pose inference uses RTMW3D-X through `rtmlib` and ONNX Runtime. Production uses
 TensorRT 10.14 FP16 engines with CUDA fallback for unsupported operators for
 the YOLOX detector, RTMW3D pose network, and all four skeleton-correction
-Transformers. The versioned, hardware-compatible engine cache is checksum
-verified before the container build and included in the deployed image.
+Transformers. The versioned SM80+ cache is checksum verified before the
+container build. Correction engines load portably; the deployment gate builds
+the image-specific detector and pose partitions for the production L4 and keeps
+one warm instance after verification.
 
 ## End-to-End Architecture
 

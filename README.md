@@ -18,7 +18,7 @@ video suggestion logic.
 - `liff/`: Next.js mobile portfolio and synchronized video comparison UI.
 - `proto/`: language-neutral gRPC contract.
 - `docs/`: architecture, operations, and measured benchmark results.
-- `.github/workflows/`: CI, Go backend CD, and GPU analyzer CD.
+- `.github/workflows/`: CI plus LIFF, Go backend, and GPU analyzer CD.
 
 ## Knowledge Prerequisites
 
@@ -36,10 +36,10 @@ To follow the complete implementation, be comfortable with:
 Pose inference uses RTMW3D-X through `rtmlib` and ONNX Runtime. Production uses
 TensorRT 10.14 FP16 engines with CUDA fallback for unsupported operators for
 the YOLOX detector, RTMW3D pose network, and all four skeleton-correction
-Transformers. The versioned SM80+ cache is checksum verified before the
-container build. Correction engines load portably; the deployment gate builds
-the image-specific detector and pose partitions for the production L4 and keeps
-one warm instance after verification.
+Transformers. The versioned exact-SM89 cache is checksum verified and baked into
+the container image. The deployment gate loads these L4-specific engines during
+a real analysis without a runtime GCS cache mount and keeps one warm instance
+after verification.
 
 ## End-to-End Architecture
 
@@ -338,11 +338,13 @@ The analyzer deployment sets `POSE_EXECUTION_PROVIDER=tensorrt`,
   Superseded GPU revisions and container images are removed after promotion.
 - `cd-linebot.yml` builds/deploys the Go service and checks its live health
   endpoint.
-- The LIFF frontend has no CD workflow: Netlify builds `liff/` from `main`
-  itself and publishes `liff/out`.
+- `cd-liff.yml` builds the static LIFF with the production Cloud Run backend,
+  rejects bundles containing the localhost development URL, and publishes
+  `liff/out` to the existing Netlify production site.
 
 Generated videos, logs, local datasets, credentials, `.env` files, analysis
 working directories, and TensorRT caches are ignored. PyTorch checkpoints,
 calibration files, and portable ONNX graphs are tracked because they are
-required runtime artifacts. The ignored TensorRT cache is downloaded from GCS
-and SHA-256 verified by the GPU deployment workflow.
+required runtime artifacts. The ignored 17-file exact-SM89 TensorRT cache is
+downloaded from GCS, SHA-256 verified, and baked into the image by the GPU
+deployment workflow.

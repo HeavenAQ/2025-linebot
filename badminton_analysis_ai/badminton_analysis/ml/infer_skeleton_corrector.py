@@ -23,6 +23,7 @@ from badminton_analysis.ml.skeleton_scoring import (
     fit_score_calibration,
     keypoint_correction_components,
     project_bone_lengths,
+    select_bone_adapted_expert,
 )
 from badminton_analysis.ml.skill_specs import (
     CANONICAL_JOINTS,
@@ -88,6 +89,8 @@ def predict_correction_with_reference(
     phase_indices: np.ndarray | None = None,
     correction_strength: float = 1.0,
     reference_guidance: float = 0.0,
+    joint_weights: np.ndarray | None = None,
+    inference_session: Any | None = None,
 ) -> tuple[np.ndarray, int | None, float | None]:
     if not 0.0 <= correction_strength <= 1.0:
         raise ValueError("correction strength must be between zero and one")
@@ -111,24 +114,46 @@ def predict_correction_with_reference(
             raise ValueError("reference-conditioned model has no expert bank")
         expert_skeletons = reference_skeletons.detach().cpu().numpy()
         expert_confidence = reference_confidence.detach().cpu().numpy()
-        distances = expert_euclidean_distances(
-            model_skeleton,
-            expert_skeletons,
-            model_confidence,
-            expert_confidence,
-        )
-        reference_index = int(np.argmin(distances))
-        reference_distance = float(distances[reference_index])
-        nearest_expert = expert_skeletons[reference_index]
-        reference_target = project_bone_lengths(
-            model_skeleton, nearest_expert
-        )
+        if joint_weights is None:
+            distances = expert_euclidean_distances(
+                model_skeleton,
+                expert_skeletons,
+                model_confidence,
+                expert_confidence,
+            )
+            reference_index = int(np.argmin(distances))
+            reference_distance = float(distances[reference_index])
+            reference_target = project_bone_lengths(
+                model_skeleton, expert_skeletons[reference_index]
+            )
+        else:
+            (
+                reference_index,
+                reference_target,
+                _,
+                reference_distance,
+            ) = select_bone_adapted_expert(
+                model_skeleton,
+                expert_skeletons,
+                model_confidence,
+                expert_confidence,
+                joint_weights,
+            )
         feature_parts.append(reference_target)
     feature_parts.append(model_confidence[..., None])
     features = np.concatenate(feature_parts, axis=-1)
-    tensor = torch.as_tensor(features[None], dtype=torch.float32, device=device)
-    with torch.inference_mode():
-        model_output = model(tensor)[0].cpu().numpy()
+    if inference_session is None:
+        tensor = torch.as_tensor(features[None], dtype=torch.float32, device=device)
+        with torch.inference_mode():
+            model_output = model(tensor)[0].cpu().numpy()
+    else:
+        input_name = inference_session.get_inputs()[0].name
+        model_output = np.asarray(
+            inference_session.run(
+                None, {input_name: features[None].astype(np.float32)}
+            )[0][0],
+            dtype=np.float32,
+        )
     if reference_target is not None:
         model_output = (
             (1.0 - reference_guidance) * model_output

@@ -415,6 +415,40 @@ def project_bone_lengths(
     return projected.astype(np.float32)
 
 
+def select_bone_adapted_expert(
+    sequence: NDArray[np.floating],
+    expert_sequences: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    expert_confidence: NDArray[np.floating],
+    joint_weights: NDArray[np.floating] = JOINT_WEIGHTS,
+) -> tuple[int, NDArray[np.float32], NDArray[np.float64], float]:
+    """Select the adapted expert with the lowest grading distance."""
+    source = np.asarray(sequence, dtype=np.float64)
+    experts = np.asarray(expert_sequences, dtype=np.float64)
+    source_confidence = np.asarray(confidence, dtype=np.float64)
+    reference_confidence = np.asarray(expert_confidence, dtype=np.float64)
+    if experts.ndim != 4 or experts.shape[1:] != source.shape:
+        raise ValueError("expert sequences must have shape (N, T, J, 3)")
+    if reference_confidence.shape != experts.shape[:3]:
+        raise ValueError("expert confidence must have shape (N, T, J)")
+
+    matches: list[tuple[float, int, NDArray[np.float32], NDArray[np.float64]]] = []
+    for index, expert in enumerate(experts):
+        adapted = project_bone_lengths(source, expert)
+        match_confidence = source_confidence * reference_confidence[index]
+        distance, _ = correction_distance(
+            source,
+            adapted,
+            match_confidence,
+            joint_weights=joint_weights,
+        )
+        matches.append((distance, index, adapted, match_confidence))
+    distance, index, adapted, match_confidence = min(
+        matches, key=lambda match: match[0]
+    )
+    return index, adapted, match_confidence, float(distance)
+
+
 def expert_euclidean_distances(
     sequence: NDArray[np.floating],
     expert_sequences: NDArray[np.floating],

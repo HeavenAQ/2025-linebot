@@ -20,6 +20,23 @@ _LEFT_RIGHT_PAIRS = (
     (13, 14),
     (15, 16),
 )
+_NORMALIZATION_BONES = np.asarray(
+    (
+        (5, 6),
+        (5, 7),
+        (7, 9),
+        (6, 8),
+        (8, 10),
+        (5, 11),
+        (6, 12),
+        (11, 12),
+        (11, 13),
+        (13, 15),
+        (12, 14),
+        (14, 16),
+    ),
+    dtype=np.int64,
+)
 
 
 def landmark_dicts_to_array(
@@ -133,12 +150,25 @@ def _body_frame_2d(frame: NDArray[np.float64]) -> tuple[NDArray[np.float64], flo
     return np.vstack((x_axis, y_axis)), scale
 
 
+def _body_scale(
+    coordinates: NDArray[np.float64], confidence: NDArray[np.float64]
+) -> float:
+    starts = _NORMALIZATION_BONES[:, 0]
+    ends = _NORMALIZATION_BONES[:, 1]
+    lengths = np.linalg.norm(
+        coordinates[:, starts] - coordinates[:, ends], axis=-1
+    )
+    observed = (confidence[:, starts] > 0) & (confidence[:, ends] > 0)
+    valid = lengths[observed & np.isfinite(lengths) & (lengths > _EPS)]
+    return float(np.median(valid)) if len(valid) else 1.0
+
+
 def normalize_skeleton_sequence(
     sequence: NDArray[np.floating],
     confidence: NDArray[np.floating],
     handedness: Handedness | str,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    """Interpolate, mirror anatomy, root-center, rotate, and shoulder-scale a pose sequence.
+    """Interpolate, mirror anatomy, root-center, rotate, and body-scale a pose sequence.
 
     Right-dominant anatomy always occupies the right COCO joint slots. Confidence
     remains the original observation mask, including across interpolated gaps.
@@ -164,13 +194,7 @@ def normalize_skeleton_sequence(
     if basis is None:
         basis = np.eye(coordinates.shape[2], dtype=np.float64)
 
-    shoulder_widths = np.linalg.norm(
-        coordinates[:, int(COCOKeypoints.RIGHT_SHOULDER)]
-        - coordinates[:, int(COCOKeypoints.LEFT_SHOULDER)],
-        axis=-1,
-    )
-    valid_widths = shoulder_widths[shoulder_widths > _EPS]
-    scale = float(np.median(valid_widths)) if len(valid_widths) else 1.0
+    scale = _body_scale(coordinates, observed)
 
     for frame_index, frame in enumerate(coordinates):
         left_hip = frame[int(COCOKeypoints.LEFT_HIP)]

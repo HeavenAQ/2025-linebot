@@ -31,6 +31,7 @@ from badminton_analysis.ml.skeleton_scoring import (
     fit_score_calibration,
     keypoint_correction_components,
     project_bone_lengths,
+    select_bone_adapted_expert,
 )
 from badminton_analysis.ml.train_skeleton_corrector import _build_student_targets
 from badminton_analysis.models.types import Handedness
@@ -172,6 +173,47 @@ def test_prediction_reports_selected_expert_reference() -> None:
     assert reference_distance < 0.01
 
 
+def test_prediction_can_use_onnx_style_inference_session() -> None:
+    source = resample_sequence(_pose_sequence(frames=11), 64)
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    model = SkeletonDenoiser(
+        input_features=7,
+        model_dim=16,
+        num_heads=4,
+        temporal_layers=1,
+        spatial_layers=1,
+    )
+    model.set_expert_reference_bank(
+        torch.as_tensor(source[None]),
+        torch.as_tensor(confidence[None]),
+    )
+    model.eval()
+
+    class Session:
+        @staticmethod
+        def get_inputs():
+            return [type("Input", (), {"name": "features"})()]
+
+        @staticmethod
+        def run(_outputs, feeds):
+            with torch.inference_mode():
+                result = model(torch.from_numpy(feeds["features"])).numpy()
+            return [result]
+
+    expected, _, _ = predict_correction_with_reference(
+        model, source, confidence, torch.device("cpu")
+    )
+    actual, _, _ = predict_correction_with_reference(
+        model,
+        source,
+        confidence,
+        torch.device("cpu"),
+        inference_session=Session(),
+    )
+
+    np.testing.assert_allclose(actual, expected, atol=1e-6)
+
+
 def test_normalization_preserves_rotation_relative_to_preparation() -> None:
     sequence = _pose_sequence(frames=2)
     angle = np.deg2rad(30.0)
@@ -188,6 +230,19 @@ def test_normalization_preserves_rotation_relative_to_preparation() -> None:
     shoulder_vector_1 = normalized[1, 6] - normalized[1, 5]
     assert abs(float(shoulder_vector_0[1])) < 1e-5
     assert abs(float(shoulder_vector_1[1])) > 0.2
+
+
+def test_normalization_does_not_amplify_compressed_shoulders() -> None:
+    sequence = _pose_sequence()
+    sequence[:, 5, 0] = -0.05
+    sequence[:, 6, 0] = 0.05
+    confidence = np.ones(sequence.shape[:2], dtype=np.float32)
+
+    normalized, _ = normalize_skeleton_sequence(
+        sequence, confidence, Handedness.RIGHT
+    )
+
+    assert float(np.ptp(normalized[..., 1])) < 10.0
 
 
 def test_correction_distance_is_zero_for_identical_sequences() -> None:
@@ -306,6 +361,26 @@ def test_expert_euclidean_distance_identifies_nearest_reference() -> None:
     assert distances.shape == (2,)
     assert distances[1] < distances[0]
     np.testing.assert_allclose(distances[1], np.sqrt(3.0) * 0.05, atol=1e-6)
+
+
+def test_bone_adapted_expert_selection_uses_skill_joint_weights() -> None:
+    source = _pose_sequence()
+    experts = np.stack((source.copy(), source.copy()))
+    experts[0, :, 10, 0] += 0.3
+    experts[1, :, 9, 0] -= 0.3
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    expert_confidence = np.ones(experts.shape[:3], dtype=np.float32)
+    joint_weights = np.zeros(17, dtype=np.float64)
+    joint_weights[10] = 1.0
+
+    index, adapted, selected_confidence, distance = select_bone_adapted_expert(
+        source, experts, confidence, expert_confidence, joint_weights
+    )
+
+    assert index == 1
+    assert adapted.shape == source.shape
+    assert selected_confidence.shape == confidence.shape
+    assert distance >= 0.0
 
 
 def test_reference_conditioned_target_is_full_expert_pose(

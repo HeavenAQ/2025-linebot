@@ -21,14 +21,10 @@ RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
       tensorrt-cu12==10.14.1.48.post1 && \
     find /opt/conda/lib/python3.11/site-packages/tensorrt_libs \
       -type f -name 'libnvinfer_builder_resource_*' \
-      ! -name 'libnvinfer_builder_resource_sm80.so.10.14.1' \
-      ! -name 'libnvinfer_builder_resource_sm86.so.10.14.1' \
       ! -name 'libnvinfer_builder_resource_sm89.so.10.14.1' -delete && \
     pip install --no-deps -r requirements-pose.txt
 
-RUN test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm80.so.10.14.1 && \
-    test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm86.so.10.14.1 && \
-    test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm89.so.10.14.1 && \
+RUN test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm89.so.10.14.1 && \
     python -c "import torch; assert torch.version.cuda == '12.4'; import tensorrt as trt; assert trt.__version__ == '10.14.1.48.post1'"
 
 RUN python -c "from pathlib import Path; from rtmlib.tools.file import download_checkpoint; root=Path('/app/models/pose'); root.mkdir(parents=True, exist_ok=True); download_checkpoint('https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip', dst_dir=str(root), progress=False); download_checkpoint('https://huggingface.co/Soykaf/RTMW3D-x/resolve/main/onnx/rtmw3d-x_8xb64_cocktail14-384x288-b0a0eab7_20240626.onnx', dst_dir=str(root), progress=False); print('RTMW3D ONNX models cached')"

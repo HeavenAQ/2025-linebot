@@ -37,9 +37,17 @@ export default {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))'
         },
+        highlight: {
+          DEFAULT: 'hsl(var(--highlight))',
+          foreground: 'hsl(var(--highlight-foreground))'
+        },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))'
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))'
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -53,9 +61,18 @@ export default {
         }
       },
       borderRadius: {
+        '2xl': 'calc(var(--radius) + 8px)',
+        xl: 'calc(var(--radius) + 4px)',
         lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)'
+        md: 'calc(var(--radius) - 4px)',
+        sm: 'calc(var(--radius) - 6px)'
+      },
+      boxShadow: {
+        card: '0 1px 2px hsl(30 12% 14% / 0.04), 0 8px 24px -12px hsl(30 12% 14% / 0.14)',
+        elevated: '0 2px 4px hsl(30 12% 14% / 0.06), 0 16px 40px -16px hsl(30 12% 14% / 0.22)'
+      },
+      maxWidth: {
+        content: '48rem'
       }
     }
   },

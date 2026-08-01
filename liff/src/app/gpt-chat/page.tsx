@@ -3,6 +3,10 @@
 import React, { useState, useEffect } from 'react'
 import { useLiff } from '../LiffProvider'
 import type { UserData } from '@/types'
+import { Alert } from '@/components/ui/alert'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageContainer } from '@/components/ui/page'
+import { SelectField } from '@/components/ui/select'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { getBackendBaseUrl } from '@/utils/env'
@@ -55,7 +59,7 @@ export default function GptChatPage() {
           const sumRes = await fetch(`${base}/api/chat/summarize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify(body)
           })
           if (sumRes.ok) {
             const sumJson = await sumRes.json()
@@ -100,62 +104,80 @@ export default function GptChatPage() {
   const availableSkills = Object.keys(userData?.gpt_conversation_ids || {}) as Skill[]
 
   if (loading) {
-    return <Spinner />
+    return <Spinner fullscreen />
   }
 
   if (!userData) {
-    return <div className="text-center mt-10 font-semibold text-red-400 border border-red-500 max-w-72 mx-auto rounded-lg h-32 pt-12">
-      目前尚無聊天紀錄
-    </div>
+    return (
+      <PageContainer className="pt-6">
+        <Alert variant="info" title="目前尚無聊天紀錄">
+          與教練機器人對話後，摘要與紀錄會顯示在這裡。
+        </Alert>
+      </PageContainer>
+    )
   }
 
   return (
-    <div className="mx-auto mt-10 w-10/12 max-w-[800px] duration-200 fade-in">
-      {/* User Thread Summary */}
-      <h1 className="h1-heading mb-4">動作學習總結</h1>
-      <section className="mb-10 rounded-lg border border-gray-300 p-5">
-        <div className="mb-5">
-          <label className="mr-3 font-semibold">選擇技能：</label>
-          <select
-            value={selectedSkill}
-            onChange={e => {
-              setSelectedSkill(e.target.value as Skill)
-            }}
-            className="rounded border px-2 py-1 font-semibold text-zinc-700"
-          >
-            {availableSkills.map(skill => (
-              <option key={skill} value={skill}>
-                {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
-              </option>
-            ))}{' '}
-          </select>
-        </div>
-        <hr className="my-5 border-gray-300" />
-        <div className="space-y-4">
-          <div className="font-semibold">總結：</div>
-          <div className="break-words">{summary}</div>
-        </div>
-      </section>
-
-      {/* Chat History */}
-      <h1 className="h1-heading mb-4">聊天記錄</h1>
-      <section className="mb-10 h-[80vh] overflow-y-scroll rounded-lg border border-gray-300 p-5">
-        <div className="space-y-4">
-          {chatHistory.map((message, idx) => (
-            <div
-              key={`${message.timestamp || 't'}-${idx}`}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+    <PageContainer className="pt-6">
+      <main className="space-y-5">
+        <Card className="animate-fade-down">
+          <CardHeader>
+            <CardTitle>動作學習總結</CardTitle>
+            <SelectField
+              label="選擇技能"
+              className="mt-2 max-w-[12rem]"
+              value={selectedSkill}
+              onChange={e => setSelectedSkill(e.target.value as Skill)}
             >
-              <div
-                className={`rounded-lg p-3 ${message.role === 'user' ? 'bg-teal-600 text-white' : 'bg-gray-200 text-black'
-                  } max-w-xs break-words`}
-              >
-                {message.text}
+              {availableSkills.map(skill => (
+                <option key={skill} value={skill}>
+                  {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
+                </option>
+              ))}
+            </SelectField>
+          </CardHeader>
+          <CardContent>
+            {summary ? (
+              <p className="whitespace-pre-line break-words text-sm leading-7">{summary}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">這個技能還沒有可摘要的對話。</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="animate-fade-down">
+          <CardHeader>
+            <CardTitle>聊天記錄</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chatHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">尚無訊息。</p>
+            ) : (
+              <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+                {chatHistory.map((message, idx) => {
+                  const isUser = message.role === 'user'
+                  return (
+                    <div
+                      key={`${message.timestamp || 't'}-${idx}`}
+                      className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[80%] break-words rounded-xl px-3.5 py-2.5 text-sm leading-6 ${
+                          isUser
+                            ? 'rounded-br-sm bg-primary text-primary-foreground'
+                            : 'rounded-bl-sm bg-muted text-foreground'
+                        }`}
+                      >
+                        {message.text}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
+            )}
+          </CardContent>
+        </Card>
+      </main>
+    </PageContainer>
   )
 }

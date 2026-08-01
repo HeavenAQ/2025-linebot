@@ -14,12 +14,22 @@ import {
   ChartTooltip,
   ChartTooltipContent
 } from '@/components/ui/chart'
-import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
 import Spinner from '@/components/ui/spinner'
+import { Alert } from '@/components/ui/alert'
+import { PageContainer } from '@/components/ui/page'
+import { Segmented } from '@/components/ui/segmented'
+import { Select, SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import VideoComparison from '@/components/VideoComparison'
+
+const TAB_OPTIONS = [
+  { value: 'scores', label: '成績分析', icon: BarChart3 },
+  { value: 'comparison', label: '影片比較', icon: Columns2 }
+] as const
+
+type TabValue = (typeof TAB_OPTIONS)[number]['value']
 
 interface MovementDetailBarChartProps {
   userData: UserData
@@ -52,22 +62,19 @@ const MovementDetailBarChart = ({
       color: 'hsl(var(--chart-1))'
     },
     label: {
-      color: 'hsl(var(--background))'
+      color: 'hsl(var(--primary-foreground))'
     }
   }
 
   return (
-    <Card
-      className={`${mPlusRounded1c.className} mx-auto mt-5 w-10/12 max-w-[800px] animate-fade-down`}
-    >
+    <Card className="animate-fade-down">
       <CardHeader>
-        <CardTitle className="mb-3">動作細節評分</CardTitle>
+        <CardTitle>動作細節評分</CardTitle>
         <CardDescription>
           {SkillNameMap[selectedSkill]} · {selectedDate}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {/* Chart */}
         <ChartContainer config={chartConfig}>
           <BarChart
             data={chartData}
@@ -89,13 +96,7 @@ const MovementDetailBarChart = ({
             />
             <XAxis domain={[0, 20]} type="number" hide />
             <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-            <Bar
-              dataKey="grade"
-              layout="vertical"
-              fill="var(--color-grade)"
-              fillOpacity={0.7}
-              radius={4}
-            >
+            <Bar dataKey="grade" layout="vertical" fill="var(--color-grade)" radius={6}>
               <LabelList
                 dataKey="description"
                 position="insideLeft"
@@ -132,33 +133,26 @@ const PersonalProgressChart = ({ userData }: PersonalProgressChartProps) => {
   const availableSkills = Object.keys(SkillNameMap) as Skill[]
 
   return (
-    <Card
-      className={`${mPlusRounded1c.className} mx-auto mb-10 mt-5 w-10/12 max-w-[800px] animate-fade-down`}
-    >
+    <Card className="animate-fade-down">
       <CardHeader>
-        <CardTitle className="mb-3">每週進步</CardTitle>
-        <CardDescription>
-          <div>
-            <select
-              value={selectedSkill}
-              onChange={e => {
-                setSelectedSkill(e.target.value as Skill)
-              }}
-              className="rounded border px-2 py-1 text-zinc-700"
-            >
-              {availableSkills
-                .filter(
-                  skill =>
-                    userData.portfolio[skill] && Object.keys(userData.portfolio[skill]).length > 0
-                ) // Only show skills with records
-                .map(skill => (
-                  <option key={skill} value={skill}>
-                    {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
-                  </option>
-                ))}{' '}
-            </select>
-          </div>
-        </CardDescription>
+        <CardTitle>每週進步</CardTitle>
+        <CardDescription>依技能查看歷次總分趨勢</CardDescription>
+        <Select
+          value={selectedSkill}
+          onChange={e => setSelectedSkill(e.target.value as Skill)}
+          aria-label="選擇技能"
+          className="mt-2 max-w-[12rem]"
+        >
+          {availableSkills
+            .filter(
+              skill => userData.portfolio[skill] && Object.keys(userData.portfolio[skill]).length > 0
+            ) // Only show skills with records
+            .map(skill => (
+              <option key={skill} value={skill}>
+                {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
+              </option>
+            ))}
+        </Select>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig}>
@@ -208,7 +202,8 @@ const PersonalProgressChart = ({ userData }: PersonalProgressChartProps) => {
               type="monotone"
               stroke="var(--color-totalGrade)"
               strokeWidth={2}
-              dot={true}
+              dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
+              activeDot={{ r: 5 }}
             />
           </LineChart>
         </ChartContainer>
@@ -225,7 +220,7 @@ export default function PersonalPage() {
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null)
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<'scores' | 'comparison'>('scores')
+  const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const { liff, profile } = useLiff()
 
   useEffect(() => {
@@ -297,115 +292,94 @@ export default function PersonalPage() {
   }, [activeTab, profile?.userId, selectedDate, selectedSkill])
 
   if (loading) {
-    return <Spinner />
+    return <Spinner fullscreen />
   }
 
   if (!userData) {
-    return <div className="mt-10 text-center font-semibold">No data available</div>
+    return (
+      <PageContainer className="pt-6">
+        <Alert variant="warning" title="尚無資料">
+          目前查不到您的學習資料，請稍後再試。
+        </Alert>
+      </PageContainer>
+    )
   }
 
   if (availableSkills.length === 0) {
-    return <div className="mt-10 text-center font-semibold">尚無動作分析記錄</div>
+    return (
+      <PageContainer className="pt-6">
+        <Alert variant="info" title="尚無動作分析記錄">
+          上傳一段練習影片後，這裡就會顯示評分與比較。
+        </Alert>
+      </PageContainer>
+    )
   }
 
   return (
-    <main className="pb-8 pt-4">
-      <div className={`${mPlusRounded1c.className} mx-auto flex w-10/12 max-w-5xl gap-3`}>
-        <label className="min-w-0 flex-1 text-xs font-medium text-zinc-500">
-          技能
-          <select
+    <PageContainer className="pt-6">
+      <main className="space-y-5">
+        <div className="flex gap-3">
+          <SelectField
+            label="技能"
+            className="flex-1"
             value={selectedSkill}
             onChange={event => {
               const skill = event.target.value as Skill
               setSelectedSkill(skill)
               setSelectedDate(Object.keys(userData.portfolio[skill]).sort().reverse()[0] || '')
             }}
-            className="mt-1 h-10 w-full border bg-white px-2 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-white"
           >
             {availableSkills.map(skill => (
               <option key={skill} value={skill}>
                 {SkillNameMap[skill]}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="min-w-0 flex-[1.5] text-xs font-medium text-zinc-500">
-          分析日期
-          <select
+          </SelectField>
+          <SelectField
+            label="分析日期"
+            className="flex-[1.5]"
             value={selectedDate}
             onChange={event => setSelectedDate(event.target.value)}
-            className="mt-1 h-10 w-full border bg-white px-2 text-sm text-zinc-900 dark:bg-zinc-900 dark:text-white"
           >
             {availableDates.map(date => (
               <option key={date} value={date}>
                 {date}
               </option>
             ))}
-          </select>
-        </label>
-      </div>
-
-      <div
-        role="tablist"
-        aria-label="學習歷程檢視"
-        className={`${mPlusRounded1c.className} mx-auto mt-5 grid h-11 w-10/12 max-w-5xl grid-cols-2 border border-zinc-300 bg-white p-1 dark:border-zinc-700 dark:bg-zinc-900`}
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'scores'}
-          onClick={() => setActiveTab('scores')}
-          className={`flex min-w-0 items-center justify-center gap-2 px-2 text-sm ${
-            activeTab === 'scores'
-              ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-950'
-              : 'text-zinc-600 dark:text-zinc-300'
-          }`}
-        >
-          <BarChart3 aria-hidden="true" size={17} />
-          成績分析
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'comparison'}
-          onClick={() => setActiveTab('comparison')}
-          className={`flex min-w-0 items-center justify-center gap-2 px-2 text-sm ${
-            activeTab === 'comparison'
-              ? 'bg-zinc-900 font-medium text-white dark:bg-white dark:text-zinc-950'
-              : 'text-zinc-600 dark:text-zinc-300'
-          }`}
-        >
-          <Columns2 aria-hidden="true" size={17} />
-          影片比較
-        </button>
-      </div>
-
-      {activeTab === 'comparison' && (
-        <div role="tabpanel">
-          {playbackLoading && (
-            <div className="mx-auto mt-8 w-fit">
-              <Spinner />
-            </div>
-          )}
-          {!playbackLoading && playback && <VideoComparison playback={playback} />}
-          {!playbackLoading && playbackError && (
-            <p className="mx-auto mt-5 w-10/12 max-w-5xl border-l-4 border-amber-500 bg-white px-3 py-3 text-sm leading-6 text-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-              {playbackError}
-            </p>
-          )}
+          </SelectField>
         </div>
-      )}
 
-      {activeTab === 'scores' && (
-        <div role="tabpanel">
-          <MovementDetailBarChart
-            userData={userData}
-            selectedDate={selectedDate}
-            selectedSkill={selectedSkill}
-          />
-          <PersonalProgressChart userData={userData} />
-        </div>
-      )}
-    </main>
+        <Segmented
+          role="tablist"
+          label="學習歷程檢視"
+          options={TAB_OPTIONS}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
+
+        {activeTab === 'comparison' && (
+          <div role="tabpanel" className="space-y-5">
+            {playbackLoading && <Spinner />}
+            {!playbackLoading && playback && <VideoComparison playback={playback} />}
+            {!playbackLoading && playbackError && (
+              <Alert variant="warning" title="無法載入影片">
+                {playbackError}
+              </Alert>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'scores' && (
+          <div role="tabpanel" className="space-y-5">
+            <MovementDetailBarChart
+              userData={userData}
+              selectedDate={selectedDate}
+              selectedSkill={selectedSkill}
+            />
+            <PersonalProgressChart userData={userData} />
+          </div>
+        )}
+      </main>
+    </PageContainer>
   )
 }

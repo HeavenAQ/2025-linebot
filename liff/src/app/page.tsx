@@ -22,5 +22,5 @@ export default function Home() {
     }
   }, [liff, profile, liffError, router])
 
-  return <Spinner />
+  return <Spinner fullscreen />
 }

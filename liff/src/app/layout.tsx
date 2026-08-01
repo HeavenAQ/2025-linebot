@@ -11,21 +11,26 @@ export const metadata: Metadata = {
   description: 'Student learning dashboard'
 }
 
+// Applies the stored theme before first paint so the page never flashes light-on-dark.
+const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}if(t==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})()`
+
 export default function RootLayout({
   children
 }: Readonly<{
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${mPlusRounded1c.className} duration-200`} suppressHydrationWarning>
-      <body
-        className="bg-[#eee7d7] text-black dark:bg-zinc-900 dark:text-white"
-        suppressHydrationWarning
-      >
+    <html lang="zh-Hant" className={mPlusRounded1c.className} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body suppressHydrationWarning>
         <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
-          <Hero />
-          {children}
+          <div className="pb-16 pt-14">
+            <Hero />
+            {children}
+          </div>
         </LiffProvider>
       </body>
     </html>

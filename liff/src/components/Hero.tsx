@@ -4,6 +4,7 @@ import Image from 'next/image'
 
 import { useLiff } from '../app/LiffProvider'
 import Spinner from './ui/spinner'
+import { PageContainer } from './ui/page'
 
 export default function Hero() {
   const { liff, profile } = useLiff()
@@ -17,26 +18,31 @@ export default function Hero() {
   }, [liff])
 
   if (isLoading) {
-    return <Spinner />
+    return <Spinner fullscreen />
   }
 
   return (
-    <div className="mx-auto w-11/12 max-w-[800px] animate-fade-down pt-20">
-      <header className="row-start-2 flex flex-col items-center gap-8 sm:items-start">
-        <Image
-          src={profile?.pictureUrl ?? ''}
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-          className="mx-auto w-36 rounded-full border border-white p-[2px]"
-        />
-        <div className="mx-auto w-11/12 rounded-lg bg-[#f4f0e9] p-3 text-center dark:bg-zinc-800">
-          <p className="text-center text-sm text-black dark:text-white">
-            歡迎回來 <strong>{profile?.displayName}</strong> !
+    <PageContainer className="pt-6">
+      <header className="flex animate-fade-down items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-card">
+        {profile?.pictureUrl ? (
+          <Image
+            src={profile.pictureUrl}
+            alt={profile.displayName ?? '使用者頭像'}
+            width={112}
+            height={112}
+            priority
+            className="h-14 w-14 shrink-0 rounded-full border border-border object-cover"
+          />
+        ) : (
+          <div className="h-14 w-14 shrink-0 rounded-full bg-muted" aria-hidden />
+        )}
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            歡迎回來
           </p>
+          <p className="truncate text-lg font-semibold tracking-tight">{profile?.displayName}</p>
         </div>
       </header>
-    </div>
+    </PageContainer>
   )
 }

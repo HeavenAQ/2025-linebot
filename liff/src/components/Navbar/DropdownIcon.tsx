@@ -1,64 +1,63 @@
 'use client'
-import React from 'react'
-import { Fragment, useState } from 'react'
+import React, { Fragment } from 'react'
 import { Menu, Transition } from '@headlessui/react'
-import { FiMenu, FiX } from 'react-icons/fi'
+import { BarChart3, Menu as MenuIcon, MessageSquareText, Users } from 'lucide-react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 const items = [
-  {
-    displayName: '個人成績',
-    href: '/personal'
-  },
-  {
-    displayName: '班級排名',
-    href: '/class'
-  },
-  {
-    displayName: 'GPT評估建議',
-    href: '/gpt-chat'
-  }
+  { displayName: '個人成績', href: '/personal', icon: BarChart3 },
+  { displayName: '班級排名', href: '/class', icon: Users },
+  { displayName: 'GPT評估建議', href: '/gpt-chat', icon: MessageSquareText }
 ]
+
 export default function DropDownIcon() {
-  const [isOpen, setIsOpen] = useState(false)
+  const pathname = usePathname()
+
   return (
-    <Menu as="div" className="relative inline-block rounded-lg border border-zinc-500 text-left">
+    <Menu as="div" className="relative inline-block text-left">
       <Menu.Button
-        className="relative flex cursor-pointer items-center justify-center rounded-lg p-[0.5rem] duration-200"
-        onClick={() => {
-          setIsOpen(!isOpen)
-        }}
+        aria-label="開啟選單"
+        className={cn(buttonVariants({ variant: 'outline', size: 'icon' }))}
       >
-        {isOpen ? <FiX /> : <FiMenu />}
+        <MenuIcon size={17} />
       </Menu.Button>
       <Transition
         as={Fragment}
-        enter="transition ease-out duration-100"
+        enter="transition ease-out duration-150"
         enterFrom="transform opacity-0 scale-95"
         enterTo="transform opacity-100 scale-100"
-        leave="transition ease-in duration-75"
+        leave="transition ease-in duration-100"
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items className="absolute -bottom-36 right-0 flex w-56 flex-col rounded-md bg-orange-50 p-1 text-black dark:divide-zinc-100 dark:bg-gray-700 dark:text-white">
-          <Menu.Item>
-            <div className="w-full rounded-md p-1 pl-2 font-bold">Content</div>
-          </Menu.Item>
-          {items.map((item, i) => (
-            <Menu.Item key={i}>
-              {({ active }) => (
-                <Link
-                  href={`${item.href}`}
-                  onClick={() => setIsOpen(false)}
-                  className={`${
-                    active && 'bg-zinc-600 text-white dark:bg-orange-50 dark:text-black'
-                  } w-full rounded-md p-1 px-3`}
-                >
-                  {item.displayName}
-                </Link>
-              )}
-            </Menu.Item>
-          ))}
+        <Menu.Items className="absolute right-0 top-full z-40 mt-2 w-56 origin-top-right rounded-xl border border-border bg-popover p-1.5 text-popover-foreground shadow-elevated focus:outline-none">
+          {items.map(item => {
+            const isActive = pathname === item.href
+            return (
+              <Menu.Item key={item.href}>
+                {({ active }) => (
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : active
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-popover-foreground'
+                    )}
+                  >
+                    <item.icon aria-hidden size={16} />
+                    {item.displayName}
+                  </Link>
+                )}
+              </Menu.Item>
+            )
+          })}
         </Menu.Items>
       </Transition>
     </Menu>

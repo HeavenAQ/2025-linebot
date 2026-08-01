@@ -1,36 +1,24 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { IoSunny, IoMoon } from 'react-icons/io5'
+import { Moon, Sun } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
 
 export default function ThemeToggleIcon() {
   const [isMounted, setIsMounted] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-
-      if (storedTheme) {
-        setTheme(storedTheme)
-      } else if (prefersDark) {
-        setTheme('dark')
-      } else {
-        setTheme('light')
-      }
-    }
+    // The inline script in the layout already applied the class; mirror it into state.
+    setTheme(document.documentElement.classList.contains('dark') ? 'dark' : 'light')
     setIsMounted(true)
   }, [])
 
   useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-  }, [theme])
+    if (!isMounted) return
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [isMounted, theme])
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light'
@@ -38,17 +26,17 @@ export default function ThemeToggleIcon() {
     setTheme(newTheme)
   }
 
-  if (!isMounted) return null
+  // Reserve the slot before hydration so the navbar does not shift.
+  if (!isMounted) return <div className="h-10 w-10" aria-hidden />
 
   return (
-    <div className="inline-flex items-center rounded-lg bg-orange-300 p-[1px] duration-200 dark:bg-zinc-600">
-      <button
-        aria-label="Toggle Theme"
-        className="cursor-pointer rounded-lg p-2 text-black dark:text-zinc-100"
-        onClick={toggleTheme}
-      >
-        {theme === 'light' ? <IoSunny /> : <IoMoon />}
-      </button>
-    </div>
+    <Button
+      variant="outline"
+      size="icon"
+      aria-label={theme === 'light' ? '切換至深色模式' : '切換至淺色模式'}
+      onClick={toggleTheme}
+    >
+      {theme === 'light' ? <Sun size={17} /> : <Moon size={17} />}
+    </Button>
   )
 }

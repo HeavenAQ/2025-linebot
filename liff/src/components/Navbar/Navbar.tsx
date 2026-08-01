@@ -1,20 +1,19 @@
 import React from 'react'
 import Logo from './Logo'
-import { mPlusRounded1c } from '../Fonts/M_PLUS_Rounded_1c'
 import DropDownIcon from './DropdownIcon'
 import ThemeToggleIcon from './ThemeToggleIcon'
 
 const Navbar = () => {
   return (
-    <div
-      className={`${mPlusRounded1c.className} fixed left-1/2 z-20 flex h-12 w-full max-w-[800px] -translate-x-1/2 items-center justify-between p-2 backdrop-blur-md`}
-    >
-      <Logo />
-      <div className="w-40px flex items-center justify-center gap-2">
-        <ThemeToggleIcon />
-        <DropDownIcon />
+    <header className="fixed inset-x-0 top-0 z-30 border-b border-border/60 bg-background/80 backdrop-blur-md">
+      <div className="mx-auto flex h-14 w-full max-w-content items-center justify-between px-4">
+        <Logo />
+        <div className="flex items-center gap-2">
+          <ThemeToggleIcon />
+          <DropDownIcon />
+        </div>
       </div>
-    </div>
+    </header>
   )
 }
 

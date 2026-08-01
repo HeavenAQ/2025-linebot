@@ -2,72 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: Arial, Helvetica, sans-serif;
-  transition:
-    var(--background) 0.3s,
-    color 0.3s;
-}
-
-@layer components {
-  .h1-heading {
-    @apply relative inline-block border-b-4 border-zinc-700 text-xl font-semibold;
-  }
-}
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 10% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    /* Warm paper surface — the cream identity, expressed as tokens. */
+    --background: 42 36% 90%;
+    --foreground: 30 12% 14%;
+
+    --card: 40 46% 97%;
+    --card-foreground: 30 12% 14%;
+
+    --popover: 40 46% 97%;
+    --popover-foreground: 30 12% 14%;
+
+    /* Deep teal reads as "sport" against cream and stays legible at small sizes. */
+    --primary: 176 58% 26%;
+    --primary-foreground: 40 46% 98%;
+
+    --secondary: 40 26% 85%;
+    --secondary-foreground: 30 14% 20%;
+
+    --muted: 40 24% 87%;
+    --muted-foreground: 32 8% 42%;
+
+    /* accent = subtle hover surface (shadcn semantics), highlight = the amber brand pop. */
+    --accent: 40 30% 88%;
+    --accent-foreground: 30 14% 20%;
+    --highlight: 32 88% 50%;
+    --highlight-foreground: 30 32% 12%;
+
+    --destructive: 4 70% 46%;
+    --destructive-foreground: 40 46% 98%;
+    --success: 152 48% 32%;
+    --success-foreground: 40 46% 98%;
+
+    --border: 38 20% 79%;
+    --input: 38 20% 79%;
+    --ring: 176 58% 32%;
+
+    --chart-1: 176 58% 34%;
+    --chart-2: 32 86% 50%;
+    --chart-3: 256 48% 58%;
+    --chart-4: 198 70% 42%;
+    --chart-5: 342 60% 54%;
+
+    --radius: 0.875rem;
   }
+
   .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --background: 30 10% 8%;
+    --foreground: 40 28% 94%;
+
+    --card: 30 9% 12%;
+    --card-foreground: 40 28% 94%;
+
+    --popover: 30 9% 13%;
+    --popover-foreground: 40 28% 94%;
+
+    --primary: 174 54% 46%;
+    --primary-foreground: 30 20% 8%;
+
+    --secondary: 30 7% 19%;
+    --secondary-foreground: 40 28% 94%;
+
+    --muted: 30 7% 18%;
+    --muted-foreground: 38 10% 64%;
+
+    --accent: 30 7% 20%;
+    --accent-foreground: 40 28% 94%;
+    --highlight: 34 92% 58%;
+    --highlight-foreground: 30 20% 8%;
+
+    --destructive: 4 70% 58%;
+    --destructive-foreground: 30 20% 8%;
+    --success: 152 46% 50%;
+    --success-foreground: 30 20% 8%;
+
+    --border: 30 7% 22%;
+    --input: 30 7% 22%;
+    --ring: 174 54% 52%;
+
+    --chart-1: 174 54% 50%;
+    --chart-2: 34 92% 58%;
+    --chart-3: 256 62% 70%;
+    --chart-4: 198 76% 58%;
+    --chart-5: 342 72% 66%;
   }
 }
 
@@ -75,7 +93,35 @@ body {
   * {
     @apply border-border;
   }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    /* Rounded-first stack; falls through to the platform UI face offline. */
+    font-family:
+      'M PLUS Rounded 1c', ui-rounded, 'Hiragino Maru Gothic ProN', 'Noto Sans TC', -apple-system,
+      BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
+  }
+
+  /* One focus treatment for every interactive element. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  /* Native <select> reset so it can be skinned like the rest of the controls. */
+  .select-reset {
+    @apply appearance-none bg-none;
+  }
+
+  .select-reset::-ms-expand {
+    display: none;
   }
 }

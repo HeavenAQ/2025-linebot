@@ -44,12 +44,18 @@ func main() {
 	apiKey := flag.String("api-key", os.Getenv("ANALYSIS_GRPC_API_KEY"), "analysis API key")
 	casesValue := flag.String("cases", "", "comma-separated skill=/path/video.mp4 cases")
 	runs := flag.Int("runs", 3, "number of runs per case")
+	handedness := flag.String(
+		"handedness", "right", "known handedness for latency fixtures (left or right)",
+	)
 	outputPath := flag.String("output", "analysis-latency.csv", "CSV result path")
 	insecure := flag.Bool("insecure", false, "use plaintext gRPC")
 	flag.Parse()
 
 	if *target == "" || *apiKey == "" || *casesValue == "" || *runs < 1 {
 		fatalf("target, api-key, at least one case, and a positive run count are required")
+	}
+	if *handedness != "left" && *handedness != "right" {
+		fatalf("handedness must be left or right")
 	}
 	cases, err := parseCases(*casesValue)
 	if err != nil {
@@ -94,7 +100,7 @@ func main() {
 			started := time.Now()
 			result, err := client.AnalyzeVideo(
 				context.Background(), requestID, "latency-benchmark", filepath.Base(benchmark.path),
-				benchmark.skill, "auto", video,
+				benchmark.skill, *handedness, video,
 			)
 			if err != nil {
 				fatalf("analyze %s run %d: %v", benchmark.skill, run, err)

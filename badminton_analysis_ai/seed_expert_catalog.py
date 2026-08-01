@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -16,14 +17,75 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from badminton_analysis.ml.expert_vector import expert_vector_payload
 from service.expert_catalog import expert_document_id
 
-SKILL_VIDEO_DIRS = {
+LEGACY_VIDEO_DIRS = {
     "clear": Path("scoring_videos/高遠球/專家高遠球"),
     "serve": Path("scoring_videos/發球/羽球隊同學"),
     "lift": Path("scoring_videos/挑球/專家挑球"),
     "smash": Path("scoring_videos/殺球/專家殺球"),
 }
+NSTC_EXPERT_COUNTS = {
+    "clear": {"left": 20, "right": 30},
+    "serve": {"left": 10, "right": 16},
+    "lift": {"left": 10, "right": 22},
+    "smash": {"left": 9, "right": 16},
+}
 VIDEO_CATALOG_VERSION = "v1"
 VECTOR_CATALOG_VERSION = "v2"
+
+
+@dataclass(frozen=True)
+class ExpertSource:
+    expert_id: str
+    video_path: Path
+    known_handedness: str
+    dataset_source: str
+
+
+def _video_files(directory: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in (".mp4", ".mov")
+    )
+
+
+def _expert_sources(source_root: Path, skill: str) -> dict[str, ExpertSource]:
+    sources: dict[str, ExpertSource] = {}
+    legacy_dir = source_root / LEGACY_VIDEO_DIRS[skill]
+    for video_path in _video_files(legacy_dir):
+        sources[video_path.stem] = ExpertSource(
+            expert_id=video_path.stem,
+            video_path=video_path,
+            known_handedness="right",
+            dataset_source="legacy",
+        )
+
+    for handedness in ("left", "right"):
+        video_dir = source_root / "training_videos" / "nstc" / skill / handedness
+        videos = _video_files(video_dir)
+        expected_count = NSTC_EXPERT_COUNTS[skill][handedness]
+        if len(videos) != expected_count:
+            raise ValueError(
+                f"expected {expected_count} NSTC {skill}/{handedness} experts, "
+                f"found {len(videos)}"
+            )
+        for video_path in videos:
+            expert_id = f"nstc_{handedness}_{video_path.stem}"
+            if expert_id in sources:
+                raise ValueError(f"duplicate {skill} expert ID: {expert_id}")
+            sources[expert_id] = ExpertSource(
+                expert_id=expert_id,
+                video_path=video_path,
+                known_handedness=handedness,
+                dataset_source="nstc",
+            )
+
+    legacy_count = sum(
+        source.dataset_source == "legacy" for source in sources.values()
+    )
+    if legacy_count != 50:
+        raise ValueError(f"expected 50 legacy {skill} experts, found {legacy_count}")
+    return sources
 
 
 def _gcloud_user_credentials() -> Credentials:
@@ -78,29 +140,26 @@ def seed(
     counts: dict[str, int] = {}
     documents: list[tuple[str, dict[str, Any]]] = []
     uploads: list[tuple[Path, str, str]] = []
-    for skill, relative_video_dir in SKILL_VIDEO_DIRS.items():
-        video_dir = source_root / relative_video_dir
-        vector_dir = source_root / "datasets" / "skeleton_sequences" / skill / "experts"
-        videos = {
-            path.stem: path
-            for path in video_dir.iterdir()
-            if path.suffix.lower() in (".mp4", ".mov")
-        }
+    for skill in LEGACY_VIDEO_DIRS:
+        vector_dir = (
+            source_root / "datasets" / "skeleton_sequences" / skill / "experts"
+        )
+        sources = _expert_sources(source_root, skill)
         vectors = {path.stem: path for path in vector_dir.glob("*.npz")}
-        if set(videos) != set(vectors):
-            missing_vectors = sorted(set(videos) - set(vectors))
-            missing_videos = sorted(set(vectors) - set(videos))
+        if set(sources) != set(vectors):
+            missing_vectors = sorted(set(sources) - set(vectors))
+            missing_videos = sorted(set(vectors) - set(sources))
             raise ValueError(
                 f"{skill} catalog mismatch: missing_vectors={missing_vectors} "
                 f"missing_videos={missing_videos}"
             )
-        if len(videos) != 50:
-            raise ValueError(f"expected 50 {skill} experts, found {len(videos)}")
-        for expert_id in sorted(videos):
-            video_path = videos[expert_id]
+        for expert_id in sorted(sources):
+            source = sources[expert_id]
+            video_path = source.video_path
             vector_path = vectors[expert_id]
             video_object = (
-                f"experts/{VIDEO_CATALOG_VERSION}/{skill}/videos/{video_path.name}"
+                f"experts/{VIDEO_CATALOG_VERSION}/{skill}/videos/"
+                f"{expert_id}{video_path.suffix.lower()}"
             )
             vector_object = (
                 f"experts/{VECTOR_CATALOG_VERSION}/{skill}/vectors/{vector_path.name}"
@@ -109,11 +168,22 @@ def seed(
             vector_payload, handedness = expert_vector_payload(
                 vector_path, float(video_metadata["fps"])
             )
+            if handedness != source.known_handedness:
+                raise ValueError(
+                    f"{skill}/{expert_id} vector is {handedness}-handed; "
+                    f"expected {source.known_handedness} from dataset metadata"
+                )
             document = {
                 "expert_id": expert_id,
-                "display_name": expert_id,
+                "display_name": (
+                    expert_id
+                    if source.dataset_source == "legacy"
+                    else f"NSTC {handedness} {video_path.stem}"
+                ),
                 "skill": skill,
                 "handedness": handedness,
+                "dataset_source": source.dataset_source,
+                "source_video_filename": video_path.name,
                 "video_filename": video_path.name,
                 "video_object_path": video_object,
                 "video_gcs_uri": f"gs://{bucket_name}/{video_object}",
@@ -129,12 +199,16 @@ def seed(
                     (vector_path, vector_object, "application/octet-stream"),
                 )
             )
-        counts[skill] = len(videos)
+        counts[skill] = len(sources)
 
     if not dry_run:
         assert bucket is not None and collection is not None
         existing = {blob.name for blob in bucket.list_blobs(prefix="experts/")}
-        pending = [upload for upload in uploads if upload[1] not in existing]
+        pending = [
+            upload
+            for upload in uploads
+            if upload[2] == "application/octet-stream" or upload[1] not in existing
+        ]
 
         def upload(item: tuple[Path, str, str]) -> str:
             source, object_path, content_type = item

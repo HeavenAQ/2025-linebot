@@ -3,6 +3,11 @@ from pathlib import Path
 import numpy as np
 
 from badminton_analysis.ml.expert_vector import expert_vector_payload
+from seed_expert_catalog import (
+    LEGACY_VIDEO_DIRS,
+    NSTC_EXPERT_COUNTS,
+    _expert_sources,
+)
 
 
 def test_vector_payload_includes_expert_motion_window(tmp_path: Path) -> None:
@@ -22,3 +27,31 @@ def test_vector_payload_includes_expert_motion_window(tmp_path: Path) -> None:
     assert payload["analysis_window_frames"] == [30, 45, 74]
     assert payload["motion_start_seconds"] == 1.2
     assert payload["motion_end_seconds"] == 3.0
+
+
+def test_expert_sources_use_only_nstc_hand_directories(
+    tmp_path: Path, monkeypatch
+) -> None:
+    skill = "clear"
+    legacy_dir = tmp_path / LEGACY_VIDEO_DIRS[skill]
+    legacy_dir.mkdir(parents=True)
+    for index in range(50):
+        (legacy_dir / f"legacy-{index}.mp4").touch()
+
+    monkeypatch.setitem(NSTC_EXPERT_COUNTS, skill, {"left": 1, "right": 1})
+    nstc_root = tmp_path / "training_videos" / "nstc" / skill
+    for hand in ("left", "right"):
+        directory = nstc_root / hand
+        directory.mkdir(parents=True)
+        (directory / "1.mp4").touch()
+    ignored_directory = nstc_root / "person-name"
+    ignored_directory.mkdir()
+    (ignored_directory / "ignored.mp4").touch()
+
+    sources = _expert_sources(tmp_path, skill)
+
+    assert len(sources) == 52
+    assert sources["legacy-0"].known_handedness == "right"
+    assert sources["nstc_left_1"].known_handedness == "left"
+    assert sources["nstc_right_1"].known_handedness == "right"
+    assert "ignored" not in sources

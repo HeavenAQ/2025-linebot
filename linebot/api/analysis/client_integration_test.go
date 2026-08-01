@@ -71,7 +71,7 @@ func TestLiveAnalysisService(t *testing.T) {
 	analysisStarted := time.Now()
 	result, err := client.AnalyzeVideo(
 		context.Background(), requestID, "integration-test", filepath.Base(videoPath),
-		"clear", "auto", video,
+		"clear", "right", video,
 	)
 	require.NoError(t, err)
 	require.InDelta(t, 50, result.Grade.TotalGrade, 50)

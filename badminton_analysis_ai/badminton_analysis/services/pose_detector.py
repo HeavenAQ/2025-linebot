@@ -90,7 +90,7 @@ class PoseDetector:
                 os.getenv("POSE_TENSORRT_CACHE_DIR", _DEFAULT_TENSORRT_CACHE)
             )
             hardware_compatible = os.getenv(
-                "TENSORRT_ENGINE_HW_COMPATIBLE", "true"
+                "POSE_TENSORRT_ENGINE_HW_COMPATIBLE", "true"
             ).lower() == "true"
             for name, component in (
                 ("detector", model.det_model),

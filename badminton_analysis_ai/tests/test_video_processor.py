@@ -90,7 +90,7 @@ def test_rtmw3d_configures_tensorrt_with_cuda_fallback(
     detector.device = "cuda"
     detector.execution_provider = "tensorrt"
     monkeypatch.setenv("POSE_TENSORRT_CACHE_DIR", str(tmp_path))
-    monkeypatch.setenv("TENSORRT_ENGINE_HW_COMPATIBLE", "false")
+    monkeypatch.setenv("POSE_TENSORRT_ENGINE_HW_COMPATIBLE", "false")
     monkeypatch.setitem(
         sys.modules,
         "onnxruntime",

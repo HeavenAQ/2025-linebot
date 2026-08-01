@@ -144,7 +144,7 @@ class SkeletonCorrectionBackend:
             cache_path = cache_root / "correctors" / self.spec.slug
             cache_path.mkdir(parents=True, exist_ok=True)
             hardware_compatible = os.getenv(
-                "TENSORRT_ENGINE_HW_COMPATIBLE", "true"
+                "SKELETON_TENSORRT_ENGINE_HW_COMPATIBLE", "true"
             ).lower() == "true"
             providers: list[Any] = [
                 (

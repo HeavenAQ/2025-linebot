@@ -265,7 +265,18 @@ def main() -> int:
         raise ValueError("--project-id and --bucket are required")
     if args.workers < 1:
         raise ValueError("--workers must be positive")
-    credentials = _gcloud_user_credentials() if args.gcloud_user_credentials else None
+    access_token = os.getenv("GCP_ACCESS_TOKEN", "")
+    if args.gcloud_user_credentials and access_token:
+        raise ValueError(
+            "use either --gcloud-user-credentials or GCP_ACCESS_TOKEN, not both"
+        )
+    credentials = (
+        _gcloud_user_credentials()
+        if args.gcloud_user_credentials
+        else OAuthCredentials(access_token)
+        if access_token
+        else None
+    )
     counts = seed(
         args.source_root,
         project_id=args.project_id,

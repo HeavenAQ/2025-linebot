@@ -66,6 +66,14 @@ def _load_expert_bank(
     )
 
 
+def _load_expert_handedness(files: list[Path]) -> list[str]:
+    values: list[str] = []
+    for path in files:
+        with np.load(path, allow_pickle=False) as sample:
+            values.append(str(sample["handedness"].item()).lower())
+    return values
+
+
 def _build_student_targets(
     student_files: list[Path],
     expert_files: list[Path],
@@ -604,6 +612,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "validation_expert_distance": guidance,
                     "validation_expert_variability": validation_expert_variability,
                     "expert_training_files": [path.name for path in expert_train],
+                    "expert_reference_handedness": _load_expert_handedness(
+                        expert_train
+                    ),
                     "expert_reference_skeletons": _load_expert_bank(expert_train)[0],
                     "expert_reference_confidence": _load_expert_bank(expert_train)[1],
                     "expert_validation_files": [

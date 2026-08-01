@@ -102,6 +102,17 @@ class SkeletonCorrectionBackend:
         self.expert_training_files = tuple(
             str(value) for value in checkpoint.get("expert_training_files", ())
         )
+        self.expert_reference_handedness = tuple(
+            str(value).lower()
+            for value in checkpoint.get("expert_reference_handedness", ())
+        )
+        if self.expert_training_files and (
+            len(self.expert_reference_handedness)
+            != len(self.expert_training_files)
+        ):
+            raise ValueError(
+                "checkpoint expert handedness metadata does not match its reference bank"
+            )
         self.inference_session: Any | None = None
         self.inference_providers: tuple[str, ...] = ()
         execution_provider = os.getenv(
@@ -205,7 +216,7 @@ class SkeletonCorrectionBackend:
             target_frames=self.target_frames,
         )
         grade, _, diagnostics = self.score_sequence(
-            skeleton, confidence, phases
+            skeleton, confidence, phases, handedness
         )
         return grade, window, diagnostics
 
@@ -214,7 +225,18 @@ class SkeletonCorrectionBackend:
         skeleton: np.ndarray,
         confidence: np.ndarray,
         phases: np.ndarray,
+        handedness: Handedness,
     ) -> tuple[GradingOutcome, np.ndarray, dict[str, Any]]:
+        requested_handedness = str(handedness).lower()
+        allowed_reference_indices = np.flatnonzero(
+            np.asarray(self.expert_reference_handedness)
+            == requested_handedness
+        )
+        if not len(allowed_reference_indices):
+            raise ValueError(
+                f"no {requested_handedness}-handed expert reference is available "
+                f"for {self.spec.slug}"
+            )
         corrected, reference_index, reference_distance = (
             predict_correction_with_reference(
                 self.model,
@@ -226,6 +248,7 @@ class SkeletonCorrectionBackend:
                 self.reference_guidance,
                 joint_weights=self.spec.joint_weights_array,
                 inference_session=self.inference_session,
+                allowed_reference_indices=allowed_reference_indices,
             )
         )
         total_distance, components = correction_distance(
@@ -262,6 +285,7 @@ class SkeletonCorrectionBackend:
                 bool(self.inference_providers)
                 and self.inference_providers[0] == "TensorrtExecutionProvider"
             ),
+            "expert_handedness_match": 1.0,
         }
         if reference_index is not None:
             diagnostics["expert_reference_index"] = reference_index

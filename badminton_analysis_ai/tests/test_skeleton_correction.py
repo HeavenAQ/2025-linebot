@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from badminton_analysis.ml.infer_skeleton_corrector import (
@@ -171,6 +172,63 @@ def test_prediction_reports_selected_expert_reference() -> None:
     assert reference_index == 1
     assert reference_distance is not None
     assert reference_distance < 0.01
+
+
+def test_prediction_only_selects_allowed_handedness_references() -> None:
+    source = resample_sequence(_pose_sequence(frames=11), 64)
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    disallowed_near_expert = source.copy()
+    disallowed_near_expert[:, 10, 0] += 0.01
+    allowed_far_expert = source.copy()
+    allowed_far_expert[:, 10, 0] += 0.5
+    model = SkeletonDenoiser(
+        input_features=7,
+        model_dim=16,
+        num_heads=4,
+        temporal_layers=1,
+        spatial_layers=1,
+    )
+    model.set_expert_reference_bank(
+        torch.as_tensor(np.stack((disallowed_near_expert, allowed_far_expert))),
+        torch.as_tensor(np.stack((confidence, confidence))),
+    )
+    model.eval()
+
+    _, reference_index, _ = predict_correction_with_reference(
+        model,
+        source,
+        confidence,
+        torch.device("cpu"),
+        allowed_reference_indices=np.asarray((1,), dtype=np.int64),
+    )
+
+    assert reference_index == 1
+
+
+def test_prediction_rejects_empty_allowed_reference_set() -> None:
+    source = resample_sequence(_pose_sequence(frames=11), 64)
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    model = SkeletonDenoiser(
+        input_features=7,
+        model_dim=16,
+        num_heads=4,
+        temporal_layers=1,
+        spatial_layers=1,
+    )
+    model.set_expert_reference_bank(
+        torch.as_tensor(source[None]),
+        torch.as_tensor(confidence[None]),
+    )
+    model.eval()
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        predict_correction_with_reference(
+            model,
+            source,
+            confidence,
+            torch.device("cpu"),
+            allowed_reference_indices=np.asarray((), dtype=np.int64),
+        )
 
 
 def test_prediction_can_use_onnx_style_inference_session() -> None:

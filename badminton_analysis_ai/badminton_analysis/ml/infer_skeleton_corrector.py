@@ -91,6 +91,7 @@ def predict_correction_with_reference(
     reference_guidance: float = 0.0,
     joint_weights: np.ndarray | None = None,
     inference_session: Any | None = None,
+    allowed_reference_indices: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int | None, float | None]:
     if not 0.0 <= correction_strength <= 1.0:
         raise ValueError("correction strength must be between zero and one")
@@ -114,6 +115,21 @@ def predict_correction_with_reference(
             raise ValueError("reference-conditioned model has no expert bank")
         expert_skeletons = reference_skeletons.detach().cpu().numpy()
         expert_confidence = reference_confidence.detach().cpu().numpy()
+        reference_indices = np.arange(len(expert_skeletons), dtype=np.int64)
+        if allowed_reference_indices is not None:
+            reference_indices = np.asarray(
+                allowed_reference_indices, dtype=np.int64
+            )
+            if reference_indices.ndim != 1:
+                raise ValueError("allowed reference indices must be one-dimensional")
+            if not len(reference_indices):
+                raise ValueError("allowed reference indices cannot be empty")
+            if np.any(reference_indices < 0) or np.any(
+                reference_indices >= len(expert_skeletons)
+            ):
+                raise ValueError("allowed reference index is out of range")
+            expert_skeletons = expert_skeletons[reference_indices]
+            expert_confidence = expert_confidence[reference_indices]
         if joint_weights is None:
             distances = expert_euclidean_distances(
                 model_skeleton,
@@ -121,14 +137,15 @@ def predict_correction_with_reference(
                 model_confidence,
                 expert_confidence,
             )
-            reference_index = int(np.argmin(distances))
-            reference_distance = float(distances[reference_index])
+            local_reference_index = int(np.argmin(distances))
+            reference_index = int(reference_indices[local_reference_index])
+            reference_distance = float(distances[local_reference_index])
             reference_target = project_bone_lengths(
-                model_skeleton, expert_skeletons[reference_index]
+                model_skeleton, expert_skeletons[local_reference_index]
             )
         else:
             (
-                reference_index,
+                local_reference_index,
                 reference_target,
                 _,
                 reference_distance,
@@ -139,6 +156,7 @@ def predict_correction_with_reference(
                 expert_confidence,
                 joint_weights,
             )
+            reference_index = int(reference_indices[local_reference_index])
         feature_parts.append(reference_target)
     feature_parts.append(model_confidence[..., None])
     features = np.concatenate(feature_parts, axis=-1)

@@ -143,6 +143,11 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 )
                 catalog_started = time.perf_counter()
                 expert = self.catalog.get(str(skill), result.expert_id)
+                if expert.handedness != str(result.handedness):
+                    raise ValueError(
+                        "selected expert handedness does not match the student: "
+                        f"student={result.handedness}, expert={expert.handedness}"
+                    )
                 catalog_finished = time.perf_counter()
                 user_segment = _safe_segment(header.user_id, "anonymous")
                 request_segment = _safe_segment(header.request_id, analysis_id)

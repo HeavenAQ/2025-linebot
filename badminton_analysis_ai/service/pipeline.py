@@ -126,7 +126,7 @@ class SkeletonAnalysisPipeline:
             )
             preprocessing_finished = time.perf_counter()
             grade, corrected, diagnostics = backend.score_sequence(
-                skeleton, confidence, phases
+                skeleton, confidence, phases, handedness
             )
             scoring_finished = time.perf_counter()
             fps = source_fps(video_path)

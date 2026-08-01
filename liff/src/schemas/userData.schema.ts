@@ -63,17 +63,18 @@ export const WorkSchema = z.object({
   analysis_id: z.string().optional().default(''),
   student_video: MediaRefSchema.optional(),
   expert: ExpertMatchSchema.optional(),
-  timeline: z.array(PhaseMarkerSchema).optional().default([]),
-  coaching_cues: z.array(CoachingCueSchema).optional().default([])
+  timeline: z.preprocess(value => value ?? [], z.array(PhaseMarkerSchema)),
+  coaching_cues: z.preprocess(value => value ?? [], z.array(CoachingCueSchema))
 })
 
 const EmptyPortfolio = z.record(z.string(), WorkSchema)
+const NullablePortfolio = z.preprocess(value => value ?? {}, EmptyPortfolio)
 
 export const PortfoliosSchema = z.object({
-  serve: EmptyPortfolio,
-  smash: EmptyPortfolio,
-  clear: EmptyPortfolio,
-  lift: EmptyPortfolio.optional().default({})
+  serve: NullablePortfolio,
+  smash: NullablePortfolio,
+  clear: NullablePortfolio,
+  lift: NullablePortfolio
 })
 
 export const FolderIDsSchema = z.object({

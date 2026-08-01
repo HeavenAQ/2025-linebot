@@ -117,25 +117,25 @@ The offline benchmark ran on Nislab host `p920`, Quadro RTX 6000 24 GiB, driver
 8.4.75, and OpenCV 4.10. CUDA device ordering differs from `nvidia-smi` on this
 host; the recorded benchmark command used CUDA device 1, which is the Quadro.
 
-Production engines were built separately on the RTX A6000 (SM86) with ONNX
-Runtime 1.24.4 and TensorRT 10.14.1.48. The four FP16 correction engines are
-hardware-compatible SM80+ plans and load directly on the production L4. RTMW's
-ONNX Runtime graph partition hashes differ in the production image, so the CD
-gate builds exact SM89 detector and pose plans on a zero-traffic L4 candidate.
-The workflow retries the same candidate after the cold request drains, promotes
-it only after real video analysis and signed playback pass, and keeps one warm
-instance. Failed candidates never receive production traffic.
+The current four FP16 correction engines were built separately on the RTX A6000
+(SM86) with ONNX Runtime 1.24.4 and TensorRT 10.14.1.48. They are
+hardware-compatible SM80+ plans and load directly on the production L4. The
+detector and RTMW3D plans are exact SM89 engines produced for the L4. The CD
+workflow promotes a zero-traffic candidate only after real right-handed
+beginner and held-out left-handed expert analyses, TensorRT activation, and
+signed playback checks pass. Failed candidates never receive production
+traffic.
 
 The portable ignored cache is stored at:
 
 ```text
-gs://nstc-2025-storage/models/rtmw3d-ort1.24.4-trt10.14-sm80plus
+gs://nstc-2025-storage/models/rtmw3d-ort1.24.4-trt10.14-qualitative-v2
 ```
 
-`badminton_analysis_ai/models/tensorrt-cache.sha256` verifies every portable
-detector, pose, corrector, profile, and timing-cache object before the Docker
-build. The production image retains only TensorRT's SM89 builder resource so a
-missing or changed RTMW partition cannot silently build for a different GPU
-architecture. The source benchmark's generated CSV, NPZ, log, and MP4 artifacts
-remain in the ignored local folders `stats/pose-framework-benchmark-20260801`
-and `stats/production-correction-20260801`.
+`badminton_analysis_ai/models/tensorrt-cache.sha256` verifies all 17 detector,
+pose, corrector, profile, and timing-cache objects before the Docker build. The
+production image retains only TensorRT's SM89 builder resource so a missing or
+changed RTMW partition cannot silently build for a different GPU architecture.
+The source benchmark's generated CSV, NPZ, log, and MP4 artifacts remain in the
+ignored local folders `stats/pose-framework-benchmark-20260801` and
+`stats/production-correction-20260801`.

@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p badminton_analysis_ai/models/tensorrt-cache
           gcloud storage rsync --recursive \
-            gs://${{ env.GCS_BUCKET_NAME }}/models/rtmw3d-ort1.24.4-trt10.14-sm89 \
+            gs://${{ env.GCS_BUCKET_NAME }}/models/rtmw3d-ort1.24.4-trt10.14-qualitative-v2 \
             badminton_analysis_ai/models/tensorrt-cache
           cd badminton_analysis_ai/models/tensorrt-cache
           sha256sum --check ../tensorrt-cache.sha256
@@ -80,7 +80,7 @@ jobs:
             --tag "${candidate_tag}" \
             --clear-volume-mounts \
             --clear-volumes \
-            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,SKELETON_TENSORRT_ENGINE_HW_COMPATIBLE=false,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=false,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
+            --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_VIDEOS_COLLECTION=badminton_experts_v2,SKELETON_DEVICE=auto,SKELETON_EXECUTION_PROVIDER=tensorrt,SKELETON_TENSORRT_ENGINE_HW_COMPATIBLE=true,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=false,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,SIGNED_URL_MINUTES=60 \
             --set-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest,OPENAI_API_KEY=openai-api-key:latest
           candidate_revision="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.latestCreatedRevisionName)')"

@@ -191,31 +191,22 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   return (
     // `dark` pins the player to the dark token set in both themes — video reads
     // best on a dark surface, but it still uses the shared tokens, not one-off greys.
-    <section className="dark animate-fade-down overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-card">
+    <section className="dark overflow-hidden rounded-lg border border-border bg-card text-card-foreground">
       <div className="flex items-start justify-between gap-3 p-4">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight">動作同步比較</h2>
+          <h2 className="text-sm font-semibold tracking-tight">動作同步比較</h2>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            專家 {playback.expert.display_name} · 骨架距離{' '}
-            {playback.expert.correction_distance.toFixed(3)}
+            對照專家 {playback.expert.display_name}
           </p>
         </div>
-        <div className="shrink-0 text-right">
-          <span className="text-2xl font-semibold tabular-nums text-primary">
-            {playback.grade.total_grade.toFixed(1)}
-          </span>
-          <span className="ml-1 text-xs text-muted-foreground">分</span>
-        </div>
+        <Segmented
+          label="畫面模式"
+          variant="solid"
+          options={VIEW_OPTIONS}
+          value={viewMode}
+          onChange={setViewMode}
+        />
       </div>
-
-      <Segmented
-        label="畫面模式"
-        size="sm"
-        options={VIEW_OPTIONS}
-        value={viewMode}
-        onChange={setViewMode}
-        className="mx-4 mb-3"
-      />
 
       <div className={`grid bg-black ${showStudent && showExpert ? 'md:grid-cols-2' : ''}`}>
         <div className={showStudent ? 'relative' : 'hidden'}>
@@ -314,7 +305,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           >
             <RotateCcw size={17} />
           </Button>
-          <span className="ml-1 text-xs tabular-nums text-muted-foreground">
+          <span className="num ml-1 font-data text-xs text-muted-foreground">
             {formatTime(studentTimeFromMotionProgress(progress))} / {formatTime(studentDuration)}
           </span>
           <Button
@@ -343,7 +334,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         </div>
 
         {activeCue && (
-          <div className="mt-4 rounded-lg border-l-4 border-destructive bg-muted/60 p-3">
+          <div className="mt-4 border-l-2 border-destructive pl-3">
             <p className="text-sm font-semibold text-destructive">{activeCue.title}</p>
             <p className="mt-1 text-sm leading-6 text-card-foreground">{activeCue.feedback}</p>
           </div>

@@ -37,10 +37,6 @@ export default {
           DEFAULT: 'hsl(var(--accent))',
           foreground: 'hsl(var(--accent-foreground))'
         },
-        highlight: {
-          DEFAULT: 'hsl(var(--highlight))',
-          foreground: 'hsl(var(--highlight-foreground))'
-        },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))'
@@ -60,19 +56,30 @@ export default {
           '5': 'hsl(var(--chart-5))'
         }
       },
+      fontFamily: {
+        // Archivo's unicode-range covers Latin + figures only, so any Chinese
+        // inside a data element still resolves to the same face as body text.
+        data: ['Archivo', 'PingFang TC', 'Noto Sans TC', 'system-ui', 'sans-serif']
+      },
+      fontSize: {
+        // One deliberate jump from body to score. Nothing lives in between.
+        score: ['3.75rem', { lineHeight: '0.88', letterSpacing: '-0.035em', fontWeight: '700' }],
+        metric: ['1.375rem', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '600' }]
+      },
       borderRadius: {
-        '2xl': 'calc(var(--radius) + 8px)',
-        xl: 'calc(var(--radius) + 4px)',
+        '2xl': 'calc(var(--radius) * 2)',
+        xl: 'calc(var(--radius) + 2px)',
         lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 4px)',
-        sm: 'calc(var(--radius) - 6px)'
+        md: 'calc(var(--radius) - 1px)',
+        sm: 'calc(var(--radius) - 2px)'
       },
       boxShadow: {
-        card: '0 1px 2px hsl(30 12% 14% / 0.04), 0 8px 24px -12px hsl(30 12% 14% / 0.14)',
-        elevated: '0 2px 4px hsl(30 12% 14% / 0.06), 0 16px 40px -16px hsl(30 12% 14% / 0.22)'
+        // Barely-there. Structure comes from rules and colour, not elevation.
+        card: '0 1px 2px hsl(193 30% 12% / 0.05)',
+        elevated: '0 8px 28px -12px hsl(193 30% 12% / 0.28)'
       },
       maxWidth: {
-        content: '48rem'
+        content: '46rem'
       }
     }
   },

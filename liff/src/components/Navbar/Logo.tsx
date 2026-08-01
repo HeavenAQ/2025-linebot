@@ -3,13 +3,13 @@ import Link from 'next/link'
 
 const Logo = () => {
   return (
-    <Link href="/" className="group inline-flex items-center gap-2 rounded-lg">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+    <Link href="/personal" className="group inline-flex items-center gap-2 rounded-lg">
+      <span className="grid h-7 w-7 place-items-center rounded-md bg-primary text-primary-foreground">
         <svg
           viewBox="0 0 305.422 305.422"
           xmlns="http://www.w3.org/2000/svg"
           aria-hidden="true"
-          className="h-4 w-4 fill-current transition-transform duration-200 group-hover:-rotate-[20deg]"
+          className="h-3.5 w-3.5 fill-current transition-transform duration-200 group-hover:-rotate-[20deg]"
         >
           <path
             d="M245.918,113.906c1.202-14.109-3.35-28.625-13.729-39.859c-0.268-0.289-0.548-0.568-0.839-0.838
@@ -32,7 +32,7 @@ const Logo = () => {
           />
         </svg>
       </span>
-      <span className="text-base font-bold tracking-tight">Badminton</span>
+      <span className="text-sm font-bold tracking-tight">動作分析</span>
     </Link>
   )
 }

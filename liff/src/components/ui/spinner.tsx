@@ -3,18 +3,11 @@ import React from 'react'
 import { cn } from '@/lib/utils'
 
 interface SpinnerProps {
-  size?: 'sm' | 'md' | 'lg'
-  /** Centre in the viewport. Off by default so it can sit inline inside a card. */
+  size?: 'sm' | 'md'
   fullscreen?: boolean
   label?: string
   className?: string
 }
-
-const sizes = {
-  sm: 'h-5 w-5 border-2',
-  md: 'h-8 w-8 border-2',
-  lg: 'h-12 w-12 border-[3px]'
-} as const
 
 export default function Spinner({
   size = 'md',
@@ -28,14 +21,14 @@ export default function Spinner({
       aria-label={label}
       className={cn(
         'flex items-center justify-center',
-        fullscreen ? 'min-h-[60vh]' : 'py-10',
+        fullscreen ? 'min-h-[50vh]' : 'py-10',
         className
       )}
     >
       <div
         className={cn(
-          'animate-spin rounded-full border-border border-t-primary',
-          sizes[size]
+          'animate-spin rounded-full border-2 border-border border-t-primary',
+          size === 'sm' ? 'h-4 w-4' : 'h-7 w-7'
         )}
       />
       <span className="sr-only">{label}</span>

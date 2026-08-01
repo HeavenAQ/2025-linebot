@@ -1,11 +1,15 @@
-name: Backend CD
+# Deploys the Go LINE bot server (linebot/) to Cloud Run in asia-east1.
+# The GPU pose-analysis service it calls is deployed by cd-motion-analysis.yml.
+name: LINE Bot Server CD
+
 on:
   push:
     branches:
       - main
     paths:
       - 'linebot/**'
-      - '.github/workflows/cd.yml'
+      - '.github/workflows/cd-linebot.yml'
+  workflow_dispatch:
 
 jobs:
   deploy:

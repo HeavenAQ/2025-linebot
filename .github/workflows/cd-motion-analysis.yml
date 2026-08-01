@@ -1,4 +1,8 @@
-name: Badminton Motion Analysis CD
+# Deploys the GPU pose-analysis gRPC service (badminton_analysis_ai/) to
+# Cloud Run in asia-southeast1 on an NVIDIA L4: builds the image, releases a
+# no-traffic candidate revision, verifies it with a live video analysis run,
+# promotes it to 100% traffic, then prunes superseded revisions and images.
+name: Motion Analysis Service CD
 
 on:
   push:
@@ -7,7 +11,7 @@ on:
       - 'badminton_analysis_ai/**'
       - 'proto/**'
       - 'linebot/api/analysis/**'
-      - '.github/workflows/cd-badminton-analysis.yml'
+      - '.github/workflows/cd-motion-analysis.yml'
   workflow_dispatch:
 
 jobs:

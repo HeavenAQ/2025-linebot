@@ -331,12 +331,15 @@ The analyzer deployment sets `POSE_EXECUTION_PROVIDER=tensorrt`,
 ## Deployment
 
 - `ci.yml` runs Go tests, Python correction/spec tests, and the LIFF build.
-- `cd-badminton-analysis.yml` builds the CUDA image, deploys the
+- `cd-motion-analysis.yml` builds the CUDA image, deploys the
   `badminton-analysis-ai` Cloud Run service with one L4 GPU and HTTP/2 at zero
   traffic, then streams a real beginner clear video through the candidate URL
   and verifies signed playback. Only a passing candidate is promoted to 100%.
   Superseded GPU revisions and container images are removed after promotion.
-- `cd.yml` builds/deploys the Go service and checks its live health endpoint.
+- `cd-linebot.yml` builds/deploys the Go service and checks its live health
+  endpoint.
+- The LIFF frontend has no CD workflow: Netlify builds `liff/` from `main`
+  itself and publishes `liff/out`.
 
 Generated videos, logs, local datasets, credentials, `.env` files, analysis
 working directories, and TensorRT caches are ignored. PyTorch checkpoints,

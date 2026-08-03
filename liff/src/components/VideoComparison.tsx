@@ -5,6 +5,7 @@ import { Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
+import { buildAlignmentAnchors, expertRateAt, expertTimeAt } from '@/lib/expertAlignment'
 import type { CoachingCue, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -79,11 +80,23 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     expertDuration,
     configuredExpertEnd > expertMotionStart ? configuredExpertEnd : expertDuration
   )
-  const expertMotionDuration = Math.max(0.01, expertMotionEnd - expertMotionStart)
+  // Checkpoint-anchored map from the student's progress to the expert's clock.
+  // Falls back to the plain window stretch when an analysis carries no expert
+  // checkpoints.
+  const alignmentAnchors = useMemo(
+    () =>
+      buildAlignmentAnchors(
+        playback.timeline,
+        playback.expert.timeline,
+        expertMotionStart,
+        expertMotionEnd
+      ),
+    [playback.timeline, playback.expert.timeline, expertMotionStart, expertMotionEnd]
+  )
 
   const expertTimeFromMotionProgress = useCallback(
-    (position: number) => expertMotionStart + clamp(position) * expertMotionDuration,
-    [expertMotionDuration, expertMotionStart]
+    (position: number) => expertTimeAt(alignmentAnchors, position),
+    [alignmentAnchors]
   )
 
   const pauseAtTime = useCallback(
@@ -121,13 +134,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       if (!expert || !Number.isFinite(expertDuration) || expertDuration <= 0) return
       const target = expertTimeFromMotionProgress(position)
       if (Math.abs(expert.currentTime - target) > 0.12) expert.currentTime = target
+      // Each segment has its own tempo relative to the student; running the
+      // expert at that rate keeps it in step instead of drifting until the
+      // correction above snaps it.
+      const rate = expertRateAt(alignmentAnchors, position, motionDuration)
+      if (Math.abs(expert.playbackRate - rate) > 0.01) expert.playbackRate = rate
       if (pauseAtTime(studentTime)) {
         expert.pause()
       } else if (playingRef.current && expert.paused) {
         void expert.play().catch(() => undefined)
       }
     },
-    [expertDuration, expertTimeFromMotionProgress, pauseAtTime]
+    [alignmentAnchors, expertDuration, expertTimeFromMotionProgress, motionDuration, pauseAtTime]
   )
 
   const seek = useCallback(
@@ -187,6 +205,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   const showStudent = viewMode !== 'expert'
   const showExpert = viewMode !== 'student'
+  const activeCheckpoint = playback.timeline.reduce(
+    (nearest, marker, index) =>
+      Math.abs(marker.normalized_position - progress) <
+      Math.abs(playback.timeline[nearest]?.normalized_position - progress)
+        ? index
+        : nearest,
+    0
+  )
 
   return (
     // The player is a panel like any other: same surface, same border, same
@@ -263,7 +289,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       </div>
 
       <div className="p-4">
-        <div className="relative h-8">
+        <div className="relative h-9">
           <input
             aria-label="動作時間軸"
             type="range"
@@ -273,16 +299,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             onChange={event => seek(Number(event.target.value) / 1000)}
             className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
           />
-          {playback.timeline.map(marker => (
+          {playback.timeline.map((marker, index) => (
             <button
               key={marker.id}
               type="button"
               title={marker.label}
               aria-label={`前往${marker.label}`}
               onClick={() => seek(marker.normalized_position)}
-              className="absolute top-0 h-4 w-0.5 rounded-full bg-success"
+              className="absolute top-0 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm"
               style={{ left: `${clamp(marker.normalized_position) * 100}%` }}
-            />
+            >
+              {index + 1}
+            </button>
           ))}
           {playback.coaching_cues.map((cue, index) => (
             <button
@@ -331,14 +359,29 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           </Button>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-          {playback.timeline.map(marker => (
-            <span key={marker.id} className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-success" /> {marker.label}
-            </span>
-          ))}
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-medium text-foreground">技術檢核點</p>
+          <div className="flex snap-x gap-1 overflow-x-auto pb-2" aria-label="技術檢核點">
+            {playback.timeline.map((marker, index) => (
+              <button
+                key={marker.id}
+                type="button"
+                onClick={() => seek(marker.normalized_position)}
+                className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
+                  index === activeCheckpoint
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground'
+                }`}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success text-[10px] font-semibold text-white">
+                  {index + 1}
+                </span>
+                <span className="leading-4">{marker.label}</span>
+              </button>
+            ))}
+          </div>
           {pauses.length > 0 && (
-            <span className="flex items-center gap-1.5">
+            <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <span className="h-2 w-2 rounded-full bg-destructive" /> GPT 暫停點
             </span>
           )}

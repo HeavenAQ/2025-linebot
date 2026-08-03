@@ -24,21 +24,24 @@ export const MediaRefSchema = z.object({
   height: z.number().optional().default(0)
 })
 
-export const ExpertMatchSchema = z.object({
-  expert_id: z.string(),
-  display_name: z.string(),
-  correction_distance: z.number().optional().default(0),
-  video: MediaRefSchema,
-  motion_start_seconds: z.number().optional().default(0),
-  motion_end_seconds: z.number().optional().default(0)
-})
-
 export const PhaseMarkerSchema = z.object({
   id: z.string(),
   label: z.string(),
   normalized_frame: z.number(),
   normalized_position: z.number(),
   timestamp_seconds: z.number()
+})
+
+export const ExpertMatchSchema = z.object({
+  expert_id: z.string(),
+  display_name: z.string(),
+  correction_distance: z.number().optional().default(0),
+  video: MediaRefSchema,
+  motion_start_seconds: z.number().optional().default(0),
+  motion_end_seconds: z.number().optional().default(0),
+  // The expert's own checkpoints, timestamped in the expert video. Absent on
+  // analyses recorded before checkpoint alignment shipped.
+  timeline: z.preprocess(value => value ?? [], z.array(PhaseMarkerSchema))
 })
 
 export const CoachingCueSchema = z.object({

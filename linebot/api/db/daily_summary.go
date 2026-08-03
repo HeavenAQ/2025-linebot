@@ -9,9 +9,12 @@ import (
 )
 
 // DailySummary stores a cached per-user summary for a specific date.
+// ScoreKey fingerprints the grades the summary was written from, so a new
+// graded attempt invalidates the cache the same way a new message does.
 type DailySummary struct {
     Summary   string    `json:"summary" firestore:"summary"`
     LastCount int       `json:"last_count" firestore:"last_count"`
+    ScoreKey  string    `json:"score_key" firestore:"score_key"`
     Date      string    `json:"date" firestore:"date"`
     Skill     string    `json:"skill" firestore:"skill"`
     UpdatedAt time.Time `json:"updated_at" firestore:"updated_at"`
@@ -40,8 +43,9 @@ func (client *FirestoreClient) GetDailySummary(userID, date, skill string) (*Dai
 	return &ds, nil
 }
 
-// SetDailySummary upserts the cached summary and the last message count used to compute it.
-func (client *FirestoreClient) SetDailySummary(userID, date, skill, summary string, lastCount int) error {
+// SetDailySummary upserts the cached summary along with the message count and
+// score fingerprint it was computed from.
+func (client *FirestoreClient) SetDailySummary(userID, date, skill, summary string, lastCount int, scoreKey string) error {
     ctx := *client.Ctx
     docID := client.dailySummaryDocID(userID, date, skill)
     docRef := client.DailySummaries.Doc(docID)
@@ -49,6 +53,7 @@ func (client *FirestoreClient) SetDailySummary(userID, date, skill, summary stri
     payload := DailySummary{
         Summary:   summary,
         LastCount: lastCount,
+        ScoreKey:  scoreKey,
         Date:      date,
         Skill:     skill,
         UpdatedAt: time.Now().UTC(),

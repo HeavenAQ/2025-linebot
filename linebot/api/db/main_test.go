@@ -11,11 +11,20 @@ import (
 
 var firestoreClient *db.FirestoreClient
 
+// requireLive skips a test that needs a real Firestore client. Tests that only
+// exercise pure logic run either way.
+func requireLive(t *testing.T) {
+	t.Helper()
+	if firestoreClient == nil {
+		t.Skip("Skipping Firestore live test; set RUN_LIVE_FIRESTORE=1 to enable.")
+	}
+}
+
 // setup database
 func TestMain(m *testing.M) {
 	if os.Getenv("RUN_LIVE_FIRESTORE") != "1" {
 		log.Println("Skipping Firestore live tests; set RUN_LIVE_FIRESTORE=1 to enable.")
-		os.Exit(0)
+		os.Exit(m.Run())
 	}
 	cfg, err := config.LoadConfig("../../.env")
 	if err != nil {

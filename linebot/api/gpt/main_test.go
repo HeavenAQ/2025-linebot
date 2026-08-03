@@ -18,7 +18,8 @@ var (
 func TestMain(m *testing.M) {
 	if os.Getenv("RUN_LIVE_OPENAI") != "1" {
 		log.Println("Skipping OpenAI live tests; set RUN_LIVE_OPENAI=1 to enable.")
-		os.Exit(0)
+		// Tests that need no client (prompt building) still run.
+		os.Exit(m.Run())
 	}
 	cfg, err := config.LoadConfig("../../.env")
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 
 // TestFirestoreRealAccess tests real Firestore access using credentials from Google Secret Manager
 func TestFirestoreRealAccess(t *testing.T) {
+	requireLive(t)
 	// Test data to be inserted
 	testData := map[string]interface{}{
 		"name":  "John Doe",

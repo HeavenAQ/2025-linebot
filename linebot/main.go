@@ -6,12 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 // (runtime snake_case conversion removed; DB is migrated instead)
+
+// recentScoreLimit caps how many graded attempts feed the learning summary.
+const recentScoreLimit = 5
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
@@ -78,7 +82,7 @@ func main() {
 	r.POST("/api/chat/summarize", func(c *gin.Context) {
 		start := time.Now()
 		var req summarizeReq
-		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.Skill) == "" {
+		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.Skill) == "" {
 			application.Logger.Warn.Printf("[chat.summarize] invalid body content_len=%d user_id_present=%t skill_present=%t", len(req.Content), strings.TrimSpace(req.UserID) != "", strings.TrimSpace(req.Skill) != "")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 			return
@@ -106,17 +110,32 @@ func main() {
 			}
 		}
 
+		// The learner's recent grades ground the summary, so a summary is worth
+		// producing from scores alone even before they have chatted.
+		scores, err := application.FirestoreClient.GetRecentSkillScores(req.UserID, skillLower, recentScoreLimit)
+		if err != nil {
+			application.Logger.Warn.Printf("[chat.summarize] user_id=%s skill=%s scores_error=%v", req.UserID, skillLower, err)
+			scores = nil
+		}
+		scoreKey := db.ScoreFingerprint(scores)
+
+		if strings.TrimSpace(req.Content) == "" && len(scores) == 0 {
+			application.Logger.Info.Printf("[chat.summarize] nothing_to_summarize user_id=%s skill=%s took=%s", req.UserID, skillLower, time.Since(start))
+			c.JSON(http.StatusOK, gin.H{"summary": "", "cached": false})
+			return
+		}
+
 		// Try cache first
 		cached, err := application.FirestoreClient.GetDailySummary(req.UserID, today, skillLower)
-		if err == nil && cached != nil && cached.LastCount == currentCount && strings.TrimSpace(cached.Summary) != "" {
+		if err == nil && cached != nil && cached.LastCount == currentCount && cached.ScoreKey == scoreKey && strings.TrimSpace(cached.Summary) != "" {
 			application.Logger.Info.Printf("[chat.summarize] cache_hit user_id=%s date=%s skill=%s count=%d took=%s", req.UserID, today, skillLower, currentCount, time.Since(start))
 			c.JSON(http.StatusOK, gin.H{"summary": cached.Summary, "cached": true})
 			return
 		}
 
-		// Cache miss or count changed; generate new summary
-		application.Logger.Info.Printf("[chat.summarize] cache_miss user_id=%s date=%s skill=%s count=%d content_len=%d", req.UserID, today, skillLower, currentCount, len(req.Content))
-		sum, err := application.GPTClient.Summarize(req.Content)
+		// Cache miss, or the message count or scores changed; generate new summary
+		application.Logger.Info.Printf("[chat.summarize] cache_miss user_id=%s date=%s skill=%s count=%d scores=%d content_len=%d", req.UserID, today, skillLower, currentCount, len(scores), len(req.Content))
+		sum, err := application.GPTClient.Summarize(req.Content, scores)
 		if err != nil {
 			application.Logger.Error.Printf("[chat.summarize] error=%v took=%s", err, time.Since(start))
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to summarize"})
@@ -124,7 +143,7 @@ func main() {
 		}
 
 		// Store/Update cache
-		if err := application.FirestoreClient.SetDailySummary(req.UserID, today, skillLower, sum, currentCount); err != nil {
+		if err := application.FirestoreClient.SetDailySummary(req.UserID, today, skillLower, sum, currentCount, scoreKey); err != nil {
 			application.Logger.Warn.Printf("[chat.summarize] failed_cache_store user_id=%s date=%s skill=%s err=%v", req.UserID, today, skillLower, err)
 		}
 

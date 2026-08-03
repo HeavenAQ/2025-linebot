@@ -9,6 +9,7 @@ import (
 
 // Test GetUserSession function
 func TestGetUserSession(t *testing.T) {
+	requireLive(t)
 	// Create a test user session
 	testUserID := "test-user-id"
 	expectedSession := db.UserSession{UserState: db.WritingNotes, Skill: "Writing", Handedness: "right"}
@@ -27,6 +28,7 @@ func TestGetUserSession(t *testing.T) {
 
 // Test CreateUserSession function
 func TestCreateUserSession(t *testing.T) {
+	requireLive(t)
 	// Create a new session
 	testUserID := "new-user-id"
 	newSession, err := firestoreClient.CreateUserSession(testUserID)
@@ -47,6 +49,7 @@ func TestCreateUserSession(t *testing.T) {
 
 // Test UpdateSessionUserState function
 func TestUpdateSessionUserState(t *testing.T) {
+	requireLive(t)
 	// Create a test user session
 	testUserID := "state-user-id"
 	firestoreClient.CreateUserSession(testUserID)
@@ -66,6 +69,7 @@ func TestUpdateSessionUserState(t *testing.T) {
 
 // Test UpdateSessionUserSkill function
 func TestUpdateSessionUserSkill(t *testing.T) {
+	requireLive(t)
 	// Create a test user session
 	testUserID := "skill-user-id"
 	firestoreClient.CreateUserSession(testUserID)

@@ -13,6 +13,15 @@ type GradingOutcome struct {
 	ScoreStatus    string          `json:"score_status" firestore:"score_status"`
 }
 
+// SkillScore is one graded attempt flattened out of a portfolio entry, so the
+// grades can be reported and prompted on without carrying the whole Work.
+type SkillScore struct {
+	Date        string          `json:"date" firestore:"date"`
+	TotalGrade  float64         `json:"total_grade" firestore:"total_grade"`
+	ScoreStatus string          `json:"score_status" firestore:"score_status"`
+	Details     []GradingDetail `json:"grading_details" firestore:"grading_details"`
+}
+
 type MediaRef struct {
 	ObjectPath       string  `json:"object_path" firestore:"object_path"`
 	GCSURI           string  `json:"gcs_uri" firestore:"gcs_uri"`

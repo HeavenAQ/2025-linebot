@@ -48,25 +48,22 @@ export default function GptChatPage() {
         const messages: ChatMessage[] = Array.isArray(json.data) ? json.data : []
         setChatHistory(messages)
 
-        // Prepare latest up to 10 messages' content for summarization
+        // Prepare latest up to 10 messages' content for summarization. The
+        // request goes out even with no messages: the backend grounds the
+        // summary in the learner's recent scores, which may exist on their own.
         const lastMessages = messages
           .slice(-10)
           .map(m => m.text)
           .filter(Boolean)
-        if (lastMessages.length > 0) {
-          const body = { content: lastMessages.join('\n'), user_id: userId, skill }
-          const base = getBackendBaseUrl()
-          const sumRes = await fetch(`${base}/api/chat/summarize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          })
-          if (sumRes.ok) {
-            const sumJson = await sumRes.json()
-            setSummary(sumJson.summary || '')
-          } else {
-            setSummary('')
-          }
+        const body = { content: lastMessages.join('\n'), user_id: userId, skill }
+        const sumRes = await fetch(`${base}/api/chat/summarize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        })
+        if (sumRes.ok) {
+          const sumJson = await sumRes.json()
+          setSummary(sumJson.summary || '')
         } else {
           setSummary('')
         }
@@ -140,7 +137,7 @@ export default function GptChatPage() {
             {summary ? (
               <p className="whitespace-pre-line break-words text-sm leading-7">{summary}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">這個技能還沒有可摘要的對話。</p>
+              <p className="text-sm text-muted-foreground">這個技能還沒有可摘要的對話或成績。</p>
             )}
           </CardContent>
         </Card>

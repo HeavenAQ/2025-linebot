@@ -13,6 +13,7 @@ import (
 
 // TestCreateUserData verifies the creation of user data
 func TestCreateUserData(t *testing.T) {
+	requireLive(t)
 	t.Parallel()
 
 	// Define test data using RandomAlphabetString
@@ -48,6 +49,7 @@ func TestCreateUserData(t *testing.T) {
 
 // TestGetUserData verifies retrieving user data
 func TestGetUserData(t *testing.T) {
+	requireLive(t)
 	t.Parallel()
 
 	// Create a user with RandomAlphabetString
@@ -87,6 +89,7 @@ func TestGetUserData(t *testing.T) {
 
 // TestUpdateUserHandedness verifies that the handedness can be updated
 func TestUpdateUserHandedness(t *testing.T) {
+	requireLive(t)
 	t.Parallel()
 
 	// Create a test user with RandomAlphabetString
@@ -115,6 +118,7 @@ func TestUpdateUserHandedness(t *testing.T) {
 
 // TestCreateUserPortfolioVideo verifies that a video can be added to the user's portfolio
 func TestCreateUserPortfolioVideo(t *testing.T) {
+	requireLive(t)
 	t.Parallel()
 
 	// Create a test user with RandomAlphabetString

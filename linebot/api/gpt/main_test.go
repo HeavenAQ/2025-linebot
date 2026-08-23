@@ -30,6 +30,6 @@ func TestMain(m *testing.M) {
 	}
 
 	runIntegration = true
-	gptClient = gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID, cfg.GPT.RewriteModel, cfg.GPT.SummaryModel)
+	gptClient = gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.Model)
 	os.Exit(m.Run())
 }

@@ -20,41 +20,56 @@ import (
 // 2. For each user message, call Responses.New with the conversation ID and prompt.
 // 3. Read the generated text directly from the returned Response.
 
-// DefaultModel serves both the rewrite step and the summary. It is named here
-// rather than left to the stored prompt because a prompt pins whichever model
-// it was saved against, and OpenAI retires those: the summary broke in
-// production when gpt-5.2-chat-latest was withdrawn from under the stored
-// prompt, with nothing in this repository naming it.
+// DefaultModel is what every request runs on unless OPENAI_MODEL says
+// otherwise.
+//
+// Named here rather than left to a stored OpenAI prompt. A stored prompt pins
+// whichever model it was saved against, and OpenAI retires those: when
+// gpt-5.2-chat-latest was withdrawn, every summary started coming back 404
+// with nothing in this repository naming the model, so there was no way to fix
+// it from here. The system prompts live in this file for the same reason --
+// they are reviewable, versioned with the code that sends them, and cannot
+// change under the service without a deploy.
 const DefaultModel = "gpt-5.6-terra"
 
 type Client struct {
-	Ctx          *context.Context
-	Client       *openai.Client
-	PromptID     string
-	RewriteModel string
-	SummaryModel string
+	Ctx    *context.Context
+	Client *openai.Client
+	Model  string
 }
 
-func NewGPTClient(apiKey, promptID, rewriteModel, summaryModel string) *Client {
+func NewGPTClient(apiKey, model string) *Client {
 	ctx := context.Background()
-	if rewriteModel == "" {
-		rewriteModel = DefaultModel
-	}
-	if summaryModel == "" {
-		summaryModel = DefaultModel
+	if model == "" {
+		model = DefaultModel
 	}
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
 	)
 
 	return &Client{
-		Ctx:          &ctx,
-		Client:       &client,
-		PromptID:     promptID,
-		RewriteModel: rewriteModel,
-		SummaryModel: summaryModel,
+		Ctx:    &ctx,
+		Client: &client,
+		Model:  model,
 	}
 }
+
+// coachInstruction is the persona behind the bot's replies to learners.
+//
+// It is deliberately explicit that questions about a learner's own progress
+// are in scope: the stored prompt this replaced used to refuse them outright
+// and tell the student to go find a real coach, which is the one thing a
+// coaching bot must not do when it has the scores in front of it.
+const coachInstruction = "你是一位羽球教練，正在指導大學體育課的學生。" +
+	"學生會問你關於自己練習的問題，有時會附上系統的動作評分。\n" +
+	"- 一律使用繁體中文，語氣直接、鼓勵，像在球場邊說話。\n" +
+	"- 針對學生真正問的事情回答。學生問自己的學習進度或動作表現時，" +
+	"就根據他提供的分數與對話內容回答，不要拒絕，也不要要他去問別的教練。\n" +
+	"- 建議要具體到身體部位與練得到的動作，例如「擊球瞬間手腕先放鬆再快速前甩」，" +
+	"而不是「多多練習」。\n" +
+	"- 只根據學生提供的資料說話，不要杜撰沒有出現過的分數或觀察；" +
+	"資料不足就直接說還需要什麼。\n" +
+	"- 這是 LINE 訊息，控制在 200 字以內。逐項回饋時每項一行、以數字開頭。"
 
 type HistoryMessage struct {
 	Role string `json:"role"`
@@ -76,7 +91,7 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 		return "", fmt.Errorf("marshal query rewrite context: %w", err)
 	}
 	req := responses.ResponseNewParams{
-		Model:        client.RewriteModel,
+		Model:        client.Model,
 		Instructions: param.Opt[string]{Value: "Rewrite the latest user query as one standalone query using only necessary context from the conversation history. Preserve the user's language and intent. Resolve pronouns and omitted badminton skill references. Do not answer the query, add advice, or mention the history. Return only the rewritten query."},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{Value: string(payload)},
@@ -120,9 +135,8 @@ func (client *Client) RetrieveConversation(conversationID string) (*conversation
 // and returns the assistant's generated text output.
 func (client *Client) AddMessageToConversation(conversationID, message string) (string, error) {
 	req := responses.ResponseNewParams{
-		Prompt: responses.ResponsePromptParam{
-			ID: client.PromptID,
-		},
+		Model:        client.Model,
+		Instructions: param.Opt[string]{Value: coachInstruction},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{
 				Value: message,
@@ -157,10 +171,8 @@ const summaryInstruction = "Summarize the learner's badminton progress in under 
 // they talked about. Either section may be missing.
 func buildSummaryPrompt(content string, scores []commons.SkillScore) string {
 	var b strings.Builder
-	b.WriteString(summaryInstruction)
-
 	if len(scores) > 0 {
-		b.WriteString("\n\n[Recent scores, newest first]")
+		b.WriteString("[Recent scores, newest first]")
 		for _, score := range scores {
 			b.WriteString(fmt.Sprintf("\n- %s: total %.1f", score.Date, score.TotalGrade))
 			if strings.TrimSpace(score.ScoreStatus) != "" {
@@ -173,7 +185,10 @@ func buildSummaryPrompt(content string, scores []commons.SkillScore) string {
 	}
 
 	if strings.TrimSpace(content) != "" {
-		b.WriteString("\n\n[Conversation]\n")
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("[Conversation]\n")
 		b.WriteString(content)
 	}
 	return b.String()
@@ -194,8 +209,7 @@ func buildWeeklyPreviewPrompt(
 	history []commons.SkillHistory,
 ) string {
 	var b strings.Builder
-	b.WriteString(weeklyPreviewInstruction)
-	b.WriteString("\n\n本週要加強的動作：")
+	b.WriteString("本週要加強的動作：")
 	b.WriteString(focusSkill)
 	if strings.TrimSpace(displayName) != "" {
 		b.WriteString("\n學生：")
@@ -226,9 +240,8 @@ func (client *Client) WeeklyPreview(
 		return "", fmt.Errorf("weekly preview needs a focus skill")
 	}
 	req := responses.ResponseNewParams{
-		Prompt: responses.ResponsePromptParam{
-			ID: client.PromptID,
-		},
+		Model:        client.Model,
+		Instructions: param.Opt[string]{Value: weeklyPreviewInstruction},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{
 				Value: buildWeeklyPreviewPrompt(displayName, focusSkill, history),
@@ -251,13 +264,8 @@ func (client *Client) WeeklyPreview(
 // short summary using the configured prompt.
 func (client *Client) Summarize(content string, scores []commons.SkillScore) (string, error) {
 	req := responses.ResponseNewParams{
-		Prompt: responses.ResponsePromptParam{
-			ID: client.PromptID,
-		},
-		// Overrides the model the stored prompt was saved with. Without this the
-		// summary is only as durable as that pinned model, and a retirement
-		// takes the feature down with no way to fix it from here.
-		Model: client.SummaryModel,
+		Model:        client.Model,
+		Instructions: param.Opt[string]{Value: summaryInstruction},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{
 				Value: buildSummaryPrompt(content, scores),

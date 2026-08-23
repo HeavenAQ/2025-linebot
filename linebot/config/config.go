@@ -42,13 +42,12 @@ type FirestoreConfig struct {
 }
 
 type GPTConfig struct {
-	APIKey   string `env:"OPENAI_API_KEY"`
-	PromptID string `env:"OPENAI_PROMPT_ID"`
-	// RewriteModel and SummaryModel override gpt.DefaultModel. Both are set
-	// here rather than left to the stored prompt, which pins whichever model it
-	// was saved against and breaks when that model is retired.
-	RewriteModel string `env:"OPENAI_REWRITE_MODEL"`
-	SummaryModel string `env:"OPENAI_SUMMARY_MODEL"`
+	APIKey string `env:"OPENAI_API_KEY"`
+	// Model overrides gpt.DefaultModel. The bot no longer runs off a stored
+	// OpenAI prompt, which pinned its own model and took the feature down when
+	// that model was retired; the model and the system prompts are both in the
+	// code now.
+	Model string `env:"OPENAI_MODEL"`
 }
 
 type AnalysisServerConfig struct {
@@ -103,7 +102,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
 		c.GPT.APIKey == "" &&
-		c.GPT.PromptID == "" &&
+
 		c.AnalysisServer.Target == "" &&
 		c.AnalysisServer.APIKey == "")
 }

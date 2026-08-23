@@ -26,7 +26,10 @@ func TestBuildSummaryPromptIncludesRecentScores(t *testing.T) {
 	require.Contains(t, prompt, "引拍高度: 12.0/20.0")
 	require.Contains(t, prompt, "2026-07-25-09-00: total 70.0")
 	require.Contains(t, prompt, "學生說手肘太低。")
-	require.Contains(t, prompt, "trust the scores")
+	// The instruction rides as the request's system prompt now, not inside the
+	// data, so the two are asserted separately.
+	require.NotContains(t, prompt, "trust the scores")
+	require.Contains(t, summaryInstruction, "trust the scores")
 }
 
 func TestBuildSummaryPromptOmitsEmptySections(t *testing.T) {
@@ -76,7 +79,10 @@ func TestBuildWeeklyPreviewPromptGroundsTheFocusInEverySkill(t *testing.T) {
 	require.Contains(t, prompt, "[serve]")
 	require.Contains(t, prompt, "[smash]")
 	require.Contains(t, prompt, "手腕發力: 8.0/20.0")
-	require.Contains(t, prompt, "不要杜撰")
+	// The instruction rides as the request's system prompt now, not inside the
+	// data, so the two are asserted separately.
+	require.NotContains(t, prompt, "不要杜撰")
+	require.Contains(t, weeklyPreviewInstruction, "不要杜撰")
 }
 
 func TestWeeklyPreviewRefusesWithoutHistoryOrFocus(t *testing.T) {

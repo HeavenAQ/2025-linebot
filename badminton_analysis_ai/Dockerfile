@@ -35,8 +35,7 @@ RUN python -c "import service.server; print('Python service imports verified')"
 
 RUN test "$(find models/tensorrt-cache/detector -name '*.engine' | wc -l)" -ge 1 && \
     test "$(find models/tensorrt-cache/pose -name '*.engine' | wc -l)" -ge 1 && \
-    test "$(find models/tensorrt-cache/correctors -name '*.engine' | wc -l)" -ge 4 && \
-    echo "Prebuilt TensorRT detector, pose, and correction engines included"
+    echo "Prebuilt TensorRT detector and pose engines included"
 
 EXPOSE 8080
 CMD ["python", "-m", "service.server"]

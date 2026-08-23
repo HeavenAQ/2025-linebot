@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from badminton_analysis.ml.infer_skeleton_corrector import (
+    _allocate_criterion_grades,
     _evaluation_split,
     _summary_rows,
     phase_grading_details,
@@ -16,13 +17,18 @@ from badminton_analysis.ml.infer_skeleton_corrector import (
 )
 from badminton_analysis.ml.handedness import estimate_handedness
 from badminton_analysis.ml.models.skeleton_denoiser import SkeletonDenoiser
-from badminton_analysis.ml.skeleton_dataset import SkeletonCorrectionPairDataset
+from badminton_analysis.ml.skeleton_dataset import (
+    SkeletonCorrectionPairDataset,
+    corrupt_lift_lunge_direction,
+)
 from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
+    interpolate_pose_sequence,
     normalize_skeleton_sequence,
     phase_align_sequence,
     resample_sequence,
     restore_phase_timing,
+    restore_phase_timing_dtw,
 )
 from badminton_analysis.ml.skeleton_scoring import (
     ScoreCalibration,
@@ -37,7 +43,8 @@ from badminton_analysis.ml.skeleton_scoring import (
     sequence_training_losses,
 )
 from badminton_analysis.ml.train_skeleton_corrector import (
-    _build_student_targets,
+    _build_expert_targets,
+    _load_expert_bank,
     _split_expert_files,
 )
 from badminton_analysis.models.types import Handedness
@@ -104,6 +111,40 @@ def test_phase_alignment_maps_and_restores_phase_anchors() -> None:
     np.testing.assert_allclose(restored[phases, 0], phases.astype(np.float32))
 
 
+def test_pose_outlier_rejection_interpolates_impossible_limb_length() -> None:
+    sequence = _pose_sequence(frames=9)[:, :, :2]
+    confidence = np.ones(sequence.shape[:2], dtype=np.float32)
+    sequence[4, 10] = (40.0, -30.0)
+
+    filtered, filtered_confidence = interpolate_pose_sequence(sequence, confidence)
+
+    assert filtered_confidence[4, 10] == 0.0
+    np.testing.assert_allclose(
+        filtered[4, 10], (filtered[3, 10] + filtered[5, 10]) * 0.5, atol=1e-5
+    )
+
+
+def test_phase_constrained_dtw_preserves_anchors_and_student_holds() -> None:
+    source = resample_sequence(_pose_sequence(frames=11), 64)
+    phases = np.asarray((0, 13, 35, 46, 63), dtype=np.int64)
+    source[13:25, 10] = source[13, 10]
+    aligned_source = phase_align_sequence(source, phases)
+    corrected = aligned_source.copy()
+    corrected[:, 10, 2] += np.linspace(0.0, 0.8, len(corrected))
+
+    restored = restore_phase_timing_dtw(
+        corrected,
+        aligned_source,
+        source,
+        phases,
+    )
+
+    np.testing.assert_allclose(
+        restored[phases], corrected[CANONICAL_PHASE_INDICES], atol=1e-5
+    )
+    assert np.max(np.linalg.norm(np.diff(restored[13:25, 10], axis=0), axis=1)) < 0.08
+
+
 def test_phase_aligned_identity_prediction_preserves_source_sequence() -> None:
     source = resample_sequence(_pose_sequence(frames=11), 64)
     confidence = np.ones(source.shape[:2], dtype=np.float32)
@@ -144,6 +185,43 @@ def test_reference_guidance_can_enforce_bone_adapted_expert_target() -> None:
     )
 
     expected = project_bone_lengths(source, expert)
+    np.testing.assert_allclose(corrected, expected, atol=1e-3)
+
+
+def test_phase_aligned_reference_restores_the_target_trajectory() -> None:
+    source = resample_sequence(_pose_sequence(frames=11), 64)
+    phases = np.asarray((0, 17, 34, 49, 63), dtype=np.int64)
+    aligned_source = phase_align_sequence(source, phases)
+    expert = aligned_source.copy()
+    expert[:, 8, 0] += np.linspace(0.0, 0.7, len(expert))
+    expert[:, 10, 0] += np.linspace(0.0, 1.2, len(expert))
+    confidence = np.ones(source.shape[:2], dtype=np.float32)
+    model = SkeletonDenoiser(
+        input_features=7,
+        model_dim=16,
+        num_heads=4,
+        temporal_layers=1,
+        spatial_layers=1,
+    )
+    model.set_expert_reference_bank(
+        torch.as_tensor(expert[None]),
+        torch.as_tensor(confidence[None]),
+    )
+    model.eval()
+
+    corrected = predict_correction(
+        model,
+        source,
+        confidence,
+        torch.device("cpu"),
+        phases,
+        reference_guidance=1.0,
+    )
+
+    canonical_target = project_bone_lengths(aligned_source, expert)
+    expected = project_bone_lengths(
+        source, restore_phase_timing(canonical_target, phases)
+    )
     np.testing.assert_allclose(corrected, expected, atol=1e-3)
 
 
@@ -338,7 +416,8 @@ def test_calibration_targets_separated_distributions() -> None:
 
 def test_evaluation_split_uses_checkpoint_membership() -> None:
     checkpoint = {
-        "student_training_files": ["student_train.npz"],
+        "student_training_files": [],
+        "student_calibration_files": ["student_calibration.npz"],
         "student_validation_files": ["student_validation.npz"],
         "student_test_files": ["student_test.npz"],
         "expert_test_files": ["expert_test.npz"],
@@ -355,6 +434,10 @@ def test_evaluation_split_uses_checkpoint_membership() -> None:
     assert (
         _evaluation_split(checkpoint, "experts", "expert_test.npz")
         == "test"
+    )
+    assert (
+        _evaluation_split(checkpoint, "beginners", "student_calibration.npz")
+        == "calibration"
     )
 
 
@@ -386,6 +469,40 @@ def test_phase_grades_add_up_to_total_grade() -> None:
     )
     assert len(details) == 6
     np.testing.assert_allclose(sum(detail[2] for detail in details), 47.5)
+
+
+def test_lift_expert_bank_preserves_observed_follow_through(tmp_path: Path) -> None:
+    expert = resample_sequence(_pose_sequence(), 64)
+    expert[48:, 10] = expert[48:, 8] + np.asarray(
+        (0.8, 0.3, -0.1), dtype=np.float32
+    )
+    path = tmp_path / "expert.npz"
+    np.savez_compressed(
+        path,
+        skeleton_3d=expert,
+        confidence=np.ones((64, 17), dtype=np.float32),
+        phase_indices=CANONICAL_PHASE_INDICES,
+    )
+
+    bank, confidence = _load_expert_bank([path])
+
+    np.testing.assert_allclose(bank[0], expert, atol=1e-5)
+    np.testing.assert_allclose(confidence[0], 1.0)
+
+
+def test_criterion_grade_allocation_preserves_distance_priority() -> None:
+    grades = _allocate_criterion_grades(
+        distances=(0.1, 0.4, 0.2),
+        maxima=(10.0, 20.0, 70.0),
+        total_grade=47.5,
+    )
+
+    assert sum(grades) == pytest.approx(47.5)
+    assert grades[1] / 20.0 < grades[2] / 70.0 < grades[0] / 10.0
+    assert all(
+        0.0 <= grade <= maximum
+        for grade, maximum in zip(grades, (10, 20, 70))
+    )
 
 
 def test_quality_metrics_detect_bone_stretch_and_temporal_jitter() -> None:
@@ -459,6 +576,7 @@ def test_full_transition_separates_support_and_torso_lean() -> None:
     assert identical == {
         "support_transition_distance": 0.0,
         "torso_lean_transition_distance": 0.0,
+        "lunge_direction_distance": 0.0,
         "transition_distance": 0.0,
     }
 
@@ -494,6 +612,68 @@ def test_full_transition_separates_support_and_torso_lean() -> None:
     )
 
 
+def test_lift_transition_penalizes_opposite_dominant_leg_direction() -> None:
+    target = _pose_sequence(64)
+    target[:, 16, 0] += np.linspace(0.0, 0.8, len(target))
+    opposite = target.copy()
+    opposite[:, 16, 0] -= 2.0 * np.linspace(0.0, 0.8, len(target))
+    confidence = np.ones(target.shape[:2], dtype=np.float32)
+
+    components = full_transition_components(
+        opposite,
+        target,
+        confidence,
+        (11, 12, 13, 14, 15, 16),
+        (5, 6, 11, 12),
+        16,
+    )
+
+    assert components["lunge_direction_distance"] == pytest.approx(1.0)
+    assert components["transition_distance"] >= 0.35
+
+
+def test_lift_augmentation_reverses_dominant_ankle_displacement() -> None:
+    skeleton = torch.tensor(_pose_sequence(64))
+    skeleton[:, 16, 0] += torch.linspace(0.0, 0.8, len(skeleton))
+
+    corrupted = corrupt_lift_lunge_direction(skeleton)
+    original_pelvis = (skeleton[:, 11] + skeleton[:, 12]) * 0.5
+    corrupted_pelvis = (corrupted[:, 11] + corrupted[:, 12]) * 0.5
+    original_step = (skeleton[-1, 16] - original_pelvis[-1])[0] - (
+        skeleton[0, 16] - original_pelvis[0]
+    )[0]
+    corrupted_step = (corrupted[-1, 16] - corrupted_pelvis[-1])[0] - (
+        corrupted[0, 16] - corrupted_pelvis[0]
+    )[0]
+
+    assert original_step > 0.0
+    assert corrupted_step < 0.0
+
+
+def test_lift_training_loss_penalizes_opposite_lunge_direction() -> None:
+    target = _pose_sequence(64)
+    target[:, 16, 0] += np.linspace(0.0, 0.8, len(target))
+    opposite = target.copy()
+    opposite[:, 16, 0] -= 2.0 * np.linspace(0.0, 0.8, len(target))
+    prediction = torch.tensor(opposite[None], requires_grad=True)
+    confidence = torch.ones((1, len(target), 17), dtype=torch.float32)
+
+    losses = sequence_training_losses(
+        prediction,
+        torch.tensor(target[None]),
+        confidence,
+        transition_weight=0.75,
+        transition_joints=(11, 12, 13, 14, 15, 16),
+        transition_lean_joints=(5, 6, 11, 12),
+        transition_direction_joint=16,
+    )
+    losses["loss"].backward()
+
+    assert losses["direction"].item() == pytest.approx(1.0)
+    assert prediction.grad is not None
+    assert torch.isfinite(prediction.grad).all()
+
+
 def test_training_loss_penalizes_missing_torso_forward_lean() -> None:
     target = _pose_sequence()
     target[:, (5, 6), 2] += np.linspace(0.0, 0.8, len(target))[:, None]
@@ -516,77 +696,34 @@ def test_training_loss_penalizes_missing_torso_forward_lean() -> None:
     assert torch.isfinite(prediction.grad).all()
 
 
-def test_reference_conditioned_target_is_full_expert_pose(
+def test_expert_training_target_is_the_clean_expert_pose(
     tmp_path: Path,
 ) -> None:
-    student = resample_sequence(_pose_sequence(), 64)
-    expert = student.copy()
+    expert = resample_sequence(_pose_sequence(), 64)
     expert[:, 8, 0] += 0.5
     expert[:, 10, 0] += 1.0
-    confidence = np.ones(student.shape[:2], dtype=np.float32)
-    student_path = tmp_path / "student.npz"
+    confidence = np.ones(expert.shape[:2], dtype=np.float32)
     expert_path = tmp_path / "expert.npz"
     archive_values = {
         "confidence": confidence,
         "phase_indices": np.asarray(CANONICAL_PHASE_INDICES),
         "handedness": np.asarray("right"),
     }
-    np.savez(student_path, skeleton_3d=student, **archive_values)
     np.savez(expert_path, skeleton_3d=expert, **archive_values)
 
-    targets, _ = _build_student_targets([student_path], [expert_path])
-    expected = project_bone_lengths(student, expert)
-    target, _ = targets[student_path.name]
-    np.testing.assert_allclose(target, expected)
+    targets = _build_expert_targets([expert_path])
+    target, _ = targets[expert_path.name]
+    np.testing.assert_allclose(target, expert)
 
     dataset = SkeletonCorrectionPairDataset(
-        [student_path],
+        [expert_path],
         targets=targets,
         reference_conditioned=True,
     )
     item = dataset[0]
     assert item["features"].shape == (64, 17, 7)
-    np.testing.assert_allclose(item["features"][..., 3:6], expected)
-
-
-def test_student_target_pairing_rejects_nearer_opposite_handed_expert(
-    tmp_path: Path,
-) -> None:
-    student = resample_sequence(_pose_sequence(), 64)
-    confidence = np.ones(student.shape[:2], dtype=np.float32)
-    archive_values = {
-        "confidence": confidence,
-        "phase_indices": np.asarray(CANONICAL_PHASE_INDICES),
-    }
-    student_path = tmp_path / "student.npz"
-    left_expert_path = tmp_path / "left-expert.npz"
-    right_expert_path = tmp_path / "right-expert.npz"
-    right_expert = student.copy()
-    right_expert[:, 10, 0] += 0.5
-    np.savez(
-        student_path,
-        skeleton_3d=student,
-        handedness=np.asarray("right"),
-        **archive_values,
-    )
-    np.savez(
-        left_expert_path,
-        skeleton_3d=student,
-        handedness=np.asarray("left"),
-        **archive_values,
-    )
-    np.savez(
-        right_expert_path,
-        skeleton_3d=right_expert,
-        handedness=np.asarray("right"),
-        **archive_values,
-    )
-
-    _, rows = _build_student_targets(
-        [student_path], [left_expert_path, right_expert_path]
-    )
-
-    assert rows[0]["target_expert_file"] == right_expert_path.name
+    np.testing.assert_allclose(item["features"][..., 3:6], expert)
+    np.testing.assert_allclose(item["target"], expert)
 
 
 def test_expert_split_preserves_each_handedness_in_every_split(

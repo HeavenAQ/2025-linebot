@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -10,16 +11,24 @@ from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 
 from badminton_analysis.ml.skeleton_normalization import (
+    interpolate_pose_sequence,
     landmark_dicts_to_array,
     resample_sequence,
 )
 from badminton_analysis.ml.skeleton_scoring import BONES
-from badminton_analysis.models.types import Handedness, TrackingData
+from badminton_analysis.models.types import Handedness, Skill, TrackingData
 
 _LEFT_RIGHT_PAIRS = (
     (1, 2), (3, 4), (5, 6), (7, 8),
     (9, 10), (11, 12), (13, 14), (15, 16),
 )
+_LEG_CHAINS = ((11, 13, 15), (12, 14, 16))
+_SERVE_MAX_LEG_CORRECTION_RADIANS = np.deg2rad(12.0)
+_MAX_TORSO_CORRECTION_RADIANS = np.deg2rad(25.0)
+_MAX_ARM_CORRECTION_RADIANS = np.deg2rad(55.0)
+_SERVE_FOLLOW_THROUGH_START = 0.72
+_SERVE_FOLLOW_THROUGH_MAX_UPPER_ARM_RADIANS = np.deg2rad(80.0)
+_SERVE_FOLLOW_THROUGH_MAX_FOREARM_RADIANS = np.deg2rad(120.0)
 
 
 @lru_cache(maxsize=1)
@@ -107,6 +116,203 @@ def _map_to_pixels(
     return np.asarray(homogeneous @ transform, dtype=np.float32)
 
 
+def _bounded_bone_vector(
+    observed: NDArray[np.float32],
+    target: NDArray[np.float32],
+    maximum_angle: float,
+) -> NDArray[np.float32]:
+    length = float(np.linalg.norm(observed))
+    if length <= 1e-6:
+        return np.asarray(observed, dtype=np.float32)
+    observed_angle = float(np.arctan2(observed[1], observed[0]))
+    target_angle = float(np.arctan2(target[1], target[0]))
+    difference = float(
+        np.arctan2(
+            np.sin(target_angle - observed_angle),
+            np.cos(target_angle - observed_angle),
+        )
+    )
+    angle = observed_angle + float(
+        np.clip(difference, -maximum_angle, maximum_angle)
+    )
+    return np.asarray(
+        (np.cos(angle) * length, np.sin(angle) * length), dtype=np.float32
+    )
+
+
+def _solve_two_bone_leg(
+    hip: NDArray[np.float32],
+    detected_knee: NDArray[np.float32],
+    detected_ankle: NDArray[np.float32],
+    target_hip: NDArray[np.float32],
+    target_knee: NDArray[np.float32],
+    target_ankle: NDArray[np.float32],
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """Place a foot in the expert direction with detected segment lengths."""
+    thigh_length = float(np.linalg.norm(detected_knee - hip))
+    shin_length = float(np.linalg.norm(detected_ankle - detected_knee))
+    target_thigh = float(np.linalg.norm(target_knee - target_hip))
+    target_shin = float(np.linalg.norm(target_ankle - target_knee))
+    if (
+        thigh_length <= 1e-6
+        or shin_length <= 1e-6
+        or target_thigh + target_shin <= 1e-6
+    ):
+        return detected_knee.copy(), detected_ankle.copy()
+
+    minimum_reach = abs(thigh_length - shin_length) + 1e-4
+    maximum_reach = thigh_length + shin_length - 1e-4
+    vertical = float(
+        np.clip(target_ankle[1] - hip[1], -maximum_reach, maximum_reach)
+    )
+    horizontal_limit = float(
+        np.sqrt(max(maximum_reach * maximum_reach - vertical * vertical, 0.0))
+    )
+    target_horizontal = float(target_ankle[0] - target_hip[0])
+    horizontal = float(
+        np.clip(target_horizontal, -horizontal_limit, horizontal_limit)
+    )
+    target_vector = np.asarray((horizontal, vertical), dtype=np.float64)
+    target_length = float(np.linalg.norm(target_vector))
+    if target_length < minimum_reach:
+        minimum_horizontal = float(
+            np.sqrt(max(minimum_reach * minimum_reach - vertical * vertical, 0.0))
+        )
+        sign = 1.0 if target_horizontal >= 0.0 else -1.0
+        target_vector[0] = sign * minimum_horizontal
+        target_length = float(np.linalg.norm(target_vector))
+    if target_length <= 1e-6:
+        return detected_knee.copy(), detected_ankle.copy()
+    direction = target_vector / target_length
+    reach = target_length
+    ankle = np.asarray(hip, dtype=np.float64) + direction * reach
+    along = (
+        thigh_length * thigh_length
+        - shin_length * shin_length
+        + reach * reach
+    ) / (2.0 * reach)
+    height = float(np.sqrt(max(thigh_length * thigh_length - along * along, 0.0)))
+    perpendicular = np.asarray((-direction[1], direction[0]), dtype=np.float64)
+    target_knee_vector = np.asarray(target_knee - target_hip, dtype=np.float64)
+    bend_cross = (
+        target_vector[0] * target_knee_vector[1]
+        - target_vector[1] * target_knee_vector[0]
+    )
+    bend_sign = 1.0 if bend_cross >= 0.0 else -1.0
+    knee = (
+        np.asarray(hip, dtype=np.float64)
+        + direction * along
+        + perpendicular * bend_sign * height
+    )
+    return knee.astype(np.float32), ankle.astype(np.float32)
+
+
+def _retarget_corrected_pose(
+    corrected_pixels: NDArray[np.float32],
+    detected_pixels: NDArray[np.float32],
+    skill: Skill,
+    motion_progress: float = 0.0,
+) -> NDArray[np.float32]:
+    """Retarget projected directions onto a rooted, detected-length 2D skeleton."""
+    corrected = np.asarray(corrected_pixels, dtype=np.float32)
+    detected = np.asarray(detected_pixels, dtype=np.float32)
+    result = detected.copy()
+
+    detected_hip_center = (detected[11] + detected[12]) * 0.5
+    corrected_hip_center = (corrected[11] + corrected[12]) * 0.5
+    hip_half = _bounded_bone_vector(
+        (detected[12] - detected[11]) * 0.5,
+        (corrected[12] - corrected[11]) * 0.5,
+        _MAX_TORSO_CORRECTION_RADIANS,
+    )
+    result[11] = detected_hip_center - hip_half
+    result[12] = detected_hip_center + hip_half
+
+    detected_shoulder_center = (detected[5] + detected[6]) * 0.5
+    corrected_shoulder_center = (corrected[5] + corrected[6]) * 0.5
+    result_shoulder_center = detected_hip_center + _bounded_bone_vector(
+        detected_shoulder_center - detected_hip_center,
+        corrected_shoulder_center - corrected_hip_center,
+        _MAX_TORSO_CORRECTION_RADIANS,
+    )
+    shoulder_half = _bounded_bone_vector(
+        (detected[6] - detected[5]) * 0.5,
+        (corrected[6] - corrected[5]) * 0.5,
+        _MAX_TORSO_CORRECTION_RADIANS,
+    )
+    result[5] = result_shoulder_center - shoulder_half
+    result[6] = result_shoulder_center + shoulder_half
+
+    for shoulder, elbow, wrist in ((5, 7, 9), (6, 8, 10)):
+        is_serve_follow_through = (
+            skill == Skill.SERVE
+            and shoulder == 6
+            and motion_progress >= _SERVE_FOLLOW_THROUGH_START
+        )
+        upper_arm_limit = (
+            _SERVE_FOLLOW_THROUGH_MAX_UPPER_ARM_RADIANS
+            if is_serve_follow_through
+            else _MAX_ARM_CORRECTION_RADIANS
+        )
+        forearm_limit = (
+            _SERVE_FOLLOW_THROUGH_MAX_FOREARM_RADIANS
+            if is_serve_follow_through
+            else _MAX_ARM_CORRECTION_RADIANS
+        )
+        result[elbow] = result[shoulder] + _bounded_bone_vector(
+            detected[elbow] - detected[shoulder],
+            corrected[elbow] - corrected[shoulder],
+            upper_arm_limit,
+        )
+        result[wrist] = result[elbow] + _bounded_bone_vector(
+            detected[wrist] - detected[elbow],
+            corrected[wrist] - corrected[elbow],
+            forearm_limit,
+        )
+
+    for hip, knee, ankle in _LEG_CHAINS:
+        if skill == Skill.LIFT and ankle == 16:
+            grounded_target_ankle = corrected[ankle].copy()
+            grounded_target_ankle[1] = detected[ankle, 1]
+            result[knee], result[ankle] = _solve_two_bone_leg(
+                result[hip],
+                detected[knee],
+                detected[ankle],
+                corrected[hip],
+                corrected[knee],
+                grounded_target_ankle,
+            )
+            continue
+        maximum_leg_angle = (
+            _SERVE_MAX_LEG_CORRECTION_RADIANS if skill == Skill.SERVE else 0.0
+        )
+        observed_thigh = detected[knee] - detected[hip]
+        target_thigh = corrected[knee] - corrected[hip]
+        result[knee] = result[hip] + _bounded_bone_vector(
+            observed_thigh, target_thigh, maximum_leg_angle
+        )
+        observed_shin = detected[ankle] - detected[knee]
+        target_shin = corrected[ankle] - corrected[knee]
+        result[ankle] = result[knee] + _bounded_bone_vector(
+            observed_shin, target_shin, maximum_leg_angle
+        )
+
+    head_translation = result_shoulder_center - detected_shoulder_center
+    result[:5] = detected[:5] + head_translation
+    return result
+
+
+def _expand_display_confidence(
+    confidence: NDArray[np.floating], radius: int = 2
+) -> NDArray[np.float32]:
+    values = np.asarray(confidence, dtype=np.float32)
+    expanded = values.copy()
+    for offset in range(1, radius + 1):
+        expanded[offset:] = np.maximum(expanded[offset:], values[:-offset])
+        expanded[:-offset] = np.maximum(expanded[:-offset], values[offset:])
+    return expanded
+
+
 def _draw_skeleton(
     frame: NDArray[np.uint8],
     coordinates: NDArray[np.float32],
@@ -153,12 +359,12 @@ def _draw_header(frame: NDArray[np.uint8], filename: str, score: float) -> None:
 def _draw_feedback(
     frame: NDArray[np.uint8],
     detected_pixels: NDArray[np.float32],
-    issues: list[dict[str, object]],
+    issues: list[dict[str, Any]],
 ) -> None:
     height, width = frame.shape[:2]
     radius = max(20, round(min(height, width) * 0.025))
     for issue in issues:
-        for joint_id in issue["joint_ids"]:  # type: ignore[union-attr]
+        for joint_id in issue["joint_ids"]:
             point = detected_pixels[int(joint_id)]
             location = (int(round(point[0])), int(round(point[1])))
             if 0 <= location[0] < width and 0 <= location[1] < height:
@@ -230,11 +436,15 @@ def render_correction_video(
     confidence: NDArray[np.float32],
     window: tuple[int, int, int],
     handedness: Handedness,
+    skill: Skill,
     filename: str,
     score: float,
     output_path: Path,
     fps: float,
-    feedback: list[dict[str, object]] | None = None,
+    original_root: NDArray[np.float32] | None = None,
+    corrected_root: NDArray[np.float32] | None = None,
+    generated_full_body: bool = False,
+    feedback: list[dict[str, Any]] | None = None,
     pause_seconds: float = 0.0,
 ) -> None:
     start, _, end = window
@@ -242,13 +452,32 @@ def render_correction_video(
     frame_indices = np.rint(np.linspace(start, end, target_frames)).astype(np.int64)
     selected = tracking["body_landmarks_2d"][start : end + 1]
     raw_2d, raw_confidence = landmark_dicts_to_array(selected, 2)
-    raw_2d = _interpolate(raw_2d, raw_confidence)
+    raw_2d, raw_confidence = interpolate_pose_sequence(raw_2d, raw_confidence)
     if handedness == Handedness.LEFT:
         raw_2d, raw_confidence = _canonicalize_left(raw_2d, raw_confidence)
     pixel_2d = resample_sequence(raw_2d, target_frames)
     pixel_confidence = np.clip(
         resample_sequence(raw_confidence, target_frames), 0.0, 1.0
     )
+    display_confidence = np.minimum(
+        _expand_display_confidence(confidence),
+        _expand_display_confidence(pixel_confidence),
+    )
+    original_root_values = (
+        np.zeros((target_frames, 2), dtype=np.float32)
+        if original_root is None
+        else np.asarray(original_root, dtype=np.float32)
+    )
+    corrected_root_values = (
+        original_root_values
+        if corrected_root is None
+        else np.asarray(corrected_root, dtype=np.float32)
+    )
+    if (
+        original_root_values.shape != (target_frames, 2)
+        or corrected_root_values.shape != (target_frames, 2)
+    ):
+        raise ValueError("root trajectories must have shape (T, 2)")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path = output_path.with_name(output_path.stem + ".raw.mp4")
@@ -260,16 +489,32 @@ def render_correction_video(
     if not writer.isOpened():
         raise RuntimeError(f"could not open output writer: {raw_path}")
     try:
-        feedback_by_frame: dict[int, list[dict[str, object]]] = {}
+        feedback_by_frame: dict[int, list[dict[str, Any]]] = {}
         for issue in feedback or []:
             feedback_by_frame.setdefault(int(issue["frame_index"]), []).append(issue)
         for target_index, frame_index in enumerate(frame_indices):
             frame = tracking["frames"][int(frame_index)].copy()
             mask = np.minimum(confidence[target_index], pixel_confidence[target_index])
             transform = _fit_affine(original[target_index], pixel_2d[target_index], mask)
-            corrected_pixels = _map_to_pixels(corrected[target_index], transform)
-            _draw_skeleton(frame, pixel_2d[target_index], mask, (255, 210, 30), 4)
-            _draw_skeleton(frame, corrected_pixels, mask, (55, 225, 75), 3)
+            corrected_world = corrected[target_index] + (
+                corrected_root_values[target_index]
+                - original_root_values[target_index]
+            )
+            corrected_pixels = _map_to_pixels(corrected_world, transform)
+            if not generated_full_body:
+                corrected_pixels = _retarget_corrected_pose(
+                    corrected_pixels,
+                    pixel_2d[target_index],
+                    skill,
+                    target_index / max(len(frame_indices) - 1, 1),
+                )
+            display_mask = display_confidence[target_index]
+            _draw_skeleton(
+                frame, pixel_2d[target_index], display_mask, (255, 210, 30), 4
+            )
+            _draw_skeleton(
+                frame, corrected_pixels, display_mask, (55, 225, 75), 3
+            )
             _draw_header(frame, filename, score)
             issues = feedback_by_frame.get(target_index, [])
             if issues:

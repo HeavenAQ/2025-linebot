@@ -14,8 +14,10 @@ from badminton_analysis.ml.infer_skeleton_corrector import (
     predict_correction_with_reference,
 )
 from badminton_analysis.ml.skeleton_normalization import (
+    interpolate_pose_sequence,
     landmark_dicts_to_array,
     normalize_skeleton_sequence,
+    resample_detected_phase_indices,
     resample_phase_indices,
     resample_sequence,
 )
@@ -49,10 +51,15 @@ def tracking_to_normalized_sequence(
         raise ValueError("fewer than five tracked frames")
     if landmarks_2d is None or len(landmarks_2d) != tracked_frames:
         raise ValueError("aligned 2D body landmarks are unavailable")
-    start, peak, end = VideoAnalyzer.find_analysis_window(
+    detected_phases = VideoAnalyzer.find_analysis_phases(
         skill=skill,
         hand_positions=tracking["hand_positions"],
         elbow_positions=tracking["elbow_positions"],
+    )
+    start, peak, end = (
+        detected_phases[0],
+        detected_phases[2],
+        detected_phases[4],
     )
     start = max(0, min(tracked_frames - 1, int(start)))
     peak = max(start, min(tracked_frames - 1, int(peak)))
@@ -63,9 +70,10 @@ def tracking_to_normalized_sequence(
     skeleton_3d, confidence_3d = landmark_dicts_to_array(
         landmarks_3d[start : end + 1], 3
     )
-    _, confidence_2d = landmark_dicts_to_array(
+    skeleton_2d, confidence_2d = landmark_dicts_to_array(
         landmarks_2d[start : end + 1], 2
     )
+    _, confidence_2d = interpolate_pose_sequence(skeleton_2d, confidence_2d)
     confidence = np.minimum(confidence_3d, confidence_2d)
     normalized, normalized_confidence = normalize_skeleton_sequence(
         skeleton_3d, confidence, handedness
@@ -74,7 +82,11 @@ def tracking_to_normalized_sequence(
     resampled_confidence = np.clip(
         resample_sequence(normalized_confidence, target_frames), 0.0, 1.0
     )
-    phases = resample_phase_indices((start, peak, end), target_frames)
+    phases = (
+        resample_detected_phase_indices(detected_phases, target_frames)
+        if skill == Skill.LIFT
+        else resample_phase_indices((start, peak, end), target_frames)
+    )
     return sequence, resampled_confidence, (start, peak, end), phases
 
 
@@ -99,9 +111,11 @@ class SkeletonCorrectionBackend:
         self.phase_aligned = bool(checkpoint.get("phase_aligned", False))
         self.correction_strength = float(checkpoint.get("inference_strength", 1.0))
         self.reference_guidance = float(checkpoint.get("reference_guidance", 0.0))
-        self.expert_training_files = tuple(
-            str(value) for value in checkpoint.get("expert_training_files", ())
+        reference_files = checkpoint.get(
+            "expert_reference_files",
+            checkpoint.get("expert_training_files", ()),
         )
+        self.expert_training_files = tuple(str(value) for value in reference_files)
         self.expert_reference_handedness = tuple(
             str(value).lower()
             for value in checkpoint.get("expert_reference_handedness", ())
@@ -136,7 +150,7 @@ class SkeletonCorrectionBackend:
         self.calibration = ScoreCalibration(**calibration_values)
 
     def _load_onnx_session(self, execution_provider: str) -> Any:
-        import onnxruntime as ort  # type: ignore[import-not-found]
+        import onnxruntime as ort
 
         onnx_path = self.model_path.with_suffix(".onnx")
         if not onnx_path.exists():
@@ -154,9 +168,6 @@ class SkeletonCorrectionBackend:
             )
             cache_path = cache_root / "correctors" / self.spec.slug
             cache_path.mkdir(parents=True, exist_ok=True)
-            hardware_compatible = os.getenv(
-                "SKELETON_TENSORRT_ENGINE_HW_COMPATIBLE", "true"
-            ).lower() == "true"
             providers: list[Any] = [
                 (
                     "TensorrtExecutionProvider",
@@ -168,7 +179,7 @@ class SkeletonCorrectionBackend:
                             f"skeleton_{self.spec.slug}"
                         ),
                         "trt_fp16_enable": True,
-                        "trt_engine_hw_compatible": hardware_compatible,
+                        "trt_engine_hw_compatible": True,
                         "trt_timing_cache_enable": True,
                     },
                 ),
@@ -252,6 +263,8 @@ class SkeletonCorrectionBackend:
                 transition_weight=self.spec.transition_weight,
                 transition_joints=self.spec.transition_joints,
                 transition_lean_joints=self.spec.transition_lean_joints,
+                transition_direction_joint=self.spec.transition_direction_joint,
+                use_dtw_timing=self.spec.skill == Skill.LIFT,
             )
         )
         total_distance, components = correction_distance(
@@ -262,6 +275,7 @@ class SkeletonCorrectionBackend:
             transition_weight=self.spec.transition_weight,
             transition_joints=self.spec.transition_joints,
             transition_lean_joints=self.spec.transition_lean_joints,
+            transition_direction_joint=self.spec.transition_direction_joint,
         )
         quality = correction_quality_metrics(skeleton, corrected, confidence)
         total_grade = float(self.calibration.score(total_distance))

@@ -47,6 +47,14 @@ COACHING_TARGET_JOINTS: dict[str, tuple[int, ...]] = {
 }
 
 
+def maximum_feedback_problem_count(total_score: float) -> int:
+    if total_score < 60.0:
+        return 3
+    if total_score < 90.0:
+        return 2
+    return 1
+
+
 def _contains_chinese(value: str) -> str:
     if not any("\u4e00" <= character <= "\u9fff" for character in value):
         raise ValueError("feedback must be written in Traditional Chinese")
@@ -74,7 +82,7 @@ class RawSkillFeedbackAnalysis(BaseModel):
     skill: str
     language: Literal["zh-TW"]
     overall_feedback: str = Field(min_length=10, max_length=320)
-    problems: list[FeedbackProblem] = Field(min_length=1, max_length=3)
+    problems: list[FeedbackProblem] = Field(max_length=3)
 
     _overall_in_chinese = field_validator("overall_feedback")(_contains_chinese)
 
@@ -83,7 +91,7 @@ class SkillFeedbackAnalysis(BaseModel):
     skill: str
     language: Literal["zh-TW"]
     overall_feedback: str = Field(min_length=10, max_length=320)
-    problems: list[FeedbackProblem] = Field(min_length=1, max_length=3)
+    problems: list[FeedbackProblem] = Field(max_length=3)
 
     _overall_in_chinese = field_validator("overall_feedback")(_contains_chinese)
 
@@ -238,8 +246,8 @@ def load_feedback_problems(
                 f"{spec.slug}"
             )
     problems = analysis_payload.get("problems")
-    if not isinstance(problems, list) or not problems:
-        raise ValueError(f"feedback file has no analysis problems: {path}")
+    if not isinstance(problems, list):
+        raise ValueError(f"feedback file has invalid analysis problems: {path}")
     validated: list[dict[str, Any]] = []
     for problem in problems:
         if not isinstance(problem, dict):
@@ -448,6 +456,16 @@ def prompt_context(
         advice.get("keypoints", []),
         key=lambda item: float(item.get("score", 100.0)),
     )
+    priority_criteria = sorted(
+        correction_grade.get("criteria", []),
+        key=lambda item: (
+            float(item.get("score", 0.0))
+            / max(float(item.get("maximum", 1.0)), 1e-6),
+            -float(item.get("correction_distance", 0.0)),
+        ),
+    )
+    total_grade = float(correction_grade.get("total_score", 0.0))
+    maximum_problem_count = maximum_feedback_problem_count(total_grade)
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
         "skill": resolved_spec.slug,
@@ -473,6 +491,8 @@ def prompt_context(
         "technical_criteria": [
             rule.as_prompt_dict() for rule in resolved_spec.rules
         ],
+        "maximum_problem_count": maximum_problem_count,
+        "criterion_priority_supporting_only": priority_criteria,
         "correction_distance_grade": correction_grade,
         "criterion_allowed_frames": {
             rule.name_zh_tw: [anchors[index] for index in rule.allowed_anchor_indices]
@@ -506,14 +526,17 @@ def build_response_input(
 ) -> list[dict[str, Any]]:
     resolved_spec = spec or get_skill_spec(str(context.get("skill", "clear")))
     criterion_count = len(resolved_spec.rules)
+    maximum_problem_count = int(context.get("maximum_problem_count", 1))
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
             "text": (
                 f"請依照提供的{criterion_count}項{resolved_spec.name_zh_tw}技術標準"
-                "分析這組依時間排序的動作畫面。"
-                f"skill欄位必須填寫{resolved_spec.slug}。只能回報一至三項屬於這些"
-                "標準的問題，title必須逐字使用標準名稱。"
+                "逐項分析這組依時間排序的動作畫面，不得只檢查其中一項。"
+                f"skill欄位必須填寫{resolved_spec.slug}。最多回報"
+                f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
+                "只有影像清楚支持時才可列為問題；若動作符合全部標準，problems必須為空陣列，"
+                "不得為了配合診斷分數而勉強產生建議。"
                 "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"
                 "而且每項標準只能選criterion_allowed_frames指定的原始評分關鍵幀。"
                 "判斷發球的重心轉移時，必須同時比較criterion_comparison_frames的"
@@ -589,7 +612,7 @@ def validate_analysis_frames(
 def system_instructions(spec: SkillCorrectionSpec) -> str:
     return f"""你是專業羽球教練，正在分析{spec.description_zh_tw}。
 你必須嚴格依照提供的{len(spec.rules)}項{spec.name_zh_tw}技術標準，不得新增、改寫或混用其他技術標準。
-影像是主要證據；青色與綠色骨架差異及其分數只能作為輔助假設。只回報影像與資料都支持的問題。
+影像是主要證據；青色與綠色骨架差異及其分數只能作為輔助假設。診斷分數可能低估正確動作，只回報影像清楚支持的問題；若沒有問題就回傳空的problems。
 所有給使用者看的文字必須使用臺灣繁體中文（zh-TW），不得使用英文句子或簡體中文。
 每項建議必須簡短明確，能在兩秒的影片暫停畫面中閱讀。關節編號必須使用提供的慣用側正規化對照。"""
 

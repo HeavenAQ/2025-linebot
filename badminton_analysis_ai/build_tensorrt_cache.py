@@ -8,14 +8,10 @@ import cv2
 import numpy as np
 import torch
 
-from badminton_analysis.ml.skill_specs import get_skill_spec
-from badminton_analysis.ml.skeleton_backend import SkeletonCorrectionBackend
-from badminton_analysis.models.types import Skill
 from badminton_analysis.services.pose_detector import PoseDetector
 
 
 def build_cache(
-    model_root: Path,
     cache_root: Path,
     pose_image: Path | None,
     detector_model: str | None,
@@ -27,7 +23,6 @@ def build_cache(
     torch.cuda.set_device(device_id)
     os.environ["POSE_EXECUTION_PROVIDER"] = "tensorrt"
     os.environ["POSE_TENSORRT_CACHE_DIR"] = str(cache_root.resolve())
-    os.environ["SKELETON_EXECUTION_PROVIDER"] = "tensorrt"
     os.environ["ONNXRUNTIME_DEVICE_ID"] = str(device_id)
 
     if not reuse_pose_cache:
@@ -48,29 +43,9 @@ def build_cache(
         ):
             raise RuntimeError("TensorRT did not activate for every pose component")
 
-    for skill in (Skill.SERVE, Skill.LIFT, Skill.CLEAR, Skill.SMASH):
-        spec = get_skill_spec(skill)
-        backend = SkeletonCorrectionBackend(
-            model_root / f"{spec.model_stem}.pt", device=f"cuda:{device_id}"
-        )
-        if (
-            not backend.inference_providers
-            or backend.inference_providers[0] != "TensorrtExecutionProvider"
-            or backend.inference_session is None
-        ):
-            raise RuntimeError(f"TensorRT did not activate for {spec.slug}")
-        input_metadata = backend.inference_session.get_inputs()[0]
-        features = np.zeros((1, 64, 17, 7), dtype=np.float32)
-        backend.inference_session.run(None, {input_metadata.name: features})
-        print(f"built correction engine: {spec.slug}")
-
     expected = {
         "detector": cache_root / "detector",
         "pose": cache_root / "pose",
-        **{
-            f"corrector-{skill}": cache_root / "correctors" / skill
-            for skill in ("serve", "lift", "clear", "smash")
-        },
     }
     for name, directory in expected.items():
         engines = list(directory.glob("*.engine"))
@@ -81,9 +56,8 @@ def build_cache(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Build every production TensorRT engine and verify activation"
+        description="Build the production detector/pose TensorRT cache"
     )
-    parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument("--cache-root", type=Path, required=True)
     parser.add_argument("--pose-image", type=Path)
     parser.add_argument("--detector-model")
@@ -92,11 +66,10 @@ def main() -> int:
     parser.add_argument(
         "--reuse-pose-cache",
         action="store_true",
-        help="Verify existing detector/pose engines and build only correctors",
+        help="Verify existing detector/pose engines without rebuilding them",
     )
     args = parser.parse_args()
     build_cache(
-        args.model_root,
         args.cache_root,
         args.pose_image,
         args.detector_model,

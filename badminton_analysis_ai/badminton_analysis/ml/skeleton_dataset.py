@@ -9,6 +9,10 @@ from torch import Tensor
 from torch.utils.data import Dataset
 
 from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
+from badminton_analysis.models.types import Skill
+
+
+_LIFT_DIRECTION_CORRUPTION_PROBABILITY = 0.5
 
 
 def discover_sequence_files(root: str | Path, label: str | None = None) -> list[Path]:
@@ -76,6 +80,40 @@ def corrupt_skeleton(
     return corrupted, visible
 
 
+def corrupt_lift_lunge_direction(skeleton: Tensor) -> Tensor:
+    """Reverse the dominant-leg horizontal step while retaining its timing."""
+    if skeleton.ndim != 3 or skeleton.shape[-2:] != (17, 3):
+        raise ValueError("skeleton must have shape (T, 17, 3)")
+    corrupted = skeleton.clone()
+    dominant_hip = skeleton[:, 12]
+    for joint in (14, 16):
+        relative = skeleton[:, joint] - dominant_hip
+        displacement = relative - relative[:1]
+        reversed_relative = relative.clone()
+        reversed_relative[:, (0, 2)] = (
+            relative[:1, (0, 2)] - displacement[:, (0, 2)]
+        )
+        reversed_joint = dominant_hip + reversed_relative
+        start = len(skeleton) // 4
+        full = len(skeleton) // 2
+        blend = torch.zeros(
+            len(skeleton), dtype=skeleton.dtype, device=skeleton.device
+        )
+        blend[start:full] = torch.linspace(
+            0.0,
+            1.0,
+            full - start,
+            dtype=skeleton.dtype,
+            device=skeleton.device,
+        )
+        blend[full:] = 1.0
+        corrupted[:, joint] = (
+            (1.0 - blend[:, None]) * skeleton[:, joint]
+            + blend[:, None] * reversed_joint
+        )
+    return corrupted
+
+
 class SkeletonSequenceDataset(Dataset[dict[str, Tensor]]):
     def __init__(
         self,
@@ -135,6 +173,7 @@ class SkeletonCorrectionPairDataset(Dataset[dict[str, Tensor]]):
         reference_conditioned: bool = False,
         augment: bool = False,
         deterministic: bool = False,
+        skill: Skill | str | None = None,
     ) -> None:
         if not files:
             raise ValueError("skeleton pair dataset contains no files")
@@ -143,6 +182,9 @@ class SkeletonCorrectionPairDataset(Dataset[dict[str, Tensor]]):
         self.reference_conditioned = reference_conditioned
         self.augment = augment
         self.deterministic = deterministic
+        self.skill = (
+            Skill.convert_to_enum(skill) if isinstance(skill, str) else skill
+        )
 
     def __len__(self) -> int:
         return len(self.files)
@@ -178,6 +220,10 @@ class SkeletonCorrectionPairDataset(Dataset[dict[str, Tensor]]):
             generator = None
             if self.deterministic:
                 generator = torch.Generator().manual_seed(2718 + index)
+            if self.skill == Skill.LIFT and float(
+                torch.rand((1,), generator=generator).item()
+            ) < _LIFT_DIRECTION_CORRUPTION_PROBABILITY:
+                input_skeleton = corrupt_lift_lunge_direction(input_skeleton)
             noise_std = 0.02 + 0.06 * float(
                 torch.rand((1,), generator=generator).item()
             )

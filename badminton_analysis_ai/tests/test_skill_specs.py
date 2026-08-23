@@ -29,10 +29,10 @@ EXPECTED_CRITERIA = {
         "肩膀旋轉朝前",
     ),
     Skill.LIFT: (
-        "手腕放置腰部放鬆預備",
-        "手腕往後引拍",
-        "手腕往前壓",
-        "手腕放鬆回到預備姿勢",
+        "球拍置於身前放鬆預備",
+        "持拍腳跨步並放鬆引拍",
+        "弓步穩定並以前臂手腕擊球",
+        "順勢隨揮並回復平衡",
     ),
     Skill.CLEAR: (
         "球拍舉至腰部預備",
@@ -91,7 +91,7 @@ def test_each_supported_skill_has_an_independent_complete_contract() -> None:
 def test_rules_retain_qualitative_grader_instructions() -> None:
     expected_movements = {
         Skill.SERVE: ("雙手平舉", "持拍腳", "非持拍腳", "髖關節", "手腕", "肩膀"),
-        Skill.LIFT: ("腰部", "往後引拍", "往前壓", "回到腰部"),
+        Skill.LIFT: ("球拍置於身前", "持拍腳跨步", "弓步", "順勢隨揮"),
         Skill.CLEAR: (
             "球拍舉至腰部",
             "轉身",
@@ -136,7 +136,15 @@ def test_feedback_schema_rejects_a_criterion_from_another_skill() -> None:
 def test_checkpoint_metadata_enforces_skill_separation() -> None:
     lift = get_skill_spec(Skill.LIFT)
     validate_checkpoint_spec(
-        {"skill": "lift", "joint_weights": list(lift.joint_weights)}, lift
+        {
+            "skill": "lift",
+            "joint_weights": list(lift.joint_weights),
+            "transition_weight": lift.transition_weight,
+            "transition_joints": list(lift.transition_joints),
+            "transition_lean_joints": list(lift.transition_lean_joints),
+            "transition_direction_joint": lift.transition_direction_joint,
+        },
+        lift,
     )
     with pytest.raises(ValueError, match="checkpoint skill"):
         validate_checkpoint_spec(
@@ -144,6 +152,7 @@ def test_checkpoint_metadata_enforces_skill_separation() -> None:
         )
     with pytest.raises(ValueError, match="does not contain joint weights"):
         validate_checkpoint_spec({"skill": "lift"}, lift)
+    assert lift.transition_direction_joint == 16
 
 
 def test_serve_contract_requires_full_body_transition_metadata() -> None:
@@ -169,6 +178,14 @@ def test_serve_contract_requires_full_body_transition_metadata() -> None:
     checkpoint["transition_lean_joints"] = [11, 12, 15, 16]
     with pytest.raises(ValueError, match="transition scoring"):
         validate_checkpoint_spec(checkpoint, serve)
+
+
+def test_serve_follow_through_checks_forearm_near_opposite_neck() -> None:
+    follow_through = get_skill_spec(Skill.SERVE).rule("shoulder_rotation")
+
+    assert "前臂" in follow_through.calculation_zh_tw
+    assert "對側頸部" in follow_through.calculation_zh_tw
+    assert follow_through.coaching_joints == (6, 8, 10)
 
 
 @pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)

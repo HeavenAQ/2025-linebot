@@ -104,6 +104,7 @@ class SkillCorrectionSpec:
     transition_weight: float = 0.0
     transition_joints: tuple[int, ...] = ()
     transition_lean_joints: tuple[int, ...] = ()
+    transition_direction_joint: int | None = None
     model_version: str = "v1"
 
     def __post_init__(self) -> None:
@@ -124,6 +125,13 @@ class SkillCorrectionSpec:
         ):
             raise ValueError(
                 f"{self.skill} transition scoring requires support and torso joints"
+            )
+        if self.transition_direction_joint is not None and (
+            self.transition_weight <= 0.0
+            or self.transition_direction_joint not in self.transition_joints
+        ):
+            raise ValueError(
+                f"{self.skill} direction scoring requires a transition support joint"
             )
 
     @property
@@ -294,8 +302,8 @@ _SERVE_RULES = (
         "arms_raised",
         "雙手平舉",
         "preparation",
-        10,
-        "發球準備時雙手平舉，讓持拍手與非持拍手一起保持穩定。",
+        5,
+        "發球準備時雙手平舉，雙臂自然抬起並保持穩定；持拍手與非持拍手可因功能不同呈現合理高低差，不要求雙手或雙肘等高。",
         (5, 6, 7, 8, 9, 10),
         (7, 8),
         (1,),
@@ -304,7 +312,7 @@ _SERVE_RULES = (
         "racket_foot_weight",
         "將重心放至持拍腳",
         "preparation",
-        10,
+        5,
         "動作開始時先將重心放在持拍腳，準備向前轉移。",
         (11, 12, 13, 14, 15, 16),
         (12, 14, 16),
@@ -314,7 +322,7 @@ _SERVE_RULES = (
         "weight_transfer",
         "重心轉移至非持拍腳",
         "weight_transfer",
-        20,
+        30,
         "揮拍過程將重心由持拍腳轉到非持拍腳，同時讓上半身順勢向前。",
         (5, 6, 11, 12, 13, 14, 15, 16),
         (5, 6, 11, 12, 15, 16),
@@ -324,7 +332,7 @@ _SERVE_RULES = (
         "hip_rotation",
         "髖關節前旋",
         "follow_through",
-        20,
+        10,
         "重心轉移時讓髖關節向前旋轉，帶動整個揮拍動作。",
         (5, 6, 11, 12),
         (11, 12),
@@ -334,7 +342,7 @@ _SERVE_RULES = (
         "wrist_flick",
         "持拍手手腕發力",
         "contact",
-        20,
+        30,
         "擊球瞬間用持拍手手腕發力，讓球拍快速向前。",
         (6, 8, 10),
         (8, 10),
@@ -345,9 +353,9 @@ _SERVE_RULES = (
         "肩膀旋轉朝前",
         "follow_through",
         20,
-        "隨揮時讓肩膀旋轉朝前，完成發球動作。",
+        "隨揮時讓慣用側肩膀旋轉朝前，持拍前臂順勢收向對側頸部附近，完成發球動作。",
         (5, 6, 8, 10, 11, 12),
-        (6,),
+        (6, 8, 10),
         (4,),
     ),
 )
@@ -356,42 +364,42 @@ _SERVE_RULES = (
 _LIFT_RULES = (
     FeedbackRuleSpec(
         "preparation",
-        "手腕放置腰部放鬆預備",
+        "球拍置於身前放鬆預備",
         "preparation",
-        10,
-        "手腕放在腰部並保持放鬆，準備開始引拍。",
-        (5, 6, 7, 8, 9, 10),
-        (6, 8, 10),
+        15,
+        "準備時保持放鬆，球拍置於身前，雙腳維持可啟動的平衡姿勢。",
+        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+        (6, 8, 10, 12, 14, 16),
         (0,),
     ),
     FeedbackRuleSpec(
+        "lunge_backswing",
+        "持拍腳跨步並放鬆引拍",
         "backswing",
-        "手腕往後引拍",
-        "backswing",
-        25,
-        "持拍手腕往後引拍，為向前挑球準備力量。",
-        (6, 8, 10),
-        (8, 10),
-        (2,),
+        30,
+        "朝來球方向以持拍腳跨步，不可朝相反方向出腳；持拍手臂放鬆伸向擊球點並完成短引拍。",
+        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+        (8, 10, 12, 14, 16),
+        (1, 2),
     ),
     FeedbackRuleSpec(
-        "forward_extension",
-        "手腕往前壓",
+        "stable_contact",
+        "弓步穩定並以前臂手腕擊球",
         "contact",
         35,
-        "擊球時將手腕往前壓，帶動球拍向前。",
-        (6, 8, 10),
-        (8, 10),
+        "持拍腳形成穩定弓步並在擊球前落地，保持身體平衡，再以前臂旋轉與手腕發力將球拍送過擊球點。",
+        (5, 6, 8, 10, 11, 12, 13, 14, 15, 16),
+        (8, 10, 12, 14, 16),
         (3,),
     ),
     FeedbackRuleSpec(
-        "completion",
-        "手腕放鬆回到預備姿勢",
+        "balanced_follow_through",
+        "順勢隨揮並回復平衡",
         "follow_through",
-        30,
-        "擊球後放鬆手腕，順勢回到腰部的預備姿勢。",
-        (6, 8, 10),
-        (6, 8, 10),
+        20,
+        "擊球後讓球拍依動量順勢隨揮，維持弓步與上半身平衡，再開始回復場地預備位置。",
+        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+        (6, 8, 10, 11, 12),
         (4,),
     ),
 )
@@ -408,7 +416,9 @@ def _details(rules: tuple[FeedbackRuleSpec, ...], windows: tuple[tuple[int, int,
             joints=joints,
             metric=(
                 "full_transition"
-                if rule.id == "weight_transfer"
+                if rule.id in {"weight_transfer", "lunge_backswing"}
+                else "serve_follow_through_cross_body"
+                if rule.id == "shoulder_rotation"
                 else "window_distance"
             ),
         )
@@ -534,24 +544,24 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         name_zh_tw="挑球",
         description_zh_tw="挑球動作",
         checkpoint_roles_zh_tw=(
-            "第0關鍵幀：腰部放鬆準備",
-            "第1關鍵幀：向後引拍過渡",
-            "第2關鍵幀：向後引拍最低點",
-            "第3關鍵幀：手腕往前壓",
-            "第4關鍵幀：手腕放鬆回到預備姿勢",
+            "第0關鍵幀：球拍置於身前的平衡準備",
+            "第1關鍵幀：持拍腳啟動與放鬆伸拍",
+            "第2關鍵幀：持拍腳跨步與引拍終點",
+            "第3關鍵幀：弓步落地與擊球加速",
+            "第4關鍵幀：平衡隨揮與回復起點",
         ),
         joint_weights=(
             0.5, 0.25, 0.25, 0.25, 0.25,
-            1.25, 2.5, 1.0, 3.5, 1.0, 4.5,
-            1.25, 1.5, 1.0, 1.25, 1.0, 1.25,
+            1.5, 2.5, 1.25, 3.5, 1.25, 4.5,
+            2.0, 2.5, 1.75, 2.5, 1.75, 2.5,
         ),
         details=_details(
             _LIFT_RULES,
             (
-                (0, 20, (5, 6, 7, 8, 9, 10)),
-                (16, 40, (6, 8, 10)),
-                (32, 56, (6, 8, 10)),
-                (44, 64, (5, 6, 7, 8, 9, 10)),
+                (0, 20, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                (8, 44, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                (32, 56, (5, 6, 8, 10, 11, 12, 13, 14, 15, 16)),
+                (44, 64, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
             ),
         ),
         phase_windows=(
@@ -561,6 +571,10 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             PhaseWindowSpec("follow_through", 48, 64),
         ),
         rules=_LIFT_RULES,
+        transition_weight=0.75,
+        transition_joints=(11, 12, 13, 14, 15, 16),
+        transition_lean_joints=(5, 6, 11, 12),
+        transition_direction_joint=16,
     ),
 }
 
@@ -605,10 +619,14 @@ def validate_checkpoint_spec(
     checkpoint_transition_lean_joints = tuple(
         checkpoint.get("transition_lean_joints", ())
     )
+    checkpoint_transition_direction_joint = checkpoint.get(
+        "transition_direction_joint"
+    )
     if (
         checkpoint_transition_weight != spec.transition_weight
         or checkpoint_transition_joints != spec.transition_joints
         or checkpoint_transition_lean_joints != spec.transition_lean_joints
+        or checkpoint_transition_direction_joint != spec.transition_direction_joint
     ):
         raise ValueError(
             f"{spec.slug} checkpoint transition scoring does not match the current "

@@ -9,7 +9,7 @@ from typing import Any, Sequence
 
 import numpy as np
 import torch
-from torch.utils.data import ConcatDataset, DataLoader
+from torch.utils.data import DataLoader
 
 from badminton_analysis.ml.models.skeleton_denoiser import SkeletonDenoiser
 from badminton_analysis.ml.skeleton_dataset import (
@@ -17,8 +17,10 @@ from badminton_analysis.ml.skeleton_dataset import (
     discover_sequence_files,
     load_sequence,
 )
-from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-from badminton_analysis.ml.skeleton_normalization import restore_phase_timing
+from badminton_analysis.ml.skeleton_normalization import (
+    phase_align_sequence,
+    restore_phase_timing,
+)
 from badminton_analysis.ml.skeleton_scoring import (
     JOINT_WEIGHTS,
     correction_quality_metrics,
@@ -95,6 +97,15 @@ def _load_expert_bank(
     )
 
 
+def _build_expert_targets(
+    files: list[Path],
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    return {
+        path.name: _load_aligned(path)
+        for path in files
+    }
+
+
 def _load_expert_handedness(files: list[Path]) -> list[str]:
     return [_load_handedness(path) for path in files]
 
@@ -104,57 +115,6 @@ def _load_handedness(path: Path) -> str:
         if "handedness" not in sample:
             raise ValueError(f"dataset {path} has no handedness metadata")
         return str(sample["handedness"].item()).lower()
-
-
-def _build_student_targets(
-    student_files: list[Path],
-    expert_files: list[Path],
-    joint_weights: np.ndarray = JOINT_WEIGHTS,
-    transition_weight: float = 0.0,
-    transition_joints: tuple[int, ...] = (),
-    transition_lean_joints: tuple[int, ...] = (),
-) -> tuple[dict[str, tuple[np.ndarray, np.ndarray]], list[dict[str, Any]]]:
-    expert_skeletons, expert_confidence = _load_expert_bank(expert_files)
-    expert_handedness = np.asarray(_load_expert_handedness(expert_files))
-    targets: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    rows: list[dict[str, Any]] = []
-    for path in student_files:
-        source, source_confidence = _load_aligned(path)
-        student_handedness = _load_handedness(path)
-        allowed_indices = np.flatnonzero(expert_handedness == student_handedness)
-        if not len(allowed_indices):
-            raise ValueError(
-                f"no {student_handedness}-handed expert is available for {path.name}"
-            )
-        local_index, target, target_confidence, selection_distance = (
-            select_bone_adapted_expert(
-                source,
-                expert_skeletons[allowed_indices],
-                source_confidence,
-                expert_confidence[allowed_indices],
-                joint_weights,
-                transition_weight=transition_weight,
-                transition_joints=transition_joints,
-                transition_lean_joints=transition_lean_joints,
-            )
-        )
-        nearest_index = int(allowed_indices[local_index])
-        target_distance = expert_euclidean_distances(
-            target,
-            expert_skeletons[nearest_index : nearest_index + 1],
-            target_confidence,
-            expert_confidence[nearest_index : nearest_index + 1],
-        )[0]
-        targets[path.name] = (target, target_confidence)
-        rows.append(
-            {
-                "student_file": path.name,
-                "target_expert_file": expert_files[nearest_index].name,
-                "input_target_expert_distance": selection_distance,
-                "pseudo_target_expert_distance": float(target_distance),
-            }
-        )
-    return targets, rows
 
 
 def _expert_variability(
@@ -192,6 +152,7 @@ def _run_epoch(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
 ) -> dict[str, float]:
     training = optimizer is not None
     model.train(training)
@@ -204,6 +165,7 @@ def _run_epoch(
             "angle",
             "bone_length",
             "transition",
+            "direction",
         )
     }
     batches = 0
@@ -223,6 +185,7 @@ def _run_epoch(
                 transition_weight=transition_weight,
                 transition_joints=transition_joints,
                 transition_lean_joints=transition_lean_joints,
+                transition_direction_joint=transition_direction_joint,
             )
             if optimizer is not None:
                 losses["loss"].backward()
@@ -247,6 +210,7 @@ def _evaluate_expert_distance(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     correction_expert_bank, correction_confidence_bank = _load_expert_bank(
         correction_expert_files
@@ -307,6 +271,7 @@ def _evaluate_expert_distance(
             transition_weight=transition_weight,
             transition_joints=transition_joints,
             transition_lean_joints=transition_lean_joints,
+            transition_direction_joint=transition_direction_joint,
         )
         features = np.concatenate(
             (source, correction_reference, confidence[..., None]), axis=-1
@@ -349,15 +314,11 @@ def _evaluate_expert_distance(
         )
         input_nearest = float(np.min(input_distances))
         corrected_nearest = float(np.min(corrected_distances))
-        raw_correction = restore_phase_timing(corrected - source, phases)
         raw_corrected = project_bone_lengths(
-            raw_source, raw_source + raw_correction
-        )
-        raw_reference_correction = restore_phase_timing(
-            correction_reference - source, phases
+            raw_source, restore_phase_timing(corrected, phases)
         )
         raw_reference = project_bone_lengths(
-            raw_source, raw_source + raw_reference_correction
+            raw_source, restore_phase_timing(correction_reference, phases)
         )
         quality = correction_quality_metrics(
             raw_source, raw_corrected, raw_confidence
@@ -549,14 +510,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     student_train, student_validation, student_test = _split_files(
         student_files, args.seed + 1
     )
-    student_targets, pairing_rows = _build_student_targets(
-        student_train,
-        expert_train,
-        spec.joint_weights_array,
-        spec.transition_weight,
-        spec.transition_joints,
-        spec.transition_lean_joints,
-    )
     validation_expert_variability = _expert_variability(expert_validation)
     validation_expert_threshold = validation_expert_variability[
         "p95_nearest_expert_distance"
@@ -567,22 +520,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     ]
 
     expert_training_dataset = SkeletonCorrectionPairDataset(
-        expert_train, reference_conditioned=True, augment=True
-    )
-    student_training_dataset = SkeletonCorrectionPairDataset(
-        student_train,
-        targets=student_targets,
+        expert_train,
+        targets=_build_expert_targets(expert_train),
         reference_conditioned=True,
         augment=True,
+        skill=spec.skill,
     )
     expert_validation_dataset = SkeletonCorrectionPairDataset(
         expert_validation,
+        targets=_build_expert_targets(expert_validation),
         reference_conditioned=True,
         augment=True,
         deterministic=True,
+        skill=spec.skill,
     )
     training_loader: DataLoader[Any] = DataLoader(
-        ConcatDataset((expert_training_dataset, student_training_dataset)),
+        expert_training_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=0,
@@ -605,7 +558,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs)
     model_path.parent.mkdir(parents=True, exist_ok=True)
     metrics_dir.mkdir(parents=True, exist_ok=True)
-    _write_csv(metrics_dir / "training_pairs.csv", pairing_rows)
 
     rows: list[dict[str, float | int]] = []
     best_expert_distance = float("inf")
@@ -620,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             spec.transition_weight,
             spec.transition_joints,
             spec.transition_lean_joints,
+            spec.transition_direction_joint,
         )
         with torch.no_grad():
             validation_metrics = _run_epoch(
@@ -631,6 +584,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 spec.transition_weight,
                 spec.transition_joints,
                 spec.transition_lean_joints,
+                spec.transition_direction_joint,
             )
         guidance, _ = _evaluate_expert_distance(
             model,
@@ -645,6 +599,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             spec.transition_weight,
             spec.transition_joints,
             spec.transition_lean_joints,
+            spec.transition_direction_joint,
         )
         if not all(
             np.isfinite(value)
@@ -696,12 +651,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "transition_weight": spec.transition_weight,
                     "transition_joints": list(spec.transition_joints),
                     "transition_lean_joints": list(spec.transition_lean_joints),
+                    "transition_direction_joint": spec.transition_direction_joint,
                     "criteria": [rule.as_prompt_dict() for rule in spec.rules],
                     "sequence_frames": 64,
                     "phase_aligned": True,
                     "expert_guided": True,
                     "reference_conditioned": True,
-                    "target_definition": "full_bone_preserving_nearest_expert",
+                    "optimizer_data_policy": "experts_only",
+                    "target_definition": "augmented_expert_reconstruction",
                     "inference_strength": 1.0,
                     "reference_guidance": args.reference_guidance,
                     "quality_gates": {
@@ -725,7 +682,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         path.name for path in expert_validation
                     ],
                     "expert_test_files": [path.name for path in expert_test],
-                    "student_training_files": [path.name for path in student_train],
+                    "student_training_files": [],
+                    "student_calibration_files": [
+                        path.name for path in student_train
+                    ],
                     "student_validation_files": [
                         path.name for path in student_validation
                     ],
@@ -765,6 +725,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         spec.transition_weight,
         spec.transition_joints,
         spec.transition_lean_joints,
+        spec.transition_direction_joint,
     )
     test_summary, test_rows = _evaluate_expert_distance(
         model,
@@ -779,6 +740,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         spec.transition_weight,
         spec.transition_joints,
         spec.transition_lean_joints,
+        spec.transition_direction_joint,
     )
     all_students_summary, _ = _evaluate_expert_distance(
         model,
@@ -793,6 +755,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         spec.transition_weight,
         spec.transition_joints,
         spec.transition_lean_joints,
+        spec.transition_direction_joint,
     )
     _write_csv(metrics_dir / "expert_distance_validation.csv", validation_rows)
     _write_csv(metrics_dir / "expert_distance_test.csv", test_rows)
@@ -834,6 +797,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         > args.maximum_reference_distance
     ):
         raise RuntimeError("accepted checkpoint failed the all-student safety audit")
+    deployment_experts = sorted(expert_files, key=lambda path: path.name)
+    deployment_skeletons, deployment_confidence = _load_expert_bank(
+        deployment_experts
+    )
+    checkpoint["expert_reference_files"] = [
+        path.name for path in deployment_experts
+    ]
+    checkpoint["expert_reference_handedness"] = _load_expert_handedness(
+        deployment_experts
+    )
+    checkpoint["expert_reference_skeletons"] = deployment_skeletons
+    checkpoint["expert_reference_confidence"] = deployment_confidence
+    checkpoint["deployment_reference_policy"] = "all_experts_after_held_out_audit"
     (metrics_dir / "expert_distance_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )

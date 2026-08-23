@@ -172,14 +172,14 @@ def test_compute_angles_handles_missing_landmarks() -> None:
     assert all(angle == 0.0 for angle in result.values())
 
 
-@pytest.mark.parametrize("skill", (Skill.SERVE, Skill.LIFT))
+@pytest.mark.parametrize("skill", (Skill.SERVE,))
 def test_analysis_window_keeps_follow_through_after_peak(
     monkeypatch: pytest.MonkeyPatch, skill: Skill
 ) -> None:
     monkeypatch.setattr(
         VideoAnalyzer,
         "find_acc_analysis_window",
-        classmethod(lambda cls, positions: (10, 40, 70)),
+        classmethod(lambda cls, positions, anchors=None: (10, 40, 70)),
     )
     hand_positions = np.zeros((100, 2), dtype=np.float64)
     hand_positions[40, 1] = 10.0
@@ -192,6 +192,35 @@ def test_analysis_window_keeps_follow_through_after_peak(
     )
 
     assert (start, peak, end) == (10, 40, 70)
+
+
+def test_lift_phases_include_return_to_ready_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hand_positions = np.full((100, 2), 100.0, dtype=np.float64)
+    hand_positions[20:36, 1] = np.linspace(100.0, 130.0, 16)
+    hand_positions[36:41, 1] = 130.0
+    hand_positions[40:51, 1] = np.linspace(130.0, 70.0, 11)
+    hand_positions[50:71, 1] = np.linspace(70.0, 100.0, 21)
+    hand_positions[71:, 1] = 100.0
+    elbow_positions = np.zeros((100, 2), dtype=np.float64)
+
+    phases = VideoAnalyzer.find_analysis_phases(
+        skill=Skill.LIFT,
+        hand_positions=list(hand_positions),
+        elbow_positions=list(elbow_positions),
+    )
+    window = VideoAnalyzer.find_analysis_window(
+        skill=Skill.LIFT,
+        hand_positions=list(hand_positions),
+        elbow_positions=list(elbow_positions),
+    )
+
+    assert phases[0] < phases[1] < phases[2] < phases[3] < phases[4]
+    assert 34 <= phases[2] <= 41
+    assert 43 <= phases[3] <= 51
+    assert 68 <= phases[4] <= 80
+    assert window == (phases[0], phases[2], phases[4])
 
 
 @pytest.mark.parametrize("skill", (Skill.CLEAR, Skill.SMASH))
@@ -207,3 +236,27 @@ def test_overhead_window_never_ends_at_impact(skill: Skill) -> None:
     )
 
     assert end - peak >= 2
+
+
+@pytest.mark.parametrize("skill", (Skill.CLEAR, Skill.SMASH))
+def test_overhead_window_includes_slow_follow_through_after_acceleration(
+    monkeypatch: pytest.MonkeyPatch, skill: Skill
+) -> None:
+    monkeypatch.setattr(
+        VideoAnalyzer,
+        "find_acc_analysis_window",
+        classmethod(lambda cls, positions, anchors=None: (10, 40, 70)),
+    )
+    hand_positions = np.zeros((100, 2), dtype=np.float64)
+    hand_positions[40, 1] = -10.0
+    elbow_positions = np.zeros((100, 2), dtype=np.float64)
+    elbow_positions[86, 1] = 12.0
+
+    _, peak, end = VideoAnalyzer.find_analysis_window(
+        skill=skill,
+        hand_positions=list(hand_positions),
+        elbow_positions=list(elbow_positions),
+    )
+
+    assert peak == 40
+    assert end == 86

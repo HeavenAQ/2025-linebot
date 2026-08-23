@@ -13,9 +13,8 @@ class Settings:
     gcp_project_id: str
     gcs_bucket_name: str
     gcp_service_account_email: str
-    expert_collection: str
     signed_url_minutes: int
-    model_root: Path
+    expert_motion_model_root: Path
     device: str
     openai_model: str
     coaching_pause_seconds: float
@@ -30,17 +29,16 @@ class Settings:
             gcp_project_id=os.getenv("GCP_PROJECT_ID", ""),
             gcs_bucket_name=os.getenv("GCS_BUCKET_NAME", ""),
             gcp_service_account_email=os.getenv("GCP_SERVICE_ACCOUNT_EMAIL", ""),
-            expert_collection=os.getenv(
-                "EXPERT_VIDEOS_COLLECTION", "badminton_experts_v2"
-            ),
             signed_url_minutes=int(os.getenv("SIGNED_URL_MINUTES", "60")),
-            model_root=Path(
+            expert_motion_model_root=Path(
                 os.getenv(
-                    "SKELETON_MODEL_ROOT",
-                    str(root / "models" / "skeleton_correction"),
+                    "EXPERT_MOTION_MODEL_ROOT",
+                    str(root / "models" / "error_isolated_motion"),
                 )
             ),
-            device=os.getenv("SKELETON_DEVICE", "auto"),
+            device=os.getenv(
+                "EXPERT_MOTION_DEVICE", os.getenv("SKELETON_DEVICE", "auto")
+            ),
             openai_model=os.getenv("OPENAI_COACHING_MODEL", "gpt-5.6-terra"),
             coaching_pause_seconds=float(os.getenv("COACHING_PAUSE_SECONDS", "2.0")),
         )

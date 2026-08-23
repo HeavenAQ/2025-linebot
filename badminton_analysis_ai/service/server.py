@@ -17,8 +17,10 @@ from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.models.types import Handedness, Skill
 
 from service.config import Settings
-from service.expert_catalog import ExpertCatalog
-from service.pipeline import AnalysisResult, SkeletonAnalysisPipeline
+from service.pipeline import (
+    AnalysisResult,
+    SkeletonAnalysisPipeline,
+)
 from service.renderer import probe_video
 from service.storage import ObjectStorage, SignedObject
 
@@ -27,8 +29,6 @@ _SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9._-]+")
 
 _PROTO_TO_SKILL = {
     analysis_pb2.SKILL_SERVE: Skill.SERVE,
-    analysis_pb2.SKILL_LIFT: Skill.LIFT,
-    analysis_pb2.SKILL_CLEAR: Skill.CLEAR,
     analysis_pb2.SKILL_SMASH: Skill.SMASH,
 }
 _SKILL_TO_PROTO = {value: key for key, value in _PROTO_TO_SKILL.items()}
@@ -57,11 +57,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             service_account_email=settings.gcp_service_account_email,
             signed_url_minutes=settings.signed_url_minutes,
         )
-        self.catalog = ExpertCatalog(
-            settings.gcp_project_id, settings.expert_collection
-        )
         self.pipeline = SkeletonAnalysisPipeline(
-            settings.model_root,
+            settings.expert_motion_model_root,
             device=settings.device,
             openai_model=settings.openai_model,
             pause_seconds=settings.coaching_pause_seconds,
@@ -129,26 +126,26 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "video is empty")
             skill = _PROTO_TO_SKILL.get(header.skill)
             handedness = _PROTO_TO_HANDEDNESS.get(header.handedness)
-            if skill is None or handedness is None:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported skill or handedness")
+            if skill is None:
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "only serve and smash are currently supported",
+                )
+            if handedness is None:
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness")
 
             output_path = temp_dir / "student_corrected.mp4"
+            skeleton_overlay_path = temp_dir / "student_skeleton_overlay.mp4"
             try:
                 result = self.pipeline.analyze(
                     video_path=input_path,
                     output_path=output_path,
+                    skeleton_overlay_path=skeleton_overlay_path,
                     filename=header.filename or "video.mp4",
                     skill=skill,
                     requested_handedness=handedness,
                 )
-                catalog_started = time.perf_counter()
-                expert = self.catalog.get(str(skill), result.expert_id)
-                if expert.handedness != str(result.handedness):
-                    raise ValueError(
-                        "selected expert handedness does not match the student: "
-                        f"student={result.handedness}, expert={expert.handedness}"
-                    )
-                catalog_finished = time.perf_counter()
+                storage_started = time.perf_counter()
                 user_segment = _safe_segment(header.user_id, "anonymous")
                 request_segment = _safe_segment(header.request_id, analysis_id)
                 object_path = (
@@ -158,12 +155,19 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
-                expert_signed = self.storage.sign(expert.video_object_path)
+                overlay_object_path = (
+                    f"analyses/v1/{user_segment}/{request_segment}/"
+                    "student_skeleton_overlay.mp4"
+                )
+                overlay_signed = self.storage.upload_file(
+                    skeleton_overlay_path,
+                    overlay_object_path,
+                    content_type="video/mp4",
+                )
                 storage_finished = time.perf_counter()
                 result.diagnostics.update(
                     {
-                        "latency_catalog_seconds": catalog_finished - catalog_started,
-                        "latency_storage_seconds": storage_finished - catalog_finished,
+                        "latency_storage_seconds": storage_finished - storage_started,
                         "latency_service_seconds": storage_finished - service_started,
                         "input_video_bytes": float(total_bytes),
                     }
@@ -172,9 +176,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     analysis_id,
                     result,
                     student_signed,
-                    expert_signed,
+                    overlay_signed,
                     probe_video(output_path),
-                    expert,
+                    probe_video(skeleton_overlay_path),
                 )
             except (ValueError, KeyError) as exc:
                 LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
@@ -189,11 +193,12 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         analysis_id: str,
         result: AnalysisResult,
         student_signed: SignedObject,
-        expert_signed: SignedObject,
+        overlay_signed: SignedObject,
         student_metadata: dict[str, float | int],
-        expert,
+        overlay_metadata: dict[str, float | int],
     ) -> analysis_pb2.AnalyzeVideoResponse:
-        spec = self.pipeline.backends[result.skill].spec
+        backend = self.pipeline.backends[result.skill]
+        spec = backend.spec
         details = [
             analysis_pb2.GradingDetail(
                 criterion_id=rule.id,
@@ -232,6 +237,13 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             for key, value in result.diagnostics.items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         ]
+        expert_message = analysis_pb2.ExpertMatch(
+            expert_id=result.expert_id,
+            display_name="Generated expert prior",
+            correction_distance=result.expert_distance,
+        )
+        feedback_video = self._stored_video(student_signed, student_metadata)
+        overlay_video = self._stored_video(overlay_signed, overlay_metadata)
         return analysis_pb2.AnalyzeVideoResponse(
             analysis_id=analysis_id,
             skill=_SKILL_TO_PROTO[result.skill],
@@ -239,25 +251,14 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             grade=analysis_pb2.GradingOutcome(
                 total_grade=float(result.grade["total_grade"]),
                 grading_details=details,
-                score_status="diagnostic_group_calibrated",
+                score_status="expert_only_generated_distribution",
             ),
-            student_video=self._stored_video(student_signed, student_metadata),
-            expert=analysis_pb2.ExpertMatch(
-                expert_id=expert.expert_id,
-                display_name=expert.display_name,
-                correction_distance=result.expert_distance,
-                video=self._stored_video(
-                    expert_signed,
-                    {
-                        "duration_seconds": expert.duration_seconds,
-                        "fps": expert.fps,
-                        "width": expert.width,
-                        "height": expert.height,
-                    },
-                ),
-                motion_start_seconds=expert.motion_start_seconds,
-                motion_end_seconds=expert.motion_end_seconds,
-            ),
+            # Backward-compatible alias: old clients continue to receive the
+            # GPT feedback version through student_video.
+            student_video=feedback_video,
+            feedback_video=feedback_video,
+            skeleton_overlay_video=overlay_video,
+            expert=expert_message,
             timeline=[
                 analysis_pb2.PhaseMarker(
                     id=phase.id,

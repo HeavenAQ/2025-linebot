@@ -6,17 +6,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
-from badminton_analysis.ml.infer_skeleton_corrector import phase_grading_details
-from badminton_analysis.ml.skeleton_backend import (
-    SkeletonCorrectionBackend,
-    tracking_to_normalized_sequence,
+from badminton_analysis.ml.expert_motion_backend import (
+    ExpertMotionGeneratorBackend,
 )
 from badminton_analysis.ml.skeleton_normalization import landmark_dicts_to_array
-from badminton_analysis.ml.skill_specs import SkillCorrectionSpec, get_skill_spec
-from badminton_analysis.models.types import COCOKeypoints, Handedness, Skill, TrackingData
+from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
+from badminton_analysis.models.types import (
+    COCOKeypoints,
+    GradingOutcome,
+    Handedness,
+    Skill,
+    TrackingData,
+)
 from badminton_analysis.services.pose_detector import PoseDetector
 from badminton_analysis.services.video_processor import VideoProcessor
 
@@ -37,7 +39,7 @@ class PhaseResult:
 class AnalysisResult:
     skill: Skill
     handedness: Handedness
-    grade: dict[str, Any]
+    grade: GradingOutcome
     diagnostics: dict[str, Any]
     expert_id: str
     expert_distance: float
@@ -46,10 +48,11 @@ class AnalysisResult:
     coaching_problems: tuple[dict[str, Any], ...]
     pause_seconds: float
     output_path: Path
+    skeleton_overlay_path: Path
 
 
 def _correction_grade_context(
-    grade: dict[str, Any],
+    grade: GradingOutcome,
     diagnostics: dict[str, Any],
     spec: SkillCorrectionSpec,
     criterion_values: list[tuple[str, float, float]],
@@ -61,13 +64,30 @@ def _correction_grade_context(
         "bone_length_distance",
         "support_transition_distance",
         "torso_lean_transition_distance",
+        "lunge_direction_distance",
         "transition_distance",
     )
-    return {
-        "score_method_zh_tw": (
+    generated_expert = (
+        diagnostics.get("scorer") == "continuous_generated_expert_distribution_v1"
+    )
+    score_status = (
+        "expert_only_generated_distribution"
+        if generated_expert
+        else "diagnostic_group_calibrated"
+    )
+    score_method = (
+        "學生骨架與依其身形、站位座標及動作階段生成的專家全身骨架，逐項比較歐氏距離與目標關節角；"
+        "分數容許範圍只由保留身分的專家動作分布校準"
+        if generated_expert
+        else (
             "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
-            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化"
-        ),
+            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化；"
+            "挑球另比較持拍腳由預備至擊球的跨步方向"
+        )
+    )
+    return {
+        "score_method_zh_tw": score_method,
+        "score_status": score_status,
         "total_score": float(grade["total_grade"]),
         "correction_distance": float(diagnostics["correction_distance"]),
         "distance_components": {
@@ -86,6 +106,81 @@ def _correction_grade_context(
             for rule, value in zip(spec.rules, criterion_values, strict=True)
         ],
     }
+
+
+def _rule_anchor_frames(
+    spec: SkillCorrectionSpec,
+    phase_indices: tuple[int, ...],
+    last_frame: int,
+) -> list[int]:
+    """Normalized frame each criterion is anchored to, in rule order."""
+    if len(phase_indices) != 5 or any(
+        first >= second for first, second in zip(phase_indices, phase_indices[1:])
+    ):
+        raise ValueError("checkpoint timeline requires five ordered phase indices")
+    return [
+        min(
+            last_frame,
+            max(0, int(phase_indices[rule.allowed_anchor_indices[-1]])),
+        )
+        for rule in spec.rules
+    ]
+
+
+def expert_phase_results(
+    spec: SkillCorrectionSpec,
+    *,
+    phase_indices: tuple[int, ...],
+    phase_seconds: tuple[float, ...],
+    sequence_length: int,
+) -> tuple[PhaseResult, ...]:
+    """The expert's checkpoints, timestamped in the expert's own video.
+
+    Built from the same rule anchors as the student timeline, so marker ``i``
+    on either side is the same moment of the stroke and playback can map one
+    onto the other segment by segment.
+    """
+    if sequence_length <= 0:
+        raise ValueError("expert timeline requires a positive sequence length")
+    if len(phase_seconds) != len(phase_indices):
+        raise ValueError("expert timeline needs one timestamp per phase index")
+    last_frame = sequence_length - 1
+    frames = _rule_anchor_frames(spec, phase_indices, last_frame)
+    return tuple(
+        PhaseResult(
+            id=rule.id,
+            label=rule.name_zh_tw,
+            normalized_frame=frame,
+            normalized_position=float(frame) / max(1, last_frame),
+            timestamp_seconds=float(
+                phase_seconds[rule.allowed_anchor_indices[-1]]
+            ),
+        )
+        for rule, frame in zip(spec.rules, frames, strict=True)
+    )
+
+
+def _qualitative_phase_results(
+    spec: SkillCorrectionSpec,
+    *,
+    phase_indices: tuple[int, ...] = (0, 16, 32, 48, 63),
+    sequence_length: int,
+    fps: float,
+) -> tuple[PhaseResult, ...]:
+    if sequence_length <= 0 or fps <= 0:
+        raise ValueError("checkpoint timeline requires a positive length and fps")
+    last_frame = sequence_length - 1
+    frames = _rule_anchor_frames(spec, phase_indices, last_frame)
+    return tuple(
+        PhaseResult(
+            id=rule.id,
+            label=rule.name_zh_tw,
+            normalized_frame=frame,
+            normalized_position=float(frame) / max(1, last_frame),
+            timestamp_seconds=float(frame) / fps,
+        )
+        for rule, frame in zip(spec.rules, frames, strict=True)
+    )
 
 
 def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
@@ -117,7 +212,7 @@ def _populate_dominant_motion(
 class SkeletonAnalysisPipeline:
     def __init__(
         self,
-        model_root: Path,
+        expert_motion_model_root: Path,
         *,
         device: str = "auto",
         openai_model: str = "gpt-5.6-terra",
@@ -125,13 +220,14 @@ class SkeletonAnalysisPipeline:
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
-        self.backends: dict[Skill, SkeletonCorrectionBackend] = {}
+        self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
         self.pause_seconds = pause_seconds
-        for skill in (Skill.SERVE, Skill.LIFT, Skill.CLEAR, Skill.SMASH):
-            spec = get_skill_spec(skill)
-            self.backends[skill] = SkeletonCorrectionBackend(
-                model_root / f"{spec.model_stem}.pt", device=device
+        for skill in (Skill.SERVE, Skill.SMASH):
+            self.backends[skill] = ExpertMotionGeneratorBackend(
+                expert_motion_model_root,
+                skill,
+                device=device,
             )
 
     @property
@@ -143,10 +239,13 @@ class SkeletonAnalysisPipeline:
         *,
         video_path: Path,
         output_path: Path,
+        skeleton_overlay_path: Path,
         filename: str,
         skill: Skill,
         requested_handedness: str,
     ) -> AnalysisResult:
+        if skill not in self.backends:
+            raise ValueError("only serve and smash are currently supported")
         pipeline_started = time.perf_counter()
         with self.lock:
             pose_started = time.perf_counter()
@@ -158,46 +257,54 @@ class SkeletonAnalysisPipeline:
             handedness = _resolve_handedness(tracking, requested_handedness)
             _populate_dominant_motion(tracking, handedness)
             backend = self.backends[skill]
-            skeleton, confidence, window, phases = tracking_to_normalized_sequence(
-                tracking,
-                handedness,
-                skill=skill,
-                target_frames=backend.target_frames,
-            )
+            generated = backend.infer(tracking, handedness, filename)
+            correction = generated.correction
+            skeleton = correction.student.pose
+            confidence = correction.student.confidence
+            original_root = correction.student.root
+            corrected = correction.corrected_pose
+            corrected_root = correction.corrected_root
+            window = generated.window
+            phases = correction.student.phase_indices
+            source_phase_frames = [
+                int(generated.source_frame_indices[int(value)]) for value in phases
+            ]
             preprocessing_finished = time.perf_counter()
-            grade, corrected, diagnostics = backend.score_sequence(
-                skeleton, confidence, phases, handedness
-            )
+            grade = generated.grade
+            diagnostics = generated.diagnostics
+            criterion_values = [
+                (
+                    str(item["name_zh_tw"]),
+                    float(item["combined_distance"]),
+                    float(item["score"]),
+                )
+                for item in generated.score["criteria"]
+            ]
             scoring_finished = time.perf_counter()
             fps = source_fps(video_path)
-            spec: SkillCorrectionSpec = get_skill_spec(skill)
-            criterion_values = phase_grading_details(
-                skeleton,
-                corrected,
-                confidence,
-                backend.calibration,
-                float(grade["total_grade"]),
-                spec,
-            )
+            spec: SkillCorrectionSpec = backend.spec
             correction_grade = _correction_grade_context(
                 grade, diagnostics, spec, criterion_values
             )
-            preview_path = output_path.with_name(output_path.stem + ".preview.mp4")
             render_correction_video(
                 tracking=tracking,
                 original=skeleton,
                 corrected=corrected,
+                original_root=original_root,
+                corrected_root=corrected_root,
                 confidence=confidence,
                 window=window,
                 handedness=handedness,
+                skill=skill,
                 filename=filename,
                 score=float(grade["total_grade"]),
-                output_path=preview_path,
+                output_path=skeleton_overlay_path,
                 fps=fps,
+                generated_full_body=True,
             )
-            preview_finished = time.perf_counter()
+            overlay_finished = time.perf_counter()
             coaching_payload = self.coaching.generate(
-                video_path=preview_path,
+                video_path=skeleton_overlay_path,
                 working_dir=output_path.parent,
                 filename=filename,
                 handedness=str(handedness),
@@ -211,32 +318,44 @@ class SkeletonAnalysisPipeline:
                 tracking=tracking,
                 original=skeleton,
                 corrected=corrected,
+                original_root=original_root,
+                corrected_root=corrected_root,
                 confidence=confidence,
                 window=window,
                 handedness=handedness,
+                skill=skill,
                 filename=filename,
                 score=float(grade["total_grade"]),
                 output_path=output_path,
                 fps=fps,
                 feedback=problems,
                 pause_seconds=self.pause_seconds,
+                generated_full_body=True,
             )
             final_render_finished = time.perf_counter()
-            preview_path.unlink(missing_ok=True)
 
         diagnostics.update(
             {
+                "source_fps": fps,
+                "analysis_window_start_frame": int(window[0]),
+                "analysis_window_peak_frame": int(window[1]),
+                "analysis_window_end_frame": int(window[2]),
+                "normalized_phase_indices": [int(value) for value in phases],
+                "source_phase_frames": source_phase_frames,
                 "latency_pose_seconds": pose_finished - pose_started,
                 "latency_preprocessing_seconds": preprocessing_finished - pose_finished,
                 "latency_scoring_seconds": scoring_finished - preprocessing_finished,
-                "latency_preview_render_seconds": preview_finished - scoring_finished,
-                "latency_coaching_total_seconds": coaching_finished - preview_finished,
+                "latency_preview_render_seconds": overlay_finished - scoring_finished,
+                "latency_skeleton_overlay_render_seconds": (
+                    overlay_finished - scoring_finished
+                ),
+                "latency_coaching_total_seconds": coaching_finished - overlay_finished,
                 "latency_llm_inference_seconds": float(
                     coaching_payload["latency_llm_inference_seconds"]
                 ),
                 "latency_coaching_preparation_seconds": (
                     coaching_finished
-                    - preview_finished
+                    - overlay_finished
                     - float(coaching_payload["latency_llm_inference_seconds"])
                 ),
                 "latency_final_render_seconds": final_render_finished - coaching_finished,
@@ -261,15 +380,11 @@ class SkeletonAnalysisPipeline:
         if not expert_id:
             raise RuntimeError("checkpoint did not report a selected expert")
         duration = len(skeleton) / fps
-        phase_results = tuple(
-            PhaseResult(
-                id=("start", "transition", "contact", "follow_through", "end")[index],
-                label=spec.checkpoint_roles_zh_tw[index],
-                normalized_frame=int(frame),
-                normalized_position=float(frame) / max(1, len(skeleton) - 1),
-                timestamp_seconds=float(frame) / fps,
-            )
-            for index, frame in enumerate(phases)
+        phase_results = _qualitative_phase_results(
+            spec,
+            phase_indices=tuple(int(value) for value in phases),
+            sequence_length=len(skeleton),
+            fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:
             raise RuntimeError("phase timeline exceeds rendered video duration")
@@ -285,4 +400,5 @@ class SkeletonAnalysisPipeline:
             coaching_problems=tuple(problems),
             pause_seconds=self.pause_seconds,
             output_path=output_path,
+            skeleton_overlay_path=skeleton_overlay_path,
         )

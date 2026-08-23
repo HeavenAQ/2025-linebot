@@ -66,18 +66,111 @@ class VideoAnalyzer:
     def find_acc_analysis_window(
         cls,
         hand_positions: list[Coordinate],
+        anchor_positions: list[Coordinate] | None = None,
     ) -> tuple[int, int, int]:
         positions = cls.moving_average(
             hand_positions, window_size=SMOOTHING_WINDOW_SIZE
         )
-        velocities = cls.calc_velocity(positions, 1, 1)
-        accelerations = cls.calc_acceleration(velocities, 1, 1)
-        peak_frame = int(np.argmax(accelerations)) + 2 if accelerations.size > 0 else 0
+        if anchor_positions is not None:
+            anchors = cls.moving_average(
+                anchor_positions, window_size=SMOOTHING_WINDOW_SIZE
+            )
+            if anchors.shape != positions.shape:
+                raise ValueError("anchor positions must align with hand positions")
+            positions = positions - anchors
+        peak_frame = cls._directional_acceleration_peak(positions)
         start_frame = max(0, peak_frame - IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
         end_frame = min(
             len(hand_positions) - 1, peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER
         )
         return start_frame, peak_frame, end_frame
+
+    @staticmethod
+    def _directional_acceleration_peak(
+        positions: NDArray[np.floating[Any]],
+        *,
+        prefer_peak_velocity: bool = False,
+    ) -> int:
+        """Select the coherent forward swing rather than faster recovery."""
+        trajectory = np.asarray(positions, dtype=np.float64)
+        velocities = np.diff(trajectory, axis=0)
+        if len(velocities) < 2:
+            return 0
+        speeds = np.linalg.norm(velocities, axis=1)
+        if not np.any(speeds > 1e-8):
+            return 0
+        window = min(7, len(velocities))
+        if window % 2 == 0:
+            window -= 1
+        window = max(window, 1)
+        kernel = np.ones(window, dtype=np.float64) / window
+        padding = window // 2
+        coherent_velocity = np.column_stack(
+            [
+                np.convolve(
+                    np.pad(
+                        velocities[:, dimension],
+                        (padding, padding),
+                        mode="edge",
+                    ),
+                    kernel,
+                    mode="valid",
+                )
+                for dimension in range(velocities.shape[1])
+            ]
+        )
+        mean_speed = np.convolve(
+            np.pad(speeds, (padding, padding), mode="edge"),
+            kernel,
+            mode="valid",
+        )
+        coherent_speed = np.linalg.norm(coherent_velocity, axis=1)
+        consistency = coherent_speed / np.maximum(mean_speed, 1e-8)
+        episode_score = (
+            coherent_speed
+            * np.square(consistency)
+            * np.linspace(1.0, 0.65, len(coherent_speed))
+        )
+        if padding and len(episode_score) > 2 * padding:
+            episode_score[:padding] = 0.0
+            episode_score[-padding:] = 0.0
+        episode_index = int(np.argmax(episode_score))
+        axis = coherent_velocity[episode_index]
+        axis_norm = float(np.linalg.norm(axis))
+        if axis_norm <= 1e-8:
+            episode_index = int(np.argmax(speeds))
+            axis = velocities[episode_index]
+            axis_norm = float(np.linalg.norm(axis))
+        forward_axis = axis / max(axis_norm, 1e-8)
+        projected_velocity = velocities @ forward_axis
+        directional_acceleration = np.diff(projected_velocity)
+        direction_cosine = projected_velocity / np.maximum(speeds, 1e-8)
+        search_start = max(0, episode_index - window)
+        search_end = min(
+            len(directional_acceleration), episode_index + padding + 1
+        )
+        candidate_velocity = projected_velocity[search_start + 1 : search_end + 1]
+        candidate_alignment = direction_cosine[search_start + 1 : search_end + 1]
+        if prefer_peak_velocity and candidate_velocity.size:
+            return int(
+                search_start
+                + np.argmax(
+                    candidate_velocity * np.clip(candidate_alignment, 0.0, 1.0)
+                )
+                + 2
+            )
+        score = (
+            np.maximum(
+                directional_acceleration[search_start:search_end], 0.0
+            )
+            * np.clip(candidate_alignment, 0.0, 1.0)
+            * (candidate_velocity > 0.0)
+        )
+        return (
+            int(search_start + np.argmax(score) + 2)
+            if score.size and np.any(score > 0.0)
+            else int(np.argmax(projected_velocity) + 1)
+        )
 
     @staticmethod
     def dynamic_time_warping(
@@ -138,21 +231,26 @@ class VideoAnalyzer:
         elbow_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
         start_frame, _, acceleration_end_frame = cls.find_acc_analysis_window(
-            hand_positions
+            hand_positions, elbow_positions
         )
         idx = np.argmin(
             np.asarray(hand_positions)[start_frame : acceleration_end_frame + 1, 1]
         )
         new_peak = int(idx + start_frame)
-        new_start = max(0, new_peak - IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
+        new_start = max(0, new_peak - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
+        # The acceleration window identifies impact, but a slower beginner can
+        # finish the follow-through well after it. Search the complete
+        # post-impact elbow path so the correction reaches its final pose when
+        # the player's arm has actually come down.
         new_end = int(
-            np.argmax(
-                np.asarray(elbow_positions)[new_peak : acceleration_end_frame + 1, 1]
-            )
-            + new_peak
+            np.argmax(np.asarray(elbow_positions)[new_peak:, 1]) + new_peak
         )
-        if new_end - new_peak < 2:
-            new_end = max(acceleration_end_frame, new_peak + 2)
+        minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
+        new_end = max(
+            new_end,
+            acceleration_end_frame,
+            new_peak + minimum_follow_through,
+        )
         new_end = min(len(hand_positions) - 1, new_end)
         return new_start, new_peak, new_end
 
@@ -163,7 +261,7 @@ class VideoAnalyzer:
         elbow_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
         start_frame, peak_frame, end_frame = cls.find_acc_analysis_window(
-            hand_positions
+            hand_positions, elbow_positions
         )
         acceleration_end_frame = end_frame
         sub_range_positions = hand_positions[int(start_frame) : int(end_frame)]
@@ -181,8 +279,11 @@ class VideoAnalyzer:
             int(np.argmax(composite_metric)) if composite_metric.size > 0 else 0
         )
         end_frame = int(peak_frame) + int(relative_end_index)
-        if end_frame - peak_frame < 2:
-            end_frame = max(acceleration_end_frame, peak_frame + 2)
+        end_frame = max(
+            acceleration_end_frame,
+            end_frame,
+            peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER,
+        )
         start_frame = max(0, peak_frame - ANALYSIS_WINDOW_PADDING_BEFORE)
         final_end_frame = min(len(hand_positions) - 1, end_frame)
         return int(start_frame), int(peak_frame), int(final_end_frame)
@@ -193,33 +294,94 @@ class VideoAnalyzer:
         hand_positions: list[Coordinate],
         elbow_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
-        start_frame, peak_frame, end_frame = cls.find_acc_analysis_window(
-            hand_positions
-        )
-        acceleration_end_frame = end_frame
-        sub_range_positions = hand_positions[int(start_frame) : int(end_frame)]
-        arr = np.asarray(sub_range_positions, dtype=np.float64)
-        if arr.size > 0:
-            y_values = arr[:, 1]
-            lowest_hand_relative_index = int(np.argmax(y_values))
-            peak_frame = start_frame + lowest_hand_relative_index
+        phases = cls.__find_lift_analysis_phases(hand_positions, elbow_positions)
+        return phases[0], phases[2], phases[4]
 
-        follow_through = np.asarray(
-            hand_positions[int(peak_frame) : int(end_frame) + 1],
-            dtype=np.float64,
+    @classmethod
+    def __find_lift_analysis_phases(
+        cls,
+        hand_positions: list[Coordinate],
+        elbow_positions: list[Coordinate] | None = None,
+    ) -> tuple[int, int, int, int, int]:
+        positions = cls.moving_average(
+            hand_positions, window_size=SMOOTHING_WINDOW_SIZE
         )
-        if follow_through.size > 0:
-            # Lift finishes when the racket hand reaches its highest point
-            # after the low backswing, not when the elbow metric used by serve
-            # happens to peak.
-            highest_hand_relative_index = int(np.argmin(follow_through[:, 1]))
-            end_frame = int(peak_frame) + highest_hand_relative_index
+        last_frame = len(positions) - 1
+        if last_frame < 8:
+            raise ValueError("lift clip is too short for phase parsing")
+        speeds = np.linalg.norm(np.diff(positions, axis=0), axis=1)
+        forward = min(last_frame - 1, int(np.argmax(speeds)) + 1)
 
-        start_frame = max(0, peak_frame - ANALYSIS_WINDOW_PADDING_BEFORE)
-        if end_frame - peak_frame < 2:
-            end_frame = max(acceleration_end_frame, peak_frame + 2)
-        end_frame = max(int(peak_frame), min(len(hand_positions) - 1, int(end_frame)))
-        return int(start_frame), int(peak_frame), int(end_frame)
+        backswing_search_start = max(1, forward - 25)
+        backswing_search_end = max(
+            backswing_search_start + 1,
+            forward - 5,
+        )
+        forward_velocity = positions[forward] - positions[forward - 1]
+        forward_speed = float(np.linalg.norm(forward_velocity))
+        if forward_speed > 1e-6:
+            forward_axis = forward_velocity / forward_speed
+            forward_projection = positions @ forward_axis
+            backswing = backswing_search_start + int(
+                np.argmin(
+                    forward_projection[
+                        backswing_search_start:backswing_search_end
+                    ]
+                )
+            )
+        else:
+            backswing = backswing_search_start + int(
+                np.argmin(speeds[backswing_search_start:backswing_search_end])
+            )
+        backswing = min(forward - 2, backswing)
+        start = max(0, backswing - 15)
+
+        peak_speed = float(speeds[max(0, forward - 1)])
+        settle_threshold = 0.18 * peak_speed
+        settle_frames = 5
+        completion = last_frame
+        settle_search_start = min(last_frame, forward + 7)
+        for candidate in range(
+            settle_search_start,
+            max(settle_search_start, last_frame - settle_frames + 1),
+        ):
+            if np.all(
+                speeds[candidate : candidate + settle_frames]
+                <= settle_threshold
+            ):
+                completion = min(last_frame, candidate + settle_frames)
+                break
+
+        forward = max(backswing + 1, forward)
+        completion = max(forward + 1, completion)
+        completion = min(last_frame, completion)
+        if completion <= forward:
+            completion = last_frame
+        transition = (start + backswing) // 2
+        if transition <= start:
+            transition = start + 1
+        if transition >= backswing:
+            transition = backswing - 1
+        if not start < transition < backswing < forward < completion:
+            raise ValueError("lift clip does not contain five ordered motion phases")
+        return start, transition, backswing, forward, completion
+
+    @classmethod
+    def find_analysis_phases(
+        cls,
+        *,
+        skill: Skill,
+        hand_positions: list[Coordinate] | None,
+        elbow_positions: list[Coordinate] | None,
+    ) -> tuple[int, int, int, int, int]:
+        if skill == Skill.LIFT and hand_positions:
+            return cls.__find_lift_analysis_phases(hand_positions, elbow_positions)
+        start, peak, end = cls.find_analysis_window(
+            skill=skill,
+            hand_positions=hand_positions,
+            elbow_positions=elbow_positions,
+        )
+        return start, (start + peak) // 2, peak, (peak + end) // 2, end
 
     @classmethod
     def find_footwork_patterns(

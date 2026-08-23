@@ -1,0 +1,2711 @@
+{
+  "full/serve": {
+    "method": "expert_only_error_isolated_motion_diffusion_v3",
+    "variant": "full",
+    "skill": "serve",
+    "student_data_used": false,
+    "training_policy": "expert_archives_only_with_synthetic_expert_corruption",
+    "training_manifest_sha256": "b70f4c82077a5f34d70cf01fd3a69aa6aab2139bd9950b5deecd778c3fa2720d",
+    "generator_expert_files": [
+      "expert-1-1.npz",
+      "expert-1-2.npz",
+      "expert-3-1.npz",
+      "expert-3-2.npz",
+      "expert-5-1_left.npz",
+      "expert-5-2_left.npz",
+      "expert-6-1.npz",
+      "expert-6-2.npz",
+      "expert-7-1.npz",
+      "expert-7-2.npz"
+    ],
+    "generator_expert_subjects": [
+      "expert-1",
+      "expert-3",
+      "expert-5",
+      "expert-6",
+      "expert-7"
+    ],
+    "evaluator_expert_files": [
+      "expert-2-1.npz",
+      "expert-2-2.npz",
+      "expert-4-1_left.npz",
+      "expert-4-2_left.npz"
+    ],
+    "evaluator_expert_subjects": [
+      "expert-2",
+      "expert-4"
+    ],
+    "expert_subject_sets_disjoint": true,
+    "loss_weights": {
+      "denoising": 1.0,
+      "reconstruction": 0.1,
+      "invariance": 0.2,
+      "reliability": 0.15,
+      "condition_fidelity": 0.1,
+      "velocity": 0.05,
+      "acceleration": 0.05,
+      "direction_unit": 0.02,
+      "contacts": 0.05
+    },
+    "corruption_curriculum": {
+      "start_probability": 0.12,
+      "end_probability": 0.45,
+      "warmup_fraction": 0.7,
+      "minimum_rotation_radians": 0.6,
+      "maximum_rotation_radians": 2.6,
+      "clean_direction_noise": 0.015
+    },
+    "use_reliability_gate": true,
+    "network_config": {
+      "state_dim": 38,
+      "morphology_dim": 17,
+      "joints": 17,
+      "condition_phases": 4,
+      "frames": 64,
+      "model_dim": 96,
+      "heads": 4,
+      "layers": 4,
+      "diagnostic_layers": 2,
+      "fusion_layers": 2,
+      "dropout": 0.05,
+      "use_reliability_gate": true
+    },
+    "canonical_phase_indices": [
+      0,
+      21,
+      46,
+      54,
+      63
+    ],
+    "expert_canonical_wrist_velocity_limit": 0.6677082180976868,
+    "expert_canonical_joint_velocity_limit": 0.8964048027992249,
+    "expert_phase_duration_min": [
+      16,
+      22,
+      4,
+      5
+    ],
+    "expert_phase_duration_max": [
+      22,
+      32,
+      12,
+      13
+    ],
+    "expert_wrist_velocity_limit": 0.8502273201942444,
+    "training_history": [
+      {
+        "step": 0.0,
+        "loss": 1.4323570728302002,
+        "denoising": 1.3084135055541992,
+        "reconstruction": 0.12277603149414062,
+        "invariance": 0.0012323171831667423,
+        "reliability": 0.6996561884880066,
+        "condition_fidelity": 0.005388002377003431,
+        "velocity": 0.023501459509134293,
+        "acceleration": 0.06432081758975983,
+        "corruption_probability": 0.12
+      },
+      {
+        "step": 36.0,
+        "loss": 1.0467915534973145,
+        "denoising": 0.9878919124603271,
+        "reconstruction": 0.07896234095096588,
+        "invariance": 0.000436090980656445,
+        "reliability": 0.3077341318130493,
+        "condition_fidelity": 0.003506728447973728,
+        "velocity": 0.018443703651428223,
+        "acceleration": 0.05127829685807228,
+        "corruption_probability": 0.12942857142857142
+      },
+      {
+        "step": 72.0,
+        "loss": 1.000320553779602,
+        "denoising": 0.9436553716659546,
+        "reconstruction": 0.08884528279304504,
+        "invariance": 0.0008795832400210202,
+        "reliability": 0.2833479344844818,
+        "condition_fidelity": 0.0020593220833688974,
+        "velocity": 0.020618179813027382,
+        "acceleration": 0.05687006935477257,
+        "corruption_probability": 0.13885714285714285
+      },
+      {
+        "step": 108.0,
+        "loss": 0.8345018625259399,
+        "denoising": 0.7940672636032104,
+        "reconstruction": 0.05252079665660858,
+        "invariance": 0.0023423228412866592,
+        "reliability": 0.2102879285812378,
+        "condition_fidelity": 0.001948390738107264,
+        "velocity": 0.012042434886097908,
+        "acceleration": 0.034210916608572006,
+        "corruption_probability": 0.1482857142857143
+      },
+      {
+        "step": 144.0,
+        "loss": 0.7426522374153137,
+        "denoising": 0.701556921005249,
+        "reconstruction": 0.03852912783622742,
+        "invariance": 0.0027374362107366323,
+        "reliability": 0.22811168432235718,
+        "condition_fidelity": 0.0015728012658655643,
+        "velocity": 0.009104548953473568,
+        "acceleration": 0.02600472792983055,
+        "corruption_probability": 0.1577142857142857
+      },
+      {
+        "step": 180.0,
+        "loss": 0.5282156467437744,
+        "denoising": 0.4878377914428711,
+        "reconstruction": 0.05426982417702675,
+        "invariance": 0.005271637812256813,
+        "reliability": 0.20187924802303314,
+        "condition_fidelity": 0.0012735351920127869,
+        "velocity": 0.013961357064545155,
+        "acceleration": 0.039618246257305145,
+        "corruption_probability": 0.16714285714285715
+      },
+      {
+        "step": 216.0,
+        "loss": 0.5215041637420654,
+        "denoising": 0.48599469661712646,
+        "reconstruction": 0.02688189223408699,
+        "invariance": 0.0035499990917742252,
+        "reliability": 0.20171435177326202,
+        "condition_fidelity": 0.0008501149713993073,
+        "velocity": 0.006799334194511175,
+        "acceleration": 0.01981526054441929,
+        "corruption_probability": 0.17657142857142857
+      },
+      {
+        "step": 252.0,
+        "loss": 0.4645688831806183,
+        "denoising": 0.42709848284721375,
+        "reconstruction": 0.033403147011995316,
+        "invariance": 0.0045043290592730045,
+        "reliability": 0.20473328232765198,
+        "condition_fidelity": 0.0031407522037625313,
+        "velocity": 0.008592857979238033,
+        "acceleration": 0.02467326819896698,
+        "corruption_probability": 0.186
+      },
+      {
+        "step": 288.0,
+        "loss": 0.5191328525543213,
+        "denoising": 0.48194363713264465,
+        "reconstruction": 0.025267457589507103,
+        "invariance": 0.0041272626258432865,
+        "reliability": 0.21329480409622192,
+        "condition_fidelity": 0.0017739605391398072,
+        "velocity": 0.006531463470309973,
+        "acceleration": 0.01878644898533821,
+        "corruption_probability": 0.19542857142857142
+      },
+      {
+        "step": 324.0,
+        "loss": 0.4487590491771698,
+        "denoising": 0.41183072328567505,
+        "reconstruction": 0.024453481659293175,
+        "invariance": 0.004316404927521944,
+        "reliability": 0.21205852925777435,
+        "condition_fidelity": 0.0018728470895439386,
+        "velocity": 0.006259786430746317,
+        "acceleration": 0.018218601122498512,
+        "corruption_probability": 0.20485714285714285
+      },
+      {
+        "step": 360.0,
+        "loss": 0.3918248414993286,
+        "denoising": 0.3548325300216675,
+        "reconstruction": 0.02770431898534298,
+        "invariance": 0.005224737338721752,
+        "reliability": 0.20751133561134338,
+        "condition_fidelity": 0.002088395645841956,
+        "velocity": 0.007016368210315704,
+        "acceleration": 0.020332133397459984,
+        "corruption_probability": 0.21428571428571427
+      },
+      {
+        "step": 396.0,
+        "loss": 0.4314154386520386,
+        "denoising": 0.3970887064933777,
+        "reconstruction": 0.020912611857056618,
+        "invariance": 0.004258645698428154,
+        "reliability": 0.1987515389919281,
+        "condition_fidelity": 0.0020658059511333704,
+        "velocity": 0.005175385158509016,
+        "acceleration": 0.015191277489066124,
+        "corruption_probability": 0.2237142857142857
+      },
+      {
+        "step": 432.0,
+        "loss": 0.4143539071083069,
+        "denoising": 0.37867361307144165,
+        "reconstruction": 0.02020258642733097,
+        "invariance": 0.0044643632136285305,
+        "reliability": 0.20844118297100067,
+        "condition_fidelity": 0.002537282183766365,
+        "velocity": 0.004777070134878159,
+        "acceleration": 0.013746596872806549,
+        "corruption_probability": 0.23314285714285715
+      },
+      {
+        "step": 468.0,
+        "loss": 0.31904104351997375,
+        "denoising": 0.2897142767906189,
+        "reconstruction": 0.026193317025899887,
+        "invariance": 0.00559556670486927,
+        "reliability": 0.15808703005313873,
+        "condition_fidelity": 0.0020694853737950325,
+        "velocity": 0.006289717275649309,
+        "acceleration": 0.01817350834608078,
+        "corruption_probability": 0.24257142857142858
+      },
+      {
+        "step": 504.0,
+        "loss": 0.30724987387657166,
+        "denoising": 0.27701669931411743,
+        "reconstruction": 0.020405756309628487,
+        "invariance": 0.004939827136695385,
+        "reliability": 0.17209021747112274,
+        "condition_fidelity": 0.0012043570168316364,
+        "velocity": 0.004806638695299625,
+        "acceleration": 0.014037116430699825,
+        "corruption_probability": 0.252
+      },
+      {
+        "step": 540.0,
+        "loss": 0.3366687595844269,
+        "denoising": 0.30897390842437744,
+        "reconstruction": 0.022532617673277855,
+        "invariance": 0.005364210810512304,
+        "reliability": 0.15132653713226318,
+        "condition_fidelity": 0.002934697549790144,
+        "velocity": 0.005281824618577957,
+        "acceleration": 0.015399867668747902,
+        "corruption_probability": 0.26142857142857145
+      },
+      {
+        "step": 576.0,
+        "loss": 0.30524101853370667,
+        "denoising": 0.27937793731689453,
+        "reconstruction": 0.016957219690084457,
+        "invariance": 0.004430920351296663,
+        "reliability": 0.14737209677696228,
+        "condition_fidelity": 0.001353526720777154,
+        "velocity": 0.0039002110715955496,
+        "acceleration": 0.011445176787674427,
+        "corruption_probability": 0.27085714285714285
+      },
+      {
+        "step": 612.0,
+        "loss": 0.31316331028938293,
+        "denoising": 0.2854804992675781,
+        "reconstruction": 0.018998585641384125,
+        "invariance": 0.005064922384917736,
+        "reliability": 0.15633012354373932,
+        "condition_fidelity": 0.0014003284741193056,
+        "velocity": 0.004411375615745783,
+        "acceleration": 0.012914827093482018,
+        "corruption_probability": 0.28028571428571425
+      },
+      {
+        "step": 648.0,
+        "loss": 0.32493749260902405,
+        "denoising": 0.3034219741821289,
+        "reconstruction": 0.013666980899870396,
+        "invariance": 0.003865206381306052,
+        "reliability": 0.12201891839504242,
+        "condition_fidelity": 0.002557175699621439,
+        "velocity": 0.0030581888277083635,
+        "acceleration": 0.008911698125302792,
+        "corruption_probability": 0.2897142857142857
+      },
+      {
+        "step": 684.0,
+        "loss": 0.30480247735977173,
+        "denoising": 0.2813071608543396,
+        "reconstruction": 0.017618967220187187,
+        "invariance": 0.0046609025448560715,
+        "reliability": 0.13048817217350006,
+        "condition_fidelity": 0.0018206341192126274,
+        "velocity": 0.003952068276703358,
+        "acceleration": 0.011339076794683933,
+        "corruption_probability": 0.29914285714285715
+      },
+      {
+        "step": 720.0,
+        "loss": 0.42251843214035034,
+        "denoising": 0.4017106592655182,
+        "reconstruction": 0.009173309430480003,
+        "invariance": 0.0028530401177704334,
+        "reliability": 0.12370894849300385,
+        "condition_fidelity": 0.0017905730055645108,
+        "velocity": 0.0021827793680131435,
+        "acceleration": 0.006488685496151447,
+        "corruption_probability": 0.30857142857142855
+      },
+      {
+        "step": 756.0,
+        "loss": 0.28350499272346497,
+        "denoising": 0.26213011145591736,
+        "reconstruction": 0.01804732158780098,
+        "invariance": 0.005097076762467623,
+        "reliability": 0.11497960239648819,
+        "condition_fidelity": 0.0023033171892166138,
+        "velocity": 0.003982341382652521,
+        "acceleration": 0.011592930182814598,
+        "corruption_probability": 0.318
+      },
+      {
+        "step": 792.0,
+        "loss": 0.25967276096343994,
+        "denoising": 0.23807606101036072,
+        "reconstruction": 0.016396407037973404,
+        "invariance": 0.0048091234639286995,
+        "reliability": 0.11847814917564392,
+        "condition_fidelity": 0.0022153561003506184,
+        "velocity": 0.0036654879804700613,
+        "acceleration": 0.01070255134254694,
+        "corruption_probability": 0.3274285714285714
+      },
+      {
+        "step": 828.0,
+        "loss": 0.2513088285923004,
+        "denoising": 0.23242968320846558,
+        "reconstruction": 0.015989035367965698,
+        "invariance": 0.004876529332250357,
+        "reliability": 0.10115685313940048,
+        "condition_fidelity": 0.002354250755161047,
+        "velocity": 0.0033667373936623335,
+        "acceleration": 0.009748133830726147,
+        "corruption_probability": 0.33685714285714285
+      },
+      {
+        "step": 864.0,
+        "loss": 0.2205832153558731,
+        "denoising": 0.20129847526550293,
+        "reconstruction": 0.013575408607721329,
+        "invariance": 0.004477520473301411,
+        "reliability": 0.10683020204305649,
+        "condition_fidelity": 0.001990575809031725,
+        "velocity": 0.0030825200956314802,
+        "acceleration": 0.00888756662607193,
+        "corruption_probability": 0.3462857142857143
+      },
+      {
+        "step": 900.0,
+        "loss": 0.2591814398765564,
+        "denoising": 0.23910540342330933,
+        "reconstruction": 0.012172698974609375,
+        "invariance": 0.003971868194639683,
+        "reliability": 0.1140771135687828,
+        "condition_fidelity": 0.002405121922492981,
+        "velocity": 0.002751442138105631,
+        "acceleration": 0.008025667630136013,
+        "corruption_probability": 0.35571428571428576
+      },
+      {
+        "step": 936.0,
+        "loss": 0.3422219753265381,
+        "denoising": 0.3254436254501343,
+        "reconstruction": 0.009620634838938713,
+        "invariance": 0.0032707599457353354,
+        "reliability": 0.09663067013025284,
+        "condition_fidelity": 0.001079137553460896,
+        "velocity": 0.0021371860057115555,
+        "acceleration": 0.006161604076623917,
+        "corruption_probability": 0.36514285714285716
+      },
+      {
+        "step": 972.0,
+        "loss": 0.2340344339609146,
+        "denoising": 0.21503785252571106,
+        "reconstruction": 0.012592727318406105,
+        "invariance": 0.004285105038434267,
+        "reliability": 0.10550092160701752,
+        "condition_fidelity": 0.003339131362736225,
+        "velocity": 0.0027162714395672083,
+        "acceleration": 0.007894685491919518,
+        "corruption_probability": 0.3745714285714286
+      },
+      {
+        "step": 1008.0,
+        "loss": 0.23399634659290314,
+        "denoising": 0.21487922966480255,
+        "reconstruction": 0.013322223909199238,
+        "invariance": 0.004495582543313503,
+        "reliability": 0.10598000884056091,
+        "condition_fidelity": 0.001803588354960084,
+        "velocity": 0.003090240992605686,
+        "acceleration": 0.00894993357360363,
+        "corruption_probability": 0.384
+      },
+      {
+        "step": 1044.0,
+        "loss": 0.26183921098709106,
+        "denoising": 0.24494165182113647,
+        "reconstruction": 0.010011362843215466,
+        "invariance": 0.003476119600236416,
+        "reliability": 0.09653300791978836,
+        "condition_fidelity": 0.0011532525531947613,
+        "velocity": 0.0022869561798870564,
+        "acceleration": 0.006629366427659988,
+        "corruption_probability": 0.39342857142857146
+      },
+      {
+        "step": 1080.0,
+        "loss": 0.21894913911819458,
+        "denoising": 0.19850972294807434,
+        "reconstruction": 0.013223613612353802,
+        "invariance": 0.004445179365575314,
+        "reliability": 0.11501844227313995,
+        "condition_fidelity": 0.0019929446280002594,
+        "velocity": 0.0029497805517166853,
+        "acceleration": 0.008531584404408932,
+        "corruption_probability": 0.40285714285714286
+      },
+      {
+        "step": 1116.0,
+        "loss": 0.2306690663099289,
+        "denoising": 0.2128935009241104,
+        "reconstruction": 0.011414655484259129,
+        "invariance": 0.004048945382237434,
+        "reliability": 0.09969118237495422,
+        "condition_fidelity": 0.00223322375677526,
+        "velocity": 0.0024632157292217016,
+        "acceleration": 0.007168407551944256,
+        "corruption_probability": 0.41228571428571426
+      },
+      {
+        "step": 1152.0,
+        "loss": 0.2492692619562149,
+        "denoising": 0.23278039693832397,
+        "reconstruction": 0.008755561895668507,
+        "invariance": 0.003172881668433547,
+        "reliability": 0.0952485203742981,
+        "condition_fidelity": 0.0016992653254419565,
+        "velocity": 0.001976239262148738,
+        "acceleration": 0.0057550095953047276,
+        "corruption_probability": 0.4217142857142857
+      },
+      {
+        "step": 1188.0,
+        "loss": 0.33467575907707214,
+        "denoising": 0.31768912076950073,
+        "reconstruction": 0.00895172543823719,
+        "invariance": 0.003007793566212058,
+        "reliability": 0.09847047179937363,
+        "condition_fidelity": 0.0017551640048623085,
+        "velocity": 0.0020737957675009966,
+        "acceleration": 0.005945663433521986,
+        "corruption_probability": 0.43114285714285716
+      },
+      {
+        "step": 1224.0,
+        "loss": 0.19819174706935883,
+        "denoising": 0.1803629994392395,
+        "reconstruction": 0.009582373313605785,
+        "invariance": 0.0035128500312566757,
+        "reliability": 0.10271280258893967,
+        "condition_fidelity": 0.001923857256770134,
+        "velocity": 0.002144905272871256,
+        "acceleration": 0.006234212312847376,
+        "corruption_probability": 0.44057142857142856
+      },
+      {
+        "step": 1260.0,
+        "loss": 0.27139708399772644,
+        "denoising": 0.254951149225235,
+        "reconstruction": 0.00699260551482439,
+        "invariance": 0.002832273719832301,
+        "reliability": 0.09733675420284271,
+        "condition_fidelity": 0.001702925655990839,
+        "velocity": 0.0015818949323147535,
+        "acceleration": 0.004594897851347923,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1296.0,
+        "loss": 0.25019821524620056,
+        "denoising": 0.23171952366828918,
+        "reconstruction": 0.008723120205104351,
+        "invariance": 0.0033616700675338507,
+        "reliability": 0.10850933194160461,
+        "condition_fidelity": 0.0015568870585411787,
+        "velocity": 0.0019121209625154734,
+        "acceleration": 0.005598586983978748,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1332.0,
+        "loss": 0.21151256561279297,
+        "denoising": 0.1931161880493164,
+        "reconstruction": 0.011115130968391895,
+        "invariance": 0.004115012474358082,
+        "reliability": 0.1043519452214241,
+        "condition_fidelity": 0.0017950439359992743,
+        "velocity": 0.0023983337450772524,
+        "acceleration": 0.0070405155420303345,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1368.0,
+        "loss": 0.25243258476257324,
+        "denoising": 0.23612302541732788,
+        "reconstruction": 0.011126261204481125,
+        "invariance": 0.004133913666009903,
+        "reliability": 0.09026983380317688,
+        "condition_fidelity": 0.0020470074377954006,
+        "velocity": 0.00239474605768919,
+        "acceleration": 0.00691808108240366,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1404.0,
+        "loss": 0.2671245038509369,
+        "denoising": 0.2500038743019104,
+        "reconstruction": 0.010366366244852543,
+        "invariance": 0.0036519686691462994,
+        "reliability": 0.09712695330381393,
+        "condition_fidelity": 0.0020065046846866608,
+        "velocity": 0.002185757737606764,
+        "acceleration": 0.006321160588413477,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1440.0,
+        "loss": 0.15484610199928284,
+        "denoising": 0.1373414695262909,
+        "reconstruction": 0.012695216573774815,
+        "invariance": 0.004680057521909475,
+        "reliability": 0.0960150733590126,
+        "condition_fidelity": 0.0017722523771226406,
+        "velocity": 0.002709364052861929,
+        "acceleration": 0.007876083254814148,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1476.0,
+        "loss": 0.153191477060318,
+        "denoising": 0.1372055858373642,
+        "reconstruction": 0.011120921932160854,
+        "invariance": 0.004276971332728863,
+        "reliability": 0.0882047638297081,
+        "condition_fidelity": 0.0018241186626255512,
+        "velocity": 0.002293163677677512,
+        "acceleration": 0.00666679535061121,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1512.0,
+        "loss": 0.24075709283351898,
+        "denoising": 0.22627538442611694,
+        "reconstruction": 0.0064289444126188755,
+        "invariance": 0.002696751616895199,
+        "reliability": 0.08511015772819519,
+        "condition_fidelity": 0.0018279149662703276,
+        "velocity": 0.0013245553709566593,
+        "acceleration": 0.0038480148650705814,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1548.0,
+        "loss": 0.2167804092168808,
+        "denoising": 0.20131899416446686,
+        "reconstruction": 0.008935519494116306,
+        "invariance": 0.003439706051722169,
+        "reliability": 0.08755741268396378,
+        "condition_fidelity": 0.0021847079042345285,
+        "velocity": 0.0020269937813282013,
+        "acceleration": 0.005860422272235155,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1584.0,
+        "loss": 0.14555241167545319,
+        "denoising": 0.12989558279514313,
+        "reconstruction": 0.009149647317826748,
+        "invariance": 0.0037876598071306944,
+        "reliability": 0.08803008496761322,
+        "condition_fidelity": 0.002553311875090003,
+        "velocity": 0.0020276184659451246,
+        "acceleration": 0.0058938078582286835,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1620.0,
+        "loss": 0.20422644913196564,
+        "denoising": 0.18695206940174103,
+        "reconstruction": 0.009717396460473537,
+        "invariance": 0.0038757827132940292,
+        "reliability": 0.09858163446187973,
+        "condition_fidelity": 0.0019496676977723837,
+        "velocity": 0.0020967982709407806,
+        "acceleration": 0.006075012031942606,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1656.0,
+        "loss": 0.25044986605644226,
+        "denoising": 0.23735922574996948,
+        "reconstruction": 0.008569431491196156,
+        "invariance": 0.0035628159530460835,
+        "reliability": 0.07249855995178223,
+        "condition_fidelity": 0.0012683107051998377,
+        "velocity": 0.001998314168304205,
+        "acceleration": 0.005788316950201988,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1692.0,
+        "loss": 0.14599373936653137,
+        "denoising": 0.1308031678199768,
+        "reconstruction": 0.008938517421483994,
+        "invariance": 0.0036930174101144075,
+        "reliability": 0.08568207174539566,
+        "condition_fidelity": 0.001897187321446836,
+        "velocity": 0.0019863846246153116,
+        "acceleration": 0.0056532081216573715,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1728.0,
+        "loss": 0.17578016221523285,
+        "denoising": 0.16159585118293762,
+        "reconstruction": 0.009974382817745209,
+        "invariance": 0.0039047650061547756,
+        "reliability": 0.07769163697957993,
+        "condition_fidelity": 0.0015459998976439238,
+        "velocity": 0.0022736932151019573,
+        "acceleration": 0.006505305413156748,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1764.0,
+        "loss": 0.2383778840303421,
+        "denoising": 0.22343814373016357,
+        "reconstruction": 0.005700490903109312,
+        "invariance": 0.0024913595989346504,
+        "reliability": 0.08934833109378815,
+        "condition_fidelity": 0.0013998367357999086,
+        "velocity": 0.0012680288637056947,
+        "acceleration": 0.003709520911797881,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1799.0,
+        "loss": 0.18853385746479034,
+        "denoising": 0.17422129213809967,
+        "reconstruction": 0.008707963861525059,
+        "invariance": 0.003691669087857008,
+        "reliability": 0.07994663715362549,
+        "condition_fidelity": 0.0022312612272799015,
+        "velocity": 0.0018700751243159175,
+        "acceleration": 0.0054400269873440266,
+        "corruption_probability": 0.45
+      }
+    ],
+    "display_score_calibration": {
+      "method": "expert_only_stance_conditioned_phase_manifold_baseline_v1",
+      "skill": "serve",
+      "expert_samples": 10,
+      "expert_subjects": 5,
+      "identity_levels": [
+        "subject"
+      ],
+      "alignment_contracts": [
+        "max_acceleration_shoulder_angle_v1"
+      ],
+      "handedness_counts": {
+        "right": 8,
+        "left": 2
+      },
+      "top_k": 1,
+      "phase_indices": [
+        0,
+        16,
+        32,
+        48,
+        63
+      ],
+      "criterion_tolerances": {
+        "arms_raised": {
+          "combined_distance_p90": 0.5215409398078918,
+          "robust_scale": 0.08407128602266312
+        },
+        "racket_foot_weight": {
+          "combined_distance_p90": 0.2263958603143692,
+          "robust_scale": 0.040915630757808685
+        },
+        "weight_transfer": {
+          "combined_distance_p90": 0.33725985884666443,
+          "robust_scale": 0.06659186631441116
+        },
+        "hip_rotation": {
+          "combined_distance_p90": 0.15548761188983917,
+          "robust_scale": 0.024246200919151306
+        },
+        "wrist_flick": {
+          "combined_distance_p90": 1.026340365409851,
+          "robust_scale": 0.16711266338825226
+        },
+        "shoulder_rotation": {
+          "combined_distance_p90": 0.5438953638076782,
+          "robust_scale": 0.054389532655477524
+        }
+      },
+      "held_out_expert_folds": [
+        {
+          "file": "expert-1-1.npz",
+          "subject_id": "expert-1",
+          "identity_level": "subject",
+          "references": [
+            "expert-6-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.3053986910550296,
+              "target_angle_distance": 0.10584216896568324,
+              "combined_distance": 0.3583197755378712
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.23667660638037,
+              "target_angle_distance": 0.020108408405284207,
+              "combined_distance": 0.2467308105830121
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.4111404297794508,
+              "target_angle_distance": 0.03342413563072621,
+              "combined_distance": 0.4278524975948139
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.1292761135357258,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.1292761135357258
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.45757654028883354,
+              "target_angle_distance": 0.21019893676707482,
+              "combined_distance": 0.562676008672371
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.27281997690872073,
+              "target_angle_distance": 0.12386768127717193,
+              "combined_distance": 0.3347538175473067,
+              "window_euclidean_distance": 0.30166853078768097,
+              "window_target_angle_distance": 0.1345128201156299,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-1-2.npz",
+          "subject_id": "expert-1",
+          "identity_level": "subject",
+          "references": [
+            "expert-7-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.2430083968322375,
+              "target_angle_distance": 0.1439016517786418,
+              "combined_distance": 0.3149592227215584
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.20846731665785675,
+              "target_angle_distance": 0.03133822403472663,
+              "combined_distance": 0.22413642867522007
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.23633979895206947,
+              "target_angle_distance": 0.05948461738969762,
+              "combined_distance": 0.26608210764691825
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.11150701172079322,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.11150701172079322
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.4226145370267207,
+              "target_angle_distance": 0.8067108133885478,
+              "combined_distance": 0.8259699437209946
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.34469824653986386,
+              "target_angle_distance": 0.3519465893781249,
+              "combined_distance": 0.5206715412289263,
+              "window_euclidean_distance": 0.32934763275231826,
+              "window_target_angle_distance": 0.44636856418784465,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-3-1.npz",
+          "subject_id": "expert-3",
+          "identity_level": "subject",
+          "references": [
+            "expert-6-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.43905903403866287,
+              "target_angle_distance": 0.12362517613849226,
+              "combined_distance": 0.500871622107909
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.07966357893831585,
+              "target_angle_distance": 0.036097184074191754,
+              "combined_distance": 0.09771217097541174
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.23886246913556136,
+              "target_angle_distance": 0.03907098164311899,
+              "combined_distance": 0.25839795995712084
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.13153553515289793,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.13153553515289793
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.40910645445965943,
+              "target_angle_distance": 0.17396244896402382,
+              "combined_distance": 0.49608767894167133
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.3673395637234789,
+              "target_angle_distance": 0.3031340012258785,
+              "combined_distance": 0.5189065643364181,
+              "window_euclidean_distance": 0.36625062995052465,
+              "window_target_angle_distance": 0.2404762112005441,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-3-2.npz",
+          "subject_id": "expert-3",
+          "identity_level": "subject",
+          "references": [
+            "expert-6-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.4394974791905648,
+              "target_angle_distance": 0.1493511627771625,
+              "combined_distance": 0.514173060579146
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.08121513392233232,
+              "target_angle_distance": 0.03476960383853721,
+              "combined_distance": 0.09859993584160093
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.17215635300727605,
+              "target_angle_distance": 0.040254306116047286,
+              "combined_distance": 0.1922835060652997
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.15256020720638738,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.15256020720638738
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.53523680210428,
+              "target_angle_distance": 0.11473311396108658,
+              "combined_distance": 0.5926033590848233
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.39178438270052507,
+              "target_angle_distance": 0.29868157696294156,
+              "combined_distance": 0.5411251711819959,
+              "window_euclidean_distance": 0.41031496022372227,
+              "window_target_angle_distance": 0.22225986531145,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-5-1_left.npz",
+          "subject_id": "expert-5",
+          "identity_level": "subject",
+          "references": [
+            "expert-3-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.2556152850868352,
+              "target_angle_distance": 0.11062225758453058,
+              "combined_distance": 0.31092641387910047
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.15260016789712447,
+              "target_angle_distance": 0.021621872718576365,
+              "combined_distance": 0.16341110425641264
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.29259906441409994,
+              "target_angle_distance": 0.058588193654294816,
+              "combined_distance": 0.32189316124124734
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.1024402766605347,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.1024402766605347
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.7810668015829165,
+              "target_angle_distance": 0.48557886306786985,
+              "combined_distance": 1.0238562331168515
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.32921324646799943,
+              "target_angle_distance": 0.3991229850449091,
+              "combined_distance": 0.528774738990454,
+              "window_euclidean_distance": 0.33823538461330804,
+              "window_target_angle_distance": 0.4113951212039771,
+              "cross_body_deficiency": 0.14788436889648438
+            }
+          }
+        },
+        {
+          "file": "expert-5-2_left.npz",
+          "subject_id": "expert-5",
+          "identity_level": "subject",
+          "references": [
+            "expert-1-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.33442187299591675,
+              "target_angle_distance": 0.09246974912352572,
+              "combined_distance": 0.3806567475576796
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.12474142679412531,
+              "target_angle_distance": 0.028701649775412317,
+              "combined_distance": 0.13909225168183148
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.2900843609087407,
+              "target_angle_distance": 0.07261351738474998,
+              "combined_distance": 0.32639111960111566
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.18183419082720537,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.18183419082720537
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.34202085326418835,
+              "target_angle_distance": 0.24177130866886112,
+              "combined_distance": 0.4629065075986189
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.4118443992536282,
+              "target_angle_distance": 0.038137841745499744,
+              "combined_distance": 0.43091332012637806,
+              "window_euclidean_distance": 0.3446164533784346,
+              "window_target_angle_distance": 0.08792194722950221,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-6-1.npz",
+          "subject_id": "expert-6",
+          "identity_level": "subject",
+          "references": [
+            "expert-3-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.4093395254647954,
+              "target_angle_distance": 0.14092779002822872,
+              "combined_distance": 0.4798034204789098
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.08336753726775417,
+              "target_angle_distance": 0.03476960277960749,
+              "combined_distance": 0.10075233865755792
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.184609166030817,
+              "target_angle_distance": 0.04025430350497834,
+              "combined_distance": 0.20473631778330617
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.15097656944234222,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.15097656944234222
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.5344561623481546,
+              "target_angle_distance": 0.11473312377182812,
+              "combined_distance": 0.5918227242340687
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.3729890921461963,
+              "target_angle_distance": 0.3008197107975454,
+              "combined_distance": 0.523398947544969,
+              "window_euclidean_distance": 0.4039735892225109,
+              "window_target_angle_distance": 0.2221844619411512,
+              "cross_body_deficiency": 0.366589218378067
+            }
+          }
+        },
+        {
+          "file": "expert-6-2.npz",
+          "subject_id": "expert-6",
+          "identity_level": "subject",
+          "references": [
+            "expert-3-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.47074639256181783,
+              "target_angle_distance": 0.12041842832684851,
+              "combined_distance": 0.5309556067252421
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.09427650695306215,
+              "target_angle_distance": 0.033798894673175005,
+              "combined_distance": 0.11117595428964966
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.1920866686107322,
+              "target_angle_distance": 0.03732993586039103,
+              "combined_distance": 0.2107516365409277
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.13527012821361298,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.13527012821361298
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.3529780375681026,
+              "target_angle_distance": 0.212248197319216,
+              "combined_distance": 0.45910213622771057
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.3323647011359983,
+              "target_angle_distance": 0.3059185407557308,
+              "combined_distance": 0.4853239715138637,
+              "window_euclidean_distance": 0.3137561383387254,
+              "window_target_angle_distance": 0.2571648182812418,
+              "cross_body_deficiency": 0.30857551097869873
+            }
+          }
+        },
+        {
+          "file": "expert-7-1.npz",
+          "subject_id": "expert-7",
+          "identity_level": "subject",
+          "references": [
+            "expert-6-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.4424507291134077,
+              "target_angle_distance": 0.15608822256427257,
+              "combined_distance": 0.5204948403955441
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.06995990969287835,
+              "target_angle_distance": 0.027875825065966264,
+              "combined_distance": 0.08389782222586148
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.2798490393391558,
+              "target_angle_distance": 0.03564555767169421,
+              "combined_distance": 0.2976718181750029
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.12446384908860819,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.12446384908860819
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.5232533638062118,
+              "target_angle_distance": 0.22347033828872798,
+              "combined_distance": 0.6349885329505758
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.23645374346852732,
+              "target_angle_distance": 0.13689184302849652,
+              "combined_distance": 0.3048996649827756,
+              "window_euclidean_distance": 0.2529237750025031,
+              "window_target_angle_distance": 0.14180269759802983,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-7-2.npz",
+          "subject_id": "expert-7",
+          "identity_level": "subject",
+          "references": [
+            "expert-6-1.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.37932142801235136,
+              "target_angle_distance": 0.15782998206992227,
+              "combined_distance": 0.4582364190473125
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.05442543130777601,
+              "target_angle_distance": 0.028325702036748585,
+              "combined_distance": 0.0685882823261503
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.31062287935974947,
+              "target_angle_distance": 0.033142251940909404,
+              "combined_distance": 0.32719400533020415
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.14853677024864323,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.14853677024864323
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.7705955164540714,
+              "target_angle_distance": 0.5562042174340733,
+              "combined_distance": 1.048697625171108
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.46689528300533756,
+              "target_angle_distance": 0.20386304308538322,
+              "combined_distance": 0.5688268045480291,
+              "window_euclidean_distance": 0.4102629973207761,
+              "window_target_angle_distance": 0.23367428461839312,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        }
+      ]
+    },
+    "held_out_evaluator_calibration": {
+      "method": "expert_only_stance_conditioned_phase_manifold_baseline_v1",
+      "skill": "serve",
+      "expert_samples": 4,
+      "expert_subjects": 2,
+      "identity_levels": [
+        "subject"
+      ],
+      "alignment_contracts": [
+        "max_acceleration_shoulder_angle_v1"
+      ],
+      "handedness_counts": {
+        "right": 2,
+        "left": 2
+      },
+      "top_k": 1,
+      "phase_indices": [
+        0,
+        16,
+        32,
+        48,
+        63
+      ],
+      "criterion_tolerances": {
+        "arms_raised": {
+          "combined_distance_p90": 0.5097017884254456,
+          "robust_scale": 0.050970181822776794
+        },
+        "racket_foot_weight": {
+          "combined_distance_p90": 0.27115902304649353,
+          "robust_scale": 0.059664200991392136
+        },
+        "weight_transfer": {
+          "combined_distance_p90": 0.30185839533805847,
+          "robust_scale": 0.030185841023921967
+        },
+        "hip_rotation": {
+          "combined_distance_p90": 0.10879721492528915,
+          "robust_scale": 0.013041604310274124
+        },
+        "wrist_flick": {
+          "combined_distance_p90": 0.8100660443305969,
+          "robust_scale": 0.22585998475551605
+        },
+        "shoulder_rotation": {
+          "combined_distance_p90": 0.29746052622795105,
+          "robust_scale": 0.06784908473491669
+        }
+      },
+      "held_out_expert_folds": [
+        {
+          "file": "expert-2-1.npz",
+          "subject_id": "expert-2",
+          "identity_level": "subject",
+          "references": [
+            "expert-4-2_left.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.44816231580138977,
+              "target_angle_distance": 0.1460559506332362,
+              "combined_distance": 0.5211902911180079
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.11368324244348667,
+              "target_angle_distance": 0.01998601854872702,
+              "combined_distance": 0.12367625171785018
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.1909294136086426,
+              "target_angle_distance": 0.029410872167967433,
+              "combined_distance": 0.20563484969262633
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.11309940818205015,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.11309940818205015
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.3222137569708306,
+              "target_angle_distance": 0.25624494334248565,
+              "combined_distance": 0.45033622864207346
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.20232277150305022,
+              "target_angle_distance": 0.021968411662807122,
+              "combined_distance": 0.21330697733445378,
+              "window_euclidean_distance": 0.1504826458248379,
+              "window_target_angle_distance": 0.050375994978838365,
+              "cross_body_deficiency": 0.027500927448272705
+            }
+          }
+        },
+        {
+          "file": "expert-2-2.npz",
+          "subject_id": "expert-2",
+          "identity_level": "subject",
+          "references": [
+            "expert-4-2_left.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.3329465268952505,
+              "target_angle_distance": 0.15736387127406867,
+              "combined_distance": 0.41162846253228486
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.19924939473271508,
+              "target_angle_distance": 0.029012424907323902,
+              "combined_distance": 0.21375560718637704
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.2824472378054227,
+              "target_angle_distance": 0.025844140225291284,
+              "combined_distance": 0.2953693079180683
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.09503420837866614,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.09503420837866614
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.501849316526687,
+              "target_angle_distance": 0.506335705304067,
+              "combined_distance": 0.7550171691787204
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.20873951204383434,
+              "target_angle_distance": 0.14303192340534182,
+              "combined_distance": 0.2802554737465053,
+              "window_euclidean_distance": 0.24205326521418127,
+              "window_target_angle_distance": 0.2490198893441104,
+              "cross_body_deficiency": 0.25115901231765747
+            }
+          }
+        },
+        {
+          "file": "expert-4-1_left.npz",
+          "subject_id": "expert-4",
+          "identity_level": "subject",
+          "references": [
+            "expert-2-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.3598955690121197,
+              "target_angle_distance": 0.20095735982630566,
+              "combined_distance": 0.46037424892527257
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.28221643424091053,
+              "target_angle_distance": 0.02405015859960226,
+              "combined_distance": 0.29424151354071165
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.2932135183723721,
+              "target_angle_distance": 0.022851863021694053,
+              "combined_distance": 0.3046394498832191
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.08116588376514063,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.08116588376514063
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.31177696113024117,
+              "target_angle_distance": 0.33379591978905293,
+              "combined_distance": 0.4786749210247676
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.13926157725274815,
+              "target_angle_distance": 0.06632094245357203,
+              "combined_distance": 0.17242204847953418,
+              "window_euclidean_distance": 0.1965809566000817,
+              "window_target_angle_distance": 0.1577425933978471,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        },
+        {
+          "file": "expert-4-2_left.npz",
+          "subject_id": "expert-4",
+          "identity_level": "subject",
+          "references": [
+            "expert-2-2.npz"
+          ],
+          "criteria": {
+            "arms_raised": {
+              "euclidean_distance": 0.38951892058000875,
+              "target_angle_distance": 0.1867529197494566,
+              "combined_distance": 0.48289538045473707
+            },
+            "racket_foot_weight": {
+              "euclidean_distance": 0.20279368004984133,
+              "target_angle_distance": 0.029012426856470003,
+              "combined_distance": 0.21729989347807632
+            },
+            "weight_transfer": {
+              "euclidean_distance": 0.2790745174083272,
+              "target_angle_distance": 0.02584414051165499,
+              "combined_distance": 0.2919965876641547
+            },
+            "hip_rotation": {
+              "euclidean_distance": 0.09875876649255876,
+              "target_angle_distance": 0.0,
+              "combined_distance": 0.09875876649255876
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.5804905809431296,
+              "target_angle_distance": 0.5063357096899416,
+              "combined_distance": 0.8336584357881003
+            },
+            "shoulder_rotation": {
+              "euclidean_distance": 0.23111461980399284,
+              "target_angle_distance": 0.1474390406523275,
+              "combined_distance": 0.3048341401301566,
+              "window_euclidean_distance": 0.2716887439466451,
+              "window_target_angle_distance": 0.25402091753574246,
+              "cross_body_deficiency": 0.0
+            }
+          }
+        }
+      ]
+    }
+  },
+  "full/smash": {
+    "method": "expert_only_error_isolated_motion_diffusion_v3",
+    "variant": "full",
+    "skill": "smash",
+    "student_data_used": false,
+    "training_policy": "expert_archives_only_with_synthetic_expert_corruption",
+    "training_manifest_sha256": "284b7bcee32acba784ef06843f26170fa0c9953db96edd42b75c55ea32e9df21",
+    "generator_expert_files": [
+      "張宸愷6.npz",
+      "張宸愷7.npz",
+      "戚佑仁7.npz",
+      "戚佑仁8.npz",
+      "李翊安3.npz",
+      "林國欽9.npz",
+      "王鶴勳8.npz",
+      "陳奕仲4.npz"
+    ],
+    "generator_expert_subjects": [
+      "張宸愷6",
+      "張宸愷7",
+      "戚佑仁7",
+      "戚佑仁8",
+      "李翊安3",
+      "林國欽9",
+      "王鶴勳8",
+      "陳奕仲4"
+    ],
+    "evaluator_expert_files": [
+      "李翊安6.npz",
+      "林國欽8.npz",
+      "陳奕仲1.npz",
+      "陳奕仲8.npz"
+    ],
+    "evaluator_expert_subjects": [
+      "李翊安6",
+      "林國欽8",
+      "陳奕仲1",
+      "陳奕仲8"
+    ],
+    "expert_subject_sets_disjoint": true,
+    "loss_weights": {
+      "denoising": 1.0,
+      "reconstruction": 0.1,
+      "invariance": 0.2,
+      "reliability": 0.15,
+      "condition_fidelity": 0.1,
+      "velocity": 0.05,
+      "acceleration": 0.05,
+      "direction_unit": 0.02,
+      "contacts": 0.05
+    },
+    "corruption_curriculum": {
+      "start_probability": 0.12,
+      "end_probability": 0.45,
+      "warmup_fraction": 0.7,
+      "minimum_rotation_radians": 0.6,
+      "maximum_rotation_radians": 2.6,
+      "clean_direction_noise": 0.015
+    },
+    "use_reliability_gate": true,
+    "network_config": {
+      "state_dim": 38,
+      "morphology_dim": 17,
+      "joints": 17,
+      "condition_phases": 4,
+      "frames": 64,
+      "model_dim": 96,
+      "heads": 4,
+      "layers": 4,
+      "diagnostic_layers": 2,
+      "fusion_layers": 2,
+      "dropout": 0.05,
+      "use_reliability_gate": true
+    },
+    "canonical_phase_indices": [
+      0,
+      25,
+      50,
+      60,
+      63
+    ],
+    "expert_canonical_wrist_velocity_limit": 1.1802492141723633,
+    "expert_canonical_joint_velocity_limit": 1.1869696378707886,
+    "expert_phase_duration_min": [
+      22,
+      23,
+      7,
+      1
+    ],
+    "expert_phase_duration_max": [
+      25,
+      25,
+      12,
+      7
+    ],
+    "expert_wrist_velocity_limit": 1.700437867641449,
+    "training_history": [
+      {
+        "step": 0.0,
+        "loss": 1.4423619508743286,
+        "denoising": 1.3232849836349487,
+        "reconstruction": 0.12395225465297699,
+        "invariance": 0.0013317522825673223,
+        "reliability": 0.6694459319114685,
+        "condition_fidelity": 0.004410157911479473,
+        "velocity": 0.022212551906704903,
+        "acceleration": 0.06188401207327843,
+        "corruption_probability": 0.12
+      },
+      {
+        "step": 36.0,
+        "loss": 1.0481332540512085,
+        "denoising": 0.9884211421012878,
+        "reconstruction": 0.07907336950302124,
+        "invariance": 0.00045959639828652143,
+        "reliability": 0.3154450058937073,
+        "condition_fidelity": 0.002815661020576954,
+        "velocity": 0.017095506191253662,
+        "acceleration": 0.048168204724788666,
+        "corruption_probability": 0.12942857142857142
+      },
+      {
+        "step": 72.0,
+        "loss": 0.9737356901168823,
+        "denoising": 0.9279077053070068,
+        "reconstruction": 0.08670468628406525,
+        "invariance": 0.0011488019954413176,
+        "reliability": 0.2139946073293686,
+        "condition_fidelity": 0.003090080339461565,
+        "velocity": 0.01876150257885456,
+        "acceleration": 0.052733875811100006,
+        "corruption_probability": 0.13885714285714285
+      },
+      {
+        "step": 108.0,
+        "loss": 0.807587206363678,
+        "denoising": 0.7677987813949585,
+        "reconstruction": 0.04987088590860367,
+        "invariance": 0.0023184570018202066,
+        "reliability": 0.210071861743927,
+        "condition_fidelity": 0.002293939935043454,
+        "velocity": 0.01051599532365799,
+        "acceleration": 0.030212411656975746,
+        "corruption_probability": 0.1482857142857143
+      },
+      {
+        "step": 144.0,
+        "loss": 0.7338628172874451,
+        "denoising": 0.6932744979858398,
+        "reconstruction": 0.03817441686987877,
+        "invariance": 0.0026051329914480448,
+        "reliability": 0.22659865021705627,
+        "condition_fidelity": 0.002600559964776039,
+        "velocity": 0.007975012995302677,
+        "acceleration": 0.022991109639406204,
+        "corruption_probability": 0.1577142857142857
+      },
+      {
+        "step": 180.0,
+        "loss": 0.5339701771736145,
+        "denoising": 0.49423474073410034,
+        "reconstruction": 0.05455494672060013,
+        "invariance": 0.004640319850295782,
+        "reliability": 0.2001516968011856,
+        "condition_fidelity": 0.0029723453335464,
+        "velocity": 0.012143404223024845,
+        "acceleration": 0.03497646749019623,
+        "corruption_probability": 0.16714285714285715
+      },
+      {
+        "step": 216.0,
+        "loss": 0.5292528867721558,
+        "denoising": 0.4947185814380646,
+        "reconstruction": 0.027289319783449173,
+        "invariance": 0.003222167491912842,
+        "reliability": 0.1957993358373642,
+        "condition_fidelity": 0.002731814980506897,
+        "velocity": 0.005893524736166,
+        "acceleration": 0.01719554141163826,
+        "corruption_probability": 0.17657142857142857
+      },
+      {
+        "step": 252.0,
+        "loss": 0.4763059616088867,
+        "denoising": 0.4435088634490967,
+        "reconstruction": 0.03410404920578003,
+        "invariance": 0.004450559616088867,
+        "reliability": 0.17613904178142548,
+        "condition_fidelity": 0.0024136113934218884,
+        "velocity": 0.00719253346323967,
+        "acceleration": 0.020763399079442024,
+        "corruption_probability": 0.186
+      },
+      {
+        "step": 288.0,
+        "loss": 0.541834831237793,
+        "denoising": 0.5112379789352417,
+        "reconstruction": 0.027637062594294548,
+        "invariance": 0.0038286400958895683,
+        "reliability": 0.1685197502374649,
+        "condition_fidelity": 0.0028983186930418015,
+        "velocity": 0.005877263378351927,
+        "acceleration": 0.017141705378890038,
+        "corruption_probability": 0.19542857142857142
+      },
+      {
+        "step": 324.0,
+        "loss": 0.4699160158634186,
+        "denoising": 0.439073383808136,
+        "reconstruction": 0.026488037779927254,
+        "invariance": 0.004010224714875221,
+        "reliability": 0.17135655879974365,
+        "condition_fidelity": 0.002278069034218788,
+        "velocity": 0.005600691772997379,
+        "acceleration": 0.016400065273046494,
+        "corruption_probability": 0.20485714285714285
+      },
+      {
+        "step": 360.0,
+        "loss": 0.40598681569099426,
+        "denoising": 0.3771982789039612,
+        "reconstruction": 0.03060010075569153,
+        "invariance": 0.005076690576970577,
+        "reliability": 0.1520647257566452,
+        "condition_fidelity": 0.0025673522613942623,
+        "velocity": 0.006402694620192051,
+        "acceleration": 0.018564675003290176,
+        "corruption_probability": 0.21428571428571427
+      },
+      {
+        "step": 396.0,
+        "loss": 0.4482879042625427,
+        "denoising": 0.42238980531692505,
+        "reconstruction": 0.023040063679218292,
+        "invariance": 0.004318655468523502,
+        "reliability": 0.14138612151145935,
+        "condition_fidelity": 0.0026195799000561237,
+        "velocity": 0.004881333559751511,
+        "acceleration": 0.014404724352061749,
+        "corruption_probability": 0.2237142857142857
+      },
+      {
+        "step": 432.0,
+        "loss": 0.4311327636241913,
+        "denoising": 0.40630531311035156,
+        "reconstruction": 0.022529827430844307,
+        "invariance": 0.004497664049267769,
+        "reliability": 0.13496926426887512,
+        "condition_fidelity": 0.0029100910760462284,
+        "velocity": 0.004388689529150724,
+        "acceleration": 0.01264337170869112,
+        "corruption_probability": 0.23314285714285715
+      },
+      {
+        "step": 468.0,
+        "loss": 0.32886001467704773,
+        "denoising": 0.3050083518028259,
+        "reconstruction": 0.0295061394572258,
+        "invariance": 0.006028434261679649,
+        "reliability": 0.11890001595020294,
+        "condition_fidelity": 0.003508448600769043,
+        "velocity": 0.005782389082014561,
+        "acceleration": 0.01681704819202423,
+        "corruption_probability": 0.24257142857142858
+      },
+      {
+        "step": 504.0,
+        "loss": 0.33781829476356506,
+        "denoising": 0.31295835971832275,
+        "reconstruction": 0.024069886654615402,
+        "invariance": 0.005037794355303049,
+        "reliability": 0.1331515908241272,
+        "condition_fidelity": 0.002496978035196662,
+        "velocity": 0.004690697882324457,
+        "acceleration": 0.01365640852600336,
+        "corruption_probability": 0.252
+      },
+      {
+        "step": 540.0,
+        "loss": 0.36965230107307434,
+        "denoising": 0.3448803424835205,
+        "reconstruction": 0.026361487805843353,
+        "invariance": 0.00584208220243454,
+        "reliability": 0.12907052040100098,
+        "condition_fidelity": 0.0029457490891218185,
+        "velocity": 0.005147120915353298,
+        "acceleration": 0.014956435188651085,
+        "corruption_probability": 0.26142857142857145
+      },
+      {
+        "step": 576.0,
+        "loss": 0.32897430658340454,
+        "denoising": 0.3092219829559326,
+        "reconstruction": 0.019236672669649124,
+        "invariance": 0.00443906057626009,
+        "reliability": 0.10460849106311798,
+        "condition_fidelity": 0.0026081865653395653,
+        "velocity": 0.003819850506260991,
+        "acceleration": 0.011096064001321793,
+        "corruption_probability": 0.27085714285714285
+      },
+      {
+        "step": 612.0,
+        "loss": 0.3341909945011139,
+        "denoising": 0.3086700439453125,
+        "reconstruction": 0.02162470668554306,
+        "invariance": 0.004967139568179846,
+        "reliability": 0.13981477916240692,
+        "condition_fidelity": 0.0028810189105570316,
+        "velocity": 0.0042341905646026134,
+        "acceleration": 0.01225355826318264,
+        "corruption_probability": 0.28028571428571425
+      },
+      {
+        "step": 648.0,
+        "loss": 0.36380574107170105,
+        "denoising": 0.3411681056022644,
+        "reconstruction": 0.01578264869749546,
+        "invariance": 0.0037087895907461643,
+        "reliability": 0.1283848136663437,
+        "condition_fidelity": 0.0027212565764784813,
+        "velocity": 0.003019255818799138,
+        "acceleration": 0.008763275109231472,
+        "corruption_probability": 0.2897142857142857
+      },
+      {
+        "step": 684.0,
+        "loss": 0.3259645104408264,
+        "denoising": 0.3057478070259094,
+        "reconstruction": 0.020684607326984406,
+        "invariance": 0.005031812470406294,
+        "reliability": 0.10601118952035904,
+        "condition_fidelity": 0.002082927618175745,
+        "velocity": 0.003954216837882996,
+        "acceleration": 0.011447148397564888,
+        "corruption_probability": 0.29914285714285715
+      },
+      {
+        "step": 720.0,
+        "loss": 0.44681358337402344,
+        "denoising": 0.42815977334976196,
+        "reconstruction": 0.010920125059783459,
+        "invariance": 0.003025324549525976,
+        "reliability": 0.10747388005256653,
+        "condition_fidelity": 0.0028677694499492645,
+        "velocity": 0.002108901273459196,
+        "acceleration": 0.0060979221016168594,
+        "corruption_probability": 0.30857142857142855
+      },
+      {
+        "step": 756.0,
+        "loss": 0.3256104290485382,
+        "denoising": 0.30491501092910767,
+        "reconstruction": 0.021642137318849564,
+        "invariance": 0.005411399994045496,
+        "reliability": 0.10718899220228195,
+        "condition_fidelity": 0.003013626439496875,
+        "velocity": 0.004089251160621643,
+        "acceleration": 0.011927233077585697,
+        "corruption_probability": 0.318
+      },
+      {
+        "step": 792.0,
+        "loss": 0.2955130934715271,
+        "denoising": 0.27488046884536743,
+        "reconstruction": 0.019476454704999924,
+        "invariance": 0.005316657945513725,
+        "reliability": 0.10877333581447601,
+        "condition_fidelity": 0.0035466128028929234,
+        "velocity": 0.003643213538452983,
+        "acceleration": 0.010436649434268475,
+        "corruption_probability": 0.3274285714285714
+      },
+      {
+        "step": 828.0,
+        "loss": 0.2872641980648041,
+        "denoising": 0.26965412497520447,
+        "reconstruction": 0.01879112422466278,
+        "invariance": 0.005018983967602253,
+        "reliability": 0.08988017588853836,
+        "condition_fidelity": 0.003532114438712597,
+        "velocity": 0.0033624402713030577,
+        "acceleration": 0.0097699835896492,
+        "corruption_probability": 0.33685714285714285
+      },
+      {
+        "step": 864.0,
+        "loss": 0.2552810311317444,
+        "denoising": 0.23632889986038208,
+        "reconstruction": 0.017581898719072342,
+        "invariance": 0.0048262812197208405,
+        "reliability": 0.10038996487855911,
+        "condition_fidelity": 0.0030553434044122696,
+        "velocity": 0.0033063923474401236,
+        "acceleration": 0.0095816720277071,
+        "corruption_probability": 0.3462857142857143
+      },
+      {
+        "step": 900.0,
+        "loss": 0.30294740200042725,
+        "denoising": 0.28414732217788696,
+        "reconstruction": 0.015319916419684887,
+        "invariance": 0.00424201088026166,
+        "reliability": 0.10300242155790329,
+        "condition_fidelity": 0.002192653948441148,
+        "velocity": 0.0028909812681376934,
+        "acceleration": 0.008365834131836891,
+        "corruption_probability": 0.35571428571428576
+      },
+      {
+        "step": 936.0,
+        "loss": 0.3628503382205963,
+        "denoising": 0.3457719385623932,
+        "reconstruction": 0.011259903199970722,
+        "invariance": 0.0035034820903092623,
+        "reliability": 0.09608034044504166,
+        "condition_fidelity": 0.0027872934006154537,
+        "velocity": 0.0021172878332436085,
+        "acceleration": 0.006187216378748417,
+        "corruption_probability": 0.36514285714285716
+      },
+      {
+        "step": 972.0,
+        "loss": 0.2730639576911926,
+        "denoising": 0.25371062755584717,
+        "reconstruction": 0.01571306772530079,
+        "invariance": 0.0048938472755253315,
+        "reliability": 0.10435038805007935,
+        "condition_fidelity": 0.0038131074979901314,
+        "velocity": 0.00294123706407845,
+        "acceleration": 0.008505810983479023,
+        "corruption_probability": 0.3745714285714286
+      },
+      {
+        "step": 1008.0,
+        "loss": 0.25772443413734436,
+        "denoising": 0.23968493938446045,
+        "reconstruction": 0.016292959451675415,
+        "invariance": 0.004691672045737505,
+        "reliability": 0.09610313922166824,
+        "condition_fidelity": 0.0026416711043566465,
+        "velocity": 0.0030454217921942472,
+        "acceleration": 0.008748025633394718,
+        "corruption_probability": 0.384
+      },
+      {
+        "step": 1044.0,
+        "loss": 0.28491514921188354,
+        "denoising": 0.27039116621017456,
+        "reconstruction": 0.012090818956494331,
+        "invariance": 0.0036393001209944487,
+        "reliability": 0.0782487690448761,
+        "condition_fidelity": 0.0027340624947100878,
+        "velocity": 0.002184792421758175,
+        "acceleration": 0.006251032464206219,
+        "corruption_probability": 0.39342857142857146
+      },
+      {
+        "step": 1080.0,
+        "loss": 0.2415512502193451,
+        "denoising": 0.22359108924865723,
+        "reconstruction": 0.015378407202661037,
+        "invariance": 0.0045959362760186195,
+        "reliability": 0.09670548141002655,
+        "condition_fidelity": 0.0021145737264305353,
+        "velocity": 0.0029682021122425795,
+        "acceleration": 0.008639468811452389,
+        "corruption_probability": 0.40285714285714286
+      },
+      {
+        "step": 1116.0,
+        "loss": 0.2607012689113617,
+        "denoising": 0.24252593517303467,
+        "reconstruction": 0.013829812407493591,
+        "invariance": 0.0043404921889305115,
+        "reliability": 0.09982355684041977,
+        "condition_fidelity": 0.0028775529935956,
+        "velocity": 0.0025349422357976437,
+        "acceleration": 0.0073135485872626305,
+        "corruption_probability": 0.41228571428571426
+      },
+      {
+        "step": 1152.0,
+        "loss": 0.27910393476486206,
+        "denoising": 0.2636722922325134,
+        "reconstruction": 0.01036848220974207,
+        "invariance": 0.0033334537874907255,
+        "reliability": 0.08582419157028198,
+        "condition_fidelity": 0.0034015595447272062,
+        "velocity": 0.0019535240717232227,
+        "acceleration": 0.005645412486046553,
+        "corruption_probability": 0.4217142857142857
+      },
+      {
+        "step": 1188.0,
+        "loss": 0.3668679893016815,
+        "denoising": 0.35095399618148804,
+        "reconstruction": 0.010471384041011333,
+        "invariance": 0.0032280725426971912,
+        "reliability": 0.08963044732809067,
+        "condition_fidelity": 0.0024569400120526552,
+        "velocity": 0.0020244300831109285,
+        "acceleration": 0.005913093686103821,
+        "corruption_probability": 0.43114285714285716
+      },
+      {
+        "step": 1224.0,
+        "loss": 0.2430320531129837,
+        "denoising": 0.2256924957036972,
+        "reconstruction": 0.01180768758058548,
+        "invariance": 0.003914616536349058,
+        "reliability": 0.09722422063350677,
+        "condition_fidelity": 0.0023236367851495743,
+        "velocity": 0.0021728414576500654,
+        "acceleration": 0.0062153455801308155,
+        "corruption_probability": 0.44057142857142856
+      },
+      {
+        "step": 1260.0,
+        "loss": 0.31171682476997375,
+        "denoising": 0.29651081562042236,
+        "reconstruction": 0.008963758125901222,
+        "invariance": 0.0032389562111347914,
+        "reliability": 0.08618414402008057,
+        "condition_fidelity": 0.0028566864784806967,
+        "velocity": 0.001704297959804535,
+        "acceleration": 0.004920451436191797,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1296.0,
+        "loss": 0.2748919129371643,
+        "denoising": 0.2581987977027893,
+        "reconstruction": 0.010623284615576267,
+        "invariance": 0.003577117808163166,
+        "reliability": 0.09389734268188477,
+        "condition_fidelity": 0.002950567752122879,
+        "velocity": 0.0020327921956777573,
+        "acceleration": 0.005894227884709835,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1332.0,
+        "loss": 0.2329172044992447,
+        "denoising": 0.21537122130393982,
+        "reconstruction": 0.013277553953230381,
+        "invariance": 0.004513801075518131,
+        "reliability": 0.09537830948829651,
+        "condition_fidelity": 0.0036435103975236416,
+        "velocity": 0.002452250337228179,
+        "acceleration": 0.0070962850004434586,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1368.0,
+        "loss": 0.2759321928024292,
+        "denoising": 0.26072314381599426,
+        "reconstruction": 0.014032584615051746,
+        "invariance": 0.004740276373922825,
+        "reliability": 0.07968378812074661,
+        "condition_fidelity": 0.002430629450827837,
+        "velocity": 0.002517632907256484,
+        "acceleration": 0.007230862509459257,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1404.0,
+        "loss": 0.2920358180999756,
+        "denoising": 0.27477705478668213,
+        "reconstruction": 0.012566274031996727,
+        "invariance": 0.004226686432957649,
+        "reliability": 0.0954582542181015,
+        "condition_fidelity": 0.0022922593634575605,
+        "velocity": 0.002346937544643879,
+        "acceleration": 0.006747776176780462,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1440.0,
+        "loss": 0.17685118317604065,
+        "denoising": 0.16117003560066223,
+        "reconstruction": 0.014843517914414406,
+        "invariance": 0.0049550579860806465,
+        "reliability": 0.08143259584903717,
+        "condition_fidelity": 0.0029809707775712013,
+        "velocity": 0.00263203214854002,
+        "acceleration": 0.0075616841204464436,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1476.0,
+        "loss": 0.17618167400360107,
+        "denoising": 0.16143783926963806,
+        "reconstruction": 0.013414780609309673,
+        "invariance": 0.0044227223843336105,
+        "reliability": 0.07727470248937607,
+        "condition_fidelity": 0.0029827579855918884,
+        "velocity": 0.002398646203801036,
+        "acceleration": 0.006885856855660677,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1512.0,
+        "loss": 0.26956820487976074,
+        "denoising": 0.2559734582901001,
+        "reconstruction": 0.00822981633245945,
+        "invariance": 0.0031862417235970497,
+        "reliability": 0.07572496682405472,
+        "condition_fidelity": 0.0038527001161128283,
+        "velocity": 0.0015087738865986466,
+        "acceleration": 0.004327449481934309,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1548.0,
+        "loss": 0.25231048464775085,
+        "denoising": 0.23840294778347015,
+        "reconstruction": 0.010526706464588642,
+        "invariance": 0.003512516850605607,
+        "reliability": 0.07553789019584656,
+        "condition_fidelity": 0.00295653915964067,
+        "velocity": 0.0019912717398256063,
+        "acceleration": 0.005814079195261002,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1584.0,
+        "loss": 0.16712306439876556,
+        "denoising": 0.1537422239780426,
+        "reconstruction": 0.011524335481226444,
+        "invariance": 0.004377854056656361,
+        "reliability": 0.07002320885658264,
+        "condition_fidelity": 0.0028660930693149567,
+        "velocity": 0.0021992784459143877,
+        "acceleration": 0.006320911459624767,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1620.0,
+        "loss": 0.23547472059726715,
+        "denoising": 0.21920138597488403,
+        "reconstruction": 0.012610691599547863,
+        "invariance": 0.0044869231060147285,
+        "reliability": 0.08823151886463165,
+        "condition_fidelity": 0.0028708577156066895,
+        "velocity": 0.002238320652395487,
+        "acceleration": 0.006461875978857279,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1656.0,
+        "loss": 0.27814918756484985,
+        "denoising": 0.26473915576934814,
+        "reconstruction": 0.010783657431602478,
+        "invariance": 0.003939916379749775,
+        "reliability": 0.07220590114593506,
+        "condition_fidelity": 0.0020609437488019466,
+        "velocity": 0.001911322120577097,
+        "acceleration": 0.005474805366247892,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1692.0,
+        "loss": 0.17206156253814697,
+        "denoising": 0.1582069993019104,
+        "reconstruction": 0.011178217828273773,
+        "invariance": 0.004149258602410555,
+        "reliability": 0.07430873066186905,
+        "condition_fidelity": 0.0020102558191865683,
+        "velocity": 0.002116663381457329,
+        "acceleration": 0.006123300641775131,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1728.0,
+        "loss": 0.19662371277809143,
+        "denoising": 0.18382689356803894,
+        "reconstruction": 0.01168121863156557,
+        "invariance": 0.004205216187983751,
+        "reliability": 0.06641442328691483,
+        "condition_fidelity": 0.0026220488362014294,
+        "velocity": 0.002133091911673546,
+        "acceleration": 0.006085394881665707,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1764.0,
+        "loss": 0.2757744789123535,
+        "denoising": 0.2621273398399353,
+        "reconstruction": 0.0069277225993573666,
+        "invariance": 0.002643585205078125,
+        "reliability": 0.07893221080303192,
+        "condition_fidelity": 0.002516740933060646,
+        "velocity": 0.0012666943948715925,
+        "acceleration": 0.0036285268142819405,
+        "corruption_probability": 0.45
+      },
+      {
+        "step": 1799.0,
+        "loss": 0.21156790852546692,
+        "denoising": 0.19793885946273804,
+        "reconstruction": 0.010667352937161922,
+        "invariance": 0.004164145328104496,
+        "reliability": 0.0724218338727951,
+        "condition_fidelity": 0.00335683417506516,
+        "velocity": 0.0020083847921341658,
+        "acceleration": 0.005799602717161179,
+        "corruption_probability": 0.45
+      }
+    ],
+    "display_score_calibration": {
+      "method": "expert_only_stance_conditioned_phase_manifold_baseline_v1",
+      "skill": "smash",
+      "expert_samples": 8,
+      "expert_subjects": 8,
+      "identity_levels": [
+        "subject"
+      ],
+      "alignment_contracts": [
+        "overhead_asymmetric_ending_range_v4"
+      ],
+      "handedness_counts": {
+        "right": 8,
+        "left": 0
+      },
+      "top_k": 1,
+      "phase_indices": [
+        0,
+        16,
+        32,
+        48,
+        63
+      ],
+      "criterion_tolerances": {
+        "preparation": {
+          "combined_distance_p90": 0.28870463371276855,
+          "robust_scale": 0.057257115840911865
+        },
+        "body_rotation": {
+          "combined_distance_p90": 0.20074014365673065,
+          "robust_scale": 0.046586859971284866
+        },
+        "arm_balance": {
+          "combined_distance_p90": 0.5152180194854736,
+          "robust_scale": 0.12469886243343353
+        },
+        "elbow_forward": {
+          "combined_distance_p90": 0.6469200253486633,
+          "robust_scale": 0.09303641319274902
+        },
+        "wrist_flick": {
+          "combined_distance_p90": 0.6304522156715393,
+          "robust_scale": 0.15721233189105988
+        },
+        "follow_through": {
+          "combined_distance_p90": 0.41203776001930237,
+          "robust_scale": 0.08274288475513458
+        }
+      },
+      "held_out_expert_folds": [
+        {
+          "file": "張宸愷6.npz",
+          "subject_id": "張宸愷6",
+          "identity_level": "subject",
+          "references": [
+            "張宸愷7.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.07033393178359412,
+              "target_angle_distance": 0.06549659451436711,
+              "combined_distance": 0.10308222904077768
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.04551346603604109,
+              "target_angle_distance": 0.018939009584810713,
+              "combined_distance": 0.05498297082844644
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.20090541223390013,
+              "target_angle_distance": 0.1201785713247478,
+              "combined_distance": 0.26099469789627405
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.2392480158312177,
+              "target_angle_distance": 0.1454668556829576,
+              "combined_distance": 0.3119814436726965
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.176249514709745,
+              "target_angle_distance": 0.1223952124452013,
+              "combined_distance": 0.23744712093234566
+            },
+            "follow_through": {
+              "euclidean_distance": 0.20501452683450538,
+              "target_angle_distance": 0.254076835121112,
+              "combined_distance": 0.3320529443950614
+            }
+          }
+        },
+        {
+          "file": "張宸愷7.npz",
+          "subject_id": "張宸愷7",
+          "identity_level": "subject",
+          "references": [
+            "張宸愷6.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.07704604421994565,
+              "target_angle_distance": 0.0707167511483381,
+              "combined_distance": 0.1124044197941147
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.04561520014507929,
+              "target_angle_distance": 0.019101246857580294,
+              "combined_distance": 0.05516582357386944
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.20522167179072898,
+              "target_angle_distance": 0.12722918351056114,
+              "combined_distance": 0.26883626354600954
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.22816928876445655,
+              "target_angle_distance": 0.1559147066799408,
+              "combined_distance": 0.30612664210442697
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.17191135759241166,
+              "target_angle_distance": 0.1271722577380019,
+              "combined_distance": 0.2354974864614126
+            },
+            "follow_through": {
+              "euclidean_distance": 0.2107533938345104,
+              "target_angle_distance": 0.25336103980064245,
+              "combined_distance": 0.3374339137348316
+            }
+          }
+        },
+        {
+          "file": "戚佑仁7.npz",
+          "subject_id": "戚佑仁7",
+          "identity_level": "subject",
+          "references": [
+            "戚佑仁8.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.12622566709181895,
+              "target_angle_distance": 0.06779075997515588,
+              "combined_distance": 0.1601210470793969
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.09653271099166362,
+              "target_angle_distance": 0.020777919407949503,
+              "combined_distance": 0.10692167069563838
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.21305969596226795,
+              "target_angle_distance": 0.20283761819588175,
+              "combined_distance": 0.3144785050602088
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.25312999883799764,
+              "target_angle_distance": 0.14208026535693247,
+              "combined_distance": 0.3241701315164639
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.2967052158474532,
+              "target_angle_distance": 0.1281863563524733,
+              "combined_distance": 0.36079839402368985
+            },
+            "follow_through": {
+              "euclidean_distance": 0.2046240847627109,
+              "target_angle_distance": 0.10432555074609273,
+              "combined_distance": 0.25678686013575724
+            }
+          }
+        },
+        {
+          "file": "戚佑仁8.npz",
+          "subject_id": "戚佑仁8",
+          "identity_level": "subject",
+          "references": [
+            "戚佑仁7.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.1258474733578104,
+              "target_angle_distance": 0.06863420289265372,
+              "combined_distance": 0.16016457480413726
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.10111333051939801,
+              "target_angle_distance": 0.02062710371864574,
+              "combined_distance": 0.11142688237872088
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.2226015782464439,
+              "target_angle_distance": 0.20302034775131006,
+              "combined_distance": 0.3241117521220989
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.2818395255115526,
+              "target_angle_distance": 0.13849959079996854,
+              "combined_distance": 0.3510893209115369
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.31836515271649923,
+              "target_angle_distance": 0.12773880439838034,
+              "combined_distance": 0.3822345549156894
+            },
+            "follow_through": {
+              "euclidean_distance": 0.20757171171296607,
+              "target_angle_distance": 0.10337446762509145,
+              "combined_distance": 0.25925894552551176
+            }
+          }
+        },
+        {
+          "file": "李翊安3.npz",
+          "subject_id": "李翊安3",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲4.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.3608442670303362,
+              "target_angle_distance": 0.1282289612374389,
+              "combined_distance": 0.4249587476490556
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.1800239612678578,
+              "target_angle_distance": 0.03734142168501719,
+              "combined_distance": 0.1986946721103664
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.4327408122963458,
+              "target_angle_distance": 0.14703935085991718,
+              "combined_distance": 0.5062604877263044
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.458759228342583,
+              "target_angle_distance": 0.08809826205616686,
+              "combined_distance": 0.5028083593706664
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.4799879506673303,
+              "target_angle_distance": 0.1959511222760445,
+              "combined_distance": 0.5779635118053525
+            },
+            "follow_through": {
+              "euclidean_distance": 0.2854865068306382,
+              "target_angle_distance": 0.1707821241192306,
+              "combined_distance": 0.3708775688902535
+            }
+          }
+        },
+        {
+          "file": "林國欽9.npz",
+          "subject_id": "林國欽9",
+          "identity_level": "subject",
+          "references": [
+            "張宸愷6.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.12390919718809427,
+              "target_angle_distance": 0.08141807310931132,
+              "combined_distance": 0.16461823374274992
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.0874825643130914,
+              "target_angle_distance": 0.025710702980998687,
+              "combined_distance": 0.10033791580359075
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.3131675510657563,
+              "target_angle_distance": 0.12153624321796033,
+              "combined_distance": 0.37393567267473643
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.3146764091384059,
+              "target_angle_distance": 0.1556935163630927,
+              "combined_distance": 0.39252316731995224
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.27979258951568725,
+              "target_angle_distance": 0.2200323482647337,
+              "combined_distance": 0.3898087636480541
+            },
+            "follow_through": {
+              "euclidean_distance": 0.1919801073020602,
+              "target_angle_distance": 0.22731858900513224,
+              "combined_distance": 0.30563940180462634
+            }
+          }
+        },
+        {
+          "file": "王鶴勳8.npz",
+          "subject_id": "王鶴勳8",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲4.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.1303456089949381,
+              "target_angle_distance": 0.19992884713357248,
+              "combined_distance": 0.23031003256172433
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.18356826538159196,
+              "target_angle_distance": 0.04388924569601808,
+              "combined_distance": 0.205512888229601
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.44186932819825525,
+              "target_angle_distance": 0.13937528336240798,
+              "combined_distance": 0.5115569698794592
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.49071093099924395,
+              "target_angle_distance": 0.06396510146175528,
+              "combined_distance": 0.5226934817301216
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.4193592462118903,
+              "target_angle_distance": 0.060328824728598074,
+              "combined_distance": 0.44952365857618937
+            },
+            "follow_through": {
+              "euclidean_distance": 0.3230822098183735,
+              "target_angle_distance": 0.18346950207247703,
+              "combined_distance": 0.414816960854612
+            }
+          }
+        },
+        {
+          "file": "陳奕仲4.npz",
+          "subject_id": "陳奕仲4",
+          "identity_level": "subject",
+          "references": [
+            "張宸愷6.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.15482664647097935,
+              "target_angle_distance": 0.06963312579831671,
+              "combined_distance": 0.1896432093701377
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.09615159201878196,
+              "target_angle_distance": 0.03555734583985857,
+              "combined_distance": 0.11393026493871124
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.4239097667909351,
+              "target_angle_distance": 0.19970135069039185,
+              "combined_distance": 0.523760442136131
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.7921675356159498,
+              "target_angle_distance": 0.2892288903684938,
+              "combined_distance": 0.9367819808001967
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.6267030409132323,
+              "target_angle_distance": 0.25244558102903814,
+              "combined_distance": 0.7529258314277514
+            },
+            "follow_through": {
+              "euclidean_distance": 0.32617039703937833,
+              "target_angle_distance": 0.16935258333325737,
+              "combined_distance": 0.41084668870600705
+            }
+          }
+        }
+      ]
+    },
+    "held_out_evaluator_calibration": {
+      "method": "expert_only_stance_conditioned_phase_manifold_baseline_v1",
+      "skill": "smash",
+      "expert_samples": 4,
+      "expert_subjects": 4,
+      "identity_levels": [
+        "subject"
+      ],
+      "alignment_contracts": [
+        "overhead_asymmetric_ending_range_v4"
+      ],
+      "handedness_counts": {
+        "right": 4,
+        "left": 0
+      },
+      "top_k": 1,
+      "phase_indices": [
+        0,
+        16,
+        32,
+        48,
+        63
+      ],
+      "criterion_tolerances": {
+        "preparation": {
+          "combined_distance_p90": 0.40319764614105225,
+          "robust_scale": 0.040319763123989105
+        },
+        "body_rotation": {
+          "combined_distance_p90": 0.2576974034309387,
+          "robust_scale": 0.059876129031181335
+        },
+        "arm_balance": {
+          "combined_distance_p90": 0.6179682612419128,
+          "robust_scale": 0.165262371301651
+        },
+        "elbow_forward": {
+          "combined_distance_p90": 0.6979406476020813,
+          "robust_scale": 0.20662815868854523
+        },
+        "wrist_flick": {
+          "combined_distance_p90": 0.5257098078727722,
+          "robust_scale": 0.1533021628856659
+        },
+        "follow_through": {
+          "combined_distance_p90": 0.30925360321998596,
+          "robust_scale": 0.06379559636116028
+        }
+      },
+      "held_out_expert_folds": [
+        {
+          "file": "李翊安6.npz",
+          "subject_id": "李翊安6",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲1.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.43685745363760164,
+              "target_angle_distance": 0.1093370230488155,
+              "combined_distance": 0.4915259651620094
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.2794385476095705,
+              "target_angle_distance": 0.03319461886058603,
+              "combined_distance": 0.2960358570398635
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.6231560237765912,
+              "target_angle_distance": 0.14596888046798456,
+              "combined_distance": 0.6961404640105835
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.7067754703996729,
+              "target_angle_distance": 0.08882278779976938,
+              "combined_distance": 0.7511868642995576
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.5178934443502531,
+              "target_angle_distance": 0.0873723154733544,
+              "combined_distance": 0.5615796020869303
+            },
+            "follow_through": {
+              "euclidean_distance": 0.18491858508726872,
+              "target_angle_distance": 0.10837739790537178,
+              "combined_distance": 0.2391072840399546
+            }
+          }
+        },
+        {
+          "file": "林國欽8.npz",
+          "subject_id": "林國欽8",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲8.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.1712010995294195,
+              "target_angle_distance": 0.05179419074348367,
+              "combined_distance": 0.19709819490116134
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.15110373292408194,
+              "target_angle_distance": 0.034274542891152476,
+              "combined_distance": 0.16824100436965816
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.39120448806382935,
+              "target_angle_distance": 0.08872399020038825,
+              "combined_distance": 0.43556648316402347
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.5083640134637949,
+              "target_angle_distance": 0.13067087075417658,
+              "combined_distance": 0.5736994488408832
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.353318081443901,
+              "target_angle_distance": 0.1773910337041426,
+              "combined_distance": 0.4420135982959723
+            },
+            "follow_through": {
+              "euclidean_distance": 0.2336022021513552,
+              "target_angle_distance": 0.21142822189580338,
+              "combined_distance": 0.33931631309925686
+            }
+          }
+        },
+        {
+          "file": "陳奕仲1.npz",
+          "subject_id": "陳奕仲1",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲8.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.15544147250205959,
+              "target_angle_distance": 0.0526003866847758,
+              "combined_distance": 0.18174166584444748
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.07828995035119234,
+              "target_angle_distance": 0.01835852420918504,
+              "combined_distance": 0.08746921245578486
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.17541040935079272,
+              "target_angle_distance": 0.0805929834055346,
+              "combined_distance": 0.21570690105356002
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.24796074812278238,
+              "target_angle_distance": 0.10888504633694032,
+              "combined_distance": 0.30240327129125255
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.19405325211774946,
+              "target_angle_distance": 0.0823171316339607,
+              "combined_distance": 0.2352118179347298
+            },
+            "follow_through": {
+              "euclidean_distance": 0.12280151492922019,
+              "target_angle_distance": 0.06049337459587604,
+              "combined_distance": 0.1530482022271582
+            }
+          }
+        },
+        {
+          "file": "陳奕仲8.npz",
+          "subject_id": "陳奕仲8",
+          "identity_level": "subject",
+          "references": [
+            "陳奕仲1.npz"
+          ],
+          "criteria": {
+            "preparation": {
+              "euclidean_distance": 0.15689822923966154,
+              "target_angle_distance": 0.052600392071132276,
+              "combined_distance": 0.18319842527522767
+            },
+            "body_rotation": {
+              "euclidean_distance": 0.07989657645094453,
+              "target_angle_distance": 0.018291923012876916,
+              "combined_distance": 0.08904253795738298
+            },
+            "arm_balance": {
+              "euclidean_distance": 0.17431370535632815,
+              "target_angle_distance": 0.07663379320196322,
+              "combined_distance": 0.21263060195730976
+            },
+            "elbow_forward": {
+              "euclidean_distance": 0.24310915116334067,
+              "target_angle_distance": 0.10370544172097418,
+              "combined_distance": 0.29496187202382773
+            },
+            "wrist_flick": {
+              "euclidean_distance": 0.19570144798361236,
+              "target_angle_distance": 0.0823012471246409,
+              "combined_distance": 0.2368520715459328
+            },
+            "follow_through": {
+              "euclidean_distance": 0.12781259783908414,
+              "target_angle_distance": 0.06359561463941929,
+              "combined_distance": 0.15961040515879377
+            }
+          }
+        }
+      ]
+    }
+  }
+}

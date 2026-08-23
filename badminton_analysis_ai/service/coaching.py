@@ -15,6 +15,7 @@ from badminton_analysis.ml.clear_feedback import (
     SkillFeedbackAnalysis,
     build_response_input,
     coaching_target_joint_ids,
+    maximum_feedback_problem_count,
     prompt_context,
     sample_video_frames,
     system_instructions,
@@ -32,31 +33,78 @@ class CoachingGenerator:
         self.max_attempts = max(1, int(os.getenv("OPENAI_COACHING_ATTEMPTS", "2")))
 
     @staticmethod
-    def _fallback_analysis(
+    def _is_good_performance(correction_grade: dict[str, Any]) -> bool:
+        total_threshold = float(
+            os.getenv("COACHING_NO_SUGGESTION_MIN_SCORE", "90")
+        )
+        criterion_threshold = float(
+            os.getenv("COACHING_NO_SUGGESTION_MIN_CRITERION_RATIO", "0.8")
+        )
+        if float(correction_grade["total_score"]) < total_threshold:
+            return False
+        criteria = correction_grade.get("criteria", [])
+        return bool(criteria) and all(
+            float(criterion["score"])
+            / max(float(criterion["maximum"]), 1e-6)
+            >= criterion_threshold
+            for criterion in criteria
+        )
+
+    def _good_performance_payload(
+        self,
         spec: SkillCorrectionSpec,
         correction_grade: dict[str, Any],
     ) -> dict[str, Any]:
-        criterion = min(
+        return {
+            "model": self.model,
+            "response_id": "",
+            "source": "score_gate",
+            "attempts": 0,
+            "fallback_error": "",
+            "latency_llm_inference_seconds": 0.0,
+            "context": {
+                "total_grade": float(correction_grade["total_score"]),
+                "score_status": correction_grade.get(
+                    "score_status", "diagnostic_group_calibrated"
+                ),
+            },
+            "analysis": {
+                "skill": spec.slug,
+                "language": "zh-TW",
+                "overall_feedback": (
+                    f"本次{spec.name_zh_tw}動作表現良好，未發現需要修正的技術問題。"
+                ),
+                "problems": [],
+            },
+        }
+
+    @staticmethod
+    def _fallback_analysis(
+        spec: SkillCorrectionSpec,
+        correction_grade: dict[str, Any],
+        problem_count: int = 1,
+    ) -> dict[str, Any]:
+        criteria = sorted(
             correction_grade["criteria"],
             key=lambda item: float(item["score"]) / max(float(item["maximum"]), 1e-6),
-        )
-        rule = spec.rule(str(criterion["rule_reference"]))
-        score = float(criterion["score"])
-        maximum = float(criterion["maximum"])
+        )[:problem_count]
+        rules = [spec.rule(str(item["rule_reference"])) for item in criteria]
         return {
             "skill": spec.slug,
             "language": "zh-TW",
             "overall_feedback": (
-                f"本次{spec.name_zh_tw}應優先改善「{rule.name_zh_tw}」，"
-                f"{rule.calculation_zh_tw}"
+                f"本次{spec.name_zh_tw}應依序改善"
+                + "、".join(f"「{rule.name_zh_tw}」" for rule in rules)
+                + "。"
             ),
             "problems": [
                 {
-                    "priority": "高",
+                    "priority": "高" if index == 0 else "中",
                     "title": rule.name_zh_tw,
                     "feedback": rule.calculation_zh_tw,
                     "evidence": (
-                        f"此項得分為{score:.1f}/{maximum:.1f}分，"
+                        f"此項得分為{float(criterion['score']):.1f}/"
+                        f"{float(criterion['maximum']):.1f}分，"
                         "學生原始骨架與修正骨架在這個技術階段的差距最明顯。"
                     ),
                     "frame_index": 0,
@@ -65,6 +113,9 @@ class CoachingGenerator:
                     "rule_reference": rule.id,
                     "confidence": 0.8,
                 }
+                for index, (criterion, rule) in enumerate(
+                    zip(criteria, rules, strict=True)
+                )
             ],
         }
 
@@ -85,14 +136,16 @@ class CoachingGenerator:
         for problem in analysis["problems"]:
             reference = str(problem["rule_reference"])
             try:
-                rule = spec.rule(reference)
+                matched_rule = spec.rule(reference)
             except KeyError:
-                rule = next(
+                fallback_rule = next(
                     (candidate for candidate in spec.rules if candidate.name_zh_tw == reference),
                     None,
                 )
-                if rule is None:
+                if fallback_rule is None:
                     raise
+                matched_rule = fallback_rule
+            rule = matched_rule
             problem["rule_reference"] = rule.id
             problem["title"] = rule.name_zh_tw
             problem["phase"] = rule.phase
@@ -104,6 +157,18 @@ class CoachingGenerator:
             criterion = criteria[rule.id]
             problem["criterion_score"] = float(criterion["score"])
             problem["criterion_maximum"] = float(criterion["maximum"])
+        maximum_problem_count = maximum_feedback_problem_count(
+            float(correction_grade["total_score"])
+        )
+        references = [
+            str(problem["rule_reference"]) for problem in analysis["problems"]
+        ]
+        if len(references) > maximum_problem_count:
+            raise ValueError(
+                f"feedback must contain at most {maximum_problem_count} problems"
+            )
+        if len(set(references)) != len(references):
+            raise ValueError("feedback problems must use distinct criteria")
         validated = SkillFeedbackAnalysis.model_validate(analysis)
         validate_analysis_frames(validated, samples, anchors, spec)
         timestamps = {sample.frame_index: sample.timestamp_seconds for sample in samples}
@@ -122,6 +187,13 @@ class CoachingGenerator:
         spec: SkillCorrectionSpec,
         correction_grade: dict[str, Any],
     ) -> dict[str, Any]:
+        if self._is_good_performance(correction_grade):
+            payload = self._good_performance_payload(spec, correction_grade)
+            (working_dir / "feedback.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            return payload
+
         samples = sample_video_frames(
             video_path,
             working_dir / "coaching_frames",
@@ -133,7 +205,9 @@ class CoachingGenerator:
             "filename": filename,
             "handedness": handedness,
             "total_grade": correction_grade["total_score"],
-            "score_status": "diagnostic_group_calibrated",
+            "score_status": correction_grade.get(
+                "score_status", "diagnostic_group_calibrated"
+            ),
             "priority_corrections": [],
             "keypoints": [],
         }
@@ -183,7 +257,11 @@ class CoachingGenerator:
         llm_finished = time.perf_counter()
         if analysis is None:
             analysis = self._normalize_analysis(
-                self._fallback_analysis(spec, correction_grade),
+                self._fallback_analysis(
+                    spec,
+                    correction_grade,
+                    problem_count=1,
+                ),
                 spec=spec,
                 correction_grade=correction_grade,
                 phase_indices=tuple(int(value) for value in phase_indices),

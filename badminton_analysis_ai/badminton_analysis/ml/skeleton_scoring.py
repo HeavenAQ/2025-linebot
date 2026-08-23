@@ -23,6 +23,11 @@ BONES = (
     (12, 14), (14, 16),
 )
 
+# Lateral torso spans are projection-dependent rather than rigid limb lengths.
+# The expert-motion generator preserves their generated per-frame profile so
+# shoulder/hip rotation remains visible after student-anatomy retargeting.
+TORSO_WIDTH_BONES = ((5, 6), (11, 12))
+
 ANGLE_TRIPLETS = (
     (5, 7, 9), (6, 8, 10),
     (7, 5, 11), (8, 6, 12),
@@ -63,6 +68,7 @@ def sequence_training_losses(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
 ) -> dict[str, Tensor]:
     """Differentiable pose losses, including an optional full-body transition."""
     joint_weight_tensor = torch.as_tensor(
@@ -114,6 +120,7 @@ def sequence_training_losses(
     )
 
     transition = prediction.new_zeros(())
+    direction = prediction.new_zeros(())
     if transition_weight > 0.0:
         if not transition_joints:
             raise ValueError(
@@ -181,7 +188,67 @@ def sequence_training_losses(
             lean_endpoint_mask,
         )
         lean_transition = 0.5 * lean_trajectory + 0.5 * lean_endpoint
-        transition = 0.65 * lower_transition + 0.35 * lean_transition
+        if transition_direction_joint is None:
+            transition = 0.65 * lower_transition + 0.35 * lean_transition
+        else:
+            pelvis_prediction = (
+                prediction[..., 11, :] + prediction[..., 12, :]
+            ) * 0.5
+            pelvis_target = (target[..., 11, :] + target[..., 12, :]) * 0.5
+            source_relative = (
+                prediction[..., transition_direction_joint, :]
+                - pelvis_prediction
+            )
+            target_relative = target[..., transition_direction_joint, :] - pelvis_target
+            source_displacement = source_relative - source_relative[:, :1]
+            target_displacement = target_relative - target_relative[:, :1]
+            source_horizontal = source_displacement[..., (0, 2)]
+            target_horizontal = target_displacement[..., (0, 2)]
+            window_start = prediction.shape[1] // 2
+            window_end = max(window_start + 1, prediction.shape[1] * 7 // 8)
+            target_window = target_horizontal[:, window_start:window_end]
+            peak_offset = target_window.norm(dim=-1).argmax(dim=1)
+            peak_index = peak_offset + window_start
+            gather_index = peak_index[:, None, None].expand(-1, 1, 2)
+            source_vector = torch.gather(
+                source_horizontal, 1, gather_index
+            ).squeeze(1)
+            target_vector = torch.gather(
+                target_horizontal, 1, gather_index
+            ).squeeze(1)
+            source_norm = source_vector.norm(dim=-1)
+            target_norm = target_vector.norm(dim=-1)
+            cosine = (source_vector * target_vector).sum(dim=-1) / (
+                source_norm * target_norm
+            ).clamp_min(1e-8)
+            direction_error = 0.5 * (1.0 - cosine.clamp(-1.0, 1.0))
+            direction_error = torch.where(
+                source_norm > 1e-6,
+                direction_error,
+                torch.ones_like(direction_error),
+            )
+            peak_confidence = torch.gather(
+                confidence[..., transition_direction_joint],
+                1,
+                peak_index[:, None],
+            ).squeeze(1)
+            direction_mask = (
+                peak_confidence
+                * confidence[:, 0, transition_direction_joint]
+                * confidence[:, 0, 11]
+                * confidence[:, 0, 12]
+                * (target_norm > 1e-6).to(confidence.dtype)
+            )
+            direction = _masked_weighted_mean(
+                direction_error,
+                torch.ones_like(direction_mask),
+                direction_mask,
+            )
+            transition = (
+                0.45 * lower_transition
+                + 0.20 * lean_transition
+                + 0.35 * direction
+            )
 
     total = (
         position
@@ -197,6 +264,7 @@ def sequence_training_losses(
         "angle": angle,
         "bone_length": bone_length,
         "transition": transition,
+        "direction": direction,
     }
 
 
@@ -287,6 +355,7 @@ def correction_distance_components(
         "bone_length_distance": bone_length,
         "support_transition_distance": 0.0,
         "torso_lean_transition_distance": 0.0,
+        "lunge_direction_distance": 0.0,
         "transition_distance": 0.0,
     }
 
@@ -297,6 +366,7 @@ def full_transition_components(
     confidence: NDArray[np.floating],
     joints: tuple[int, ...],
     lean_joints: tuple[int, ...],
+    direction_joint: int | None = None,
 ) -> dict[str, float]:
     """Compare full support-transfer and signed torso-lean trajectories."""
     if not joints:
@@ -368,10 +438,56 @@ def full_transition_components(
         np.asarray([lean_mask[0] * lean_mask[-1]]),
     )
     lean_transition = 0.5 * lean_trajectory + 0.5 * lean_endpoint
+    direction_distance = 0.0
+    if direction_joint is not None:
+        source_pelvis = (full_source[:, 11] + full_source[:, 12]) * 0.5
+        target_pelvis = (full_target[:, 11] + full_target[:, 12]) * 0.5
+        source_relative = full_source[:, direction_joint] - source_pelvis
+        target_relative = full_target[:, direction_joint] - target_pelvis
+        source_displacement = source_relative - source_relative[:1]
+        target_displacement = target_relative - target_relative[:1]
+        source_horizontal = source_displacement[:, (0, 2)]
+        target_horizontal = target_displacement[:, (0, 2)]
+        window_start = len(full_target) // 2
+        window_end = max(window_start + 1, len(full_target) * 7 // 8)
+        peak_index = window_start + int(
+            np.argmax(
+                np.linalg.norm(
+                    target_horizontal[window_start:window_end], axis=-1
+                )
+            )
+        )
+        source_vector = source_horizontal[peak_index]
+        target_vector = target_horizontal[peak_index]
+        source_norm = float(np.linalg.norm(source_vector))
+        target_norm = float(np.linalg.norm(target_vector))
+        direction_mask = (
+            full_mask[0, direction_joint]
+            * full_mask[peak_index, direction_joint]
+            * full_mask[0, 11]
+            * full_mask[0, 12]
+        )
+        if direction_mask > 1e-8 and target_norm > 1e-6:
+            if source_norm <= 1e-6:
+                direction_distance = 1.0
+            else:
+                cosine = float(
+                    np.dot(source_vector, target_vector)
+                    / (source_norm * target_norm)
+                )
+                direction_distance = 0.5 * (1.0 - np.clip(cosine, -1.0, 1.0))
+    transition_distance = (
+        0.65 * lower_transition + 0.35 * lean_transition
+        if direction_joint is None
+        else 0.45 * lower_transition
+        + 0.20 * lean_transition
+        + 0.35 * direction_distance
+    )
     return {
         "support_transition_distance": lower_transition,
         "torso_lean_transition_distance": lean_transition,
-        "transition_distance": 0.65 * lower_transition + 0.35 * lean_transition,
+        "lunge_direction_distance": direction_distance,
+        "transition_distance": transition_distance,
     }
 
 
@@ -381,9 +497,10 @@ def full_transition_distance(
     confidence: NDArray[np.floating],
     joints: tuple[int, ...],
     lean_joints: tuple[int, ...],
+    direction_joint: int | None = None,
 ) -> float:
     return full_transition_components(
-        original, corrected, confidence, joints, lean_joints
+        original, corrected, confidence, joints, lean_joints, direction_joint
     )["transition_distance"]
 
 
@@ -396,6 +513,7 @@ def correction_distance(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
 ) -> tuple[float, dict[str, float]]:
     components = correction_distance_components(
         original, corrected, confidence, joint_weights
@@ -407,11 +525,13 @@ def correction_distance(
             confidence,
             transition_joints,
             transition_lean_joints,
+            transition_direction_joint,
         )
         if transition_weight > 0.0
         else {
             "support_transition_distance": 0.0,
             "torso_lean_transition_distance": 0.0,
+            "lunge_direction_distance": 0.0,
             "transition_distance": 0.0,
         }
     )
@@ -614,6 +734,158 @@ def project_bone_lengths(
     return projected.astype(np.float32)
 
 
+def project_stable_bone_lengths(
+    original: NDArray[np.floating],
+    corrected: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    *,
+    iterations: int = 20,
+    expert_length_bones: tuple[tuple[int, int], ...] = (),
+    preserve_target_pelvis: bool = False,
+    preserve_direction_chains: tuple[tuple[int, ...], ...] = (),
+) -> NDArray[np.float32]:
+    """Retarget a motion using stable clip-level student anatomy.
+
+    Rigid limbs use the student's median observed length. Projection-dependent
+    torso widths may instead retain the generated expert profile. Optional
+    distal chains are rebuilt after the global solve so their generated
+    directions survive the length projection exactly.
+    """
+    source = np.asarray(original, dtype=np.float64)
+    corrected_source = np.asarray(corrected, dtype=np.float64)
+    projected = corrected_source.copy()
+    observed = np.asarray(confidence, dtype=np.float64)
+    if source.shape != projected.shape or source.ndim != 3 or source.shape[-1] != 2:
+        raise ValueError("original and corrected must have matching shape (T, J, 2)")
+    if observed.shape != source.shape[:2]:
+        raise ValueError("confidence must have shape (T, J)")
+    if iterations <= 0:
+        raise ValueError("iterations must be positive")
+    if not np.all(np.isfinite(projected)):
+        raise ValueError("corrected skeleton must contain finite coordinates")
+
+    free_bones = {frozenset(pair) for pair in expert_length_bones}
+    bone_lookup = {
+        frozenset((start, end)): index for index, (start, end) in enumerate(BONES)
+    }
+    direction_chains = tuple(tuple(chain) for chain in preserve_direction_chains)
+    for chain in direction_chains:
+        if len(chain) < 2:
+            raise ValueError("preserved direction chains need at least two joints")
+        for start, end in zip(chain[:-1], chain[1:], strict=True):
+            if frozenset((start, end)) not in bone_lookup:
+                raise ValueError(
+                    f"preserved direction segment {start}-{end} is not a bone"
+                )
+
+    desired_lengths = np.empty((len(source), len(BONES)), dtype=np.float64)
+    timeline = np.arange(len(source), dtype=np.float64)
+    for bone_index, (start, end) in enumerate(BONES):
+        is_free = frozenset((start, end)) in free_bones
+        length_reference = corrected_source if is_free else source
+        reference_vectors = length_reference[:, end] - length_reference[:, start]
+        reference_lengths = np.linalg.norm(reference_vectors, axis=-1)
+        visible = (
+            (observed[:, start] > 0.05)
+            & (observed[:, end] > 0.05)
+            & np.isfinite(reference_lengths)
+            & (reference_lengths > 1e-8)
+        )
+        fallback = np.isfinite(reference_lengths) & (reference_lengths > 1e-8)
+        lengths = (
+            reference_lengths[visible]
+            if np.any(visible)
+            else reference_lengths[fallback]
+        )
+        if not len(lengths):
+            raise ValueError(f"reference bone {start}-{end} has no finite length")
+        median_length = float(np.median(lengths))
+        desired_lengths[:, bone_index] = (
+            np.where(fallback, reference_lengths, median_length)
+            if is_free
+            else median_length
+        )
+
+        source_vectors = source[:, end] - source[:, start]
+        source_lengths = np.linalg.norm(source_vectors, axis=-1)
+        target_vectors = projected[:, end] - projected[:, start]
+        target_lengths = np.linalg.norm(target_vectors, axis=-1)
+        valid_direction = (
+            np.isfinite(target_lengths)
+            & (target_lengths > 1e-8)
+            & (observed[:, start] > 0.05)
+            & (observed[:, end] > 0.05)
+        )
+        if not np.any(valid_direction):
+            valid_direction = fallback
+            target_vectors = source_vectors.copy()
+            target_lengths = source_lengths.copy()
+        unit = np.zeros_like(target_vectors)
+        unit[valid_direction] = (
+            target_vectors[valid_direction] / target_lengths[valid_direction, None]
+        )
+        for dimension in range(unit.shape[-1]):
+            unit[:, dimension] = np.interp(
+                timeline, timeline[valid_direction], unit[valid_direction, dimension]
+            )
+        unit /= np.maximum(np.linalg.norm(unit, axis=-1, keepdims=True), 1e-8)
+        unreliable = ~valid_direction
+        projected[unreliable, end] = (
+            projected[unreliable, start]
+            + unit[unreliable] * desired_lengths[unreliable, bone_index][:, None]
+        )
+
+    bone_indices = np.asarray(BONES, dtype=np.int64)
+    pelvis_reference = corrected_source if preserve_target_pelvis else source
+    pelvis_anchor = (pelvis_reference[:, 11] + pelvis_reference[:, 12]) / 2.0
+    for _ in range(iterations):
+        for bone_index, (start, end) in enumerate(BONES):
+            vector = projected[:, end] - projected[:, start]
+            length = np.linalg.norm(vector, axis=-1)
+            valid = length > 1e-8
+            adjustment = np.zeros_like(vector)
+            adjustment[valid] = (
+                0.5
+                * (
+                    (length[valid] - desired_lengths[valid, bone_index])
+                    / length[valid]
+                )[:, None]
+                * vector[valid]
+            )
+            projected[:, start] += adjustment
+            projected[:, end] -= adjustment
+        pelvis = (projected[:, 11] + projected[:, 12]) / 2.0
+        projected += (pelvis_anchor - pelvis)[:, None, :]
+
+    for chain in direction_chains:
+        for start, end in zip(chain[:-1], chain[1:], strict=True):
+            vectors = corrected_source[:, end] - corrected_source[:, start]
+            lengths = np.linalg.norm(vectors, axis=-1)
+            valid = np.isfinite(lengths) & (lengths > 1e-8)
+            if not np.any(valid):
+                vectors = projected[:, end] - projected[:, start]
+                lengths = np.linalg.norm(vectors, axis=-1)
+                valid = np.isfinite(lengths) & (lengths > 1e-8)
+            units = np.zeros_like(vectors)
+            units[valid] = vectors[valid] / lengths[valid, None]
+            for dimension in range(2):
+                units[:, dimension] = np.interp(
+                    timeline, timeline[valid], units[valid, dimension]
+                )
+            units /= np.maximum(np.linalg.norm(units, axis=-1, keepdims=True), 1e-8)
+            bone_index = bone_lookup[frozenset((start, end))]
+            projected[:, end] = (
+                projected[:, start] + units * desired_lengths[:, bone_index, None]
+            )
+
+    final_lengths = np.linalg.norm(
+        projected[:, bone_indices[:, 1]] - projected[:, bone_indices[:, 0]], axis=-1
+    )
+    if np.any(final_lengths <= 1e-6):
+        raise ValueError("stable bone projection produced a collapsed bone")
+    return projected.astype(np.float32)
+
+
 def select_bone_adapted_expert(
     sequence: NDArray[np.floating],
     expert_sequences: NDArray[np.floating],
@@ -623,6 +895,7 @@ def select_bone_adapted_expert(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
 ) -> tuple[int, NDArray[np.float32], NDArray[np.float64], float]:
     """Select the adapted expert with the lowest grading distance."""
     source = np.asarray(sequence, dtype=np.float64)
@@ -646,6 +919,7 @@ def select_bone_adapted_expert(
             transition_weight=transition_weight,
             transition_joints=transition_joints,
             transition_lean_joints=transition_lean_joints,
+            transition_direction_joint=transition_direction_joint,
         )
         matches.append((distance, index, adapted, match_confidence))
     distance, index, adapted, match_confidence = min(

@@ -14,6 +14,7 @@ from badminton_analysis.ml.skeleton_dataset import discover_sequence_files, load
 from badminton_analysis.ml.skeleton_normalization import (
     phase_align_sequence,
     restore_phase_timing,
+    restore_phase_timing_dtw,
 )
 from badminton_analysis.ml.skeleton_scoring import (
     ScoreCalibration,
@@ -36,6 +37,62 @@ from badminton_analysis.ml.skill_specs import (
 from badminton_analysis.models.types import Skill
 
 ADVICE_KEYPOINTS = CANONICAL_JOINTS
+
+
+def _allocate_criterion_grades(
+    distances: Sequence[float],
+    maxima: Sequence[float],
+    total_grade: float,
+) -> list[float]:
+    """Distribute the total deduction according to criterion severity."""
+    maximum_values = np.asarray(maxima, dtype=np.float64)
+    distance_values = np.maximum(np.asarray(distances, dtype=np.float64), 0.0)
+    if maximum_values.ndim != 1 or distance_values.shape != maximum_values.shape:
+        raise ValueError("criterion distances and maxima must have matching shapes")
+    maximum_total = float(np.sum(maximum_values))
+    target = float(np.clip(total_grade, 0.0, maximum_total))
+    remaining = maximum_total - target
+    deductions = np.zeros_like(maximum_values)
+    active = list(range(len(maximum_values)))
+
+    while remaining > 1e-10 and active:
+        weights = np.asarray(
+            [distance_values[index] * maximum_values[index] for index in active],
+            dtype=np.float64,
+        )
+        if float(np.sum(weights)) <= 1e-12:
+            weights = np.asarray(
+                [maximum_values[index] - deductions[index] for index in active],
+                dtype=np.float64,
+            )
+        proposed = remaining * weights / max(float(np.sum(weights)), 1e-12)
+        capped: list[int] = []
+        for position, index in enumerate(active):
+            capacity = maximum_values[index] - deductions[index]
+            if proposed[position] >= capacity - 1e-12:
+                deductions[index] += capacity
+                remaining -= capacity
+                capped.append(index)
+        if capped:
+            active = [index for index in active if index not in capped]
+            continue
+        for position, index in enumerate(active):
+            deductions[index] += proposed[position]
+        remaining = 0.0
+
+    grades = np.clip(maximum_values - deductions, 0.0, maximum_values)
+    residual = target - float(np.sum(grades))
+    if abs(residual) > 1e-8 and len(grades):
+        for index in np.argsort(distance_values):
+            if residual > 0:
+                adjustment = min(residual, maximum_values[index] - grades[index])
+            else:
+                adjustment = max(residual, -grades[index])
+            grades[index] += adjustment
+            residual -= adjustment
+            if abs(residual) <= 1e-8:
+                break
+    return [float(value) for value in grades]
 
 
 def load_corrector(
@@ -72,7 +129,9 @@ def predict_correction(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
     joint_weights: np.ndarray | None = None,
+    use_dtw_timing: bool = False,
 ) -> np.ndarray:
     corrected, _, _ = predict_correction_with_reference(
         model,
@@ -86,6 +145,8 @@ def predict_correction(
         transition_weight=transition_weight,
         transition_joints=transition_joints,
         transition_lean_joints=transition_lean_joints,
+        transition_direction_joint=transition_direction_joint,
+        use_dtw_timing=use_dtw_timing,
     )
     return corrected
 
@@ -104,6 +165,8 @@ def predict_correction_with_reference(
     transition_weight: float = 0.0,
     transition_joints: tuple[int, ...] = (),
     transition_lean_joints: tuple[int, ...] = (),
+    transition_direction_joint: int | None = None,
+    use_dtw_timing: bool = False,
 ) -> tuple[np.ndarray, int | None, float | None]:
     if not 0.0 <= correction_strength <= 1.0:
         raise ValueError("correction strength must be between zero and one")
@@ -170,6 +233,7 @@ def predict_correction_with_reference(
                 transition_weight=transition_weight,
                 transition_joints=transition_joints,
                 transition_lean_joints=transition_lean_joints,
+                transition_direction_joint=transition_direction_joint,
             )
             reference_index = int(reference_indices[local_reference_index])
         feature_parts.append(reference_target)
@@ -199,10 +263,21 @@ def predict_correction_with_reference(
         model_skeleton, np.asarray(output, dtype=np.float32)
     )
     if phase_indices is not None:
-        correction = restore_phase_timing(
-            corrected - model_skeleton, phase_indices
+        restored = (
+            restore_phase_timing_dtw(
+                corrected,
+                model_skeleton,
+                skeleton,
+                phase_indices,
+                joint_weights=joint_weights,
+            )
+            if use_dtw_timing
+            else restore_phase_timing(corrected, phase_indices)
         )
-        corrected = project_bone_lengths(skeleton, skeleton + correction)
+        corrected = project_bone_lengths(
+            skeleton,
+            restored,
+        )
     return corrected, reference_index, reference_distance
 
 
@@ -230,6 +305,7 @@ def phase_grading_details(
                 confidence,
                 resolved_spec.transition_joints,
                 resolved_spec.transition_lean_joints,
+                resolved_spec.transition_direction_joint,
             )
         elif joints is not None:
             source = original[start:end, joints]
@@ -252,18 +328,9 @@ def phase_grading_details(
         output.append((description, distance, grade))
         maxima.append(maximum)
     if total_grade is not None and output:
-        raw_total = sum(item[2] for item in output)
-        grades = [item[2] for item in output]
-        if raw_total > total_grade and raw_total > 1e-8:
-            grades = [grade * total_grade / raw_total for grade in grades]
-        elif raw_total < total_grade:
-            capacities = [maximum - grade for maximum, grade in zip(maxima, grades)]
-            capacity_total = sum(capacities)
-            if capacity_total > 1e-8:
-                grades = [
-                    grade + (total_grade - raw_total) * capacity / capacity_total
-                    for grade, capacity in zip(grades, capacities)
-                ]
+        grades = _allocate_criterion_grades(
+            [item[1] for item in output], maxima, total_grade
+        )
         output = [
             (description, distance, grade)
             for (description, distance, _), grade in zip(output, grades)
@@ -469,6 +536,10 @@ def _evaluation_split(
         values = checkpoint.get(f"{subject}_{split}_files", ())
         if filename in values:
             return split
+    if label != "experts" and filename in checkpoint.get(
+        "student_calibration_files", ()
+    ):
+        return "calibration"
     if label == "experts" and filename in checkpoint.get(
         "validation_files", ()
     ):
@@ -531,6 +602,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 transition_weight=spec.transition_weight,
                 transition_joints=spec.transition_joints,
                 transition_lean_joints=spec.transition_lean_joints,
+                transition_direction_joint=spec.transition_direction_joint,
                 joint_weights=spec.joint_weights_array,
             )
             distance, components = correction_distance(
@@ -541,6 +613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 transition_weight=spec.transition_weight,
                 transition_joints=spec.transition_joints,
                 transition_lean_joints=spec.transition_lean_joints,
+                transition_direction_joint=spec.transition_direction_joint,
             )
             quality = correction_quality_metrics(skeleton, corrected, confidence)
             filename = str(sample["video_name"].item())

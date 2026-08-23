@@ -89,6 +89,10 @@ message ExpertMatch {
   StoredVideo video = 4;
   double motion_start_seconds = 5;
   double motion_end_seconds = 6;
+  // The expert's own checkpoints, one per student timeline marker and in the
+  // same order, timestamped in the expert video. Playback interpolates between
+  // them so each phase stays aligned instead of drifting across the motion.
+  repeated PhaseMarker timeline = 7;
 }
 
 message DiagnosticValue {
@@ -107,6 +111,12 @@ message AnalyzeVideoResponse {
   repeated DiagnosticValue diagnostics = 8;
   repeated CoachingCue coaching_cues = 9;
   string overall_feedback = 10;
+  // Clean detected/corrected skeletons over the source video, without GPT
+  // annotations or inserted coaching pauses.
+  StoredVideo skeleton_overlay_video = 11;
+  // GPT suggestions, circled joints, and coaching pauses. student_video is a
+  // backward-compatible alias of this field.
+  StoredVideo feedback_video = 12;
 }
 
 message RefreshPlaybackUrlsRequest {

@@ -20,3 +20,6 @@ yolo11m-pose.pt
 logs/
 
 # Note: intentionally NOT ignoring stats/
+
+# Retired with the RTMW3D stack; nothing loads these engines.
+models/tensorrt-cache/

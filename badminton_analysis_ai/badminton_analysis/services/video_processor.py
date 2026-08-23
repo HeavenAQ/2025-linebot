@@ -186,11 +186,12 @@ class VideoProcessor:
         return self._tracking_data()
 
     def process_frames_batched(self, handedness: int | None) -> TrackingData:
-        """Offline-extraction variant of `process_frames` that batches
-        `BATCH_SIZE` frames per pose-detector call to use its TensorRT engine
-        instead of the unbatched, non-TensorRT path `process_frames` uses.
-        Only extraction can use this: it reads the whole video up front,
-        which live/interactive grading cannot do.
+        """Batched variant of `process_frames` that hands `BATCH_SIZE` frames
+        per pose-detector call so the TensorRT engine serves them, instead of
+        the unbatched, non-TensorRT path `process_frames` uses. It reads the
+        whole video up front, so it suits any caller that already has the
+        entire clip -- offline extraction, and the analysis service -- but not
+        a frame-at-a-time interactive one.
 
         Deliberately synchronous, not threaded: measured on real clips, a
         background decode thread (mirroring `process_frames`'s producer) made

@@ -30,9 +30,10 @@ _PERSON_CLASS_ID = 1
 # gracefully falls back to a coarser body-only distance metric for.
 _WHOLEBODY_KEYPOINTS = 133
 
-# Fixed batch size the cached TensorRT engine is built for. Offline extraction
-# (the only caller of get_poses_batch) pads/chunks to this size; the live
-# grading and rendering paths stay on the unbatched, non-TensorRT get_pose().
+# Fixed batch size the cached TensorRT engine is built for. Callers that hold
+# every frame already -- offline extraction, and the analysis service, which is
+# handed a complete upload -- pad/chunk to this size; the interactive
+# frame-at-a-time path stays on the unbatched, non-TensorRT get_pose().
 BATCH_SIZE = 16
 
 _TRT_CACHE_ROOT = Path(

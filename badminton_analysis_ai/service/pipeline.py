@@ -270,7 +270,15 @@ class SkeletonAnalysisPipeline:
             processor = VideoProcessor(
                 str(video_path), filename, str(output_path.parent), self.pose_detector
             )
-            tracking = processor.process_frames(None)
+            # Batched, so the pose pass runs on the cached TensorRT engine
+            # rather than frame-by-frame in PyTorch. A request arrives with the
+            # whole video already uploaded, so there is nothing to stream: the
+            # constraint that kept the batched path to offline extraction --
+            # needing the frames up front -- does not apply here. Both paths
+            # pick the same person the same way and record through the same
+            # getters; this one is roughly an order of magnitude faster per
+            # frame, which on a GPU billed by the second is the whole point.
+            tracking = processor.process_frames_batched(None)
             pose_finished = time.perf_counter()
             handedness = _resolve_handedness(tracking, requested_handedness)
             _populate_dominant_motion(tracking, handedness)

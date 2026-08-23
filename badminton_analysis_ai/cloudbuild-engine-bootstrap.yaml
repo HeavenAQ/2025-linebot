@@ -1,0 +1,16 @@
+# Builds the image used to produce the RF-DETR TensorRT engine. It is the same
+# image as production apart from skipping the engine assertion, which cannot
+# hold before the engine exists.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg=REQUIRE_TRT_ENGINE=0
+      - -t
+      - gcr.io/$PROJECT_ID/badminton-analysis:engine-builder
+      - .
+images:
+  - gcr.io/$PROJECT_ID/badminton-analysis:engine-builder
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 3600s

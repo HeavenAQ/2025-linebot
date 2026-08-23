@@ -29,10 +29,17 @@ COPY . .
 
 RUN python -c "import service.server; print('Python service imports verified')"
 
-# A missing engine is not a build error at runtime — the detector would just
-# rebuild it on every cold start, which is precisely the cost this avoids.
-RUN test "$(find models/trt-engines -name 'rfdetr-keypoint-preview.trt' | wc -l)" -ge 1 && \
-    echo "Prebuilt RF-DETR TensorRT engine included"
+# A missing engine is not a runtime error — the detector would just rebuild it
+# on every cold start, which is precisely the cost this avoids. So deployable
+# images must carry it. The exception is the bootstrap build used to produce
+# the engine in the first place, which cannot contain what it exists to create.
+ARG REQUIRE_TRT_ENGINE=1
+RUN if [ "$REQUIRE_TRT_ENGINE" = "1" ]; then \
+      test "$(find models/trt-engines -name 'rfdetr-keypoint-preview.trt' | wc -l)" -ge 1 && \
+      echo "Prebuilt RF-DETR TensorRT engine included"; \
+    else \
+      echo "Bootstrap build: RF-DETR engine not required"; \
+    fi
 
 EXPOSE 8080
 CMD ["python", "-m", "service.server"]

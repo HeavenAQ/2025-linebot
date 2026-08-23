@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
+import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
@@ -30,6 +30,18 @@ interface PauseInterval {
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
+/** Portrait phone footage, used until a video reports its real dimensions. */
+const FALLBACK_RATIO = 3 / 4
+
+/** A video's own aspect ratio, preferring what the element actually loaded. */
+const videoRatio = (element: HTMLVideoElement, current: number) =>
+  element.videoWidth > 0 && element.videoHeight > 0
+    ? element.videoWidth / element.videoHeight
+    : current
+
+const metadataRatio = (width: number, height: number) =>
+  width > 0 && height > 0 ? width / height : FALLBACK_RATIO
+
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds)) return '0:00'
   const rounded = Math.max(0, Math.floor(seconds))
@@ -45,6 +57,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
+  const [captionsOn, setCaptionsOn] = useState(true)
+  const [captionCue, setCaptionCue] = useState<CoachingCue | null>(null)
+  const [captionLive, setCaptionLive] = useState(false)
+  const [studentRatio, setStudentRatio] = useState(() =>
+    metadataRatio(playback.student_video.width, playback.student_video.height)
+  )
+  const [expertRatio, setExpertRatio] = useState(() =>
+    metadataRatio(playback.expert.video.width, playback.expert.video.height)
+  )
   const [activeCue, setActiveCue] = useState<CoachingCue | null>(playback.coaching_cues[0] ?? null)
 
   const pauses = useMemo<PauseInterval[]>(() => {
@@ -104,6 +125,24 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauses]
   )
 
+  // Captions hold the last correction the playhead reached rather than clearing
+  // between cues: each one only occupies its two-second pause, and text that
+  // blinks in and out is harder to read than text that stays put.
+  const updateCaption = useCallback(
+    (studentTime: number) => {
+      const live = pauseAtTime(studentTime)
+      if (live) {
+        setCaptionCue(live.cue)
+        setCaptionLive(true)
+        return
+      }
+      setCaptionLive(false)
+      const passed = pauses.filter(pause => studentTime >= pause.start)
+      setCaptionCue(passed.length > 0 ? passed[passed.length - 1].cue : null)
+    },
+    [pauseAtTime, pauses]
+  )
+
   const motionProgressFromStudentTime = useCallback(
     (time: number) => {
       let completedPauseDuration = 0
@@ -159,9 +198,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         expert.currentTime = expertTimeFromMotionProgress(next)
       }
       setProgress(next)
-      if (cue) setActiveCue(cue)
+      if (cue) {
+        setActiveCue(cue)
+        setCaptionCue(cue)
+        setCaptionLive(true)
+      } else {
+        updateCaption(studentTime)
+      }
     },
-    [expertDuration, expertTimeFromMotionProgress, studentTimeFromMotionProgress]
+    [expertDuration, expertTimeFromMotionProgress, studentTimeFromMotionProgress, updateCaption]
   )
 
   const setPlayback = useCallback(
@@ -192,6 +237,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     const next = motionProgressFromStudentTime(student.currentTime)
     setProgress(next)
     syncExpert(next, student.currentTime)
+    updateCaption(student.currentTime)
   }
 
   useEffect(() => {
@@ -201,6 +247,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
     setActiveCue(playback.coaching_cues[0] ?? null)
+    setCaptionCue(null)
+    setCaptionLive(false)
+    setStudentRatio(metadataRatio(playback.student_video.width, playback.student_video.height))
+    setExpertRatio(metadataRatio(playback.expert.video.width, playback.expert.video.height))
   }, [playback])
 
   const showStudent = viewMode !== 'expert'
@@ -245,39 +295,47 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         className="mx-4 mb-3"
       />
 
-      <div className={`mx-5 grid overflow-hidden rounded-lg bg-neutral-900 ${showStudent && showExpert ? 'md:grid-cols-2' : ''}`}>
-        <div className={showStudent ? 'relative' : 'hidden'}>
-          <span className="absolute left-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
-            學員修正
+      {/* Both clips stay side by side at every width — comparing is the whole
+          point, and stacking them on a phone puts the two halves of the
+          comparison a scroll apart. Each frame takes its own video's aspect
+          ratio, so the footage fills it exactly with no letterboxing. */}
+      <div className={`mx-3 grid gap-1.5 ${showStudent && showExpert ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className={showStudent ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
+          <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+            學員
           </span>
           <video
             ref={studentRef}
             src={playback.student_video.signed_url}
-            className="aspect-[4/3] w-full bg-neutral-900 object-contain"
+            className="w-full object-contain"
+            style={{ aspectRatio: studentRatio }}
             playsInline
             muted
             preload="metadata"
-            onLoadedMetadata={event => setStudentDuration(event.currentTarget.duration)}
+            onLoadedMetadata={event => {
+              setStudentDuration(event.currentTarget.duration)
+              setStudentRatio(videoRatio(event.currentTarget, studentRatio))
+            }}
             onTimeUpdate={onStudentTimeUpdate}
             onEnded={() => setPlayback(false)}
             onClick={() => setPlayback(!playingRef.current)}
           />
         </div>
-        <div
-          className={showExpert ? 'relative border-t border-white/10 md:border-l md:border-l-white/10 md:border-t-0' : 'hidden'}
-        >
-          <span className="absolute left-2 top-2 z-10 rounded-md bg-black/70 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
-            最近專家
+        <div className={showExpert ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
+          <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+            專家
           </span>
           <video
             ref={expertRef}
             src={playback.expert.video.signed_url}
-            className="aspect-[4/3] w-full bg-neutral-900 object-contain"
+            className="w-full object-contain"
+            style={{ aspectRatio: expertRatio }}
             playsInline
             muted
             preload="metadata"
             onLoadedMetadata={event => {
               setExpertDuration(event.currentTarget.duration)
+              setExpertRatio(videoRatio(event.currentTarget, expertRatio))
               event.currentTarget.currentTime = Math.min(
                 event.currentTarget.duration,
                 Math.max(0, playback.expert.motion_start_seconds)
@@ -287,6 +345,31 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           />
         </div>
       </div>
+
+      {/* The caption carries the AI's correction for the moment on screen. It
+          sits under the frames rather than over them: at half a phone's width
+          an overlay would cover the very joints it is talking about. */}
+      {captionsOn && (
+        <div className="mx-3 mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
+          {captionCue ? (
+            <>
+              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${captionLive ? 'bg-destructive' : 'bg-white/40'}`}
+                />
+                {captionCue.title}
+              </p>
+              <p className="mt-1 text-[15px] leading-6">{captionCue.feedback}</p>
+            </>
+          ) : (
+            <p className="text-[13px] leading-6 text-white/55">
+              {playback.coaching_cues.length > 0
+                ? '播放後會在這裡顯示 AI 提醒'
+                : '這次分析沒有需要修正的地方'}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="p-4">
         <div className="relative h-9">
@@ -348,9 +431,19 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             {formatTime(studentTimeFromMotionProgress(progress))} / {formatTime(studentDuration)}
           </span>
           <Button
-            variant="outline"
+            variant={captionsOn ? 'primary' : 'outline'}
             size="icon"
             className="ml-auto"
+            title={captionsOn ? '關閉 AI 字幕' : '開啟 AI 字幕'}
+            aria-label={captionsOn ? '關閉 AI 字幕' : '開啟 AI 字幕'}
+            aria-pressed={captionsOn}
+            onClick={() => setCaptionsOn(value => !value)}
+          >
+            <Captions size={17} />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
             title="全螢幕查看學員影片"
             aria-label="全螢幕查看學員影片"
             onClick={() => void studentRef.current?.requestFullscreen?.()}
@@ -387,10 +480,39 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           )}
         </div>
 
-        {activeCue && (
+        {/* Every correction as a full, tappable entry. The caption shows one at
+            a time while playing; this is where a student reads them all without
+            scrubbing the timeline to find each one. */}
+        {playback.coaching_cues.length > 0 && (
           <div className="mt-4 border-t border-border pt-4">
-            <p className="text-sm font-semibold text-destructive">{activeCue.title}</p>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">{activeCue.feedback}</p>
+            <p className="eyebrow mb-2">AI 修正建議</p>
+            <ul className="space-y-2">
+              {playback.coaching_cues.map((cue, index) => {
+                const isActive = activeCue === cue
+                return (
+                  <li key={`${cue.normalized_frame}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() => seek(cue.normalized_position, cue)}
+                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                        isActive ? 'border-destructive bg-destructive/5' : 'border-border'
+                      }`}
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" />
+                        <span className="text-sm font-semibold">{cue.title}</span>
+                        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                          {formatTime(cue.student_timestamp_seconds)}
+                        </span>
+                      </span>
+                      <span className="mt-1 block pl-4 text-sm leading-6 text-muted-foreground">
+                        {cue.feedback}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         )}
       </div>

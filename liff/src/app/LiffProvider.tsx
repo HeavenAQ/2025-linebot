@@ -21,6 +21,15 @@ const LiffContext = createContext<{
 
 export const useLiff = () => useContext(LiffContext)
 
+/**
+ * A LINE user ID to stand in for a real login during local development.
+ *
+ * Set NEXT_PUBLIC_DEV_USER_ID in liff/.env.local to a real learner's ID and the
+ * pages render that learner's data straight from the local backend. Left unset,
+ * nothing changes and the normal LIFF login runs.
+ */
+const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
+
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -30,6 +39,23 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
   const initLiff = useCallback(async () => {
     if (initializedRef.current) return
     try {
+      // Local design work cannot go through LIFF: liff.login() hands off to
+      // LINE, which redirects back to the endpoint URL registered in the LINE
+      // console — the production site — so localhost bounces away before it
+      // renders anything. With a user ID set, stand in for LIFF and render
+      // against whatever backend NEXT_PUBLIC_BACKEND_BASE_URL points at.
+      // Guarded on NODE_ENV so a production build can never take this path.
+      if (process.env.NODE_ENV !== 'production' && devUserId) {
+        setProfile({
+          userId: devUserId,
+          displayName: process.env.NEXT_PUBLIC_DEV_DISPLAY_NAME || '開發測試帳號'
+        } as Profile)
+        setLiff({ isLoggedIn: () => true, login: () => undefined } as unknown as Liff)
+        initializedRef.current = true
+        console.info('LIFF bypassed for local development; user:', devUserId)
+        return
+      }
+
       if (!liffId) {
         setLiffError('Missing NEXT_PUBLIC_LIFF_ID. Set it to your LIFF app ID.')
         return

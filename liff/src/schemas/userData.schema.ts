@@ -24,6 +24,8 @@ export const MediaRefSchema = z.object({
   height: z.number().optional().default(0)
 })
 
+const OptionalMediaRefSchema = z.preprocess(value => value ?? {}, MediaRefSchema)
+
 export const PhaseMarkerSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -71,6 +73,8 @@ export const WorkSchema = z.object({
   grading_outcome: GradingOutcomeSchema,
   analysis_id: z.string().optional().default(''),
   student_video: MediaRefSchema.optional(),
+  feedback_video: OptionalMediaRefSchema.optional(),
+  skeleton_overlay_video: OptionalMediaRefSchema.optional(),
   expert: ExpertMatchSchema.optional(),
   timeline: z.preprocess(value => value ?? [], z.array(PhaseMarkerSchema)),
   coaching_cues: z.preprocess(value => value ?? [], z.array(CoachingCueSchema))
@@ -115,6 +119,8 @@ export const PlaybackResponseSchema = z.object({
   analysis_id: z.string(),
   handedness: z.enum(['left', 'right']).optional().default('right'),
   student_video: MediaRefSchema,
+  feedback_video: OptionalMediaRefSchema,
+  skeleton_overlay_video: OptionalMediaRefSchema,
   expert: ExpertMatchSchema,
   timeline: z.array(PhaseMarkerSchema),
   coaching_cues: z.array(CoachingCueSchema),

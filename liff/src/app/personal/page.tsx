@@ -2,7 +2,7 @@
 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import React, { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Columns2 } from 'lucide-react'
+import { BarChart3, Columns2, NotebookPen } from 'lucide-react'
 
 import { useLiff } from '../LiffProvider'
 import type { GradingDetail, PlaybackResponse, UserData } from '@/types'
@@ -21,11 +21,15 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
+import { useSkillSummary } from '@/lib/useSkillSummary'
+import SkillSummary from '@/components/SkillSummary'
+import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
 
 const TAB_OPTIONS = [
   { value: 'scores', label: '成績分析', icon: BarChart3 },
-  { value: 'comparison', label: '影片比較', icon: Columns2 }
+  { value: 'comparison', label: '影片比較', icon: Columns2 },
+  { value: 'review', label: '每週回顧', icon: NotebookPen }
 ] as const
 
 type TabValue = (typeof TAB_OPTIONS)[number]['value']
@@ -104,6 +108,17 @@ export default function PersonalPage() {
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const { liff, profile, liffError } = useLiff()
+  const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
+
+  // The bot links straight to a tab (?tab=review from 每週回顧), so a student
+  // arriving from LINE lands where they were sent rather than on the default.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const requested = new URLSearchParams(window.location.search).get('tab')
+    if (TAB_OPTIONS.some(option => option.value === requested)) {
+      setActiveTab(requested as TabValue)
+    }
+  }, [])
 
   useEffect(() => {
     if (liffError) {
@@ -277,6 +292,13 @@ export default function PersonalPage() {
           </div>
         )}
 
+        <SkillSummary
+          skill={selectedSkill}
+          summary={aiSummary.summary}
+          loading={aiSummary.loading}
+          error={aiSummary.error}
+        />
+
         <Segmented
           role="tablist"
           label="學習歷程檢視"
@@ -343,6 +365,12 @@ export default function PersonalPage() {
                 {playbackError}
               </Alert>
             )}
+          </div>
+        )}
+
+        {activeTab === 'review' && profile?.userId && (
+          <div role="tabpanel">
+            <WeeklyReview userId={profile.userId} userData={userData} />
           </div>
         )}
       </main>

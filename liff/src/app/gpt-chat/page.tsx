@@ -9,68 +9,27 @@ import { PageContainer } from '@/components/ui/page'
 import { SelectField } from '@/components/ui/select'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
+import { useSkillSummary } from '@/lib/useSkillSummary'
+import SkillSummary from '@/components/SkillSummary'
 import { getBackendBaseUrl } from '@/utils/env'
 
-type ChatMessage = {
-  role: string
-  text: string
-  skill: string
-  conversation_id?: string
-  timestamp?: string
-}
 export default function GptChatPage() {
   const [userData, setUserData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedSkill, setSelectedSkill] = useState<Skill>('serve')
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
-  const [summary, setSummary] = useState('') // Stores GPT summary
   const { liff, profile } = useLiff()
+  const {
+    summary,
+    messages: chatHistory,
+    loading: summaryLoading,
+    error: summaryError
+  } = useSkillSummary(profile?.userId, selectedSkill)
 
   useEffect(() => {
     if (liff) {
       if (!liff.isLoggedIn || !profile) {
         liff.login()
         return
-      }
-    }
-
-    const fetchChatHistory = async (userId: string, skill: string) => {
-      setLoading(true)
-      setChatHistory([])
-      setSummary('')
-      try {
-        const qs = new URLSearchParams({ user_id: userId, skill })
-        const base = getBackendBaseUrl()
-        const response = await fetch(`${base}/api/chat/history?${qs.toString()}`)
-        if (!response.ok) throw new Error(`Failed to fetch chat history: ${response.statusText}`)
-
-        const json = await response.json()
-        const messages: ChatMessage[] = Array.isArray(json.data) ? json.data : []
-        setChatHistory(messages)
-
-        // Prepare latest up to 10 messages' content for summarization. The
-        // request goes out even with no messages: the backend grounds the
-        // summary in the learner's recent scores, which may exist on their own.
-        const lastMessages = messages
-          .slice(-10)
-          .map(m => m.text)
-          .filter(Boolean)
-        const body = { content: lastMessages.join('\n'), user_id: userId, skill }
-        const sumRes = await fetch(`${base}/api/chat/summarize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-        if (sumRes.ok) {
-          const sumJson = await sumRes.json()
-          setSummary(sumJson.summary || '')
-        } else {
-          setSummary('')
-        }
-      } catch (error) {
-        console.error('Error fetching chat history:', error)
-      } finally {
-        setLoading(false)
       }
     }
 
@@ -83,11 +42,6 @@ export default function GptChatPage() {
         }
         const data = await response.json()
         setUserData(data)
-
-        // Load chat history for the selected skill
-        if (profile?.userId) {
-          await fetchChatHistory(profile.userId, selectedSkill)
-        }
       } catch (err) {
         if (err instanceof Error) console.log(err.message)
       } finally {
@@ -96,7 +50,7 @@ export default function GptChatPage() {
     }
 
     fetchData()
-  }, [liff, profile, selectedSkill])
+  }, [liff, profile])
 
   const availableSkills = Object.keys(userData?.gpt_conversation_ids || {}) as Skill[]
 
@@ -117,30 +71,25 @@ export default function GptChatPage() {
   return (
     <PageContainer className="pt-6">
       <main className="space-y-5">
-        <Card className="animate-fade-down">
-          <CardHeader>
-            <CardTitle>動作學習總結</CardTitle>
-            <SelectField
-              label="選擇技能"
-              className="mt-2 max-w-[12rem]"
-              value={selectedSkill}
-              onChange={e => setSelectedSkill(e.target.value as Skill)}
-            >
-              {availableSkills.map(skill => (
-                <option key={skill} value={skill}>
-                  {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
-                </option>
-              ))}
-            </SelectField>
-          </CardHeader>
-          <CardContent>
-            {summary ? (
-              <p className="whitespace-pre-line break-words text-sm leading-7">{summary}</p>
-            ) : (
-              <p className="text-sm text-muted-foreground">這個技能還沒有可摘要的對話或成績。</p>
-            )}
-          </CardContent>
-        </Card>
+        <SelectField
+          label="選擇技能"
+          className="max-w-[12rem]"
+          value={selectedSkill}
+          onChange={e => setSelectedSkill(e.target.value as Skill)}
+        >
+          {availableSkills.map(skill => (
+            <option key={skill} value={skill}>
+              {SkillNameMap[skill as keyof typeof SkillNameMap] || skill}
+            </option>
+          ))}
+        </SelectField>
+
+        <SkillSummary
+          skill={selectedSkill}
+          summary={summary}
+          loading={summaryLoading}
+          error={summaryError}
+        />
 
         <Card className="animate-fade-down">
           <CardHeader>

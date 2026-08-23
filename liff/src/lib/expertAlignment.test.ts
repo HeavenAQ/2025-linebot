@@ -79,6 +79,41 @@ test('ignores a mismatched expert timeline', () => {
   ])
 })
 
+// Serve grades the hip rotation (keyframe 4) before the wrist flick (keyframe
+// 3), and pairs of criteria share a keyframe, so the timeline arrives neither
+// chronological nor distinct. Anchors must still come out ordered.
+test('orders a serve timeline that is listed out of stroke order', () => {
+  const student = [
+    marker('arms_raised', 0.19, 0),
+    marker('racket_foot_weight', 0.19, 0),
+    marker('weight_transfer', 0.48, 0),
+    marker('hip_rotation', 1, 0),
+    marker('wrist_flick', 0.75, 0),
+    marker('shoulder_rotation', 1, 0)
+  ]
+  const expert = [
+    marker('arms_raised', 0.19, 1.3),
+    marker('racket_foot_weight', 0.19, 1.3),
+    marker('weight_transfer', 0.48, 1.9),
+    marker('hip_rotation', 1, 3),
+    marker('wrist_flick', 0.75, 2.5),
+    marker('shoulder_rotation', 1, 3)
+  ]
+
+  const anchors = buildAlignmentAnchors(student, expert, 1, 3)
+
+  assert.deepEqual(anchors, [
+    { position: 0, seconds: 1 },
+    { position: 0.19, seconds: 1.3 },
+    { position: 0.48, seconds: 1.9 },
+    { position: 0.75, seconds: 2.5 },
+    { position: 1, seconds: 3 }
+  ])
+  // The wrist flick maps to the expert's wrist flick, not to whatever the
+  // expert happened to be doing three quarters of the way through.
+  assert.equal(expertTimeAt(anchors, 0.75), 2.5)
+})
+
 test('runs the expert at each segment own tempo', () => {
   const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3)
   const motionDuration = 4

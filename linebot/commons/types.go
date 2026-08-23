@@ -22,6 +22,13 @@ type SkillScore struct {
 	Details     []GradingDetail `json:"grading_details" firestore:"grading_details"`
 }
 
+// SkillHistory is one skill's recent graded attempts, newest first. It is what
+// the weekly preview reasons over: how a learner is doing, skill by skill.
+type SkillHistory struct {
+	Skill  string       `json:"skill" firestore:"skill"`
+	Scores []SkillScore `json:"scores" firestore:"scores"`
+}
+
 type MediaRef struct {
 	ObjectPath       string  `json:"object_path" firestore:"object_path"`
 	GCSURI           string  `json:"gcs_uri" firestore:"gcs_uri"`
@@ -40,6 +47,10 @@ type ExpertMatch struct {
 	Video              MediaRef `json:"video" firestore:"video"`
 	MotionStartSeconds float64  `json:"motion_start_seconds" firestore:"motion_start_seconds"`
 	MotionEndSeconds   float64  `json:"motion_end_seconds" firestore:"motion_end_seconds"`
+	// Timeline holds the expert's checkpoints in the expert video's own time
+	// base, matching the analysis timeline marker for marker. Empty for
+	// analyses recorded before checkpoint alignment.
+	Timeline []PhaseMarker `json:"timeline" firestore:"timeline"`
 }
 
 type PhaseMarker struct {
@@ -61,14 +72,16 @@ type CoachingCue struct {
 }
 
 type AnalysisOutcome struct {
-	AnalysisID      string             `json:"analysis_id" firestore:"analysis_id"`
-	Skill           string             `json:"skill" firestore:"skill"`
-	Handedness      string             `json:"handedness" firestore:"handedness"`
-	Grade           GradingOutcome     `json:"grade" firestore:"grade"`
-	StudentVideo    MediaRef           `json:"student_video" firestore:"student_video"`
-	Expert          ExpertMatch        `json:"expert" firestore:"expert"`
-	Timeline        []PhaseMarker      `json:"timeline" firestore:"timeline"`
-	CoachingCues    []CoachingCue      `json:"coaching_cues" firestore:"coaching_cues"`
-	OverallFeedback string             `json:"overall_feedback" firestore:"overall_feedback"`
-	Diagnostics     map[string]float64 `json:"diagnostics" firestore:"diagnostics"`
+	AnalysisID           string             `json:"analysis_id" firestore:"analysis_id"`
+	Skill                string             `json:"skill" firestore:"skill"`
+	Handedness           string             `json:"handedness" firestore:"handedness"`
+	Grade                GradingOutcome     `json:"grade" firestore:"grade"`
+	StudentVideo         MediaRef           `json:"student_video" firestore:"student_video"`
+	FeedbackVideo        MediaRef           `json:"feedback_video" firestore:"feedback_video"`
+	SkeletonOverlayVideo MediaRef           `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
+	Expert               ExpertMatch        `json:"expert" firestore:"expert"`
+	Timeline             []PhaseMarker      `json:"timeline" firestore:"timeline"`
+	CoachingCues         []CoachingCue      `json:"coaching_cues" firestore:"coaching_cues"`
+	OverallFeedback      string             `json:"overall_feedback" firestore:"overall_feedback"`
+	Diagnostics          map[string]float64 `json:"diagnostics" firestore:"diagnostics"`
 }

@@ -96,6 +96,10 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 			app.handlePostbackDataTypeError(err, replyToken)
 			return
 		}
+		if !db.IsSupportedSkill(data.Skill) {
+			app.rejectUnsupportedSkill(user.ID, data.Skill, replyToken)
+			return
+		}
 		session.Skill = data.Skill
 
 		if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
@@ -140,6 +144,10 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			app.handlePostbackDataTypeError(err, replyToken)
 			return
 		}
+		if !db.IsSupportedSkill(lineData.Skill) {
+			app.rejectUnsupportedSkill(user.ID, lineData.Skill, replyToken)
+			return
+		}
 		session.Skill = lineData.Skill
 		app.FirestoreClient.UpdateUserSession(user.ID, *session)
 
@@ -147,6 +155,13 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		app.LineBot.SendGPTChattingModeReply(replyToken, "已進入和GPT對話模式")
 
 	case db.Chatting:
+		// A session saved before the skill was withdrawn would otherwise keep
+		// coaching on it for the rest of the conversation.
+		if !db.IsSupportedSkill(session.Skill) {
+			app.rejectUnsupportedSkill(user.ID, session.Skill, replyToken)
+			return
+		}
+
 		// Get user text message
 		var msg string
 		message, ok := event.Message.(*linebot.TextMessage)
@@ -225,6 +240,14 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 		return
 	}
 
+	// The skill picker no longer offers unsupported skills, so this is a stale
+	// payload. Past lift/clear work is still readable through the learning
+	// dashboard and the portfolio cards already sitting in the chat.
+	if !db.IsSupportedSkill(data.Skill) {
+		app.rejectUnsupportedSkill(user.ID, data.Skill, replyToken)
+		return
+	}
+
 	if err := app.LineBot.SendPortfolio(
 		event,
 		user,
@@ -270,27 +293,19 @@ func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string
 // 3. Individual Action Handlers
 // ============================================================================
 
-// forceStateToWritingNotes forces the session to WritingNotes, prompting the user.
-func (app *App) forceStateToWritingNotes(user *db.UserData, session *db.UserSession, data *line.WritingNotePostback, replyToken string) {
-	actionStep, err := db.ActionStepStrToEnum(data.ActionStep)
-	if err != nil {
-		app.Logger.Warn.Println("Invalid action step for updating note")
-		app.FirestoreClient.ResetSession(user.ID)
-		return
+// forceStateToWritingNotes used to put the session into note-writing mode. The
+// 預習及反思 buttons on portfolio cards still sitting in learners' chat history
+// lead here, so rather than starting a conversation that no longer exists it
+// sends them to the web app, where the note now lives.
+func (app *App) forceStateToWritingNotes(user *db.UserData, _ *db.UserSession, data *line.WritingNotePostback, replyToken string) {
+	app.Logger.Info.Printf(
+		"[notes] deprecated note postback user_id=%s skill=%s work_date=%s",
+		user.ID, data.Skill, data.WorkDate,
+	)
+	app.FirestoreClient.ResetSession(user.ID)
+	if _, err := app.LineBot.SendWeeklyReviewLink(replyToken, app.Config.ReviewURL()); err != nil {
+		app.handleSendingReplyMessageError(err, replyToken)
 	}
-
-	session.ActionStep = actionStep
-	session.UpdatedDate = data.WorkDate
-	session.UserState = db.WritingNotes
-	session.Skill = data.Skill
-
-	if err := app.FirestoreClient.UpdateUserSession(user.ID, *session); err != nil {
-		app.handleUpdateSessionError(err, replyToken)
-		return
-	}
-
-	msg := generateUpdateNoteMessage(data.WorkDate, data.Skill, actionStep)
-	app.LineBot.SendReply(replyToken, msg)
 }
 
 // handleSelectingPortfolio is invoked when selecting which portfolio entry to update.
@@ -413,6 +428,14 @@ func (app *App) handleWatchPortfolioVideo(
 
 // handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
+	// Last line of defence before the analysis call: a video message routes
+	// straight here on the session's stored skill, which may have been chosen
+	// before the skill was withdrawn.
+	if !db.IsSupportedSkill(session.Skill) {
+		app.rejectUnsupportedSkill(user.ID, session.Skill, replyToken)
+		return
+	}
+
 	// Get video content
 	videoContent, err := app.getVideoContent(event, user.ID)
 	if err != nil {
@@ -563,6 +586,23 @@ func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep)
 // 4.5 Helper for Selecting Skill
 // --------------------------------------------------------------------
 
+// rejectUnsupportedSkill turns away a request for a skill the course is not
+// running this semester. The selection UI never offers one, so reaching here
+// means a stale postback, an old rich menu, or a client that skipped the menu.
+// The session is reset so the learner lands back on the main menu instead of
+// being stranded mid-flow, and nothing downstream (analysis, GPT, portfolio
+// writes) is called.
+func (app *App) rejectUnsupportedSkill(userID, skill, replyToken string) {
+	app.Logger.Warn.Printf(
+		"Unsupported skill requested. User ID: %v, Skill: %v", userID, skill,
+	)
+	if err := app.FirestoreClient.ResetSession(userID); err != nil {
+		app.Logger.Warn.Println("Error resetting session after unsupported skill:", err)
+	}
+	_, err := app.LineBot.SendUnsupportedSkillReply(replyToken, skill)
+	handleLineMessageResponseError(err)
+}
+
 // handleSelectingSkill helps transition the user from “SelectingSkill” to the
 // next action, e.g., choosing handedness or uploading a video.
 func (app *App) handleSelectingSkill(
@@ -575,6 +615,11 @@ func (app *App) handleSelectingSkill(
 	data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)
+		return
+	}
+
+	if !db.IsSupportedSkill(data.Skill) {
+		app.rejectUnsupportedSkill(event.Source.UserID, data.Skill, replyToken)
 		return
 	}
 
@@ -592,6 +637,13 @@ func (app *App) handleSelectingSkill(
 // handleSendingExpertVideos is a helper that sets up the correct expert videos
 // after the user selects their handedness.
 func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.UserSession, replyToken string) {
+	// The skill was already checked when it was selected; re-check in case the
+	// session was saved before the skill was withdrawn.
+	if !db.IsSupportedSkill(session.Skill) {
+		app.rejectUnsupportedSkill(event.Source.UserID, session.Skill, replyToken)
+		return
+	}
+
 	data, err := app.LineBot.HandleSelectingHandednessPostbackData(event.Postback.Data)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)

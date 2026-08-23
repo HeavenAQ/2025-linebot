@@ -690,8 +690,12 @@ type ExpertMatch struct {
 	Video              *StoredVideo           `protobuf:"bytes,4,opt,name=video,proto3" json:"video,omitempty"`
 	MotionStartSeconds float64                `protobuf:"fixed64,5,opt,name=motion_start_seconds,json=motionStartSeconds,proto3" json:"motion_start_seconds,omitempty"`
 	MotionEndSeconds   float64                `protobuf:"fixed64,6,opt,name=motion_end_seconds,json=motionEndSeconds,proto3" json:"motion_end_seconds,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The expert's own checkpoints, one per student timeline marker and in the
+	// same order, timestamped in the expert video. Playback interpolates between
+	// them so each phase stays aligned instead of drifting across the motion.
+	Timeline      []*PhaseMarker `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExpertMatch) Reset() {
@@ -766,6 +770,13 @@ func (x *ExpertMatch) GetMotionEndSeconds() float64 {
 	return 0
 }
 
+func (x *ExpertMatch) GetTimeline() []*PhaseMarker {
+	if x != nil {
+		return x.Timeline
+	}
+	return nil
+}
+
 type DiagnosticValue struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -830,8 +841,14 @@ type AnalyzeVideoResponse struct {
 	Diagnostics     []*DiagnosticValue     `protobuf:"bytes,8,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
 	CoachingCues    []*CoachingCue         `protobuf:"bytes,9,rep,name=coaching_cues,json=coachingCues,proto3" json:"coaching_cues,omitempty"`
 	OverallFeedback string                 `protobuf:"bytes,10,opt,name=overall_feedback,json=overallFeedback,proto3" json:"overall_feedback,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Clean detected/corrected skeletons over the source video, without GPT
+	// annotations or inserted coaching pauses.
+	SkeletonOverlayVideo *StoredVideo `protobuf:"bytes,11,opt,name=skeleton_overlay_video,json=skeletonOverlayVideo,proto3" json:"skeleton_overlay_video,omitempty"`
+	// GPT suggestions, circled joints, and coaching pauses. student_video is a
+	// backward-compatible alias of this field.
+	FeedbackVideo *StoredVideo `protobuf:"bytes,12,opt,name=feedback_video,json=feedbackVideo,proto3" json:"feedback_video,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AnalyzeVideoResponse) Reset() {
@@ -932,6 +949,20 @@ func (x *AnalyzeVideoResponse) GetOverallFeedback() string {
 		return x.OverallFeedback
 	}
 	return ""
+}
+
+func (x *AnalyzeVideoResponse) GetSkeletonOverlayVideo() *StoredVideo {
+	if x != nil {
+		return x.SkeletonOverlayVideo
+	}
+	return nil
+}
+
+func (x *AnalyzeVideoResponse) GetFeedbackVideo() *StoredVideo {
+	if x != nil {
+		return x.FeedbackVideo
+	}
+	return nil
 }
 
 type RefreshPlaybackUrlsRequest struct {
@@ -1162,17 +1193,18 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x10duration_seconds\x18\x05 \x01(\x01R\x0fdurationSeconds\x12\x10\n" +
 	"\x03fps\x18\x06 \x01(\x01R\x03fps\x12\x14\n" +
 	"\x05width\x18\a \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\b \x01(\x05R\x06height\"\x98\x02\n" +
+	"\x06height\x18\b \x01(\x05R\x06height\"\xd8\x02\n" +
 	"\vExpertMatch\x12\x1b\n" +
 	"\texpert_id\x18\x01 \x01(\tR\bexpertId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12/\n" +
 	"\x13correction_distance\x18\x03 \x01(\x01R\x12correctionDistance\x128\n" +
 	"\x05video\x18\x04 \x01(\v2\".badminton.analysis.v1.StoredVideoR\x05video\x120\n" +
 	"\x14motion_start_seconds\x18\x05 \x01(\x01R\x12motionStartSeconds\x12,\n" +
-	"\x12motion_end_seconds\x18\x06 \x01(\x01R\x10motionEndSeconds\"9\n" +
+	"\x12motion_end_seconds\x18\x06 \x01(\x01R\x10motionEndSeconds\x12>\n" +
+	"\btimeline\x18\a \x03(\v2\".badminton.analysis.v1.PhaseMarkerR\btimeline\"9\n" +
 	"\x0fDiagnosticValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value\"\xee\x04\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value\"\x93\x06\n" +
 	"\x14AnalyzeVideoResponse\x12\x1f\n" +
 	"\vanalysis_id\x18\x01 \x01(\tR\n" +
 	"analysisId\x122\n" +
@@ -1187,7 +1219,9 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\vdiagnostics\x18\b \x03(\v2&.badminton.analysis.v1.DiagnosticValueR\vdiagnostics\x12G\n" +
 	"\rcoaching_cues\x18\t \x03(\v2\".badminton.analysis.v1.CoachingCueR\fcoachingCues\x12)\n" +
 	"\x10overall_feedback\x18\n" +
-	" \x01(\tR\x0foverallFeedback\"?\n" +
+	" \x01(\tR\x0foverallFeedback\x12X\n" +
+	"\x16skeleton_overlay_video\x18\v \x01(\v2\".badminton.analysis.v1.StoredVideoR\x14skeletonOverlayVideo\x12I\n" +
+	"\x0efeedback_video\x18\f \x01(\v2\".badminton.analysis.v1.StoredVideoR\rfeedbackVideo\"?\n" +
 	"\x1aRefreshPlaybackUrlsRequest\x12!\n" +
 	"\fobject_paths\x18\x01 \x03(\tR\vobjectPaths\"Y\n" +
 	"\x1bRefreshPlaybackUrlsResponse\x12:\n" +
@@ -1252,27 +1286,30 @@ var file_badminton_analysis_v1_analysis_proto_depIdxs = []int32{
 	2,  // 2: badminton.analysis.v1.AnalyzeVideoChunk.header:type_name -> badminton.analysis.v1.AnalyzeVideoHeader
 	4,  // 3: badminton.analysis.v1.GradingOutcome.grading_details:type_name -> badminton.analysis.v1.GradingDetail
 	8,  // 4: badminton.analysis.v1.ExpertMatch.video:type_name -> badminton.analysis.v1.StoredVideo
-	0,  // 5: badminton.analysis.v1.AnalyzeVideoResponse.skill:type_name -> badminton.analysis.v1.Skill
-	1,  // 6: badminton.analysis.v1.AnalyzeVideoResponse.handedness:type_name -> badminton.analysis.v1.Handedness
-	5,  // 7: badminton.analysis.v1.AnalyzeVideoResponse.grade:type_name -> badminton.analysis.v1.GradingOutcome
-	8,  // 8: badminton.analysis.v1.AnalyzeVideoResponse.student_video:type_name -> badminton.analysis.v1.StoredVideo
-	9,  // 9: badminton.analysis.v1.AnalyzeVideoResponse.expert:type_name -> badminton.analysis.v1.ExpertMatch
-	6,  // 10: badminton.analysis.v1.AnalyzeVideoResponse.timeline:type_name -> badminton.analysis.v1.PhaseMarker
-	10, // 11: badminton.analysis.v1.AnalyzeVideoResponse.diagnostics:type_name -> badminton.analysis.v1.DiagnosticValue
-	7,  // 12: badminton.analysis.v1.AnalyzeVideoResponse.coaching_cues:type_name -> badminton.analysis.v1.CoachingCue
-	8,  // 13: badminton.analysis.v1.RefreshPlaybackUrlsResponse.videos:type_name -> badminton.analysis.v1.StoredVideo
-	0,  // 14: badminton.analysis.v1.HealthResponse.loaded_skills:type_name -> badminton.analysis.v1.Skill
-	3,  // 15: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:input_type -> badminton.analysis.v1.AnalyzeVideoChunk
-	12, // 16: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:input_type -> badminton.analysis.v1.RefreshPlaybackUrlsRequest
-	14, // 17: badminton.analysis.v1.BadmintonAnalysis.Health:input_type -> badminton.analysis.v1.HealthRequest
-	11, // 18: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:output_type -> badminton.analysis.v1.AnalyzeVideoResponse
-	13, // 19: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:output_type -> badminton.analysis.v1.RefreshPlaybackUrlsResponse
-	15, // 20: badminton.analysis.v1.BadmintonAnalysis.Health:output_type -> badminton.analysis.v1.HealthResponse
-	18, // [18:21] is the sub-list for method output_type
-	15, // [15:18] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	6,  // 5: badminton.analysis.v1.ExpertMatch.timeline:type_name -> badminton.analysis.v1.PhaseMarker
+	0,  // 6: badminton.analysis.v1.AnalyzeVideoResponse.skill:type_name -> badminton.analysis.v1.Skill
+	1,  // 7: badminton.analysis.v1.AnalyzeVideoResponse.handedness:type_name -> badminton.analysis.v1.Handedness
+	5,  // 8: badminton.analysis.v1.AnalyzeVideoResponse.grade:type_name -> badminton.analysis.v1.GradingOutcome
+	8,  // 9: badminton.analysis.v1.AnalyzeVideoResponse.student_video:type_name -> badminton.analysis.v1.StoredVideo
+	9,  // 10: badminton.analysis.v1.AnalyzeVideoResponse.expert:type_name -> badminton.analysis.v1.ExpertMatch
+	6,  // 11: badminton.analysis.v1.AnalyzeVideoResponse.timeline:type_name -> badminton.analysis.v1.PhaseMarker
+	10, // 12: badminton.analysis.v1.AnalyzeVideoResponse.diagnostics:type_name -> badminton.analysis.v1.DiagnosticValue
+	7,  // 13: badminton.analysis.v1.AnalyzeVideoResponse.coaching_cues:type_name -> badminton.analysis.v1.CoachingCue
+	8,  // 14: badminton.analysis.v1.AnalyzeVideoResponse.skeleton_overlay_video:type_name -> badminton.analysis.v1.StoredVideo
+	8,  // 15: badminton.analysis.v1.AnalyzeVideoResponse.feedback_video:type_name -> badminton.analysis.v1.StoredVideo
+	8,  // 16: badminton.analysis.v1.RefreshPlaybackUrlsResponse.videos:type_name -> badminton.analysis.v1.StoredVideo
+	0,  // 17: badminton.analysis.v1.HealthResponse.loaded_skills:type_name -> badminton.analysis.v1.Skill
+	3,  // 18: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:input_type -> badminton.analysis.v1.AnalyzeVideoChunk
+	12, // 19: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:input_type -> badminton.analysis.v1.RefreshPlaybackUrlsRequest
+	14, // 20: badminton.analysis.v1.BadmintonAnalysis.Health:input_type -> badminton.analysis.v1.HealthRequest
+	11, // 21: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:output_type -> badminton.analysis.v1.AnalyzeVideoResponse
+	13, // 22: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:output_type -> badminton.analysis.v1.RefreshPlaybackUrlsResponse
+	15, // 23: badminton.analysis.v1.BadmintonAnalysis.Health:output_type -> badminton.analysis.v1.HealthResponse
+	21, // [21:24] is the sub-list for method output_type
+	18, // [18:21] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_badminton_analysis_v1_analysis_proto_init() }

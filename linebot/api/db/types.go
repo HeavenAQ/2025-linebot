@@ -1,6 +1,9 @@
 package db
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 type enum interface {
 	String() string
@@ -148,4 +151,58 @@ func SkillStrToEnum(str string) BadmintonSkill {
 	default:
 		return -1
 	}
+}
+
+// Valid reports whether the value names a real skill. SkillStrToEnum returns -1
+// for anything it does not recognise, and String/ChnString index a fixed array,
+// so an unchecked value would panic.
+func (s BadmintonSkill) Valid() bool {
+	return s >= Serve && s <= Lift
+}
+
+// unsupportedSkills are the skills the course is not running this semester.
+//
+// PER-SEMESTER TOGGLE: this map is the single source of truth for which skills
+// students may start new work on. To offer a skill again next semester, delete
+// its line here — the selection UI, the flow guards and the weekly preview all
+// read from it, so nothing else needs to change. Removing a skill only blocks
+// NEW activity; historical portfolio entries, scores and analyses for it stay
+// readable everywhere.
+var unsupportedSkills = map[BadmintonSkill]bool{
+	Clear: true,
+	Lift:  true,
+}
+
+// Supported reports whether a student may start new work on this skill this
+// semester. An unrecognised skill is never supported.
+func (s BadmintonSkill) Supported() bool {
+	return s.Valid() && !unsupportedSkills[s]
+}
+
+// IsSupportedSkill reports whether a raw skill string (a postback payload, a
+// stored session field, a query parameter) names a skill offered this semester.
+func IsSupportedSkill(str string) bool {
+	return SkillStrToEnum(str).Supported()
+}
+
+// SupportedSkills lists this semester's skills in enum order, so every place a
+// student is offered a choice presents the same set in the same order.
+func SupportedSkills() []BadmintonSkill {
+	skills := make([]BadmintonSkill, 0, len(SkillOrder))
+	for skill := Serve; skill <= Lift; skill++ {
+		if skill.Supported() {
+			skills = append(skills, skill)
+		}
+	}
+	return skills
+}
+
+// SupportedSkillsChnString names this semester's skills for a learner-facing
+// message, e.g. "【發球】、【殺球】".
+func SupportedSkillsChnString() string {
+	names := make([]string, 0, len(SkillOrder))
+	for _, skill := range SupportedSkills() {
+		names = append(names, "【"+skill.ChnString()+"】")
+	}
+	return strings.Join(names, "、")
 }

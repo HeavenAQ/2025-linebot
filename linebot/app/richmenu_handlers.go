@@ -57,14 +57,13 @@ func (app *App) processAnalyzingVideo(user *db.UserData, userState db.UserState,
 	})()
 }
 
-func (app *App) processWritingNotes(user *db.UserData, userState db.UserState, replyToken string) {
+// processWritingNotes no longer collects a note over chat. Reflections moved to
+// the web app's weekly review tab, so this hands the learner the link and
+// clears any half-finished note session they were left in.
+func (app *App) processWritingNotes(user *db.UserData, _ db.UserState, replyToken string) {
 	processWrapper(app, user, replyToken, func(replyToken string) (*linebot.BasicResponse, error) {
-		err := app.FirestoreClient.UpdateSessionUserState(user.ID, db.WritingNotes, db.SelectingSkill)
-		if err != nil {
-			app.handleUpdateSessionError(err, replyToken)
-			return nil, err
-		}
-		return app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要紀錄的動作")
+		app.FirestoreClient.ResetSession(user.ID)
+		return app.LineBot.SendWeeklyReviewLink(replyToken, app.Config.ReviewURL())
 	})()
 }
 

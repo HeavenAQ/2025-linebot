@@ -156,15 +156,21 @@ func media(value *analysisv1.StoredVideo) commons.MediaRef {
 	}
 }
 
+func phaseMarkers(values []*analysisv1.PhaseMarker) []commons.PhaseMarker {
+	markers := make([]commons.PhaseMarker, 0, len(values))
+	for _, value := range values {
+		markers = append(markers, commons.PhaseMarker{ID: value.Id, Label: value.Label, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, TimestampSeconds: value.TimestampSeconds})
+	}
+	return markers
+}
+
 func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome {
 	details := make([]commons.GradingDetail, 0, len(response.Grade.GradingDetails))
 	for _, value := range response.Grade.GradingDetails {
 		details = append(details, commons.GradingDetail{CriterionID: value.CriterionId, Description: value.Description, Grade: value.Grade, Maximum: value.Maximum})
 	}
-	timeline := make([]commons.PhaseMarker, 0, len(response.Timeline))
-	for _, value := range response.Timeline {
-		timeline = append(timeline, commons.PhaseMarker{ID: value.Id, Label: value.Label, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, TimestampSeconds: value.TimestampSeconds})
-	}
+	timeline := phaseMarkers(response.Timeline)
+	expertTimeline := phaseMarkers(response.Expert.Timeline)
 	cues := make([]commons.CoachingCue, 0, len(response.CoachingCues))
 	for _, value := range response.CoachingCues {
 		cues = append(cues, commons.CoachingCue{Title: value.Title, Feedback: value.Feedback, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, StudentTimestampSeconds: value.StudentTimestampSeconds, PauseDurationSeconds: value.PauseDurationSeconds, JointIDs: value.JointIds})
@@ -173,20 +179,33 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 	for _, value := range response.Diagnostics {
 		diagnostics[value.Key] = value.Value
 	}
+	studentVideo := media(response.StudentVideo)
+	feedbackVideo := media(response.FeedbackVideo)
+	if feedbackVideo.ObjectPath == "" {
+		feedbackVideo = studentVideo
+	}
 	return &commons.AnalysisOutcome{
-		AnalysisID:   response.AnalysisId,
-		Skill:        strings.TrimPrefix(strings.ToLower(response.Skill.String()), "skill_"),
-		Handedness:   strings.TrimPrefix(strings.ToLower(response.Handedness.String()), "handedness_"),
-		Grade:        commons.GradingOutcome{TotalGrade: response.Grade.TotalGrade, GradingDetails: details, ScoreStatus: response.Grade.ScoreStatus},
-		StudentVideo: media(response.StudentVideo),
-		Expert:       commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, CorrectionDistance: response.Expert.CorrectionDistance, Video: media(response.Expert.Video), MotionStartSeconds: response.Expert.MotionStartSeconds, MotionEndSeconds: response.Expert.MotionEndSeconds},
-		Timeline:     timeline, CoachingCues: cues, OverallFeedback: response.OverallFeedback,
+		AnalysisID:           response.AnalysisId,
+		Skill:                strings.TrimPrefix(strings.ToLower(response.Skill.String()), "skill_"),
+		Handedness:           strings.TrimPrefix(strings.ToLower(response.Handedness.String()), "handedness_"),
+		Grade:                commons.GradingOutcome{TotalGrade: response.Grade.TotalGrade, GradingDetails: details, ScoreStatus: response.Grade.ScoreStatus},
+		StudentVideo:         studentVideo,
+		FeedbackVideo:        feedbackVideo,
+		SkeletonOverlayVideo: media(response.SkeletonOverlayVideo),
+		Expert:               commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, CorrectionDistance: response.Expert.CorrectionDistance, Video: media(response.Expert.Video), MotionStartSeconds: response.Expert.MotionStartSeconds, MotionEndSeconds: response.Expert.MotionEndSeconds, Timeline: expertTimeline},
+		Timeline:             timeline, CoachingCues: cues, OverallFeedback: response.OverallFeedback,
 		Diagnostics: diagnostics,
 	}
 }
 
+// refreshTimeout has to survive a cold start. The analysis service scales to
+// zero, so the first playback request after an idle period waits for an L4 to
+// boot and load its pose engines. It stays under the HTTP server's 100s write
+// timeout, which is the real ceiling on this path.
+const refreshTimeout = 90 * time.Second
+
 func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string) ([]commons.MediaRef, error) {
-	ctx, cancel := context.WithTimeout(c.authorizedContext(ctx), 15*time.Second)
+	ctx, cancel := context.WithTimeout(c.authorizedContext(ctx), refreshTimeout)
 	defer cancel()
 	response, err := c.service.RefreshPlaybackUrls(ctx, &analysisv1.RefreshPlaybackUrlsRequest{ObjectPaths: objectPaths})
 	if err != nil {
@@ -200,7 +219,9 @@ func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string)
 }
 
 func (c *Client) Health(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// Also sized for a cold start: a health check that fires while the service
+	// is scaling up from zero should wait for it, not report it down.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	response, err := c.service.Health(ctx, &analysisv1.HealthRequest{})
 	if err != nil {

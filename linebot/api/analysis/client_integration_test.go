@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/require"
 )
@@ -93,29 +95,74 @@ func TestLiveAnalysisService(t *testing.T) {
 	}
 	require.NotEmpty(t, result.Grade.GradingDetails)
 	require.NotEmpty(t, result.StudentVideo.ObjectPath)
+	require.Equal(t, result.StudentVideo.ObjectPath, result.FeedbackVideo.ObjectPath)
+	require.NotEmpty(t, result.SkeletonOverlayVideo.ObjectPath)
 	require.NotEmpty(t, result.Expert.ExpertID)
 	if prefix := os.Getenv("LIVE_ANALYSIS_EXPERT_PREFIX"); prefix != "" {
 		require.True(t, len(result.Expert.ExpertID) >= len(prefix))
 		require.Equal(t, prefix, result.Expert.ExpertID[:len(prefix)])
 	}
-	require.NotEmpty(t, result.Expert.Video.ObjectPath)
-	require.GreaterOrEqual(t, result.Expert.MotionStartSeconds, 0.0)
-	require.Greater(t, result.Expert.MotionEndSeconds, result.Expert.MotionStartSeconds)
+	generatedExpert := skill == "serve" || skill == "smash"
+	if generatedExpert {
+		require.Empty(t, result.Expert.Video.ObjectPath)
+		require.Equal(t, "Generated expert prior", result.Expert.DisplayName)
+	} else {
+		require.NotEmpty(t, result.Expert.Video.ObjectPath)
+		require.GreaterOrEqual(t, result.Expert.MotionStartSeconds, 0.0)
+		require.Greater(t, result.Expert.MotionEndSeconds, result.Expert.MotionStartSeconds)
+	}
 	require.NotEmpty(t, result.Timeline)
+	// Playback aligns marker for marker, so the expert must report the same
+	// checkpoints in the same order, timed inside its own motion window.
+	// Criteria are listed in scoring order, not stroke order — serve grades the
+	// hip rotation (keyframe 4) before the wrist flick (keyframe 3) — so the
+	// timestamps only run forwards once sorted by position, which is the order
+	// playback interpolates through.
+	if !generatedExpert {
+		require.Len(t, result.Expert.Timeline, len(result.Timeline))
+		byPosition := append([]commons.PhaseMarker(nil), result.Expert.Timeline...)
+		for index, marker := range result.Expert.Timeline {
+			// Only the identity is shared: the frame is the expert's own, since the
+			// expert reaches each checkpoint at its own point in the stroke.
+			require.Equal(t, result.Timeline[index].ID, marker.ID)
+			require.GreaterOrEqual(t, marker.TimestampSeconds, result.Expert.MotionStartSeconds)
+			require.LessOrEqual(t, marker.TimestampSeconds, result.Expert.MotionEndSeconds)
+		}
+		sort.SliceStable(byPosition, func(i, j int) bool {
+			return byPosition[i].NormalizedPosition < byPosition[j].NormalizedPosition
+		})
+		for index := 1; index < len(byPosition); index++ {
+			require.GreaterOrEqual(t, byPosition[index].TimestampSeconds, byPosition[index-1].TimestampSeconds)
+		}
+	}
 	require.NotEmpty(t, result.OverallFeedback)
-	require.NotEmpty(t, result.CoachingCues)
+	if os.Getenv("LIVE_ANALYSIS_EXPECT_NO_CUES") == "1" {
+		require.Empty(t, result.CoachingCues)
+		require.Zero(t, result.Diagnostics["latency_llm_inference_seconds"])
+	} else {
+		require.NotEmpty(t, result.CoachingCues)
+	}
 	require.Positive(t, result.Diagnostics["latency_pose_seconds"])
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
 	require.Equal(t, 1.0, result.Diagnostics["pose_tensorrt_active"])
-	require.Equal(t, 1.0, result.Diagnostics["skeleton_tensorrt_active"])
+	if generatedExpert {
+		require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
+	} else {
+		require.Equal(t, 1.0, result.Diagnostics["skeleton_tensorrt_active"])
+	}
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
 
-	refreshed, err := client.RefreshPlaybackURLs(
-		context.Background(), result.StudentVideo.ObjectPath, result.Expert.Video.ObjectPath,
-	)
+	playbackPaths := []string{
+		result.FeedbackVideo.ObjectPath,
+		result.SkeletonOverlayVideo.ObjectPath,
+	}
+	if result.Expert.Video.ObjectPath != "" {
+		playbackPaths = append(playbackPaths, result.Expert.Video.ObjectPath)
+	}
+	refreshed, err := client.RefreshPlaybackURLs(context.Background(), playbackPaths...)
 	require.NoError(t, err)
-	require.Len(t, refreshed, 2)
+	require.Len(t, refreshed, len(playbackPaths))
 	for _, media := range refreshed {
 		require.NotEmpty(t, media.SignedURL)
 		request, requestErr := http.NewRequest(http.MethodGet, media.SignedURL, nil)

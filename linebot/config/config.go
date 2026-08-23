@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	env "github.com/Netflix/go-env"
 	"github.com/joho/godotenv"
@@ -15,9 +16,13 @@ type LineConfig struct {
 type GCPConfig struct {
 	ProjectID   string `env:"GCP_PROJECT_ID"`
 	Credentials string `env:"GCP_CREDENTIALS"`
-	Storage     StorageConfig
-	Secrets     SecretManagerConfig
-	Database    FirestoreConfig
+	// ServiceAccountEmail names the signer for playback URLs. On Cloud Run the
+	// metadata credentials carry no private key, so signing goes through IAM
+	// and needs to be told which account it is signing as.
+	ServiceAccountEmail string `env:"GCP_SERVICE_ACCOUNT_EMAIL"`
+	Storage             StorageConfig
+	Secrets             SecretManagerConfig
+	Database            FirestoreConfig
 }
 
 type StorageConfig struct {
@@ -44,12 +49,39 @@ type AnalysisServerConfig struct {
 	Insecure bool   `env:"ANALYSIS_GRPC_INSECURE"`
 }
 
+// PreviewConfig guards the weekly 課前預習 push. The token is required: the
+// endpoint messages every student on the roster, so it must not be callable by
+// anyone who happens to find the URL. Leaving it unset disables the endpoint.
+type PreviewConfig struct {
+	PushToken string `env:"WEEKLY_PREVIEW_TOKEN"`
+}
+
+// LiffConfig points the bot at the web app. Reflections are written there now,
+// so the bot has to be able to send learners to the right tab.
+type LiffConfig struct {
+	ReviewURL string `env:"LIFF_REVIEW_URL"`
+}
+
+// DefaultLiffReviewURL is the deployed review tab, used when nothing is set so
+// the bot never hands a learner a broken link.
+const DefaultLiffReviewURL = "https://linebot-liff-nstc-2025.heavian.work/personal?tab=review"
+
+// ReviewURL is where learners write their weekly reflection.
+func (c *Config) ReviewURL() string {
+	if url := strings.TrimSpace(c.Liff.ReviewURL); url != "" {
+		return url
+	}
+	return DefaultLiffReviewURL
+}
+
 type Config struct {
 	Port           string `env:"PORT"`
 	Line           LineConfig
 	GCP            GCPConfig
 	GPT            GPTConfig
 	AnalysisServer AnalysisServerConfig
+	Preview        PreviewConfig
+	Liff           LiffConfig
 }
 
 func (c *Config) isConfigEmpty() bool {

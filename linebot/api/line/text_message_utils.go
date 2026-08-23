@@ -34,6 +34,72 @@ func (client *Client) SendWelcomeReply(event *linebot.Event) (*linebot.BasicResp
 	return client.SendReply(event.ReplyToken, welcomMsg)
 }
 
+// SendUnsupportedSkillReply explains that a skill is not part of this
+// semester's course. A stale rich menu, an old postback saved in a chat, or a
+// client that skipped the menu can all still ask for one, and a generic error
+// would leave the student retrying something that will never work.
+func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string) (*linebot.BasicResponse, error) {
+	// A payload old or malformed enough that we cannot even name the skill
+	// still gets an answer that tells the student what to do next.
+	parsed := db.SkillStrToEnum(skill)
+	if !parsed.Valid() {
+		return client.SendReply(replyToken, fmt.Sprintf(
+			"這個動作本學期未開放，請改選 %v。",
+			db.SupportedSkillsChnString(),
+		))
+	}
+	return client.SendReply(replyToken, fmt.Sprintf(
+		"【%v】本學期未開放，請改選 %v。",
+		parsed.ChnString(),
+		db.SupportedSkillsChnString(),
+	))
+}
+
+// SendWeeklyReviewLink replaces the old 預習及反思 conversation. Reflections are
+// written per week in the web app now, where the learner can watch the video
+// and their expert comparison while writing, so the bot's job is to hand them
+// the right link rather than collect a note over chat.
+func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
+	bubble := &linebot.BubbleContainer{
+		Type: linebot.FlexContainerTypeBubble,
+		Body: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			PaddingAll: "16px",
+			Contents: []linebot.FlexComponent{
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "每週回顧與反思",
+					Size:   "lg",
+					Weight: linebot.FlexTextWeightTypeBold,
+				},
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "課前檢視與學習反思已移至學習網頁。在網頁上可以一邊看自己的動作與專家對照影片、回顧當週向 AI 提問的內容，一邊寫下這一週的反思。",
+					Size:   "sm",
+					Wrap:   true,
+					Color:  "#666666",
+					Margin: "md",
+				},
+			},
+		},
+		Footer: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			PaddingAll: "12px",
+			Contents: []linebot.FlexComponent{
+				&linebot.ButtonComponent{
+					Type:   "button",
+					Style:  linebot.FlexButtonStyleTypePrimary,
+					Color:  "#1F6F4A",
+					Action: linebot.NewURIAction("前往每週回顧", reviewURL),
+				},
+			},
+		},
+	}
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("每週回顧與反思", bubble))
+}
+
 func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {
 	_, err := client.bot.ReplyMessage(
 		replyToken,
@@ -71,7 +137,7 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
-	const addReflection = "➡️ 預習及反思：新增每周各動作的課前檢視要點及學習反思\n\n"
+	const addReflection = "➡️ 預習及反思：開啟學習網頁的「每週回顧」，一邊看影片一邊寫每週學習反思\n\n"
 	const analyzeRecording = "➡️ 動作分析：上傳個人動作錄影，系統將自動產生分析結果\n\n"
 	const chatWithGPT = "➡️ 與GPT對話：與GPT進行對話\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
@@ -94,11 +160,13 @@ func (client *Client) SendSyllabus(replyToken string) (*linebot.BasicResponse, e
 	return res, nil
 }
 
+// getSkillQuickReplyItems offers only the skills the course is running this
+// semester, so a student cannot pick an unsupported one in the first place.
 func (client *Client) getSkillQuickReplyItems(userState db.UserState) *linebot.QuickReplyItems {
 	items := []*linebot.QuickReplyButton{}
 	quickReplyAction := client.getQuickReplyAction()
 
-	for _, skill := range []db.BadmintonSkill{db.Serve, db.Smash, db.Clear, db.Lift} {
+	for _, skill := range db.SupportedSkills() {
 		items = append(items, linebot.NewQuickReplyButton(
 			"",
 			quickReplyAction(userState, skill),

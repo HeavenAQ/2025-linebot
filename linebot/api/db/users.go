@@ -66,6 +66,8 @@ type Work struct {
 	GradingOutcome          commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
 	AnalysisID              string                 `json:"analysis_id" firestore:"analysis_id"`
 	StudentVideo            commons.MediaRef       `json:"student_video" firestore:"student_video"`
+	FeedbackVideo           commons.MediaRef       `json:"feedback_video" firestore:"feedback_video"`
+	SkeletonOverlayVideo    commons.MediaRef       `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
 	Expert                  commons.ExpertMatch    `json:"expert" firestore:"expert"`
 	Timeline                []commons.PhaseMarker  `json:"timeline" firestore:"timeline"`
 	CoachingCues            []commons.CoachingCue  `json:"coaching_cues" firestore:"coaching_cues"`
@@ -153,6 +155,8 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		Thumbnail:               thumbnailFile.Path,
 		AnalysisID:              analysis.AnalysisID,
 		StudentVideo:            analysis.StudentVideo,
+		FeedbackVideo:           analysis.FeedbackVideo,
+		SkeletonOverlayVideo:    analysis.SkeletonOverlayVideo,
 		Expert:                  analysis.Expert,
 		Timeline:                analysis.Timeline,
 		CoachingCues:            analysis.CoachingCues,

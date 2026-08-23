@@ -108,10 +108,17 @@ func main() {
 			analyzeSeconds := time.Since(started).Seconds()
 
 			refreshStarted := time.Now()
+			playbackPaths := []string{
+				result.FeedbackVideo.ObjectPath,
+				result.SkeletonOverlayVideo.ObjectPath,
+			}
+			if result.Expert.Video.ObjectPath != "" {
+				playbackPaths = append(playbackPaths, result.Expert.Video.ObjectPath)
+			}
 			media, err := client.RefreshPlaybackURLs(
-				context.Background(), result.StudentVideo.ObjectPath, result.Expert.Video.ObjectPath,
+				context.Background(), playbackPaths...,
 			)
-			if err != nil || len(media) != 2 {
+			if err != nil || len(media) != len(playbackPaths) {
 				fatalf("refresh %s run %d: count=%d error=%v", benchmark.skill, run, len(media), err)
 			}
 			refreshSeconds := time.Since(refreshStarted).Seconds()
@@ -119,9 +126,12 @@ func main() {
 			if err != nil {
 				fatalf("student range GET %s run %d: %v", benchmark.skill, run, err)
 			}
-			expertGetSeconds, err := rangeGet(media[1].SignedURL)
-			if err != nil {
-				fatalf("expert range GET %s run %d: %v", benchmark.skill, run, err)
+			expertGetSeconds := 0.0
+			if result.Expert.Video.ObjectPath != "" {
+				expertGetSeconds, err = rangeGet(media[len(media)-1].SignedURL)
+				if err != nil {
+					fatalf("expert range GET %s run %d: %v", benchmark.skill, run, err)
+				}
 			}
 
 			row := []string{

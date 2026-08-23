@@ -76,3 +76,46 @@ func TestScoreFingerprintTracksNewAttempts(t *testing.T) {
 	require.NotEqual(t, before, regraded)
 	require.Empty(t, ScoreFingerprint(nil))
 }
+
+func TestLearningHistoryCoversEveryAttemptedSkillInOrder(t *testing.T) {
+	t.Parallel()
+
+	user := &UserData{Portfolio: Portfolios{
+		Serve: map[string]Work{"2026-08-01-10-00": work(88, "")},
+		Smash: map[string]Work{
+			"2026-07-20-10-00": work(60, ""),
+			"2026-08-02-10-00": work(64, ""),
+		},
+		Clear: map[string]Work{},
+	}}
+
+	history := learningHistory(user, 5)
+
+	// Skills without attempts are left out entirely, and the rest keep a fixed
+	// order so a learner's weekly note does not reshuffle between runs.
+	require.Len(t, history, 2)
+	require.Equal(t, "serve", history[0].Skill)
+	require.Equal(t, "smash", history[1].Skill)
+	require.Equal(t, "2026-08-02-10-00", history[1].Scores[0].Date)
+}
+
+func TestLearningHistoryAppliesTheScoreLimitPerSkill(t *testing.T) {
+	t.Parallel()
+
+	user := &UserData{Portfolio: Portfolios{
+		Serve: map[string]Work{
+			"2026-08-01-10-00": work(88, ""),
+			"2026-08-02-10-00": work(80, ""),
+			"2026-08-03-10-00": work(84, ""),
+		},
+	}}
+
+	require.Len(t, learningHistory(user, 2)[0].Scores, 2)
+	require.Len(t, learningHistory(user, 0)[0].Scores, 3)
+}
+
+func TestLearningHistoryIsEmptyForANewLearner(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, learningHistory(&UserData{}, 5))
+}

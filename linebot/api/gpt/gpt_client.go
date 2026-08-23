@@ -167,6 +167,74 @@ func buildSummaryPrompt(content string, scores []commons.SkillScore) string {
 	return b.String()
 }
 
+const weeklyPreviewInstruction = "你是羽球教練，正在為學生準備本週的課前預習提醒。" +
+	"請用繁體中文，先用一行說明這個動作為什麼最需要加強（根據分數趨勢與最弱的細項），" +
+	"再列出兩到三個具體可練習的重點，每點一行、以「・」開頭。" +
+	"全部不超過 150 字，只根據提供的分數，不要杜撰沒有列出的數據。"
+
+// buildWeeklyPreviewPrompt lays out every skill the learner has attempted, so
+// the reasons can draw on the whole picture even though the focus is fixed.
+// The caller picks the focus skill rather than the model, because the push
+// names that skill in its header and the two must not disagree.
+func buildWeeklyPreviewPrompt(
+	displayName string,
+	focusSkill string,
+	history []commons.SkillHistory,
+) string {
+	var b strings.Builder
+	b.WriteString(weeklyPreviewInstruction)
+	b.WriteString("\n\n本週要加強的動作：")
+	b.WriteString(focusSkill)
+	if strings.TrimSpace(displayName) != "" {
+		b.WriteString("\n學生：")
+		b.WriteString(displayName)
+	}
+	for _, skill := range history {
+		b.WriteString(fmt.Sprintf("\n\n[%s]", skill.Skill))
+		for _, score := range skill.Scores {
+			b.WriteString(fmt.Sprintf("\n- %s: 總分 %.1f", score.Date, score.TotalGrade))
+			for _, detail := range score.Details {
+				b.WriteString(fmt.Sprintf("\n    * %s: %.1f/%.1f", detail.Description, detail.Grade, detail.Maximum))
+			}
+		}
+	}
+	return b.String()
+}
+
+// WeeklyPreview writes the 課前預習 note for a learner from their past scores.
+func (client *Client) WeeklyPreview(
+	displayName string,
+	focusSkill string,
+	history []commons.SkillHistory,
+) (string, error) {
+	if len(history) == 0 {
+		return "", fmt.Errorf("weekly preview needs at least one graded skill")
+	}
+	if strings.TrimSpace(focusSkill) == "" {
+		return "", fmt.Errorf("weekly preview needs a focus skill")
+	}
+	req := responses.ResponseNewParams{
+		Prompt: responses.ResponsePromptParam{
+			ID: client.PromptID,
+		},
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: param.Opt[string]{
+				Value: buildWeeklyPreviewPrompt(displayName, focusSkill, history),
+			},
+		},
+	}
+
+	resp, err := client.Client.Responses.New(*client.Ctx, req)
+	if err != nil {
+		return "", fmt.Errorf("error creating weekly preview response: %w", err)
+	}
+	output := resp.OutputText()
+	if output == "" {
+		return "", fmt.Errorf("no assistant text output available")
+	}
+	return output, nil
+}
+
 // Summarize turns the learner's conversation and their recent grades into a
 // short summary using the configured prompt.
 func (client *Client) Summarize(content string, scores []commons.SkillScore) (string, error) {

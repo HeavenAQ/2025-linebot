@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
@@ -151,6 +153,119 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"summary": sum, "cached": false})
 	})
 
+	// Weekly 課前預習 push. Intended for a scheduler; it messages the whole
+	// roster, so it is refused outright unless a token is configured, and only
+	// runs for a caller that presents it.
+	type previewReq struct {
+		UserIDs []string `json:"user_ids"`
+		DryRun  bool     `json:"dry_run"`
+	}
+	r.POST("/api/preview/weekly", func(c *gin.Context) {
+		start := time.Now()
+		expected := strings.TrimSpace(application.Config.Preview.PushToken)
+		if expected == "" {
+			application.Logger.Warn.Println("[preview.weekly] refused: WEEKLY_PREVIEW_TOKEN is not configured")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "weekly preview is not configured"})
+			return
+		}
+		provided := strings.TrimSpace(c.GetHeader("X-Preview-Token"))
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			application.Logger.Warn.Println("[preview.weekly] rejected an unauthorized call")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		var req previewReq
+		if c.Request.ContentLength > 0 {
+			if err := c.BindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+				return
+			}
+		}
+
+		outcomes, err := application.RunWeeklyPreview(time.Now(), req.DryRun, req.UserIDs)
+		if err != nil {
+			application.Logger.Error.Printf("[preview.weekly] run failed err=%v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "weekly preview run failed"})
+			return
+		}
+
+		counts := map[string]int{}
+		for _, outcome := range outcomes {
+			counts[string(outcome.Status)]++
+		}
+		application.Logger.Info.Printf(
+			"[preview.weekly] done users=%d dry_run=%t counts=%v took=%s",
+			len(outcomes), req.DryRun, counts, time.Since(start),
+		)
+		c.JSON(http.StatusOK, gin.H{
+			"week":     db.ISOWeek(time.Now()),
+			"dry_run":  req.DryRun,
+			"counts":   counts,
+			"outcomes": outcomes,
+		})
+	})
+
+	// Weekly reflections, written by learners in the LIFF review tab.
+	r.GET("/api/db/weekly-reflections", func(c *gin.Context) {
+		start := time.Now()
+		userID := strings.TrimSpace(c.Query("user_id"))
+		if userID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
+			return
+		}
+		reflections, err := application.FirestoreClient.ListWeeklyReflections(userID)
+		if err != nil {
+			application.Logger.Error.Printf("[db.reflections] user_id=%s err=%v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch reflections"})
+			return
+		}
+		application.Logger.Info.Printf(
+			"[db.reflections] user_id=%s count=%d took=%s", userID, len(reflections), time.Since(start),
+		)
+		c.JSON(http.StatusOK, gin.H{"data": reflections})
+	})
+
+	type weeklyReflectionReq struct {
+		UserID string `json:"user_id"`
+		Week   string `json:"week"`
+		Note   string `json:"note"`
+	}
+	r.PUT("/api/db/weekly-reflection", func(c *gin.Context) {
+		start := time.Now()
+		var req weeklyReflectionReq
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+			return
+		}
+		userID := strings.TrimSpace(req.UserID)
+		week := strings.TrimSpace(req.Week)
+		if userID == "" || !db.ValidWeek(week) {
+			application.Logger.Warn.Printf(
+				"[db.reflection] rejected user_id_present=%t week=%q", userID != "", week,
+			)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id or malformed week"})
+			return
+		}
+		// The note is stored as written, including blank to clear it, but a
+		// runaway paste is refused rather than silently truncated.
+		if len(req.Note) > db.MaxReflectionLength {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "reflection is too long"})
+			return
+		}
+		reflection, err := application.FirestoreClient.SetWeeklyReflection(userID, week, req.Note)
+		if err != nil {
+			application.Logger.Error.Printf("[db.reflection] user_id=%s week=%s err=%v", userID, week, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save reflection"})
+			return
+		}
+		application.Logger.Info.Printf(
+			"[db.reflection] saved user_id=%s week=%s length=%d took=%s",
+			userID, week, len(req.Note), time.Since(start),
+		)
+		c.JSON(http.StatusOK, reflection)
+	})
+
 	// DB convenience endpoints
 	r.GET("/api/db/user", func(c *gin.Context) {
 		start := time.Now()
@@ -202,33 +317,51 @@ func main() {
 			c.JSON(http.StatusNotFound, gin.H{"error": "analysis not found"})
 			return
 		}
-		if work.StudentVideo.ObjectPath == "" || work.Expert.Video.ObjectPath == "" {
+		if work.StudentVideo.ObjectPath == "" {
 			c.JSON(http.StatusConflict, gin.H{"error": "analysis predates synchronized playback"})
 			return
 		}
-		videos, err := application.AnalysisClient.RefreshPlaybackURLs(
-			c.Request.Context(),
-			work.StudentVideo.ObjectPath,
-			work.Expert.Video.ObjectPath,
-		)
-		if err != nil || len(videos) != 2 {
-			application.Logger.Error.Printf("[db.playback] refresh failed user=%s skill=%s date=%s err=%v", userID, skill, workDate, err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to refresh playback URLs"})
-			return
+		// Signed here rather than through the analysis service: that service
+		// scales to zero, and a student opening a video should never wait for a
+		// GPU to boot just to be handed a URL.
+		sign := func(media *commons.MediaRef) error {
+			if media.ObjectPath == "" {
+				return nil
+			}
+			signed, err := application.StorageClient.SignPlaybackURL(
+				media.ObjectPath, application.Config.GCP.ServiceAccountEmail,
+			)
+			if err != nil {
+				return err
+			}
+			media.SignedURL = signed.SignedURL
+			media.SignedURLExpires = signed.SignedURLExpires
+			return nil
 		}
-		work.StudentVideo.SignedURL = videos[0].SignedURL
-		work.StudentVideo.SignedURLExpires = videos[0].SignedURLExpires
-		work.Expert.Video.SignedURL = videos[1].SignedURL
-		work.Expert.Video.SignedURLExpires = videos[1].SignedURLExpires
+		for _, media := range []*commons.MediaRef{
+			&work.StudentVideo, &work.SkeletonOverlayVideo, &work.Expert.Video,
+		} {
+			if err := sign(media); err != nil {
+				application.Logger.Error.Printf(
+					"[db.playback] signing failed user=%s skill=%s date=%s err=%v",
+					userID, skill, workDate, err,
+				)
+				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to refresh playback URLs"})
+				return
+			}
+		}
+		work.FeedbackVideo = work.StudentVideo
 		c.JSON(http.StatusOK, gin.H{
-			"analysis_id":      work.AnalysisID,
-			"handedness":       work.Handedness,
-			"student_video":    work.StudentVideo,
-			"expert":           work.Expert,
-			"timeline":         work.Timeline,
-			"coaching_cues":    work.CoachingCues,
-			"overall_feedback": work.AINote,
-			"grade":            work.GradingOutcome,
+			"analysis_id":            work.AnalysisID,
+			"handedness":             work.Handedness,
+			"student_video":          work.StudentVideo,
+			"feedback_video":         work.FeedbackVideo,
+			"skeleton_overlay_video": work.SkeletonOverlayVideo,
+			"expert":                 work.Expert,
+			"timeline":               work.Timeline,
+			"coaching_cues":          work.CoachingCues,
+			"overall_feedback":       work.AINote,
+			"grade":                  work.GradingOutcome,
 		})
 	})
 

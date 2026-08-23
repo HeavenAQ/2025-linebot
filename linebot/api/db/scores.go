@@ -23,6 +23,38 @@ func (client *FirestoreClient) GetRecentSkillScores(userID, skill string, limit 
 	return recentSkillScores(user.Portfolio.GetSkillPortfolio(strings.ToLower(strings.TrimSpace(skill))), limit), nil
 }
 
+// SkillOrder is the order skills are reported in, so a learner's history reads
+// the same way every week regardless of Go's map iteration. It is derived from
+// the skill enum so the two cannot drift apart.
+var SkillOrder = [...]string{
+	Serve.String(),
+	Smash.String(),
+	Clear.String(),
+	Lift.String(),
+}
+
+// LearningHistory returns every skill the learner has attempted, newest scores
+// first, skipping skills with no attempts. One read serves all four skills.
+func (client *FirestoreClient) LearningHistory(userID string, limit int) ([]commons.SkillHistory, error) {
+	user, err := client.GetUserData(userID)
+	if err != nil {
+		return nil, err
+	}
+	return learningHistory(user, limit), nil
+}
+
+func learningHistory(user *UserData, limit int) []commons.SkillHistory {
+	history := make([]commons.SkillHistory, 0, len(SkillOrder))
+	for _, skill := range SkillOrder {
+		scores := recentSkillScores(user.Portfolio.GetSkillPortfolio(skill), limit)
+		if len(scores) == 0 {
+			continue
+		}
+		history = append(history, commons.SkillHistory{Skill: skill, Scores: scores})
+	}
+	return history
+}
+
 func recentSkillScores(portfolio map[string]Work, limit int) []commons.SkillScore {
 	scores := make([]commons.SkillScore, 0, len(portfolio))
 	for key, work := range portfolio {

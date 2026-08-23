@@ -82,6 +82,10 @@ def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> N
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     rule = spec.rules[0]
+    # The frame comes from the rule's own display anchor rather than a fixed
+    # index: which anchor a criterion is shown at is a property of the skill
+    # spec and moves when the criteria are revised.
+    rule_frame = PHASES[rule.allowed_anchor_indices[-1]]
     analysis = {
         "skill": spec.slug,
         "language": "zh-TW",
@@ -92,7 +96,7 @@ def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> N
                 "title": rule.name_zh_tw,
                 "feedback": rule.calculation_zh_tw,
                 "evidence": "準備畫面顯示雙手位置與專家動作有明顯差距。",
-                "frame_index": PHASES[1],
+                "frame_index": rule_frame,
                 "phase": rule.phase,
                 "joint_ids": list(rule.coaching_joints),
                 "rule_reference": rule.id,
@@ -106,7 +110,7 @@ def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> N
         spec=spec,
         correction_grade=correction_grade,
         phase_indices=PHASES,
-        samples=[_sample(PHASES[1], spec)],
+        samples=[_sample(rule_frame, spec)],
     )
 
     assert [problem["rule_reference"] for problem in normalized["problems"]] == [

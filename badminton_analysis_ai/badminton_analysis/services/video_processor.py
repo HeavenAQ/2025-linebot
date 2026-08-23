@@ -18,7 +18,7 @@ from badminton_analysis.models.types import (
     TrackingData,
     WholeBodyCoordinateDict,
 )
-from badminton_analysis.services.pose_detector import PoseDetector
+from badminton_analysis.services.pose_detector import BATCH_SIZE, PoseDetector
 
 
 @final
@@ -45,6 +45,8 @@ class VideoProcessor:
         self.landmarks: list[CoordinateDict] = []
         self.body_landmarks_2d: list[Coordinate2DDict] = []
         self.wholebody_landmarks: list[WholeBodyCoordinateDict] = []
+        self.wholebody_keypoints_2d: list[NDArray[np.float64]] = []
+        self.wholebody_confidence: list[NDArray[np.float64]] = []
         self.hand_positions: list[Coordinate2D] = []
         self.elbow_positions: list[Coordinate2D] = []
 
@@ -71,6 +73,70 @@ class VideoProcessor:
                 frame_index_queue.put(frame_index)
             frame_index += 1
         cap.release()
+
+    def _record_frame_result(
+        self,
+        frame: NDArray[np.uint8],
+        source_frame_index: int,
+        landmark_2d: Coordinate2DDict | None,
+        wholebody_2d: WholeBodyCoordinateDict | None,
+        wholebody_keypoints: tuple[NDArray[np.float64], NDArray[np.float64]] | None,
+        handedness: int | None,
+    ) -> None:
+        """Shared bookkeeping for one frame's pose result, used by both the
+        single-frame and batched extraction paths so they cannot silently
+        diverge in what they accept/record."""
+        if not landmark_2d:
+            return
+        wrist = (
+            COCOKeypoints.RIGHT_WRIST
+            if handedness == Handedness.RIGHT
+            else COCOKeypoints.LEFT_WRIST
+        )
+        elbow = (
+            COCOKeypoints.RIGHT_ELBOW
+            if handedness == Handedness.RIGHT
+            else COCOKeypoints.LEFT_ELBOW
+        )
+
+        if handedness is not None:
+            if landmark_2d.get(wrist) is None or landmark_2d.get(elbow) is None:
+                return
+
+        self.landmarks.append(landmark_2d)
+        self.body_landmarks_2d.append(landmark_2d)
+        self.wholebody_landmarks.append(wholebody_2d or {})
+        if wholebody_keypoints is None:
+            self.wholebody_keypoints_2d.append(np.empty((0, 2), dtype=np.float64))
+            self.wholebody_confidence.append(np.empty((0,), dtype=np.float64))
+        else:
+            coordinates, scores = wholebody_keypoints
+            self.wholebody_keypoints_2d.append(coordinates)
+            self.wholebody_confidence.append(scores)
+
+        if handedness is not None:
+            self.hand_positions.append(
+                np.asarray(landmark_2d[wrist], dtype=np.float64)
+            )
+            self.elbow_positions.append(
+                np.asarray(landmark_2d[elbow], dtype=np.float64)
+            )
+        self.frames.append(frame.copy())
+        self.source_frame_indices.append(source_frame_index)
+
+    def _tracking_data(self) -> TrackingData:
+        return {
+            "frames": self.frames,
+            "original_landmarks": self.landmarks,
+            "body_landmarks_2d": self.body_landmarks_2d,
+            "hand_positions": self.hand_positions,
+            "elbow_positions": self.elbow_positions,
+            "time_intervals": self.time_intervals,
+            "source_frame_indices": self.source_frame_indices,
+            "wholebody_landmarks": self.wholebody_landmarks,
+            "wholebody_keypoints_2d": self.wholebody_keypoints_2d,
+            "wholebody_confidence": self.wholebody_confidence,
+        }
 
     def process_frames(self, handedness: int | None) -> TrackingData:
         """Process video frames, detect pose, and return extracted data only."""
@@ -99,62 +165,91 @@ class VideoProcessor:
                 time_interval = timestamp_queue.get()
                 source_frame_index = frame_index_queue.get()
                 self.time_intervals.append(time_interval)
-                results_3d = self.pose_detector.get_pose(frame)
-                landmark_3d = self.pose_detector.get_3d_landmarks(results_3d)
-                landmark_2d = self.pose_detector.get_2d_landmarks()
+                results = self.pose_detector.get_pose(frame)
+                landmark_2d = self.pose_detector.get_2d_landmarks(results)
                 wholebody_2d = self.pose_detector.get_wholebody_2d_landmarks()
-                if not landmark_3d or not landmark_2d:
-                    continue
-                else:
-                    wrist = (
-                        COCOKeypoints.RIGHT_WRIST
-                        if handedness == Handedness.RIGHT
-                        else COCOKeypoints.LEFT_WRIST
-                    )
-                    elbow = (
-                        COCOKeypoints.RIGHT_ELBOW
-                        if handedness == Handedness.RIGHT
-                        else COCOKeypoints.LEFT_ELBOW
-                    )
-
-                    if handedness is not None:
-                        if (
-                            landmark_3d.get(wrist) is None
-                            or landmark_3d.get(elbow) is None
-                        ):
-                            continue
-                        if (
-                            landmark_2d.get(wrist) is None
-                            or landmark_2d.get(elbow) is None
-                        ):
-                            continue
-
-                    self.landmarks.append(landmark_3d)
-                    self.body_landmarks_2d.append(landmark_2d)
-                    self.wholebody_landmarks.append(wholebody_2d or {})
-
-                    if handedness is not None:
-                        self.hand_positions.append(
-                            np.asarray(landmark_2d[wrist], dtype=np.float64)
-                        )
-                        self.elbow_positions.append(
-                            np.asarray(landmark_2d[elbow], dtype=np.float64)
-                        )
-                    self.frames.append(frame.copy())
-                    self.source_frame_indices.append(source_frame_index)
+                wholebody_keypoints = self.pose_detector.get_wholebody_2d_keypoints()
+                self._record_frame_result(
+                    frame,
+                    source_frame_index,
+                    landmark_2d,
+                    wholebody_2d,
+                    wholebody_keypoints,
+                    handedness,
+                )
             else:
                 if not capture_thread.is_alive():
                     break
 
         cap.release()
         self.logger.info(f"Extraction complete: frames={len(self.frames)}")
-        return {
-            "frames": self.frames,
-            "original_landmarks": self.landmarks,
-            "body_landmarks_2d": self.body_landmarks_2d,
-            "hand_positions": self.hand_positions,
-            "elbow_positions": self.elbow_positions,
-            "time_intervals": self.time_intervals,
-            "source_frame_indices": self.source_frame_indices,
-            "wholebody_landmarks": self.wholebody_landmarks,
-        }
+        return self._tracking_data()
+
+    def process_frames_batched(self, handedness: int | None) -> TrackingData:
+        """Offline-extraction variant of `process_frames` that batches
+        `BATCH_SIZE` frames per pose-detector call to use its TensorRT engine
+        instead of the unbatched, non-TensorRT path `process_frames` uses.
+        Only extraction can use this: it reads the whole video up front,
+        which live/interactive grading cannot do.
+
+        Deliberately synchronous, not threaded: measured on real clips, a
+        background decode thread (mirroring `process_frames`'s producer) made
+        this slower, not faster — OpenCV/PyTorch already use their own
+        internal multi-threading for decode/tensor ops, so an added
+        Python-level thread mostly contended with that (high aggregate CPU
+        time, worse wall time) rather than overlapping anything.
+        """
+        self.logger.info(
+            "Starting video frame processing (extraction only, batched)"
+        )
+        self.pose_detector.reset_tracking()
+        cap = cv2.VideoCapture(self.video_path)
+
+        chunk_frames: list[NDArray[np.uint8]] = []
+        chunk_indices: list[int] = []
+        source_frame_index = 0
+        inference_batch_size = (
+            4 if getattr(self.pose_detector, "device", "cuda") == "mps" else BATCH_SIZE
+        )
+
+        def flush_chunk() -> None:
+            if not chunk_frames:
+                return
+            batch_results = self.pose_detector.get_poses_batch(chunk_frames)
+            for frame, index, results in zip(
+                chunk_frames, chunk_indices, batch_results
+            ):
+                # Route each frame's batch result through the same getters
+                # `get_pose()` feeds via `_last_predictions`, so wholebody
+                # extraction logic (confidence filtering, shapes) has exactly
+                # one implementation regardless of which path produced it.
+                self.pose_detector._last_predictions = results
+                landmark_2d = self.pose_detector.get_2d_landmarks(results)
+                wholebody_2d = self.pose_detector.get_wholebody_2d_landmarks()
+                wholebody_keypoints = self.pose_detector.get_wholebody_2d_keypoints()
+                self._record_frame_result(
+                    frame,
+                    index,
+                    landmark_2d,
+                    wholebody_2d,
+                    wholebody_keypoints,
+                    handedness,
+                )
+            chunk_frames.clear()
+            chunk_indices.clear()
+
+        while True:
+            success, frame = cap.read()
+            if not success:
+                break
+            self.time_intervals.append(0.0)
+            chunk_frames.append(frame.copy())
+            chunk_indices.append(source_frame_index)
+            source_frame_index += 1
+            if len(chunk_frames) == inference_batch_size:
+                flush_chunk()
+        flush_chunk()
+
+        cap.release()
+        self.logger.info(f"Extraction complete: frames={len(self.frames)}")
+        return self._tracking_data()

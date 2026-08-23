@@ -364,15 +364,10 @@ class SkeletonAnalysisPipeline:
                 "pose_active_execution_providers": (
                     self.pose_detector.active_execution_providers
                 ),
-                "pose_tensorrt_active": float(
-                    bool(self.pose_detector.active_execution_providers)
-                    and all(
-                        providers[0] == "TensorrtExecutionProvider"
-                        for providers in (
-                            self.pose_detector.active_execution_providers.values()
-                        )
-                    )
-                ),
+                # Detection runs through Torch-TensorRT now, not onnxruntime,
+                # so this reflects whether the compiled engine served the run
+                # rather than which ORT provider was selected.
+                "pose_tensorrt_active": float(self.pose_detector.tensorrt_active),
             }
         )
 

@@ -5,6 +5,8 @@ google-cloud-firestore==2.21.0
 google-cloud-storage==3.4.0
 numpy==1.26.4
 onnxruntime-gpu==1.24.4
+rfdetr==1.9.1
+torchvision==0.20.1
 opencv-python-headless==4.10.0.84
 openai==2.14.0
 pandas==2.2.3

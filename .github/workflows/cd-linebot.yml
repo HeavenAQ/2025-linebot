@@ -81,3 +81,16 @@ jobs:
           service_url="$(gcloud run services describe ${{ secrets.GCP_PROJECT_ID }} \
             --region asia-east1 --format='value(status.url)')"
           curl --fail --silent --show-error "${service_url}/test"
+
+          # Learner routes refuse a bad token with 401 and refuse everything
+          # with 503 when LINE_LOGIN_CHANNEL_ID is missing. Asserting 401 is how
+          # this catches a deploy that silently lost the channel ID and would
+          # have locked every student out of their own history.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Authorization: Bearer not-a-real-token' \
+            "${service_url}/api/db/user")"
+          echo "learner route answered ${status} for an invalid token"
+          if [ "${status}" != "401" ]; then
+            echo "expected 401; 503 means LINE_LOGIN_CHANNEL_ID is not configured" >&2
+            exit 1
+          fi

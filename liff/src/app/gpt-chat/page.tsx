@@ -9,9 +9,9 @@ import { PageContainer } from '@/components/ui/page'
 import { SelectField } from '@/components/ui/select'
 import Spinner from '@/components/ui/spinner'
 import { Skill, SkillNameMap } from '@/lib/types'
-import { useSkillSummary } from '@/lib/useSkillSummary'
+import { SCORE_RECORD_LABEL, useSkillSummary } from '@/lib/useSkillSummary'
 import SkillSummary from '@/components/SkillSummary'
-import { getBackendBaseUrl } from '@/utils/env'
+import { authorizedFetch } from '@/lib/api/client'
 
 export default function GptChatPage() {
   const [userData, setUserData] = useState<UserData | null>(null)
@@ -35,8 +35,7 @@ export default function GptChatPage() {
 
     const fetchData = async () => {
       try {
-        const base = getBackendBaseUrl()
-        const response = await fetch(`${base}/api/db/user?user_id=${profile?.userId}`)
+        const response = await authorizedFetch(`/api/db/user?user_id=${profile?.userId}`)
         if (!response.ok) {
           throw new Error(`Failed to fetch user data: ${response.statusText}`)
         }
@@ -102,6 +101,17 @@ export default function GptChatPage() {
               <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
                 {chatHistory.map((message, idx) => {
                   const isUser = message.role === 'user'
+                  // Not something the learner wrote: it marks where their score
+                  // record went to the coach, so it reads as a note, not a turn.
+                  if (message.text === SCORE_RECORD_LABEL) {
+                    return (
+                      <p key={`${message.timestamp || 't'}-${idx}`} className="flex justify-center">
+                        <span className="rounded-full bg-muted px-3 py-1 text-[11px] text-muted-foreground">
+                          {SCORE_RECORD_LABEL}
+                        </span>
+                      </p>
+                    )
+                  }
                   return (
                     <div
                       key={`${message.timestamp || 't'}-${idx}`}

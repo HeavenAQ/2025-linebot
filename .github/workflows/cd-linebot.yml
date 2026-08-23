@@ -51,10 +51,21 @@ jobs:
       - name: Deploy to Cloud Run
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          LIFF_ID: ${{ secrets.NEXT_PUBLIC_LIFF_ID }}
         run: |
           analysis_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.url)')"
           analysis_target="${analysis_url#https://}"
+          # Learner endpoints authenticate callers by verifying their LINE ID
+          # token against the channel that issued it, so the server needs that
+          # channel's ID. A LIFF ID is "<login channel id>-<suffix>", which
+          # makes the deployed web app and the server it calls impossible to
+          # point at different channels by accident.
+          login_channel_id="${LIFF_ID%%-*}"
+          if ! [[ "${login_channel_id}" =~ ^[0-9]+$ ]]; then
+            echo "NEXT_PUBLIC_LIFF_ID does not start with a channel ID" >&2
+            exit 1
+          fi
           gcloud run deploy ${{ secrets.GCP_PROJECT_ID }} \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_PROJECT_ID }} \
             --platform managed \
@@ -62,7 +73,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
-            --update-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},ANALYSIS_GRPC_TARGET=${analysis_target},ANALYSIS_GRPC_INSECURE=false \
+            --update-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},ANALYSIS_GRPC_TARGET=${analysis_target},ANALYSIS_GRPC_INSECURE=false,LINE_LOGIN_CHANNEL_ID=${login_channel_id} \
             --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
 
       - name: Verify deployed backend health

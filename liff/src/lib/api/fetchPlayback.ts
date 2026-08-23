@@ -1,5 +1,5 @@
 import { PlaybackResponseSchema, type PlaybackResponse } from '@/schemas/userData.schema'
-import { getBackendBaseUrl } from '@/utils/env'
+import { authorizedFetch } from '@/lib/api/client'
 import type { Skill } from '@/lib/types'
 
 export async function fetchPlayback(
@@ -8,7 +8,7 @@ export async function fetchPlayback(
   workDate: string
 ): Promise<PlaybackResponse> {
   const query = new URLSearchParams({ user_id: userId, skill, work_date: workDate })
-  const response = await fetch(`${getBackendBaseUrl()}/api/db/playback?${query.toString()}`)
+  const response = await authorizedFetch(`/api/db/playback?${query.toString()}`)
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null
     if (response.status === 409) {

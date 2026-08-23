@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 
+import AutoHeight from '@/components/ui/auto-height'
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
-import { buildAlignmentAnchors, expertRateAt, expertTimeAt } from '@/lib/expertAlignment'
+import {
+  buildAlignmentAnchors,
+  expertRateAt,
+  expertTimeAt,
+  progressAtExpertTime
+} from '@/lib/expertAlignment'
 import type { CoachingCue, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -30,6 +36,22 @@ interface PauseInterval {
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
+/**
+ * Drift, in expert-video seconds, past which the expert is seeked outright
+ * rather than eased back. A visible jump beats a long, obviously-out-of-step
+ * convergence; below it, trimming the rate is invisible where a seek stutters.
+ */
+const HARD_SEEK_DRIFT = 0.25
+
+/** Wall-clock seconds the rate trim aims to close a small drift over. */
+const DRIFT_CORRECTION_WINDOW = 0.5
+
+/** Slowest and fastest playback a browser will honour smoothly. */
+const clampRate = (rate: number) => Math.min(4, Math.max(0.25, rate))
+
+/** How often the scrubber's React state follows the playhead, in ms. */
+const PROGRESS_STATE_INTERVAL = 66
+
 /** Portrait phone footage, used until a video reports its real dimensions. */
 const FALLBACK_RATIO = 3 / 4
 
@@ -52,6 +74,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const studentRef = useRef<HTMLVideoElement>(null)
   const expertRef = useRef<HTMLVideoElement>(null)
   const playingRef = useRef(false)
+  const lastProgressAtRef = useRef(0)
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
@@ -172,12 +195,21 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       const expert = expertRef.current
       if (!expert || !Number.isFinite(expertDuration) || expertDuration <= 0) return
       const target = expertTimeFromMotionProgress(position)
-      if (Math.abs(expert.currentTime - target) > 0.12) expert.currentTime = target
-      // Each segment has its own tempo relative to the student; running the
-      // expert at that rate keeps it in step instead of drifting until the
-      // correction above snaps it.
-      const rate = expertRateAt(alignmentAnchors, position, motionDuration)
-      if (Math.abs(expert.playbackRate - rate) > 0.01) expert.playbackRate = rate
+      // Each segment has its own tempo relative to the student -- the two
+      // performances reach the same checkpoint at different points in their own
+      // clips -- so the expert runs at that segment's rate rather than 1x.
+      const base = expertRateAt(alignmentAnchors, position, motionDuration)
+      const drift = expert.currentTime - target
+      if (Math.abs(drift) > HARD_SEEK_DRIFT) {
+        expert.currentTime = target
+        if (Math.abs(expert.playbackRate - base) > 0.01) expert.playbackRate = base
+      } else {
+        // Residual drift is absorbed into the rate instead of a seek: running
+        // fractionally slow or fast for half a second closes it without the
+        // frame-skip a currentTime write causes mid-play.
+        const trimmed = clampRate(base - drift / DRIFT_CORRECTION_WINDOW)
+        if (Math.abs(expert.playbackRate - trimmed) > 0.01) expert.playbackRate = trimmed
+      }
       if (pauseAtTime(studentTime)) {
         expert.pause()
       } else if (playingRef.current && expert.paused) {
@@ -231,14 +263,35 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauseAtTime, progress, seek]
   )
 
-  const onStudentTimeUpdate = () => {
-    const student = studentRef.current
-    if (!student) return
-    const next = motionProgressFromStudentTime(student.currentTime)
-    setProgress(next)
-    syncExpert(next, student.currentTime)
-    updateCaption(student.currentTime)
-  }
+  // Following the playhead on `timeupdate` alone is too coarse to hold two
+  // clips together: browsers fire it about four times a second, so the expert
+  // spends most of playback correcting a drift it only just noticed. While
+  // playing, sync runs every frame instead, and the scrubber's React state is
+  // throttled separately so re-rendering does not ride at 60fps.
+  const followPlayhead = useCallback(
+    (force: boolean) => {
+      const student = studentRef.current
+      if (!student) return
+      const next = motionProgressFromStudentTime(student.currentTime)
+      const now = performance.now()
+      if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
+        lastProgressAtRef.current = now
+        setProgress(next)
+      }
+      syncExpert(next, student.currentTime)
+      updateCaption(student.currentTime)
+    },
+    [motionProgressFromStudentTime, syncExpert, updateCaption]
+  )
+
+  useEffect(() => {
+    if (!playing) return
+    let frame = requestAnimationFrame(function step() {
+      followPlayhead(false)
+      frame = requestAnimationFrame(step)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [followPlayhead, playing])
 
   useEffect(() => {
     playingRef.current = false
@@ -255,14 +308,67 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   const showStudent = viewMode !== 'expert'
   const showExpert = viewMode !== 'student'
-  const activeCheckpoint = playback.timeline.reduce(
-    (nearest, marker, index) =>
-      Math.abs(marker.normalized_position - progress) <
-      Math.abs(playback.timeline[nearest]?.normalized_position - progress)
-        ? index
-        : nearest,
-    0
+
+  // Watching the expert alone means reading the expert's stroke, so the
+  // timeline switches to that expert's own checkpoints: same criteria as the
+  // student's -- both timelines come from the skill's qualitative feedback
+  // rules, marker for marker -- but timed where this expert reaches each one.
+  // Analyses recorded before checkpoint alignment carry no expert timeline, and
+  // those keep the student's axis.
+  const expertTimeline =
+    playback.expert.timeline.length === playback.timeline.length ? playback.expert.timeline : null
+  const onExpertAxis = viewMode === 'expert' && expertTimeline !== null
+  const expertMotionSpan = Math.max(0.01, expertMotionEnd - expertMotionStart)
+  const expertAxisPosition = useCallback(
+    (seconds: number) => clamp((seconds - expertMotionStart) / expertMotionSpan),
+    [expertMotionSpan, expertMotionStart]
   )
+
+  const checkpoints = useMemo(() => {
+    const source = onExpertAxis && expertTimeline ? expertTimeline : playback.timeline
+    return source.map((marker, index) => ({
+      id: marker.id,
+      label: marker.label,
+      // Where this checkpoint sits on the axis currently drawn.
+      position:
+        onExpertAxis && expertTimeline
+          ? expertAxisPosition(marker.timestamp_seconds)
+          : clamp(marker.normalized_position),
+      // Seeking always speaks student progress: the student video drives
+      // playback, and its position for checkpoint i lands the expert on that
+      // very same checkpoint.
+      seekTo: clamp(playback.timeline[index].normalized_position)
+    }))
+  }, [expertAxisPosition, expertTimeline, onExpertAxis, playback.timeline])
+
+  // The playhead, expressed on whichever axis is on screen.
+  const axisProgress = onExpertAxis
+    ? expertAxisPosition(expertTimeFromMotionProgress(progress))
+    : progress
+
+  const seekOnAxis = useCallback(
+    (position: number) => {
+      if (!onExpertAxis) {
+        seek(position)
+        return
+      }
+      const seconds = expertMotionStart + clamp(position) * expertMotionSpan
+      seek(progressAtExpertTime(alignmentAnchors, seconds))
+    },
+    [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek]
+  )
+
+  const activeCheckpoint =
+    checkpoints.length === 0
+      ? -1
+      : checkpoints.reduce(
+          (nearest, marker, index) =>
+            Math.abs(marker.position - axisProgress) <
+            Math.abs(checkpoints[nearest].position - axisProgress)
+              ? index
+              : nearest,
+          0
+        )
 
   return (
     // The player is a panel like any other: same surface, same border, same
@@ -273,9 +379,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         <div className="min-w-0">
           <h2 className="text-base font-semibold tracking-tight">動作同步比較</h2>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            {playback.handedness === 'left' ? '左手' : '右手'} · 專家{' '}
-            {playback.expert.display_name} · 骨架距離{' '}
-            {playback.expert.correction_distance.toFixed(3)}
+            {playback.handedness === 'left' ? '左手' : '右手'} · 專家 {playback.expert.display_name}{' '}
+            · 骨架距離 {playback.expert.correction_distance.toFixed(3)}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -299,98 +404,104 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           point, and stacking them on a phone puts the two halves of the
           comparison a scroll apart. Each frame takes its own video's aspect
           ratio, so the footage fills it exactly with no letterboxing. */}
-      <div className={`mx-3 grid gap-1.5 ${showStudent && showExpert ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        <div className={showStudent ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
-          <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-            學員
-          </span>
-          <video
-            ref={studentRef}
-            src={playback.student_video.signed_url}
-            className="w-full object-contain"
-            style={{ aspectRatio: studentRatio }}
-            playsInline
-            muted
-            preload="metadata"
-            onLoadedMetadata={event => {
-              setStudentDuration(event.currentTarget.duration)
-              setStudentRatio(videoRatio(event.currentTarget, studentRatio))
-            }}
-            onTimeUpdate={onStudentTimeUpdate}
-            onEnded={() => setPlayback(false)}
-            onClick={() => setPlayback(!playingRef.current)}
-          />
+      <AutoHeight className="mx-3">
+        <div
+          className={`grid gap-1.5 ${showStudent && showExpert ? 'grid-cols-2' : 'grid-cols-1'}`}
+        >
+          <div className={showStudent ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
+            <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+              學員
+            </span>
+            <video
+              ref={studentRef}
+              src={playback.student_video.signed_url}
+              className="w-full object-contain"
+              style={{ aspectRatio: studentRatio }}
+              playsInline
+              muted
+              preload="metadata"
+              onLoadedMetadata={event => {
+                setStudentDuration(event.currentTarget.duration)
+                setStudentRatio(videoRatio(event.currentTarget, studentRatio))
+              }}
+              onTimeUpdate={() => followPlayhead(true)}
+              onEnded={() => setPlayback(false)}
+              onClick={() => setPlayback(!playingRef.current)}
+            />
+          </div>
+          <div className={showExpert ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
+            <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+              專家
+            </span>
+            <video
+              ref={expertRef}
+              src={playback.expert.video.signed_url}
+              className="w-full object-contain"
+              style={{ aspectRatio: expertRatio }}
+              playsInline
+              muted
+              preload="metadata"
+              onLoadedMetadata={event => {
+                setExpertDuration(event.currentTarget.duration)
+                setExpertRatio(videoRatio(event.currentTarget, expertRatio))
+                event.currentTarget.currentTime = Math.min(
+                  event.currentTarget.duration,
+                  Math.max(0, playback.expert.motion_start_seconds)
+                )
+              }}
+              onClick={() => setPlayback(!playingRef.current)}
+            />
+          </div>
         </div>
-        <div className={showExpert ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
-          <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-            專家
-          </span>
-          <video
-            ref={expertRef}
-            src={playback.expert.video.signed_url}
-            className="w-full object-contain"
-            style={{ aspectRatio: expertRatio }}
-            playsInline
-            muted
-            preload="metadata"
-            onLoadedMetadata={event => {
-              setExpertDuration(event.currentTarget.duration)
-              setExpertRatio(videoRatio(event.currentTarget, expertRatio))
-              event.currentTarget.currentTime = Math.min(
-                event.currentTarget.duration,
-                Math.max(0, playback.expert.motion_start_seconds)
-              )
-            }}
-            onClick={() => setPlayback(!playingRef.current)}
-          />
-        </div>
-      </div>
+      </AutoHeight>
 
       {/* The caption carries the AI's correction for the moment on screen. It
           sits under the frames rather than over them: at half a phone's width
           an overlay would cover the very joints it is talking about. */}
-      {captionsOn && (
-        <div className="mx-3 mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
-          {captionCue ? (
-            <>
-              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${captionLive ? 'bg-destructive' : 'bg-white/40'}`}
-                />
-                {captionCue.title}
+      <AutoHeight className="mx-3">
+        {captionsOn ? (
+          <div className="mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
+            {captionCue ? (
+              <>
+                <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${captionLive ? 'bg-destructive' : 'bg-white/40'}`}
+                  />
+                  {captionCue.title}
+                </p>
+                <p className="mt-1 text-[15px] leading-6">{captionCue.feedback}</p>
+              </>
+            ) : (
+              <p className="text-[13px] leading-6 text-white/55">
+                {playback.coaching_cues.length > 0
+                  ? '播放後會在這裡顯示 AI 提醒'
+                  : '這次分析沒有需要修正的地方'}
               </p>
-              <p className="mt-1 text-[15px] leading-6">{captionCue.feedback}</p>
-            </>
-          ) : (
-            <p className="text-[13px] leading-6 text-white/55">
-              {playback.coaching_cues.length > 0
-                ? '播放後會在這裡顯示 AI 提醒'
-                : '這次分析沒有需要修正的地方'}
-            </p>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        ) : null}
+      </AutoHeight>
 
       <div className="p-4">
         <div className="relative h-9">
           <input
-            aria-label="動作時間軸"
+            aria-label={onExpertAxis ? '專家動作時間軸' : '動作時間軸'}
             type="range"
             min="0"
             max="1000"
-            value={Math.round(progress * 1000)}
-            onChange={event => seek(Number(event.target.value) / 1000)}
+            value={Math.round(axisProgress * 1000)}
+            onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
             className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
           />
-          {playback.timeline.map((marker, index) => (
+          {checkpoints.map((marker, index) => (
             <button
               key={marker.id}
               type="button"
               title={marker.label}
               aria-label={`前往${marker.label}`}
-              onClick={() => seek(marker.normalized_position)}
-              className="absolute top-0 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm"
-              style={{ left: `${clamp(marker.normalized_position) * 100}%` }}
+              onClick={() => seek(marker.seekTo)}
+              className="absolute top-0 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
+              style={{ left: `${marker.position * 100}%` }}
             >
               {index + 1}
             </button>
@@ -402,8 +513,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               title={cue.title}
               aria-label={`前往問題：${cue.title}`}
               onClick={() => seek(cue.normalized_position, cue)}
-              className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive"
-              style={{ left: `${clamp(cue.normalized_position) * 100}%` }}
+              className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive transition-[left] duration-200"
+              style={{
+                left: `${
+                  (onExpertAxis
+                    ? expertAxisPosition(expertTimeFromMotionProgress(cue.normalized_position))
+                    : clamp(cue.normalized_position)) * 100
+                }%`
+              }}
             />
           ))}
         </div>
@@ -428,7 +545,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             <RotateCcw size={17} />
           </Button>
           <span className="ml-1 text-xs tabular-nums text-muted-foreground">
-            {formatTime(studentTimeFromMotionProgress(progress))} / {formatTime(studentDuration)}
+            {onExpertAxis
+              ? `${formatTime(axisProgress * expertMotionSpan)} / ${formatTime(expertMotionSpan)}`
+              : `${formatTime(studentTimeFromMotionProgress(progress))} / ${formatTime(studentDuration)}`}
           </span>
           <Button
             variant={captionsOn ? 'primary' : 'outline'}
@@ -453,13 +572,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         </div>
 
         <div className="mt-3">
-          <p className="mb-2 text-xs font-medium text-foreground">技術檢核點</p>
+          <p className="mb-2 text-xs font-medium text-foreground">
+            技術檢核點{onExpertAxis ? '（專家）' : ''}
+          </p>
           <div className="flex snap-x gap-1 overflow-x-auto pb-2" aria-label="技術檢核點">
-            {playback.timeline.map((marker, index) => (
+            {checkpoints.map((marker, index) => (
               <button
                 key={marker.id}
                 type="button"
-                onClick={() => seek(marker.normalized_position)}
+                onClick={() => seek(marker.seekTo)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
                   index === activeCheckpoint
                     ? 'border-primary text-foreground'

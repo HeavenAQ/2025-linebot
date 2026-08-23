@@ -13,6 +13,8 @@ import React, {
 import { Profile } from '@liff/get-profile'
 import { Liff } from '@line/liff'
 
+import { setIdTokenSource } from '@/lib/api/client'
+
 const LiffContext = createContext<{
   liff: Liff | null
   profile: Profile | null
@@ -29,6 +31,16 @@ export const useLiff = () => useContext(LiffContext)
  * nothing changes and the normal LIFF login runs.
  */
 const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
+
+/**
+ * A real LINE ID token to authenticate local development against a backend.
+ *
+ * The backend only trusts tokens it can verify with LINE, so the dev bypass
+ * cannot mint one — paste a token from a real session (liff.getIDToken() in the
+ * LINE in-app browser) into NEXT_PUBLIC_DEV_ID_TOKEN to read live data. Left
+ * unset, backend calls come back 401 and only the static UI renders.
+ */
+const devIdToken = process.env.NEXT_PUBLIC_DEV_ID_TOKEN?.trim()
 
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
@@ -51,6 +63,7 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           displayName: process.env.NEXT_PUBLIC_DEV_DISPLAY_NAME || '開發測試帳號'
         } as Profile)
         setLiff({ isLoggedIn: () => true, login: () => undefined } as unknown as Liff)
+        setIdTokenSource(() => devIdToken ?? null)
         initializedRef.current = true
         console.info('LIFF bypassed for local development; user:', devUserId)
         return
@@ -100,7 +113,10 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         } catch (e) {
           console.warn('Failed to get LIFF profile:', e)
         }
-        console.log(liff.getDecodedIDToken())
+        // Every backend call proves who is asking with this token, and LIFF
+        // refreshes it behind the scenes — so hand over the getter, not the
+        // string it returns right now.
+        setIdTokenSource(() => liff.getIDToken())
 
         setLiff(liff)
         initializedRef.current = true

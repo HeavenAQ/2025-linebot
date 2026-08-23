@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildAlignmentAnchors, expertRateAt, expertTimeAt } from './expertAlignment.ts'
+import {
+  buildAlignmentAnchors,
+  expertRateAt,
+  expertTimeAt,
+  progressAtExpertTime
+} from './expertAlignment.ts'
 import type { PhaseMarker } from '@/schemas/userData.schema.ts'
 
 const marker = (id: string, position: number, seconds: number): PhaseMarker => ({
@@ -133,4 +138,33 @@ test('keeps the requested rate inside what a browser will honour', () => {
 
   assert.equal(expertRateAt(anchors, 0.005, 1), 4)
   assert.equal(expertRateAt(anchors, 0.9, 1), 0.25)
+})
+
+test('maps an expert timestamp back to the student progress that reaches it', () => {
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3)
+
+  // Every anchor round-trips: the expert view scrubs on these seconds and the
+  // student video has to land on the same checkpoint.
+  for (const anchor of anchors) {
+    assert.equal(progressAtExpertTime(anchors, anchor.seconds), anchor.position)
+  }
+  // Halfway between two anchors in seconds is halfway between them in progress.
+  assert.equal(progressAtExpertTime(anchors, 1.75), 0.4)
+})
+
+test('clamps expert times outside the motion window to its ends', () => {
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3)
+
+  assert.equal(progressAtExpertTime(anchors, 0), 0)
+  assert.equal(progressAtExpertTime(anchors, 99), 1)
+})
+
+test('inverts expertTimeAt across the whole motion', () => {
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3)
+
+  for (let step = 0; step <= 10; step += 1) {
+    const position = step / 10
+    const roundTripped = progressAtExpertTime(anchors, expertTimeAt(anchors, position))
+    assert.ok(Math.abs(roundTripped - position) < 1e-9)
+  }
 })

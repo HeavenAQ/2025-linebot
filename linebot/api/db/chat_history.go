@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -73,4 +74,31 @@ func (client *FirestoreClient) GetChatHistory(userID string) (*ChatHistory, erro
 		return nil, err
 	}
 	return &history, nil
+}
+
+// ScoreRecordLabel stands in for a chat turn that was a raw score dump.
+const ScoreRecordLabel = "我的動作評分紀錄"
+
+// scoreRecordMarker identifies those turns. An earlier version of the bot
+// pushed the analysis into the conversation as a filled-in template carrying
+// every criterion's grade as JSON; coaching notes replaced it, but the turns it
+// wrote are still in every learner's history.
+const scoreRecordMarker = "動作評分細節"
+
+// RedactScoreRecords replaces raw score dumps with a label.
+//
+// A learner reading their history wants to see what they asked, not the
+// machine-readable payload that went to the model on their behalf. Redacting
+// here rather than in the web app keeps the numbers off the wire entirely, and
+// covers every client at once.
+func RedactScoreRecords(history *ChatHistory) *ChatHistory {
+	if history == nil {
+		return nil
+	}
+	for index, message := range history.Messages {
+		if strings.Contains(message.Text, scoreRecordMarker) {
+			history.Messages[index].Text = ScoreRecordLabel
+		}
+	}
+	return history
 }

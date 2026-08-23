@@ -83,7 +83,9 @@ export function expertTimeAt(anchors: readonly AlignmentAnchor[], position: numb
   const [previous, next] = segmentAt(anchors, target)
   const span = next.position - previous.position
   if (span <= 0) return next.seconds
-  return previous.seconds + ((target - previous.position) / span) * (next.seconds - previous.seconds)
+  return (
+    previous.seconds + ((target - previous.position) / span) * (next.seconds - previous.seconds)
+  )
 }
 
 /** Slowest and fastest expert playback we will ask a browser for. */
@@ -109,4 +111,33 @@ export function expertRateAt(
   const rate = (next.seconds - previous.seconds) / span / studentMotionDuration
   if (!Number.isFinite(rate) || rate <= 0) return 1
   return Math.min(MAX_RATE, Math.max(MIN_RATE, rate))
+}
+
+/**
+ * The student progress that puts the expert at a given moment of its video.
+ *
+ * The inverse of `expertTimeAt`. The expert-only view scrubs on the expert's
+ * own clock, but the student video is still what drives playback, so a point
+ * picked on the expert's timeline has to come back as student progress.
+ */
+export function progressAtExpertTime(anchors: readonly AlignmentAnchor[], seconds: number): number {
+  if (anchors.length === 0) return 0
+  if (anchors.length === 1) return anchors[0].position
+  const first = anchors[0]
+  const last = anchors[anchors.length - 1]
+  if (seconds <= first.seconds) return first.position
+  if (seconds >= last.seconds) return last.position
+  for (let index = 1; index < anchors.length; index += 1) {
+    const previous = anchors[index - 1]
+    const next = anchors[index]
+    if (seconds <= next.seconds) {
+      const span = next.seconds - previous.seconds
+      if (span <= 0) return next.position
+      return (
+        previous.position +
+        ((seconds - previous.seconds) / span) * (next.position - previous.position)
+      )
+    }
+  }
+  return last.position
 }

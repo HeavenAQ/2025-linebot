@@ -11,6 +11,10 @@ import (
 type LineConfig struct {
 	ChannelSecret string `env:"LINE_CHANNEL_SECRET"`
 	ChannelToken  string `env:"LINE_CHANNEL_TOKEN"`
+	// LoginChannelID is the LINE Login channel the LIFF app belongs to. ID
+	// tokens name it as their audience, so it is what proves a token was
+	// issued for this app and not replayed from another.
+	LoginChannelID string `env:"LINE_LOGIN_CHANNEL_ID"`
 }
 
 type GCPConfig struct {

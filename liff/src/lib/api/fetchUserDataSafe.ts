@@ -1,17 +1,13 @@
 import { UserDataSchema, type UserData } from '@/schemas/userData.schema'
-import { getBackendBaseUrl } from '@/utils/env'
+import { authorizedFetch } from '@/lib/api/client'
 import type { Result } from './result'
 import { err, ok } from './result'
 import { ErrorResponseSchema } from '@/schemas/error.schema'
 
 export async function fetchUserDataSafe(userId: string): Promise<Result<UserData, Error>> {
   try {
-    const base = getBackendBaseUrl()
     const qs = new URLSearchParams({ user_id: userId })
-    const res = await fetch(
-      `${base}/api/db/user?${qs.toString()}`,
-      { method: 'GET' },
-    )
+    const res = await authorizedFetch(`/api/db/user?${qs.toString()}`, { method: 'GET' })
 
     // Handle none 2XX errors
     if (!res.ok) {

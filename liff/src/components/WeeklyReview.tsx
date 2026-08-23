@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Check, MessageCircleQuestion, Play } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { MessageCircleQuestion, Play } from 'lucide-react'
 
 import type { PlaybackResponse, UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import Spinner from '@/components/ui/spinner'
+import Toast from '@/components/ui/toast'
 import VideoComparison from '@/components/VideoComparison'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import {
@@ -15,8 +16,8 @@ import {
   type WeeklyReflection
 } from '@/lib/api/weeklyReflections'
 import { SkillNameMap, type Skill } from '@/lib/types'
-import { getBackendBaseUrl } from '@/utils/env'
-import type { ChatMessage } from '@/lib/useSkillSummary'
+import { authorizedFetch } from '@/lib/api/client'
+import { SCORE_RECORD_LABEL, type ChatMessage } from '@/lib/useSkillSummary'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
 
 interface WeeklyReviewProps {
@@ -74,6 +75,8 @@ function questionsByWeek(messages: readonly ChatMessage[]): Map<string, Question
   const weeks = new Map<string, QuestionPair[]>()
   messages.forEach((message, index) => {
     if (message.role !== 'user' || !message.text) return
+    // The score record the bot filed on the learner's behalf is not a question.
+    if (message.text === SCORE_RECORD_LABEL) return
     const at = message.timestamp ? new Date(message.timestamp) : null
     if (!at || Number.isNaN(at.getTime())) return
     const next = messages[index + 1]
@@ -97,7 +100,7 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
   useEffect(() => {
     let cancelled = false
     const query = new URLSearchParams({ user_id: userId })
-    fetch(`${getBackendBaseUrl()}/api/chat/history?${query}`)
+    authorizedFetch(`/api/chat/history?${query}`)
       .then(response => (response.ok ? response.json() : { data: [] }))
       .then(json => {
         if (!cancelled) setMessages(Array.isArray(json.data) ? json.data : [])
@@ -126,8 +129,7 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-  const [justSaved, setJustSaved] = useState(false)
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [toast, setToast] = useState('')
 
   const week = selectedWeek || weekLabels[0] || ''
 
@@ -148,7 +150,6 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
   useEffect(() => {
     setNote(reflections[week]?.note ?? '')
     setSaveError('')
-    setJustSaved(false)
   }, [reflections, week])
 
   useEffect(() => {
@@ -182,8 +183,6 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
     }
   }, [openWork, userId])
 
-  useEffect(() => () => (savedTimer.current ? clearTimeout(savedTimer.current) : undefined), [])
-
   const onSave = useCallback(async () => {
     if (!week) return
     setSaving(true)
@@ -191,9 +190,7 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
     try {
       const saved = await saveWeeklyReflection(userId, week, note)
       setReflections(current => ({ ...current, [week]: saved }))
-      setJustSaved(true)
-      if (savedTimer.current) clearTimeout(savedTimer.current)
-      savedTimer.current = setTimeout(() => setJustSaved(false), 2500)
+      setToast('本週反思已儲存')
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '儲存失敗')
     } finally {
@@ -263,9 +260,7 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
                   >
                     <Play size={15} className="shrink-0 text-primary" aria-hidden />
                     <span className="text-sm font-medium">{SkillNameMap[entry.skill]}</span>
-                    <span className="text-[13px] text-muted-foreground">
-                      {formatDay(entry.at)}
-                    </span>
+                    <span className="text-[13px] text-muted-foreground">{formatDay(entry.at)}</span>
                     <span className="num ml-auto font-data text-sm font-semibold">
                       {entry.totalGrade.toFixed(1)}
                     </span>
@@ -335,11 +330,6 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
           <Button onClick={onSave} disabled={saving || !dirty}>
             {saving ? '儲存中…' : '儲存反思'}
           </Button>
-          {justSaved && !dirty && (
-            <span className="flex items-center gap-1 text-[13px] text-primary">
-              <Check size={14} aria-hidden /> 已儲存
-            </span>
-          )}
           {dirty && !saving && <span className="text-[13px] text-muted-foreground">尚未儲存</span>}
           <span className="ml-auto text-[11px] text-muted-foreground">{note.length} / 4000</span>
         </div>
@@ -349,6 +339,8 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
           </p>
         )}
       </section>
+
+      <Toast message={toast} onDismiss={() => setToast('')} />
     </div>
   )
 }

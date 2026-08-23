@@ -1,4 +1,4 @@
-import { getBackendBaseUrl } from '@/utils/env'
+import { authorizedFetch } from '@/lib/api/client'
 
 export interface WeeklyReflection {
   user_id: string
@@ -12,7 +12,7 @@ export async function fetchWeeklyReflections(
   userId: string
 ): Promise<Record<string, WeeklyReflection>> {
   const query = new URLSearchParams({ user_id: userId })
-  const response = await fetch(`${getBackendBaseUrl()}/api/db/weekly-reflections?${query}`)
+  const response = await authorizedFetch(`/api/db/weekly-reflections?${query}`)
   if (!response.ok) throw new Error(`無法讀取反思紀錄 (${response.status})`)
   const json = await response.json()
   return (json.data ?? {}) as Record<string, WeeklyReflection>
@@ -23,7 +23,7 @@ export async function saveWeeklyReflection(
   week: string,
   note: string
 ): Promise<WeeklyReflection> {
-  const response = await fetch(`${getBackendBaseUrl()}/api/db/weekly-reflection`, {
+  const response = await authorizedFetch(`/api/db/weekly-reflection`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, week, note })

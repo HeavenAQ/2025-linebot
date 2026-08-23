@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/api/auth"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
@@ -18,6 +19,9 @@ import (
 
 // recentScoreLimit caps how many graded attempts feed the learning summary.
 const recentScoreLimit = 5
+
+// authenticatedUserKey holds the LINE user ID proven by the caller's ID token.
+const authenticatedUserKey = "authenticatedUserID"
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
@@ -43,15 +47,37 @@ func main() {
 	})
 	r.GET("/test", func(c *gin.Context) { c.String(http.StatusOK, "Hello, World!") })
 
-	// Backend APIs for chat history and summarization
-	r.GET("/api/chat/history", func(c *gin.Context) {
-		start := time.Now()
-		userID := c.Query("user_id")
-		if userID == "" {
-			application.Logger.Warn.Println("[chat.history] missing user_id")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
+	// Every learner-facing route below identifies its caller from a verified
+	// LINE ID token. A user ID in a query string or body proves nothing --
+	// anyone can send anyone's -- so the ID comes from the token's subject and
+	// request-supplied IDs are only ever compared against it.
+	verifier := auth.NewVerifier(application.Config.Line.LoginChannelID)
+	if verifier == nil {
+		application.Logger.Warn.Println(
+			"[auth] LINE_LOGIN_CHANNEL_ID is not set; learner API routes will refuse every request",
+		)
+	}
+	requireLearner := func(c *gin.Context) {
+		if verifier == nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
 			return
 		}
+		userID, err := verifier.UserID(c.Request.Context(), auth.BearerToken(c.GetHeader("Authorization")))
+		if err != nil {
+			application.Logger.Warn.Printf("[auth] rejected a request: %v", err)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Set(authenticatedUserKey, userID)
+		c.Next()
+	}
+	// learnerID is the only identity these handlers may act on.
+	learnerID := func(c *gin.Context) string { return c.GetString(authenticatedUserKey) }
+
+	// Backend APIs for chat history and summarization
+	r.GET("/api/chat/history", requireLearner, func(c *gin.Context) {
+		start := time.Now()
+		userID := learnerID(c)
 		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
 		application.Logger.Info.Printf("[chat.history] user_id=%s skill=%s", userID, skill)
 		history, err := application.FirestoreClient.GetChatHistory(userID)
@@ -60,7 +86,9 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch chat history"})
 			return
 		}
-		messages := history.Messages
+		// Raw score dumps from the retired analysis-prompt flow never reach a
+		// client; the learner sees a label where the payload was.
+		messages := db.RedactScoreRecords(history).Messages
 		if skill != "" {
 			filtered := make([]interface{}, 0, len(messages))
 			for _, m := range messages {
@@ -81,14 +109,16 @@ func main() {
 		UserID  string `json:"user_id"`
 		Skill   string `json:"skill"`
 	}
-	r.POST("/api/chat/summarize", func(c *gin.Context) {
+	r.POST("/api/chat/summarize", requireLearner, func(c *gin.Context) {
 		start := time.Now()
 		var req summarizeReq
-		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.Skill) == "" {
-			application.Logger.Warn.Printf("[chat.summarize] invalid body content_len=%d user_id_present=%t skill_present=%t", len(req.Content), strings.TrimSpace(req.UserID) != "", strings.TrimSpace(req.Skill) != "")
+		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Skill) == "" {
+			application.Logger.Warn.Printf("[chat.summarize] invalid body content_len=%d skill_present=%t", len(req.Content), strings.TrimSpace(req.Skill) != "")
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 			return
 		}
+		// The body may still carry a user_id from older clients; it is ignored.
+		req.UserID = learnerID(c)
 
 		// Determine today's date in server local time (YYYY-MM-DD)
 		today := time.Now().Format("2006-01-02")
@@ -207,13 +237,9 @@ func main() {
 	})
 
 	// Weekly reflections, written by learners in the LIFF review tab.
-	r.GET("/api/db/weekly-reflections", func(c *gin.Context) {
+	r.GET("/api/db/weekly-reflections", requireLearner, func(c *gin.Context) {
 		start := time.Now()
-		userID := strings.TrimSpace(c.Query("user_id"))
-		if userID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
-			return
-		}
+		userID := learnerID(c)
 		reflections, err := application.FirestoreClient.ListWeeklyReflections(userID)
 		if err != nil {
 			application.Logger.Error.Printf("[db.reflections] user_id=%s err=%v", userID, err)
@@ -231,14 +257,14 @@ func main() {
 		Week   string `json:"week"`
 		Note   string `json:"note"`
 	}
-	r.PUT("/api/db/weekly-reflection", func(c *gin.Context) {
+	r.PUT("/api/db/weekly-reflection", requireLearner, func(c *gin.Context) {
 		start := time.Now()
 		var req weeklyReflectionReq
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 			return
 		}
-		userID := strings.TrimSpace(req.UserID)
+		userID := learnerID(c)
 		week := strings.TrimSpace(req.Week)
 		if userID == "" || !db.ValidWeek(week) {
 			application.Logger.Warn.Printf(
@@ -267,14 +293,9 @@ func main() {
 	})
 
 	// DB convenience endpoints
-	r.GET("/api/db/user", func(c *gin.Context) {
+	r.GET("/api/db/user", requireLearner, func(c *gin.Context) {
 		start := time.Now()
-		userID := c.Query("user_id")
-		if userID == "" {
-			application.Logger.Warn.Println("[db.user] missing user_id")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id"})
-			return
-		}
+		userID := learnerID(c)
 		application.Logger.Info.Printf("[db.user] user_id=%s", userID)
 		user, err := application.FirestoreClient.GetUserData(userID)
 		if err != nil {
@@ -286,24 +307,14 @@ func main() {
 		c.JSON(http.StatusOK, user)
 	})
 
-	r.GET("/api/db/users", func(c *gin.Context) {
-		start := time.Now()
-		application.Logger.Info.Println("[db.users] list")
-		all, err := application.FirestoreClient.ListUsers()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		application.Logger.Info.Printf("[db.users] count=%d took=%s", len(*all), time.Since(start))
-		c.JSON(http.StatusOK, *all)
-	})
-
-	r.GET("/api/db/playback", func(c *gin.Context) {
-		userID := strings.TrimSpace(c.Query("user_id"))
+	r.GET("/api/db/playback", requireLearner, func(c *gin.Context) {
+		// Playback hands out signed URLs to practice video, so it serves the
+		// caller's own analyses only.
+		userID := learnerID(c)
 		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
 		workDate := strings.TrimSpace(c.Query("work_date"))
-		if userID == "" || skill == "" || workDate == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id, skill, or work_date"})
+		if skill == "" || workDate == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing skill or work_date"})
 			return
 		}
 		user, err := application.FirestoreClient.GetUserData(userID)
@@ -366,12 +377,19 @@ func main() {
 	})
 
 	// Stats endpoints
-	r.GET("/api/db/stats/users/:id", func(c *gin.Context) {
+	r.GET("/api/db/stats/users/:id", requireLearner, func(c *gin.Context) {
 		start := time.Now()
-		id := c.Param("id")
+		// The path still carries an ID so existing links keep working, but a
+		// learner may only read their own scores.
+		id := learnerID(c)
+		if requested := c.Param("id"); requested != "" && requested != id {
+			application.Logger.Warn.Printf("[db.stats.user] refused cross-user read of %s", requested)
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
 		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
-		if id == "" || skill == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing id or skill"})
+		if skill == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing skill"})
 			return
 		}
 		stats, err := application.FirestoreClient.GetUserSkillStats(id, skill)
@@ -384,7 +402,7 @@ func main() {
 		c.JSON(http.StatusOK, stats)
 	})
 
-	r.GET("/api/db/stats/class", func(c *gin.Context) {
+	r.GET("/api/db/stats/class", requireLearner, func(c *gin.Context) {
 		start := time.Now()
 		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
 		if skill == "" {

@@ -3,7 +3,16 @@
 import { useEffect, useState } from 'react'
 
 import type { Skill } from '@/lib/types'
-import { getBackendBaseUrl } from '@/utils/env'
+import { authorizedFetch } from '@/lib/api/client'
+
+/**
+ * The label the backend puts where a raw score payload used to be.
+ *
+ * Kept in step with `db.ScoreRecordLabel` in the Go server, which does the
+ * actual redaction; this is only how the web app recognises one to show it as a
+ * record rather than as something the learner typed.
+ */
+export const SCORE_RECORD_LABEL = '我的動作評分紀錄'
 
 export interface ChatMessage {
   role: string
@@ -47,9 +56,8 @@ export function useSkillSummary(userId: string | undefined, skill: Skill): Skill
     setMessages([])
 
     const run = async () => {
-      const base = getBackendBaseUrl()
       const query = new URLSearchParams({ user_id: userId, skill })
-      const historyResponse = await fetch(`${base}/api/chat/history?${query.toString()}`)
+      const historyResponse = await authorizedFetch(`/api/chat/history?${query.toString()}`)
       if (!historyResponse.ok) throw new Error(historyResponse.statusText)
       const historyJson = await historyResponse.json()
       const history: ChatMessage[] = Array.isArray(historyJson.data) ? historyJson.data : []
@@ -61,7 +69,7 @@ export function useSkillSummary(userId: string | undefined, skill: Skill): Skill
         .map(message => message.text)
         .filter(Boolean)
         .join('\n')
-      const summaryResponse = await fetch(`${base}/api/chat/summarize`, {
+      const summaryResponse = await authorizedFetch(`/api/chat/summarize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, user_id: userId, skill })

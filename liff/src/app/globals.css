@@ -90,6 +90,31 @@
   }
 }
 
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast-enter {
+  animation: toast-enter 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto-height {
+    transition: none;
+  }
+
+  .toast-enter {
+    animation: none;
+  }
+}
+
 @layer components {
   /* A panel: white on the warm-grey page, separated by a hairline. */
   .glass {
@@ -112,6 +137,16 @@
   /* Section label: sentence case, weight does the work. */
   .eyebrow {
     @apply text-[13px] font-semibold text-foreground;
+  }
+
+  /*
+   * A box that animates between content heights instead of snapping. Paired
+   * with AutoHeight, which measures the content and sets the height; this
+   * carries the easing so a reduced-motion reader can opt out of it.
+   */
+  .auto-height {
+    overflow: hidden;
+    transition: height 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   /* Native <select> reset so it can be skinned like the rest of the controls. */

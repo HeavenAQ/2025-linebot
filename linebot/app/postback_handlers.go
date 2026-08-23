@@ -21,6 +21,10 @@ import (
 // handlePostbackEvent processes LINE postback events.
 // - If it’s a menu-switch event, it’s ignored.
 // - Otherwise, it delegates to handleUserState.
+// coachingScoreLimit caps how many graded attempts ride along with a learner's
+// question. Enough to show a trend, short enough to leave room for the reply.
+const coachingScoreLimit = 5
+
 func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, session *db.UserSession) {
 	if isMenuSwitchEvent(event.Postback.Data) {
 		app.Logger.Info.Printf("Menu switch event ignored. User ID: %v", event.Source.UserID)
@@ -187,9 +191,20 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			return
 		}
 
+		// The coach answers "how am I doing" from the learner's actual grades,
+		// not from the conversation alone. A lookup failure is not worth
+		// refusing the question over -- the reply is simply less specific.
+		scores, err := app.FirestoreClient.GetRecentSkillScores(
+			user.ID, session.Skill, coachingScoreLimit,
+		)
+		if err != nil {
+			app.Logger.Warn.Printf("failed to load scores for coaching: %v", err)
+			scores = nil
+		}
+
 		// Send the standalone query through the skill conversation.
 		conversationID := app.getUserGPTConversation(user, session.Skill)
-		response, err := app.GPTClient.AddMessageToConversation(conversationID, rewritten)
+		response, err := app.GPTClient.AddMessageToConversation(conversationID, rewritten, scores)
 		if err != nil {
 			app.handleAddMessageToGPTConversationError(err, replyToken)
 			return

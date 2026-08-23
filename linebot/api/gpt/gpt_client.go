@@ -61,14 +61,17 @@ func NewGPTClient(apiKey, model string) *Client {
 // and tell the student to go find a real coach, which is the one thing a
 // coaching bot must not do when it has the scores in front of it.
 const coachInstruction = "你是一位羽球教練，正在指導大學體育課的學生。" +
-	"學生會問你關於自己練習的問題，有時會附上系統的動作評分。\n" +
+	"學生會問你關於自己練習的問題，訊息中通常附有系統的動作評分。\n" +
 	"- 一律使用繁體中文，語氣直接、鼓勵，像在球場邊說話。\n" +
-	"- 針對學生真正問的事情回答。學生問自己的學習進度或動作表現時，" +
-	"就根據他提供的分數與對話內容回答，不要拒絕，也不要要他去問別的教練。\n" +
+	"- 你的工作就是評估與給建議。學生問自己的學習進度、動作好不好、" +
+	"該怎麼改進時，一律直接給出評估與具體練法。\n" +
+	"- 絕對不要說自己無法分析或評估動作表現，也不要叫學生去問別的教練或找專業人士——" +
+	"你就是他的教練。\n" +
+	"- 有分數時，先說目前的水準與趨勢，點出最弱的項目，再給那個項目的練法。\n" +
 	"- 建議要具體到身體部位與練得到的動作，例如「擊球瞬間手腕先放鬆再快速前甩」，" +
 	"而不是「多多練習」。\n" +
-	"- 只根據學生提供的資料說話，不要杜撰沒有出現過的分數或觀察；" +
-	"資料不足就直接說還需要什麼。\n" +
+	"- 只根據提供的分數與對話內容說話，不要杜撰沒有出現過的數字。" +
+	"真的沒有任何資料時，問一個具體的問題把資料問出來，不要空泛地拒絕。\n" +
 	"- 這是 LINE 訊息，控制在 200 字以內。逐項回饋時每項一行、以數字開頭。"
 
 type HistoryMessage struct {
@@ -131,15 +134,29 @@ func (client *Client) RetrieveConversation(conversationID string) (*conversation
 	return conversation, nil
 }
 
-// AddMessageToConversation sends a user message via Responses API
-// and returns the assistant's generated text output.
-func (client *Client) AddMessageToConversation(conversationID, message string) (string, error) {
+// AddMessageToConversation sends a learner's question through their skill
+// conversation and returns the coach's reply.
+//
+// The recent grades ride along with the question. Without them the coach has
+// nothing to evaluate and falls back on asking the learner what they have been
+// practising, which is a poor answer to "how am I doing" when the scores are
+// sitting in Firestore.
+func (client *Client) AddMessageToConversation(
+	conversationID, message string, scores []commons.SkillScore,
+) (string, error) {
+	var input strings.Builder
+	writeScores(&input, scores)
+	if input.Len() > 0 {
+		input.WriteString("\n\n")
+	}
+	input.WriteString(message)
+
 	req := responses.ResponseNewParams{
 		Model:        client.Model,
 		Instructions: param.Opt[string]{Value: coachInstruction},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{
-				Value: message,
+				Value: input.String(),
 			},
 		},
 		Conversation: responses.ResponseNewParamsConversationUnion{
@@ -166,23 +183,31 @@ const summaryInstruction = "Summarize the learner's badminton progress in under 
 	"Ground the summary in the recent scores below: state the trend across attempts, the latest total, and the criterion that scores lowest. " +
 	"Where the conversation and the scores disagree, trust the scores. Do not invent scores that are not listed."
 
+// writeScores renders the learner's recent grades. The coach and the summary
+// share it so a learner cannot be told two different things about the same
+// numbers depending on which one they asked.
+func writeScores(b *strings.Builder, scores []commons.SkillScore) {
+	if len(scores) == 0 {
+		return
+	}
+	b.WriteString("[Recent scores, newest first]")
+	for _, score := range scores {
+		b.WriteString(fmt.Sprintf("\n- %s: total %.1f", score.Date, score.TotalGrade))
+		if strings.TrimSpace(score.ScoreStatus) != "" {
+			b.WriteString(fmt.Sprintf(" (%s)", score.ScoreStatus))
+		}
+		for _, detail := range score.Details {
+			b.WriteString(fmt.Sprintf("\n    * %s: %.1f/%.1f", detail.Description, detail.Grade, detail.Maximum))
+		}
+	}
+}
+
 // buildSummaryPrompt lays the learner's recent grades alongside the chat
 // content so the summary reflects how they are actually scoring, not only what
 // they talked about. Either section may be missing.
 func buildSummaryPrompt(content string, scores []commons.SkillScore) string {
 	var b strings.Builder
-	if len(scores) > 0 {
-		b.WriteString("[Recent scores, newest first]")
-		for _, score := range scores {
-			b.WriteString(fmt.Sprintf("\n- %s: total %.1f", score.Date, score.TotalGrade))
-			if strings.TrimSpace(score.ScoreStatus) != "" {
-				b.WriteString(fmt.Sprintf(" (%s)", score.ScoreStatus))
-			}
-			for _, detail := range score.Details {
-				b.WriteString(fmt.Sprintf("\n    * %s: %.1f/%.1f", detail.Description, detail.Grade, detail.Maximum))
-			}
-		}
-	}
+	writeScores(&b, scores)
 
 	if strings.TrimSpace(content) != "" {
 		if b.Len() > 0 {

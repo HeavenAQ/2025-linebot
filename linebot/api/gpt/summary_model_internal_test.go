@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/stretchr/testify/require"
@@ -60,7 +62,70 @@ func TestEveryLearnerFacingCallCarriesModelAndInstructions(t *testing.T) {
 		require.NotEmpty(t, prompt)
 	}
 	require.Contains(t, coachInstruction, "繁體中文")
-	// The stored prompt refused questions about a learner's own progress; that
-	// is precisely what this bot exists to answer.
-	require.Contains(t, coachInstruction, "不要拒絕")
+	// The stored prompt this replaced answered "how am I doing" with "我無法
+	// 針對動作學習進程或技術表現進行分析與評估。建議諮詢專業教練" -- the one
+	// answer a coaching bot holding the learner's scores must never give.
+	require.Contains(t, coachInstruction, "評估與給建議")
+	require.Contains(t, coachInstruction, "絕對不要說自己無法分析或評估")
+	require.Contains(t, coachInstruction, "你就是他的教練")
+}
+
+// A learner asking how they are doing is answered from their grades, so the
+// grades have to reach the model with the question.
+func TestCoachingCarriesTheLearnersScores(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(raw, &body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed",
+			"output":[{"type":"message","role":"assistant","status":"completed",
+			"content":[{"type":"output_text","text":"回覆"}]}]}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
+	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
+
+	reply, err := client.AddMessageToConversation("conv_1", "目前學習進程如何", []commons.SkillScore{
+		{Date: "2026-08-03", TotalGrade: 33.7, Details: []commons.GradingDetail{
+			{Description: "雙手平舉", Grade: 2.4, Maximum: 20},
+		}},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "回覆", reply)
+	input, ok := body["input"].(string)
+	require.True(t, ok)
+	require.Contains(t, input, "雙手平舉: 2.4/20.0")
+	require.Contains(t, input, "total 33.7")
+	require.Contains(t, input, "目前學習進程如何", "the question still has to reach the model")
+	require.Equal(t, DefaultModel, body["model"])
+	require.Equal(t, coachInstruction, body["instructions"])
+}
+
+// With no scores on record the question must still go through unchanged, rather
+// than carrying an empty header the model has to reason around.
+func TestCoachingWithoutScoresSendsOnlyTheQuestion(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(raw, &body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed",
+			"output":[{"type":"message","role":"assistant","status":"completed",
+			"content":[{"type":"output_text","text":"回覆"}]}]}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
+	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
+
+	_, err := client.AddMessageToConversation("conv_1", "怎麼練發球", nil)
+
+	require.NoError(t, err)
+	require.Equal(t, "怎麼練發球", body["input"])
 }

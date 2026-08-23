@@ -72,8 +72,13 @@ def _pose_sequence(frames: int = 8) -> np.ndarray:
     return pose
 
 
+def _pose_sequence_2d(frames: int = 8) -> np.ndarray:
+    """The x/y of the shared fixture: normalization now takes 2D poses."""
+    return _pose_sequence(frames)[..., :2].copy()
+
+
 def test_normalization_preserves_shape_and_mirrors_handedness() -> None:
-    right = _pose_sequence()
+    right = _pose_sequence_2d()
     left = right.copy()
     for left_index, right_index in LEFT_RIGHT_PAIRS:
         left[:, [left_index, right_index]] = right[:, [right_index, left_index]]
@@ -356,7 +361,7 @@ def test_prediction_can_use_onnx_style_inference_session() -> None:
 
 
 def test_normalization_preserves_rotation_relative_to_preparation() -> None:
-    sequence = _pose_sequence(frames=2)
+    sequence = _pose_sequence_2d(frames=2)
     angle = np.deg2rad(30.0)
     rotation = np.asarray(
         ((np.cos(angle), -np.sin(angle)), (np.sin(angle), np.cos(angle))),
@@ -374,7 +379,7 @@ def test_normalization_preserves_rotation_relative_to_preparation() -> None:
 
 
 def test_normalization_does_not_amplify_compressed_shoulders() -> None:
-    sequence = _pose_sequence()
+    sequence = _pose_sequence_2d()
     sequence[:, 5, 0] = -0.05
     sequence[:, 6, 0] = 0.05
     confidence = np.ones(sequence.shape[:2], dtype=np.float32)

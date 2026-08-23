@@ -53,9 +53,20 @@ jobs:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           LIFF_ID: ${{ secrets.NEXT_PUBLIC_LIFF_ID }}
         run: |
-          analysis_url="$(gcloud run services describe badminton-analysis-ai \
-            --region asia-southeast1 --format='value(status.url)')"
-          analysis_target="${analysis_url#https://}"
+          # The GPU analysis service is deployed and torn down on its own
+          # schedule, so it may not exist right now. --update-env-vars only
+          # touches the keys it is given, so when the service is missing the
+          # target is left at whatever the running revision already has rather
+          # than being blanked -- and this deploy is not blocked on it.
+          env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
+          env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
+          env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          if analysis_url="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 --format='value(status.url)' 2>/dev/null)"; then
+            env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"
+          else
+            echo "badminton-analysis-ai is not deployed; keeping the existing ANALYSIS_GRPC_TARGET"
+          fi
           # Learner endpoints authenticate callers by verifying their LINE ID
           # token against the channel that issued it, so the server needs that
           # channel's ID. A LIFF ID is "<login channel id>-<suffix>", which
@@ -73,7 +84,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
-            --update-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},ANALYSIS_GRPC_TARGET=${analysis_target},ANALYSIS_GRPC_INSECURE=false,LINE_LOGIN_CHANNEL_ID=${login_channel_id} \
+            --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id}" \
             --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
 
       - name: Verify deployed backend health

@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libgl1 libglib2.0-0 fonts-noto-cjk && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-pose.txt ./
+COPY requirements.txt ./
 RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
     pip install -r requirements.txt && \
     pip install --no-deps \
@@ -21,21 +21,18 @@ RUN pip install --upgrade pip setuptools==80.10.2 wheel && \
       tensorrt-cu12==10.14.1.48.post1 && \
     find /opt/conda/lib/python3.11/site-packages/tensorrt_libs \
       -type f -name 'libnvinfer_builder_resource_*' \
-      ! -name 'libnvinfer_builder_resource_sm89.so.10.14.1' -delete && \
-    pip install --no-deps -r requirements-pose.txt
+      ! -name 'libnvinfer_builder_resource_sm89.so.10.14.1' -delete
 
 RUN test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_builder_resource_sm89.so.10.14.1 && \
     python -c "import torch; assert torch.version.cuda == '12.4'; import tensorrt as trt; assert trt.__version__ == '10.14.1.48.post1'"
-
-RUN python -c "from pathlib import Path; from rtmlib.tools.file import download_checkpoint; root=Path('/app/models/pose'); root.mkdir(parents=True, exist_ok=True); download_checkpoint('https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_m_8xb8-300e_humanart-c2c7a14a.zip', dst_dir=str(root), progress=False); download_checkpoint('https://huggingface.co/Soykaf/RTMW3D-x/resolve/main/onnx/rtmw3d-x_8xb64_cocktail14-384x288-b0a0eab7_20240626.onnx', dst_dir=str(root), progress=False); print('RTMW3D ONNX models cached')"
-
 COPY . .
 
 RUN python -c "import service.server; print('Python service imports verified')"
 
-RUN test "$(find models/tensorrt-cache/detector -name '*.engine' | wc -l)" -ge 1 && \
-    test "$(find models/tensorrt-cache/pose -name '*.engine' | wc -l)" -ge 1 && \
-    echo "Prebuilt TensorRT detector and pose engines included"
+# A missing engine is not a build error at runtime — the detector would just
+# rebuild it on every cold start, which is precisely the cost this avoids.
+RUN test "$(find models/trt-engines -name 'rfdetr-keypoint-preview.trt' | wc -l)" -ge 1 && \
+    echo "Prebuilt RF-DETR TensorRT engine included"
 
 EXPOSE 8080
 CMD ["python", "-m", "service.server"]

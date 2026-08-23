@@ -5,15 +5,19 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	analysisv1 "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
+	"golang.org/x/oauth2"
+	"google.golang.org/api/idtoken"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	insecurecredentials "google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -37,21 +41,31 @@ func NewClient(target, apiKey string, useInsecure bool) (*Client, error) {
 			target += ":443"
 		}
 	}
-	var transport credentials.TransportCredentials
-	if useInsecure {
-		transport = insecurecredentials.NewCredentials()
-	} else {
-		host := strings.Split(target, ":")[0]
-		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: host})
-	}
-	connection, err := grpc.NewClient(
-		target,
-		grpc.WithTransportCredentials(transport),
+	options := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(8*1024*1024),
 			grpc.MaxCallSendMsgSize(chunkSize+1024),
 		),
-	)
+	}
+	if useInsecure {
+		options = append(options, grpc.WithTransportCredentials(insecurecredentials.NewCredentials()))
+	} else {
+		host := strings.Split(target, ":")[0]
+		options = append(options, grpc.WithTransportCredentials(
+			credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: host}),
+		))
+		// The analysis service runs on a GPU and is reachable on the public
+		// internet, so it admits only callers Cloud Run IAM recognises as
+		// invokers. Every call carries an OIDC identity token for this service
+		// account, audience-bound to the analysis service so a token minted for
+		// anything else is refused. The API key stays on top of it.
+		tokens, err := identityTokens("https://" + host)
+		if err != nil {
+			return nil, fmt.Errorf("obtain analysis identity token source: %w", err)
+		}
+		options = append(options, grpc.WithPerRPCCredentials(oauth.TokenSource{TokenSource: tokens}))
+	}
+	connection, err := grpc.NewClient(target, options...)
 	if err != nil {
 		return nil, fmt.Errorf("connect to analysis service: %w", err)
 	}
@@ -60,6 +74,20 @@ func NewClient(target, apiKey string, useInsecure bool) (*Client, error) {
 		service:    analysisv1.NewBadmintonAnalysisClient(connection),
 		apiKey:     apiKey,
 	}, nil
+}
+
+// identityTokens yields OIDC tokens naming the analysis service as audience.
+//
+// On Cloud Run the metadata server mints them from the attached service
+// account. Elsewhere -- a CI runner authenticated by workload identity
+// federation, where minting an audience-bound token from ambient credentials
+// does not work -- ANALYSIS_IDENTITY_TOKEN supplies one that was obtained out
+// of band.
+func identityTokens(audience string) (oauth2.TokenSource, error) {
+	if token := strings.TrimSpace(os.Getenv("ANALYSIS_IDENTITY_TOKEN")); token != "" {
+		return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token, TokenType: "Bearer"}), nil
+	}
+	return idtoken.NewTokenSource(context.Background(), audience)
 }
 
 func (c *Client) Close() error { return c.connection.Close() }

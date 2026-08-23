@@ -3,6 +3,10 @@
 # no-traffic candidate revision, verifies it with a live video analysis run,
 # promotes it to 100% traffic, then prunes superseded revisions and images.
 #
+# Only the LINE bot backend can invoke it: the service is deployed without
+# public access and its IAM policy names that one service account as the sole
+# run.invoker, so an unauthenticated caller never reaches a container.
+#
 # The service scales to zero (--min 0): an L4 is billed by the second, and
 # analyses arrive in bursts around class, so keeping an instance warm all week
 # costs far more than it saves. The trade is a cold start on the first request
@@ -86,7 +90,7 @@ jobs:
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
             --region asia-southeast1 \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
             --use-http2 \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --execution-environment gen2 \
@@ -120,20 +124,45 @@ jobs:
           echo "ANALYSIS_CANDIDATE_REVISION=${candidate_revision}" >> "${GITHUB_ENV}"
           echo "ANALYSIS_CANDIDATE_URL=${candidate_url}" >> "${GITHUB_ENV}"
 
+      - name: Restrict analysis service to the bot backend
+        run: |
+          # The GPU service is billed by the second and sits on a public URL, so
+          # only the LINE bot backend may invoke it. Both run as this service
+          # account; anything else Cloud Run rejects before a container starts.
+          # Deploying with --no-allow-unauthenticated already drops allUsers;
+          # this adds the one principal that is allowed back in.
+          gcloud run services add-iam-policy-binding badminton-analysis-ai \
+            --region asia-southeast1 \
+            --member "serviceAccount:${{ secrets.GCP_SA_EMAIL }}" \
+            --role roles/run.invoker \
+            --quiet
+          echo "invokers now:"
+          gcloud run services get-iam-policy badminton-analysis-ai \
+            --region asia-southeast1 --format=json | jq -r \
+            '.bindings[]? | select(.role == "roles/run.invoker") | .members[]'
+
       - name: Run real gRPC video analysis
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           mkdir -p /tmp/analysis-e2e
           gcloud storage cp \
-            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v1/smash/videos/張宸愷6.mp4' \
+            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/張宸愷6.mp4' \
             /tmp/analysis-e2e/smash-expert.mp4
           gcloud storage cp \
-            gs://${{ env.GCS_BUCKET_NAME }}/experts/v1/serve/videos/nstc_left_IMG_5568.mov \
-            /tmp/analysis-e2e/nstc_left_IMG_5568.mov
+            gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/serve/videos/expert-4-1_left.mov \
+            /tmp/analysis-e2e/serve-expert-left.mov
           export ANALYSIS_GRPC_TARGET="${ANALYSIS_CANDIDATE_URL#https://}"
           export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
             --secret analysis-grpc-api-key)"
+          # The service now requires an invoker identity. This runner is
+          # authenticated by workload identity federation, which cannot mint an
+          # audience-bound token from ambient credentials, so impersonate the
+          # service account the bot backend runs as and hand the token over.
+          export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
+            --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
+            --audiences "${ANALYSIS_CANDIDATE_URL}")"
+          test -n "${ANALYSIS_IDENTITY_TOKEN}"
           export RUN_LIVE_ANALYSIS=1
           cd linebot
           run_fixture() {
@@ -143,6 +172,7 @@ jobs:
             export LIVE_ANALYSIS_MIN_GRADE="${4:-}"
             export LIVE_ANALYSIS_EXPERT_PREFIX="${5:-}"
             export LIVE_ANALYSIS_EXPECT_NO_CUES="${6:-}"
+            export LIVE_ANALYSIS_EXPECT_EXPERT_VIDEO="${7:-}"
             for attempt in 1 2 3; do
               if go test -count=1 -v ./api/analysis -run TestLiveAnalysisService; then
                 return 0
@@ -154,9 +184,17 @@ jobs:
             done
             return 1
           }
-          run_fixture /tmp/analysis-e2e/smash-expert.mp4 smash right
-          run_fixture /tmp/analysis-e2e/nstc_left_IMG_5568.mov \
-            serve left 99 nstc_left_ 1
+          # Both fixtures are demonstrations that are themselves in the expert
+          # reference bank, so each must grade at the top of the rubric, draw no
+          # coaching cues, and come back paired with a real expert clip. The
+          # matched expert is deliberately not pinned to a name: the serve clip
+          # lands on a different left-handed expert than the one it came from,
+          # which is a legitimate outcome of picking the nearest skeleton.
+          #            video skill hand min_grade expert_prefix no_cues expert_video
+          run_fixture /tmp/analysis-e2e/smash-expert.mp4 \
+            smash right 99 '' 1 1
+          run_fixture /tmp/analysis-e2e/serve-expert-left.mov \
+            serve left 99 '' 1 1
 
       - name: Promote verified GPU revision
         run: |

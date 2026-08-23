@@ -5,6 +5,11 @@ Cloud Run job on the same L4 the analysis service uses. The result is uploaded
 to GCS and baked into the image by the deploy workflow, which is the whole
 point: without it the service rebuilds the engine on every cold start, and it
 scales to zero.
+
+Running this costs GPU-minutes on an L4, so it refuses to run when the engine
+it would produce is already in the bucket. Rebuilding is deliberate -- a new
+GPU type, a new TensorRT or RF-DETR version -- and has to be asked for with
+REBUILD_TRT_ENGINE=1.
 """
 
 from __future__ import annotations
@@ -26,20 +31,36 @@ def main() -> int:
     print(f"building on {gpu_name}", flush=True)
 
     cache_root = Path(os.environ["BADMINTON_TRT_CACHE_DIR"])
-    detector = PoseDetector()
-    # Compiles and caches the engine; ~2 minutes, and the reason this job exists.
-    detector._load_or_build_batched_engine()
-
     engine = cache_root / gpu_name.replace(" ", "_") / f"batch{BATCH_SIZE}" / "rfdetr-keypoint-preview.trt"
-    if not engine.exists():
-        raise RuntimeError(f"engine was not produced at {engine}")
-    print(f"built {engine} ({engine.stat().st_size / 1e6:.1f} MB)", flush=True)
 
     bucket_name = os.environ["GCS_BUCKET_NAME"]
     prefix = os.environ.get("ENGINE_UPLOAD_PREFIX", "models/rfdetr-trt-engines")
     relative = engine.relative_to(cache_root)
     blob_name = f"{prefix}/{relative}"
-    storage.Client().bucket(bucket_name).blob(blob_name).upload_from_filename(str(engine))
+    bucket = storage.Client().bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    # The guard: this job holds an L4 for the whole build, so an accidental
+    # re-run -- a retried job, a workflow wired up twice -- is pure cost for a
+    # file that already exists and is byte-for-byte what would be produced again.
+    rebuild = os.environ.get("REBUILD_TRT_ENGINE") == "1"
+    if blob.exists() and not rebuild:
+        print(
+            f"gs://{bucket_name}/{blob_name} already exists; refusing to rebuild. "
+            "Set REBUILD_TRT_ENGINE=1 to build it again.",
+            flush=True,
+        )
+        return 0
+
+    detector = PoseDetector()
+    # Compiles and caches the engine; ~2 minutes, and the reason this job exists.
+    detector._load_or_build_batched_engine()
+
+    if not engine.exists():
+        raise RuntimeError(f"engine was not produced at {engine}")
+    print(f"built {engine} ({engine.stat().st_size / 1e6:.1f} MB)", flush=True)
+
+    blob.upload_from_filename(str(engine))
     print(f"uploaded gs://{bucket_name}/{blob_name}", flush=True)
     return 0
 

@@ -11,6 +11,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/line/line-bot-sdk-go/v7 v7.21.0
+	google.golang.org/api v0.196.0
 )
 
 require (
@@ -40,7 +41,6 @@ require (
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
 	golang.org/x/tools v0.34.0 // indirect
-	google.golang.org/api v0.196.0 // indirect
 )
 
 require (
@@ -57,7 +57,7 @@ require (
 
 require (
 	cloud.google.com/go/secretmanager v1.14.1
-	golang.org/x/oauth2 v0.22.0 // indirect
+	golang.org/x/oauth2 v0.22.0
 )
 
 require (

@@ -102,14 +102,18 @@ func TestLiveAnalysisService(t *testing.T) {
 		require.True(t, len(result.Expert.ExpertID) >= len(prefix))
 		require.Equal(t, prefix, result.Expert.ExpertID[:len(prefix)])
 	}
-	generatedExpert := skill == "serve" || skill == "smash"
-	if generatedExpert {
-		require.Empty(t, result.Expert.Video.ObjectPath)
-		require.Equal(t, "Generated expert prior", result.Expert.DisplayName)
-	} else {
+	// The correction is generated, so the clip shown beside it is the nearest
+	// real demonstration out of the expert reference bank. A skill with no bank
+	// still analyses, it just has no video to play alongside -- which of the two
+	// a fixture expects is the fixture's to declare.
+	expectExpertVideo := os.Getenv("LIVE_ANALYSIS_EXPECT_EXPERT_VIDEO") == "1"
+	if expectExpertVideo {
 		require.NotEmpty(t, result.Expert.Video.ObjectPath)
 		require.GreaterOrEqual(t, result.Expert.MotionStartSeconds, 0.0)
 		require.Greater(t, result.Expert.MotionEndSeconds, result.Expert.MotionStartSeconds)
+	} else {
+		require.Empty(t, result.Expert.Video.ObjectPath)
+		require.Equal(t, "Generated expert prior", result.Expert.DisplayName)
 	}
 	require.NotEmpty(t, result.Timeline)
 	// Playback aligns marker for marker, so the expert must report the same
@@ -118,7 +122,7 @@ func TestLiveAnalysisService(t *testing.T) {
 	// hip rotation (keyframe 4) before the wrist flick (keyframe 3) — so the
 	// timestamps only run forwards once sorted by position, which is the order
 	// playback interpolates through.
-	if !generatedExpert {
+	if expectExpertVideo {
 		require.Len(t, result.Expert.Timeline, len(result.Timeline))
 		byPosition := append([]commons.PhaseMarker(nil), result.Expert.Timeline...)
 		for index, marker := range result.Expert.Timeline {
@@ -146,12 +150,12 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
 	require.Equal(t, 1.0, result.Diagnostics["pose_tensorrt_active"])
-	if generatedExpert {
-		require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
-	} else {
-		require.Equal(t, 1.0, result.Diagnostics["skeleton_tensorrt_active"])
-	}
+	// Pose detection runs on a TensorRT engine; the diffusion prior that
+	// replaced the skeleton corrector runs in torch and reports no engine.
+	require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
+	t.Logf("grade=%.2f expert=%q distance=%.4f cues=%d",
+		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance, len(result.CoachingCues))
 
 	playbackPaths := []string{
 		result.FeedbackVideo.ObjectPath,

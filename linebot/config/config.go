@@ -42,9 +42,13 @@ type FirestoreConfig struct {
 }
 
 type GPTConfig struct {
-	APIKey       string `env:"OPENAI_API_KEY"`
-	PromptID     string `env:"OPENAI_PROMPT_ID"`
+	APIKey   string `env:"OPENAI_API_KEY"`
+	PromptID string `env:"OPENAI_PROMPT_ID"`
+	// RewriteModel and SummaryModel override gpt.DefaultModel. Both are set
+	// here rather than left to the stored prompt, which pins whichever model it
+	// was saved against and breaks when that model is retired.
 	RewriteModel string `env:"OPENAI_REWRITE_MODEL"`
+	SummaryModel string `env:"OPENAI_SUMMARY_MODEL"`
 }
 
 type AnalysisServerConfig struct {

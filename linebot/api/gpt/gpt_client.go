@@ -20,17 +20,28 @@ import (
 // 2. For each user message, call Responses.New with the conversation ID and prompt.
 // 3. Read the generated text directly from the returned Response.
 
+// DefaultModel serves both the rewrite step and the summary. It is named here
+// rather than left to the stored prompt because a prompt pins whichever model
+// it was saved against, and OpenAI retires those: the summary broke in
+// production when gpt-5.2-chat-latest was withdrawn from under the stored
+// prompt, with nothing in this repository naming it.
+const DefaultModel = "gpt-5.6-terra"
+
 type Client struct {
 	Ctx          *context.Context
 	Client       *openai.Client
 	PromptID     string
 	RewriteModel string
+	SummaryModel string
 }
 
-func NewGPTClient(apiKey, promptID, rewriteModel string) *Client {
+func NewGPTClient(apiKey, promptID, rewriteModel, summaryModel string) *Client {
 	ctx := context.Background()
 	if rewriteModel == "" {
-		rewriteModel = "gpt-5.6-terra"
+		rewriteModel = DefaultModel
+	}
+	if summaryModel == "" {
+		summaryModel = DefaultModel
 	}
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
@@ -41,6 +52,7 @@ func NewGPTClient(apiKey, promptID, rewriteModel string) *Client {
 		Client:       &client,
 		PromptID:     promptID,
 		RewriteModel: rewriteModel,
+		SummaryModel: summaryModel,
 	}
 }
 
@@ -242,6 +254,10 @@ func (client *Client) Summarize(content string, scores []commons.SkillScore) (st
 		Prompt: responses.ResponsePromptParam{
 			ID: client.PromptID,
 		},
+		// Overrides the model the stored prompt was saved with. Without this the
+		// summary is only as durable as that pinned model, and a retirement
+		// takes the feature down with no way to fix it from here.
+		Model: client.SummaryModel,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{
 				Value: buildSummaryPrompt(content, scores),

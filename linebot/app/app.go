@@ -76,7 +76,7 @@ func NewApp(configPath string) *App {
 	}
 
 	// Set up GPT Client
-	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID, cfg.GPT.RewriteModel)
+	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.PromptID, cfg.GPT.RewriteModel, cfg.GPT.SummaryModel)
 
 	analysisClient, err := analysis.NewClient(
 		cfg.AnalysisServer.Target,

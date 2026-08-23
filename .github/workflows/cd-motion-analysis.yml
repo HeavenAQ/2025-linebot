@@ -68,6 +68,17 @@ jobs:
       - name: Deploy gRPC analysis service
         run: |
           candidate_tag="candidate-${GITHUB_RUN_ID}"
+          # The candidate pattern needs a service to add a revision to. On the
+          # very first deploy — or after the service has been deleted — there
+          # is nothing to hold traffic back from, and Cloud Run rejects
+          # --no-traffic outright, so bootstrap the service instead.
+          if gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 >/dev/null 2>&1; then
+            candidate_args=(--no-traffic --tag "${candidate_tag}")
+          else
+            echo "badminton-analysis-ai does not exist yet; creating it"
+            candidate_args=()
+          fi
           gcloud run deploy badminton-analysis-ai \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
@@ -83,8 +94,7 @@ jobs:
             --timeout 3600 \
             --min 0 \
             --max-instances 1 \
-            --no-traffic \
-            --tag "${candidate_tag}" \
+            "${candidate_args[@]}" \
             --clear-volume-mounts \
             --clear-volumes \
             --set-env-vars GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }},EXPERT_MOTION_DEVICE=auto,POSE_EXECUTION_PROVIDER=tensorrt,POSE_TENSORRT_CACHE_DIR=/app/models/tensorrt-cache,POSE_TENSORRT_ENGINE_HW_COMPATIBLE=false,OPENAI_COACHING_MODEL=gpt-5.6-terra,COACHING_PAUSE_SECONDS=2,COACHING_NO_SUGGESTION_MIN_SCORE=90,COACHING_NO_SUGGESTION_MIN_CRITERION_RATIO=0.8,SIGNED_URL_MINUTES=60 \
@@ -94,6 +104,13 @@ jobs:
           candidate_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format=json | jq -r \
             --arg tag "${candidate_tag}" '.status.traffic[] | select(.tag == $tag) | .url')"
+          if [ -z "${candidate_url}" ]; then
+            # Bootstrapped: the revision is already serving, so verify it on the
+            # service URL rather than a candidate tag.
+            candidate_url="$(gcloud run services describe badminton-analysis-ai \
+              --region asia-southeast1 --format='value(status.url)')"
+            candidate_tag=""
+          fi
           test -n "${candidate_revision}"
           test -n "${candidate_url}"
           echo "ANALYSIS_CANDIDATE_TAG=${candidate_tag}" >> "${GITHUB_ENV}"

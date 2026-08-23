@@ -197,6 +197,12 @@ jobs:
             serve left 99 '' 1 1
 
       - name: Promote verified GPU revision
+        # Only the candidate pattern needs promoting. A bootstrapped service is
+        # already serving its first revision at 100%, and switching its traffic
+        # block from "latest" to a pinned revision makes Cloud Run materialise a
+        # second, identical revision -- which then blocks the cleanup below,
+        # because the latest-created revision cannot be deleted.
+        if: env.ANALYSIS_CANDIDATE_TAG != ''
         run: |
           gcloud run services update-traffic badminton-analysis-ai \
             --region asia-southeast1 \
@@ -211,14 +217,27 @@ jobs:
 
       - name: Remove superseded GPU revisions and images
         run: |
+          # Cloud Run refuses to delete whichever revision it created last, even
+          # with no traffic on it, so that one is left for the next deploy to
+          # clear. Tidying is not worth failing a verified deploy over either:
+          # a revision that will not delete is reported and stepped over.
+          latest_created="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 \
+            --format='value(status.latestCreatedRevisionName)')"
           for revision in $(gcloud run revisions list \
             --service badminton-analysis-ai \
             --region asia-southeast1 \
             --format='value(metadata.name)'); do
-            if [[ "${revision}" != "${ANALYSIS_CANDIDATE_REVISION}" ]]; then
-              gcloud run revisions delete "${revision}" \
-                --region asia-southeast1 --quiet
+            if [[ "${revision}" == "${ANALYSIS_CANDIDATE_REVISION}" ]]; then
+              continue
             fi
+            if [[ "${revision}" == "${latest_created}" ]]; then
+              echo "leaving ${revision}: Cloud Run will not delete its newest revision"
+              continue
+            fi
+            gcloud run revisions delete "${revision}" \
+              --region asia-southeast1 --quiet \
+              || echo "could not delete ${revision}; leaving it in place"
           done
 
           active_image="$(gcloud run revisions describe \
@@ -234,5 +253,6 @@ jobs:
           while read -r digest; do
             gcloud container images delete \
               "gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis@${digest}" \
-              --force-delete-tags --quiet
+              --force-delete-tags --quiet \
+              || echo "could not delete image ${digest}; leaving it in place"
           done

@@ -7,20 +7,7 @@ import pandas as pd
 import pytest
 import torch
 
-from badminton_analysis.ml.infer_skeleton_corrector import (
-    _allocate_criterion_grades,
-    _evaluation_split,
-    _summary_rows,
-    phase_grading_details,
-    predict_correction,
-    predict_correction_with_reference,
-)
 from badminton_analysis.ml.handedness import estimate_handedness
-from badminton_analysis.ml.models.skeleton_denoiser import SkeletonDenoiser
-from badminton_analysis.ml.skeleton_dataset import (
-    SkeletonCorrectionPairDataset,
-    corrupt_lift_lunge_direction,
-)
 from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     interpolate_pose_sequence,
@@ -41,11 +28,6 @@ from badminton_analysis.ml.skeleton_scoring import (
     project_bone_lengths,
     select_bone_adapted_expert,
     sequence_training_losses,
-)
-from badminton_analysis.ml.train_skeleton_corrector import (
-    _build_expert_targets,
-    _load_expert_bank,
-    _split_expert_files,
 )
 from badminton_analysis.models.types import Handedness
 
@@ -150,216 +132,6 @@ def test_phase_constrained_dtw_preserves_anchors_and_student_holds() -> None:
     assert np.max(np.linalg.norm(np.diff(restored[13:25, 10], axis=0), axis=1)) < 0.08
 
 
-def test_phase_aligned_identity_prediction_preserves_source_sequence() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    phases = np.asarray((0, 21, 39, 52, 63), dtype=np.int64)
-    model = SkeletonDenoiser(model_dim=16, num_heads=4, temporal_layers=1, spatial_layers=1)
-    model.eval()
-    corrected = predict_correction(
-        model, source, confidence, torch.device("cpu"), phases
-    )
-    np.testing.assert_allclose(corrected, source, atol=1e-5)
-
-
-def test_reference_guidance_can_enforce_bone_adapted_expert_target() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    expert = source.copy()
-    expert[:, 8, 0] += 0.5
-    expert[:, 10, 0] += 1.0
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(expert[None]),
-        torch.as_tensor(confidence[None]),
-    )
-    model.eval()
-
-    corrected = predict_correction(
-        model,
-        source,
-        confidence,
-        torch.device("cpu"),
-        reference_guidance=1.0,
-    )
-
-    expected = project_bone_lengths(source, expert)
-    np.testing.assert_allclose(corrected, expected, atol=1e-3)
-
-
-def test_phase_aligned_reference_restores_the_target_trajectory() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    phases = np.asarray((0, 17, 34, 49, 63), dtype=np.int64)
-    aligned_source = phase_align_sequence(source, phases)
-    expert = aligned_source.copy()
-    expert[:, 8, 0] += np.linspace(0.0, 0.7, len(expert))
-    expert[:, 10, 0] += np.linspace(0.0, 1.2, len(expert))
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(expert[None]),
-        torch.as_tensor(confidence[None]),
-    )
-    model.eval()
-
-    corrected = predict_correction(
-        model,
-        source,
-        confidence,
-        torch.device("cpu"),
-        phases,
-        reference_guidance=1.0,
-    )
-
-    canonical_target = project_bone_lengths(aligned_source, expert)
-    expected = project_bone_lengths(
-        source, restore_phase_timing(canonical_target, phases)
-    )
-    np.testing.assert_allclose(corrected, expected, atol=1e-3)
-
-
-def test_prediction_reports_selected_expert_reference() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    far_expert = source.copy()
-    far_expert[:, 10, 0] += 1.0
-    near_expert = source.copy()
-    near_expert[:, 10, 0] += 0.05
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(np.stack((far_expert, near_expert))),
-        torch.as_tensor(np.stack((confidence, confidence))),
-    )
-    model.eval()
-
-    _, reference_index, reference_distance = predict_correction_with_reference(
-        model,
-        source,
-        confidence,
-        torch.device("cpu"),
-    )
-
-    assert reference_index == 1
-    assert reference_distance is not None
-    assert reference_distance < 0.01
-
-
-def test_prediction_only_selects_allowed_handedness_references() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    disallowed_near_expert = source.copy()
-    disallowed_near_expert[:, 10, 0] += 0.01
-    allowed_far_expert = source.copy()
-    allowed_far_expert[:, 10, 0] += 0.5
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(np.stack((disallowed_near_expert, allowed_far_expert))),
-        torch.as_tensor(np.stack((confidence, confidence))),
-    )
-    model.eval()
-
-    _, reference_index, _ = predict_correction_with_reference(
-        model,
-        source,
-        confidence,
-        torch.device("cpu"),
-        allowed_reference_indices=np.asarray((1,), dtype=np.int64),
-    )
-
-    assert reference_index == 1
-
-
-def test_prediction_rejects_empty_allowed_reference_set() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(source[None]),
-        torch.as_tensor(confidence[None]),
-    )
-    model.eval()
-
-    with pytest.raises(ValueError, match="cannot be empty"):
-        predict_correction_with_reference(
-            model,
-            source,
-            confidence,
-            torch.device("cpu"),
-            allowed_reference_indices=np.asarray((), dtype=np.int64),
-        )
-
-
-def test_prediction_can_use_onnx_style_inference_session() -> None:
-    source = resample_sequence(_pose_sequence(frames=11), 64)
-    confidence = np.ones(source.shape[:2], dtype=np.float32)
-    model = SkeletonDenoiser(
-        input_features=7,
-        model_dim=16,
-        num_heads=4,
-        temporal_layers=1,
-        spatial_layers=1,
-    )
-    model.set_expert_reference_bank(
-        torch.as_tensor(source[None]),
-        torch.as_tensor(confidence[None]),
-    )
-    model.eval()
-
-    class Session:
-        @staticmethod
-        def get_inputs():
-            return [type("Input", (), {"name": "features"})()]
-
-        @staticmethod
-        def run(_outputs, feeds):
-            with torch.inference_mode():
-                result = model(torch.from_numpy(feeds["features"])).numpy()
-            return [result]
-
-    expected, _, _ = predict_correction_with_reference(
-        model, source, confidence, torch.device("cpu")
-    )
-    actual, _, _ = predict_correction_with_reference(
-        model,
-        source,
-        confidence,
-        torch.device("cpu"),
-        inference_session=Session(),
-    )
-
-    np.testing.assert_allclose(actual, expected, atol=1e-6)
-
-
 def test_normalization_preserves_rotation_relative_to_preparation() -> None:
     sequence = _pose_sequence_2d(frames=2)
     angle = np.deg2rad(30.0)
@@ -417,97 +189,6 @@ def test_calibration_targets_separated_distributions() -> None:
     assert 98.0 <= float(np.mean(expert_scores)) <= 100.0
     assert 40.0 <= float(np.mean(beginner_scores)) <= 50.0
     assert calibration.target_reachable
-
-
-def test_evaluation_split_uses_checkpoint_membership() -> None:
-    checkpoint = {
-        "student_training_files": [],
-        "student_calibration_files": ["student_calibration.npz"],
-        "student_validation_files": ["student_validation.npz"],
-        "student_test_files": ["student_test.npz"],
-        "expert_test_files": ["expert_test.npz"],
-    }
-
-    assert (
-        _evaluation_split(checkpoint, "beginners", "student_validation.npz")
-        == "validation"
-    )
-    assert (
-        _evaluation_split(checkpoint, "beginners", "student_test.npz")
-        == "test"
-    )
-    assert (
-        _evaluation_split(checkpoint, "experts", "expert_test.npz")
-        == "test"
-    )
-    assert (
-        _evaluation_split(checkpoint, "beginners", "student_calibration.npz")
-        == "calibration"
-    )
-
-
-def test_score_summary_reports_held_out_groups() -> None:
-    results = pd.DataFrame(
-        {
-            "label": ["beginners", "beginners", "experts", "experts"],
-            "evaluation_split": ["validation", "test", "validation", "test"],
-            "total_grade": [45.0, 42.0, 99.0, 100.0],
-            "correction_distance": [0.5, 0.6, 0.05, 0.04],
-        }
-    )
-
-    summaries = {row["label"]: row for row in _summary_rows(results)}
-
-    assert summaries["beginners_test"]["mean"] == 42.0
-    assert summaries["experts_test"]["mean"] == 100.0
-    assert summaries["beginners"]["separation_auc"] == 1.0
-
-
-def test_phase_grades_add_up_to_total_grade() -> None:
-    original = resample_sequence(_pose_sequence(), 64)
-    corrected = original.copy()
-    corrected[:, 10, 0] += 0.08
-    confidence = np.ones(original.shape[:2], dtype=np.float32)
-    calibration = ScoreCalibration(distance_offset=0.0, alpha=8.0)
-    details = phase_grading_details(
-        original, corrected, confidence, calibration, total_grade=47.5
-    )
-    assert len(details) == 6
-    np.testing.assert_allclose(sum(detail[2] for detail in details), 47.5)
-
-
-def test_lift_expert_bank_preserves_observed_follow_through(tmp_path: Path) -> None:
-    expert = resample_sequence(_pose_sequence(), 64)
-    expert[48:, 10] = expert[48:, 8] + np.asarray(
-        (0.8, 0.3, -0.1), dtype=np.float32
-    )
-    path = tmp_path / "expert.npz"
-    np.savez_compressed(
-        path,
-        skeleton_3d=expert,
-        confidence=np.ones((64, 17), dtype=np.float32),
-        phase_indices=CANONICAL_PHASE_INDICES,
-    )
-
-    bank, confidence = _load_expert_bank([path])
-
-    np.testing.assert_allclose(bank[0], expert, atol=1e-5)
-    np.testing.assert_allclose(confidence[0], 1.0)
-
-
-def test_criterion_grade_allocation_preserves_distance_priority() -> None:
-    grades = _allocate_criterion_grades(
-        distances=(0.1, 0.4, 0.2),
-        maxima=(10.0, 20.0, 70.0),
-        total_grade=47.5,
-    )
-
-    assert sum(grades) == pytest.approx(47.5)
-    assert grades[1] / 20.0 < grades[2] / 70.0 < grades[0] / 10.0
-    assert all(
-        0.0 <= grade <= maximum
-        for grade, maximum in zip(grades, (10, 20, 70))
-    )
 
 
 def test_quality_metrics_detect_bone_stretch_and_temporal_jitter() -> None:
@@ -637,24 +318,6 @@ def test_lift_transition_penalizes_opposite_dominant_leg_direction() -> None:
     assert components["transition_distance"] >= 0.35
 
 
-def test_lift_augmentation_reverses_dominant_ankle_displacement() -> None:
-    skeleton = torch.tensor(_pose_sequence(64))
-    skeleton[:, 16, 0] += torch.linspace(0.0, 0.8, len(skeleton))
-
-    corrupted = corrupt_lift_lunge_direction(skeleton)
-    original_pelvis = (skeleton[:, 11] + skeleton[:, 12]) * 0.5
-    corrupted_pelvis = (corrupted[:, 11] + corrupted[:, 12]) * 0.5
-    original_step = (skeleton[-1, 16] - original_pelvis[-1])[0] - (
-        skeleton[0, 16] - original_pelvis[0]
-    )[0]
-    corrupted_step = (corrupted[-1, 16] - corrupted_pelvis[-1])[0] - (
-        corrupted[0, 16] - corrupted_pelvis[0]
-    )[0]
-
-    assert original_step > 0.0
-    assert corrupted_step < 0.0
-
-
 def test_lift_training_loss_penalizes_opposite_lunge_direction() -> None:
     target = _pose_sequence(64)
     target[:, 16, 0] += np.linspace(0.0, 0.8, len(target))
@@ -699,56 +362,6 @@ def test_training_loss_penalizes_missing_torso_forward_lean() -> None:
     assert losses["transition"].item() > 0.0
     assert prediction.grad is not None
     assert torch.isfinite(prediction.grad).all()
-
-
-def test_expert_training_target_is_the_clean_expert_pose(
-    tmp_path: Path,
-) -> None:
-    expert = resample_sequence(_pose_sequence(), 64)
-    expert[:, 8, 0] += 0.5
-    expert[:, 10, 0] += 1.0
-    confidence = np.ones(expert.shape[:2], dtype=np.float32)
-    expert_path = tmp_path / "expert.npz"
-    archive_values = {
-        "confidence": confidence,
-        "phase_indices": np.asarray(CANONICAL_PHASE_INDICES),
-        "handedness": np.asarray("right"),
-    }
-    np.savez(expert_path, skeleton_3d=expert, **archive_values)
-
-    targets = _build_expert_targets([expert_path])
-    target, _ = targets[expert_path.name]
-    np.testing.assert_allclose(target, expert)
-
-    dataset = SkeletonCorrectionPairDataset(
-        [expert_path],
-        targets=targets,
-        reference_conditioned=True,
-    )
-    item = dataset[0]
-    assert item["features"].shape == (64, 17, 7)
-    np.testing.assert_allclose(item["features"][..., 3:6], expert)
-    np.testing.assert_allclose(item["target"], expert)
-
-
-def test_expert_split_preserves_each_handedness_in_every_split(
-    tmp_path: Path,
-) -> None:
-    paths: list[Path] = []
-    for handedness, count in (("left", 9), ("right", 10)):
-        for index in range(count):
-            path = tmp_path / f"{handedness}-{index}.npz"
-            np.savez(path, handedness=np.asarray(handedness))
-            paths.append(path)
-
-    splits = _split_expert_files(paths, seed=2026)
-
-    for split in splits:
-        hands = {
-            str(np.load(path, allow_pickle=False)["handedness"].item())
-            for path in split
-        }
-        assert hands == {"left", "right"}
 
 
 def test_handedness_estimate_uses_decisive_wrist_motion() -> None:

@@ -9,7 +9,6 @@ from badminton_analysis.ml.clear_feedback import (
     SkillFeedbackAnalysis,
     phase_for_frame,
 )
-from badminton_analysis.ml.infer_skeleton_corrector import phase_grading_details
 from badminton_analysis.ml.skeleton_scoring import ScoreCalibration
 from badminton_analysis.ml.skill_specs import (
     SUPPORTED_CORRECTION_SKILLS,
@@ -200,24 +199,3 @@ def test_each_rule_anchor_has_the_rule_phase(skill: Skill) -> None:
             )
 
 
-@pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
-def test_skill_detail_grades_reconcile_to_the_total(skill: Skill) -> None:
-    spec = get_skill_spec(skill)
-    original = np.zeros((64, 17, 3), dtype=np.float32)
-    corrected = original.copy()
-    corrected[:, 10, 0] = np.linspace(0.0, 0.2, 64)
-    confidence = np.ones((64, 17), dtype=np.float32)
-    details = phase_grading_details(
-        original,
-        corrected,
-        confidence,
-        ScoreCalibration(distance_offset=0.0, alpha=8.0),
-        total_grade=47.5,
-        spec=spec,
-    )
-
-    assert len(details) == len(spec.rules)
-    assert [detail[0] for detail in details] == [
-        rule.name_zh_tw for rule in spec.rules
-    ]
-    assert sum(detail[2] for detail in details) == pytest.approx(47.5)

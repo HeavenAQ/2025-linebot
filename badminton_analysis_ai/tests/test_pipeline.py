@@ -191,3 +191,27 @@ def test_expert_timeline_rejects_mismatched_phase_timestamps() -> None:
             phase_seconds=(1.0, 2.0),
             sequence_length=64,
         )
+
+
+def test_analysis_runs_pose_on_the_batched_tensorrt_path() -> None:
+    """The service must extract poses in batches, not frame by frame.
+
+    Only the batched path reaches the cached TensorRT engine; `process_frames`
+    runs RF-DETR in PyTorch a frame at a time, which is roughly an order of
+    magnitude slower on a GPU that is billed by the second. The two are
+    interchangeable at the call site, so nothing else would notice the swap --
+    hence this check on the source itself.
+    """
+    import ast
+    import pathlib
+
+    source = pathlib.Path(__file__).resolve().parents[1] / "service" / "pipeline.py"
+    tree = ast.parse(source.read_text())
+    called = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+
+    assert "process_frames_batched" in called
+    assert "process_frames" not in called

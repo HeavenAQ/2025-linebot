@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -7,6 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
+from badminton_analysis.ml.expert_reference_bank import (
+    ExpertReference,
+    ExpertReferenceBank,
+)
 from badminton_analysis.ml.expert_motion_backend import (
     ExpertMotionGeneratorBackend,
 )
@@ -24,6 +29,9 @@ from badminton_analysis.services.video_processor import VideoProcessor
 
 from service.renderer import render_correction_video, source_fps
 from service.coaching import CoachingGenerator
+
+
+LOGGER = logging.getLogger("badminton-analysis")
 
 
 @dataclass(frozen=True)
@@ -49,6 +57,9 @@ class AnalysisResult:
     pause_seconds: float
     output_path: Path
     skeleton_overlay_path: Path
+    # The real demonstration closest to this learner's corrected motion, or
+    # None when no expert clip exists for the skill.
+    expert_reference: ExpertReference | None = None
 
 
 def _correction_grade_context(
@@ -217,12 +228,19 @@ class SkeletonAnalysisPipeline:
         device: str = "auto",
         openai_model: str = "gpt-5.6-terra",
         pause_seconds: float = 2.0,
+        expert_reference_bank: Path | None = None,
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
         self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
         self.pause_seconds = pause_seconds
+        # The prior generates an idealised movement rather than copying an
+        # expert, so the clip shown beside it is chosen by similarity instead.
+        bank_path = expert_reference_bank or Path("models/expert_reference_bank.npz")
+        self.expert_bank = ExpertReferenceBank(bank_path) if bank_path.exists() else None
+        if self.expert_bank is None:
+            LOGGER.warning("no expert reference bank at %s; comparison will have no video", bank_path)
         for skill in (Skill.SERVE, Skill.SMASH):
             self.backends[skill] = ExpertMotionGeneratorBackend(
                 expert_motion_model_root,
@@ -383,6 +401,19 @@ class SkeletonAnalysisPipeline:
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:
             raise RuntimeError("phase timeline exceeds rendered video duration")
+        # Match on the canonical-space correction, which is the space the bank
+        # was built in, so no renormalization is needed.
+        expert_reference = None
+        if self.expert_bank is not None:
+            expert_reference = self.expert_bank.select(
+                correction.aligned_corrected_pose,
+                skill=str(skill),
+                handedness=str(handedness),
+            )
+            if expert_reference is not None:
+                diagnostics["expert_reference_similarity"] = expert_reference.similarity
+                diagnostics["expert_reference_pose_distance"] = expert_reference.distance
+
         return AnalysisResult(
             skill=skill,
             handedness=handedness,
@@ -396,4 +427,5 @@ class SkeletonAnalysisPipeline:
             pause_seconds=self.pause_seconds,
             output_path=output_path,
             skeleton_overlay_path=skeleton_overlay_path,
+            expert_reference=expert_reference,
         )

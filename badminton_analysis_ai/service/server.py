@@ -18,6 +18,7 @@ from badminton_analysis.models.types import Handedness, Skill
 
 from service.config import Settings
 from service.pipeline import (
+    expert_phase_results,
     AnalysisResult,
     SkeletonAnalysisPipeline,
 )
@@ -188,6 +189,38 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 context.abort(grpc.StatusCode.INTERNAL, "analysis failed")
         raise AssertionError("unreachable")
 
+    def _expert_timeline(self, spec, reference) -> list[analysis_pb2.PhaseMarker]:
+        """The chosen expert's checkpoints, timed in that expert's own video.
+
+        Built from the same rule anchors as the learner's timeline so marker i
+        means the same moment on both sides, which is what lets playback line
+        the two clips up segment by segment rather than stretching one evenly
+        across the other. A clip whose phases cannot be read costs the
+        alignment, not the analysis.
+        """
+        try:
+            markers = expert_phase_results(
+                spec,
+                phase_indices=tuple(range(len(reference.source_phase_indices))),
+                phase_seconds=reference.phase_seconds(),
+                sequence_length=len(reference.source_phase_indices),
+            )
+        except ValueError as exc:
+            LOGGER.warning(
+                "expert checkpoints unusable expert=%s error=%s", reference.subject_id, exc
+            )
+            return []
+        return [
+            analysis_pb2.PhaseMarker(
+                id=marker.id,
+                label=marker.label,
+                normalized_frame=marker.normalized_frame,
+                normalized_position=marker.normalized_position,
+                timestamp_seconds=marker.timestamp_seconds,
+            )
+            for marker in markers
+        ]
+
     def _response(
         self,
         analysis_id: str,
@@ -237,11 +270,27 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             for key, value in result.diagnostics.items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         ]
-        expert_message = analysis_pb2.ExpertMatch(
-            expert_id=result.expert_id,
-            display_name="Generated expert prior",
-            correction_distance=result.expert_distance,
-        )
+        # The correction is generated rather than copied, so the clip beside it
+        # is the closest real demonstration to what the learner is reaching
+        # towards. Without one the panel simply has no video, as before.
+        reference = result.expert_reference
+        if reference is None:
+            expert_message = analysis_pb2.ExpertMatch(
+                expert_id=result.expert_id,
+                display_name="Generated expert prior",
+                correction_distance=result.expert_distance,
+            )
+        else:
+            expert_signed = self.storage.sign(reference.video_object_path)
+            expert_message = analysis_pb2.ExpertMatch(
+                expert_id=reference.subject_id,
+                display_name=reference.subject_id,
+                correction_distance=reference.distance,
+                video=self._stored_video(expert_signed, {"fps": reference.fps}),
+                motion_start_seconds=reference.motion_start_seconds,
+                motion_end_seconds=reference.motion_end_seconds,
+                timeline=self._expert_timeline(spec, reference),
+            )
         feedback_video = self._stored_video(student_signed, student_metadata)
         overlay_video = self._stored_video(overlay_signed, overlay_metadata)
         return analysis_pb2.AnalyzeVideoResponse(

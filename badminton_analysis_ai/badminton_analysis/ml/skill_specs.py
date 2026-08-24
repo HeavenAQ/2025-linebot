@@ -78,9 +78,13 @@ class FeedbackRuleSpec:
     measured_joints: tuple[int, ...]
     coaching_joints: tuple[int, ...]
     allowed_anchor_indices: tuple[int, ...]
+    # Most criteria display inside their semantic phase. A transition may
+    # instead culminate on a shared event boundary, such as serve weight
+    # transfer at the contact anchor.
+    display_phase: str | None = None
 
     def as_prompt_dict(self) -> dict[str, str | float | list[int]]:
-        return {
+        payload: dict[str, str | float | list[int]] = {
             "id": self.id,
             "name_zh_tw": self.name_zh_tw,
             "phase": self.phase,
@@ -89,6 +93,9 @@ class FeedbackRuleSpec:
             "measured_joint_ids": list(self.measured_joints),
             "coaching_joint_ids": list(self.coaching_joints),
         }
+        if self.display_phase is not None:
+            payload["display_phase"] = self.display_phase
+        return payload
 
 
 @dataclass(frozen=True)
@@ -327,6 +334,7 @@ _SERVE_RULES = (
         (5, 6, 11, 12, 13, 14, 15, 16),
         (5, 6, 11, 12, 15, 16),
         (2,),
+        display_phase="contact",
     ),
     FeedbackRuleSpec(
         "hip_rotation",

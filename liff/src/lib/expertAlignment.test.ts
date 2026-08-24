@@ -8,7 +8,7 @@ import {
   expertTimeAt,
   progressAtExpertTime
 } from './expertAlignment.ts'
-import type { PhaseMarker } from '@/schemas/userData.schema.ts'
+import type { AlignmentSample, PhaseMarker } from '@/schemas/userData.schema.ts'
 
 const marker = (id: string, position: number, seconds: number): PhaseMarker => ({
   id,
@@ -16,6 +16,11 @@ const marker = (id: string, position: number, seconds: number): PhaseMarker => (
   normalized_frame: Math.round(position * 63),
   normalized_position: position,
   timestamp_seconds: seconds
+})
+
+const sample = (position: number, seconds: number): AlignmentSample => ({
+  normalized_position: position,
+  expert_seconds: seconds
 })
 
 // The student reaches impact at 60% of the motion; the expert reaches it at
@@ -118,6 +123,61 @@ test('orders a serve timeline that is listed out of stroke order', () => {
   // The wrist flick maps to the expert's wrist flick, not to whatever the
   // expert happened to be doing three quarters of the way through.
   assert.equal(expertTimeAt(anchors, 0.75), 2.5)
+})
+
+// The analysis warps the poses between checkpoints and sends the result as
+// dense samples. Those already pin the checkpoints, so they stand in for the
+// checkpoint pairs rather than being merged with them.
+test('follows the warp when the analysis carries one', () => {
+  const warp = [sample(0, 1), sample(0.25, 1.8), sample(0.5, 2), sample(0.75, 2.1), sample(1, 3)]
+
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3, warp)
+
+  assert.deepEqual(anchors, [
+    { position: 0, seconds: 1 },
+    { position: 0.25, seconds: 1.8 },
+    { position: 0.5, seconds: 2 },
+    { position: 0.75, seconds: 2.1 },
+    { position: 1, seconds: 3 }
+  ])
+  // A quarter of the way in the expert is at 1.8s, not the 1.5s the checkpoint
+  // pair alone would have given, and not the 1.5s of a whole-window stretch.
+  assert.equal(expertTimeAt(anchors, 0.25), 1.8)
+  assert.equal(expertTimeAt(anchors, 0.375), 1.9)
+})
+
+test('falls back to the checkpoints when no warp was recorded', () => {
+  // Analyses that predate the warp send nothing, which has to behave exactly
+  // as it did before it shipped.
+  assert.deepEqual(
+    buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3, []),
+    buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3)
+  )
+})
+
+test('drops warp samples that would stall or rewind the expert', () => {
+  const warp = [sample(0, 1), sample(0.3, 1.5), sample(0.6, 1.5), sample(0.8, 1.2), sample(1, 3)]
+
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3, warp)
+
+  assert.deepEqual(anchors, [
+    { position: 0, seconds: 1 },
+    { position: 0.3, seconds: 1.5 },
+    { position: 1, seconds: 3 }
+  ])
+})
+
+test('holds the warp inside the expert motion window', () => {
+  const warp = [sample(0, 0.2), sample(0.5, 2), sample(1, 5)]
+
+  const anchors = buildAlignmentAnchors(studentTimeline, expertTimeline, 1, 3, warp)
+
+  assert.deepEqual(anchors, [
+    { position: 0, seconds: 1 },
+    { position: 0.5, seconds: 2 },
+    { position: 1, seconds: 3 }
+  ])
+  assert.equal(progressAtExpertTime(anchors, expertTimeAt(anchors, 0.7)), 0.7)
 })
 
 test('runs the expert at each segment own tempo', () => {

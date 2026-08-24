@@ -192,6 +192,14 @@ func phaseMarkers(values []*analysisv1.PhaseMarker) []commons.PhaseMarker {
 	return markers
 }
 
+func alignmentSamples(values []*analysisv1.AlignmentSample) []commons.AlignmentSample {
+	samples := make([]commons.AlignmentSample, 0, len(values))
+	for _, value := range values {
+		samples = append(samples, commons.AlignmentSample{NormalizedPosition: value.NormalizedPosition, ExpertSeconds: value.ExpertSeconds})
+	}
+	return samples
+}
+
 func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome {
 	details := make([]commons.GradingDetail, 0, len(response.Grade.GradingDetails))
 	for _, value := range response.Grade.GradingDetails {
@@ -199,6 +207,7 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 	}
 	timeline := phaseMarkers(response.Timeline)
 	expertTimeline := phaseMarkers(response.Expert.Timeline)
+	expertAlignment := alignmentSamples(response.Expert.Alignment)
 	cues := make([]commons.CoachingCue, 0, len(response.CoachingCues))
 	for _, value := range response.CoachingCues {
 		cues = append(cues, commons.CoachingCue{Title: value.Title, Feedback: value.Feedback, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, StudentTimestampSeconds: value.StudentTimestampSeconds, PauseDurationSeconds: value.PauseDurationSeconds, JointIDs: value.JointIds})
@@ -220,7 +229,7 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 		StudentVideo:         studentVideo,
 		FeedbackVideo:        feedbackVideo,
 		SkeletonOverlayVideo: media(response.SkeletonOverlayVideo),
-		Expert:               commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, CorrectionDistance: response.Expert.CorrectionDistance, Video: media(response.Expert.Video), MotionStartSeconds: response.Expert.MotionStartSeconds, MotionEndSeconds: response.Expert.MotionEndSeconds, Timeline: expertTimeline},
+		Expert:               commons.ExpertMatch{ExpertID: response.Expert.ExpertId, DisplayName: response.Expert.DisplayName, CorrectionDistance: response.Expert.CorrectionDistance, Video: media(response.Expert.Video), MotionStartSeconds: response.Expert.MotionStartSeconds, MotionEndSeconds: response.Expert.MotionEndSeconds, Timeline: expertTimeline, Alignment: expertAlignment},
 		Timeline:             timeline, CoachingCues: cues, OverallFeedback: response.OverallFeedback,
 		Diagnostics: diagnostics,
 	}

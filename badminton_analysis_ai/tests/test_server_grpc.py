@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import tempfile
 from concurrent import futures
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import grpc
 
 from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
+from badminton_analysis.ml.expert_reference_bank import ExpertReference
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
 from service.pipeline import AnalysisResult, PhaseResult
@@ -163,3 +166,88 @@ def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> No
     assert response.grade.score_status == "expert_only_generated_distribution"
     assert response.expert.display_name == "Generated expert prior"
     assert not response.expert.HasField("video")
+
+
+class _ExpertStorage(_Storage):
+    def sign(self, object_path: str) -> SignedObject:
+        return SignedObject(
+            object_path=object_path,
+            gcs_uri=f"gs://test/{object_path}",
+            signed_url=f"https://media.test/{object_path}",
+            expires_at_unix=2_000_000_000,
+        )
+
+
+def _matched_service() -> BadmintonAnalysisService:
+    service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
+    service.pipeline = _Pipeline()
+    service.storage = _ExpertStorage()
+    service.catalog = _Catalog()
+    return service
+
+
+def _expert_reference() -> ExpertReference:
+    return ExpertReference(
+        skill="serve",
+        handedness="right",
+        video_object_path="experts/v3/serve/videos/test.mp4",
+        subject_id="test-expert",
+        fps=30.0,
+        analysis_window=(0, 70, 70),
+        source_phase_indices=(12, 27, 42, 51, 60),
+        distance=0.1,
+        similarity=0.9,
+    )
+
+
+def _matched_response(alignment: tuple[tuple[float, float], ...]):
+    service = _matched_service()
+    metadata = {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280}
+    signed = SignedObject(
+        object_path="student_corrected.mp4",
+        gcs_uri="gs://test/student_corrected.mp4",
+        signed_url="https://media.test/student_corrected.mp4",
+        expires_at_unix=2_000_000_000,
+    )
+    pipeline = service.pipeline
+    result = pipeline.analyze(
+        video_path=_video(),
+        output_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
+        skeleton_overlay_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
+        filename="serve.mp4",
+        skill=Skill.SERVE,
+        requested_handedness="right",
+    )
+    result = replace(
+        result, expert_reference=_expert_reference(), expert_alignment=alignment
+    )
+    return service._response(
+        "analysis-1", result, signed, signed, metadata, metadata
+    )
+
+
+def _video() -> Path:
+    path = Path(tempfile.mkstemp(suffix=".mp4")[1])
+    path.write_bytes(b"video-bytes")
+    return path
+
+
+def test_a_matched_expert_carries_its_warped_alignment() -> None:
+    samples = ((0.0, 0.4), (0.5, 1.1), (1.0, 2.0))
+
+    response = _matched_response(samples)
+
+    assert [
+        (sample.normalized_position, sample.expert_seconds)
+        for sample in response.expert.alignment
+    ] == list(samples)
+
+
+# The alignment is a refinement of playback, so a clip the warp could not
+# handle costs the analysis nothing beyond it.
+def test_an_expert_without_an_alignment_still_returns() -> None:
+    response = _matched_response(())
+
+    assert list(response.expert.alignment) == []
+    assert response.expert.expert_id == "test-expert"
+    assert len(response.expert.timeline) == len(response.timeline)

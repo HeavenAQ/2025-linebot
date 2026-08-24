@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	analysisv1 "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
@@ -124,4 +125,39 @@ func TestAnalyzeVideoStreamsAndMapsBothRenderedVideos(t *testing.T) {
 	require.Equal(t, "analyses/test/student_skeleton_overlay.mp4", result.SkeletonOverlayVideo.ObjectPath)
 	require.Equal(t, "https://media.test/overlay", result.SkeletonOverlayVideo.SignedURL)
 	require.Equal(t, "generated-prior-1", result.Expert.ExpertID)
+}
+
+// Playback needs the alignment in the same shape it will be written to
+// Firestore in, so the mapping is worth pinning on its own.
+func TestOutcomeCarriesTheExpertAlignment(t *testing.T) {
+	response := &analysisv1.AnalyzeVideoResponse{
+		Grade: &analysisv1.GradingOutcome{TotalGrade: 88},
+		Expert: &analysisv1.ExpertMatch{
+			ExpertId: "expert-3-1",
+			Alignment: []*analysisv1.AlignmentSample{
+				{NormalizedPosition: 0, ExpertSeconds: 0.767},
+				{NormalizedPosition: 0.5, ExpertSeconds: 1.767},
+				{NormalizedPosition: 1, ExpertSeconds: 2.233},
+			},
+		},
+	}
+
+	result := outcome(response)
+
+	require.Equal(t, []commons.AlignmentSample{
+		{NormalizedPosition: 0, ExpertSeconds: 0.767},
+		{NormalizedPosition: 0.5, ExpertSeconds: 1.767},
+		{NormalizedPosition: 1, ExpertSeconds: 2.233},
+	}, result.Expert.Alignment)
+}
+
+// An analysis whose expert could not be warped still has to reach the player.
+func TestOutcomeWithoutAnAlignmentIsEmptyRatherThanNil(t *testing.T) {
+	result := outcome(&analysisv1.AnalyzeVideoResponse{
+		Grade:  &analysisv1.GradingOutcome{TotalGrade: 88},
+		Expert: &analysisv1.ExpertMatch{ExpertId: "expert-3-1"},
+	})
+
+	require.NotNil(t, result.Expert.Alignment)
+	require.Empty(t, result.Expert.Alignment)
 }

@@ -61,6 +61,19 @@ message PhaseMarker {
   double timestamp_seconds = 5;
 }
 
+// One point on the map from the learner's motion onto the expert's clock.
+//
+// The checkpoints in ExpertMatch.timeline are fixed anchors; these fill in the
+// movement between them. Playback would otherwise interpolate straight from one
+// checkpoint to the next, which assumes the two performers keep the same
+// relative tempo inside a phase -- they do not.
+message AlignmentSample {
+  // Where the learner is in their motion, 0-1.
+  double normalized_position = 1;
+  // The moment in the expert's video that matches it.
+  double expert_seconds = 2;
+}
+
 message CoachingCue {
   string title = 1;
   string feedback = 2;
@@ -93,6 +106,11 @@ message ExpertMatch {
   // same order, timestamped in the expert video. Playback interpolates between
   // them so each phase stays aligned instead of drifting across the motion.
   repeated PhaseMarker timeline = 7;
+  // Dense student-to-expert correspondence from phase-segmental DTW, with the
+  // checkpoints above as fixed endpoints. Empty when it could not be computed,
+  // and on analyses recorded before it shipped; playback falls back to
+  // interpolating between the checkpoints.
+  repeated AlignmentSample alignment = 8;
 }
 
 message DiagnosticValue {

@@ -298,6 +298,12 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 motion_start_seconds=reference.motion_start_seconds,
                 motion_end_seconds=reference.motion_end_seconds,
                 timeline=self._expert_timeline(spec, reference),
+                alignment=[
+                    analysis_pb2.AlignmentSample(
+                        normalized_position=position, expert_seconds=seconds
+                    )
+                    for position, seconds in result.expert_alignment
+                ],
             )
         feedback_video = self._stored_video(student_signed, student_metadata)
         overlay_video = self._stored_video(overlay_signed, overlay_metadata)

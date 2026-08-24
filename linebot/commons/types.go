@@ -51,6 +51,16 @@ type ExpertMatch struct {
 	// base, matching the analysis timeline marker for marker. Empty for
 	// analyses recorded before checkpoint alignment.
 	Timeline []PhaseMarker `json:"timeline" firestore:"timeline"`
+	// Alignment maps the learner's progress onto the expert's clock between
+	// those checkpoints, so playback follows the expert's own tempo inside a
+	// phase instead of interpolating straight across it. Empty for analyses
+	// recorded before segmental alignment, which fall back to interpolation.
+	Alignment []AlignmentSample `json:"alignment" firestore:"alignment"`
+}
+
+type AlignmentSample struct {
+	NormalizedPosition float64 `json:"normalized_position" firestore:"normalized_position"`
+	ExpertSeconds      float64 `json:"expert_seconds" firestore:"expert_seconds"`
 }
 
 type PhaseMarker struct {

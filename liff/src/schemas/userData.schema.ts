@@ -34,6 +34,11 @@ export const PhaseMarkerSchema = z.object({
   timestamp_seconds: z.number()
 })
 
+export const AlignmentSampleSchema = z.object({
+  normalized_position: z.number(),
+  expert_seconds: z.number()
+})
+
 export const ExpertMatchSchema = z.object({
   expert_id: z.string(),
   display_name: z.string(),
@@ -43,7 +48,10 @@ export const ExpertMatchSchema = z.object({
   motion_end_seconds: z.number().optional().default(0),
   // The expert's own checkpoints, timestamped in the expert video. Absent on
   // analyses recorded before checkpoint alignment shipped.
-  timeline: z.preprocess(value => value ?? [], z.array(PhaseMarkerSchema))
+  timeline: z.preprocess(value => value ?? [], z.array(PhaseMarkerSchema)),
+  // The warped map between those checkpoints. Absent on analyses recorded
+  // before segmental alignment shipped, and on any the service could not warp.
+  alignment: z.preprocess(value => value ?? [], z.array(AlignmentSampleSchema))
 })
 
 export const CoachingCueSchema = z.object({
@@ -138,6 +146,7 @@ export type GPTConversationIDs = z.infer<typeof GPTConversationIDsSchema>
 export type MediaRef = z.infer<typeof MediaRefSchema>
 export type ExpertMatch = z.infer<typeof ExpertMatchSchema>
 export type PhaseMarker = z.infer<typeof PhaseMarkerSchema>
+export type AlignmentSample = z.infer<typeof AlignmentSampleSchema>
 export type CoachingCue = z.infer<typeof CoachingCueSchema>
 export type PlaybackResponse = z.infer<typeof PlaybackResponseSchema>
 

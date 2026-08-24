@@ -1,4 +1,4 @@
-import type { PhaseMarker } from '@/types'
+import type { AlignmentSample, PhaseMarker } from '@/types'
 
 /**
  * Maps the student's motion progress onto the expert video's clock.
@@ -9,6 +9,11 @@ import type { PhaseMarker } from '@/types'
  * between checkpoints. Anchoring the map on matching checkpoints and
  * interpolating within each segment keeps every phase aligned — the playback
  * counterpart of the segmental warping used when scoring.
+ *
+ * The analysis now warps the poses between those checkpoints too and sends the
+ * result as dense samples, because tempo is not constant inside a phase either.
+ * Those samples are anchors like any other; the checkpoint pairs remain as the
+ * fallback for analyses that carry no warp.
  */
 
 export interface AlignmentAnchor {
@@ -23,36 +28,24 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 const isFiniteNumber = (value: number) => typeof value === 'number' && Number.isFinite(value)
 
 /**
- * Builds the anchors for one analysis: the motion window's ends, plus every
- * checkpoint pair that survives as a strictly increasing correspondence.
+ * Grows the anchor list from correspondences ordered by student progress.
  *
  * Pairs are dropped rather than reordered when they disagree with what came
- * before, because a non-monotonic anchor would rewind the expert mid-play.
- * With no usable checkpoints this degrades to the two window ends, which is
- * exactly the old whole-window stretch.
+ * before, because a non-monotonic anchor would rewind the expert mid-play, and
+ * a flat one would stall it. Both `expertTimeAt` and its inverse rely on the
+ * result increasing strictly in each axis.
  */
-export function buildAlignmentAnchors(
-  studentTimeline: readonly PhaseMarker[],
-  expertTimeline: readonly PhaseMarker[],
+function accumulateAnchors(
+  pairs: readonly AlignmentAnchor[],
   motionStart: number,
   motionEnd: number
 ): AlignmentAnchor[] {
   const anchors: AlignmentAnchor[] = [{ position: 0, seconds: motionStart }]
-  if (studentTimeline.length === expertTimeline.length) {
-    const pairs = studentTimeline
-      .map((student, index) => ({
-        position: clamp01(student.normalized_position),
-        seconds: expertTimeline[index].timestamp_seconds
-      }))
-      .filter(pair => isFiniteNumber(pair.position) && isFiniteNumber(pair.seconds))
-      .sort((a, b) => a.position - b.position)
-
-    for (const pair of pairs) {
-      const previous = anchors[anchors.length - 1]
-      const seconds = Math.min(motionEnd, Math.max(motionStart, pair.seconds))
-      if (pair.position > previous.position && seconds > previous.seconds) {
-        anchors.push({ position: pair.position, seconds })
-      }
+  for (const pair of pairs) {
+    const previous = anchors[anchors.length - 1]
+    const seconds = Math.min(motionEnd, Math.max(motionStart, pair.seconds))
+    if (pair.position > previous.position && seconds > previous.seconds) {
+      anchors.push({ position: pair.position, seconds })
     }
   }
 
@@ -60,10 +53,58 @@ export function buildAlignmentAnchors(
   if (last.position < 1 && motionEnd > last.seconds) {
     anchors.push({ position: 1, seconds: motionEnd })
   } else if (last.position >= 1) {
-    // A checkpoint already landed on the end of the motion; keep it as the tail.
+    // An anchor already landed on the end of the motion; keep it as the tail.
     last.seconds = Math.max(last.seconds, motionEnd)
   }
   return anchors
+}
+
+const usablePairs = (pairs: readonly AlignmentAnchor[]) =>
+  pairs
+    .filter(pair => isFiniteNumber(pair.position) && isFiniteNumber(pair.seconds))
+    .sort((a, b) => a.position - b.position)
+
+/**
+ * Builds the anchors for one analysis, from the densest map it was given.
+ *
+ * The warped samples already carry the checkpoints as fixed points, so when
+ * they are present they replace the checkpoint pairs rather than joining them.
+ * Analyses recorded before the warp shipped, and any the service could not
+ * warp, fall back to the checkpoints; with neither this degrades to the two
+ * window ends, which is exactly the old whole-window stretch.
+ */
+export function buildAlignmentAnchors(
+  studentTimeline: readonly PhaseMarker[],
+  expertTimeline: readonly PhaseMarker[],
+  motionStart: number,
+  motionEnd: number,
+  alignment: readonly AlignmentSample[] = []
+): AlignmentAnchor[] {
+  if (alignment.length > 0) {
+    return accumulateAnchors(
+      usablePairs(
+        alignment.map(sample => ({
+          position: clamp01(sample.normalized_position),
+          seconds: sample.expert_seconds
+        }))
+      ),
+      motionStart,
+      motionEnd
+    )
+  }
+  if (studentTimeline.length !== expertTimeline.length) {
+    return accumulateAnchors([], motionStart, motionEnd)
+  }
+  return accumulateAnchors(
+    usablePairs(
+      studentTimeline.map((student, index) => ({
+        position: clamp01(student.normalized_position),
+        seconds: expertTimeline[index].timestamp_seconds
+      }))
+    ),
+    motionStart,
+    motionEnd
+  )
 }
 
 const segmentAt = (anchors: readonly AlignmentAnchor[], position: number) => {

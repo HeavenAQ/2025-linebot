@@ -11,6 +11,7 @@ from badminton_analysis.ml.handedness import estimate_handedness, interpolated_k
 from badminton_analysis.ml.expert_reference_bank import (
     ExpertReference,
     ExpertReferenceBank,
+    segmental_alignment,
 )
 from badminton_analysis.ml.expert_motion_backend import (
     ExpertMotionGeneratorBackend,
@@ -60,6 +61,10 @@ class AnalysisResult:
     # The real demonstration closest to this learner's corrected motion, or
     # None when no expert clip exists for the skill.
     expert_reference: ExpertReference | None = None
+    # (normalized_position, expert_seconds) pairs mapping this learner's motion
+    # onto that expert's clock between the checkpoints. Empty when it could not
+    # be built, which costs playback its dense alignment and nothing else.
+    expert_alignment: tuple[tuple[float, float], ...] = ()
 
 
 def _correction_grade_context(
@@ -117,6 +122,27 @@ def _correction_grade_context(
             for rule, value in zip(spec.rules, criterion_values, strict=True)
         ],
     }
+
+
+def _expert_alignment(
+    reference: ExpertReference,
+    corrected_pose: Any,
+) -> tuple[tuple[float, float], ...]:
+    """Where each of the learner's frames falls in the matched expert's clip.
+
+    Playback anchors on the checkpoints either way; this fills in the movement
+    between them by warping the poses instead of assuming both performers hold
+    the same relative tempo inside a phase. A clip the warp cannot handle costs
+    playback that refinement, not the analysis, so it degrades to nothing and
+    the player interpolates between checkpoints as before.
+    """
+    try:
+        return segmental_alignment(reference, corrected_pose)
+    except (ValueError, IndexError) as exc:
+        LOGGER.warning(
+            "expert alignment unusable expert=%s error=%s", reference.subject_id, exc
+        )
+        return ()
 
 
 def _rule_anchor_frames(
@@ -412,6 +438,7 @@ class SkeletonAnalysisPipeline:
         # Match on the canonical-space correction, which is the space the bank
         # was built in, so no renormalization is needed.
         expert_reference = None
+        expert_alignment: tuple[tuple[float, float], ...] = ()
         if self.expert_bank is not None:
             expert_reference = self.expert_bank.select(
                 correction.aligned_corrected_pose,
@@ -421,6 +448,9 @@ class SkeletonAnalysisPipeline:
             if expert_reference is not None:
                 diagnostics["expert_reference_similarity"] = expert_reference.similarity
                 diagnostics["expert_reference_pose_distance"] = expert_reference.distance
+                expert_alignment = _expert_alignment(
+                    expert_reference, correction.aligned_corrected_pose
+                )
 
         return AnalysisResult(
             skill=skill,
@@ -436,4 +466,5 @@ class SkeletonAnalysisPipeline:
             output_path=output_path,
             skeleton_overlay_path=skeleton_overlay_path,
             expert_reference=expert_reference,
+            expert_alignment=expert_alignment,
         )

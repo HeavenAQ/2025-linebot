@@ -1,4 +1,5 @@
 export type {
+  AlignmentSample,
   CoachingCue,
   ExpertMatch,
   FolderIDs,

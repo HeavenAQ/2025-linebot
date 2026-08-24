@@ -490,6 +490,66 @@ func (x *PhaseMarker) GetTimestampSeconds() float64 {
 	return 0
 }
 
+// One point on the map from the learner's motion onto the expert's clock.
+//
+// The checkpoints in ExpertMatch.timeline are fixed anchors; these fill in the
+// movement between them. Playback would otherwise interpolate straight from one
+// checkpoint to the next, which assumes the two performers keep the same
+// relative tempo inside a phase -- they do not.
+type AlignmentSample struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Where the learner is in their motion, 0-1.
+	NormalizedPosition float64 `protobuf:"fixed64,1,opt,name=normalized_position,json=normalizedPosition,proto3" json:"normalized_position,omitempty"`
+	// The moment in the expert's video that matches it.
+	ExpertSeconds float64 `protobuf:"fixed64,2,opt,name=expert_seconds,json=expertSeconds,proto3" json:"expert_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AlignmentSample) Reset() {
+	*x = AlignmentSample{}
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AlignmentSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AlignmentSample) ProtoMessage() {}
+
+func (x *AlignmentSample) ProtoReflect() protoreflect.Message {
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AlignmentSample.ProtoReflect.Descriptor instead.
+func (*AlignmentSample) Descriptor() ([]byte, []int) {
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AlignmentSample) GetNormalizedPosition() float64 {
+	if x != nil {
+		return x.NormalizedPosition
+	}
+	return 0
+}
+
+func (x *AlignmentSample) GetExpertSeconds() float64 {
+	if x != nil {
+		return x.ExpertSeconds
+	}
+	return 0
+}
+
 type CoachingCue struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	Title                   string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
@@ -505,7 +565,7 @@ type CoachingCue struct {
 
 func (x *CoachingCue) Reset() {
 	*x = CoachingCue{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[5]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -517,7 +577,7 @@ func (x *CoachingCue) String() string {
 func (*CoachingCue) ProtoMessage() {}
 
 func (x *CoachingCue) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[5]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -530,7 +590,7 @@ func (x *CoachingCue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoachingCue.ProtoReflect.Descriptor instead.
 func (*CoachingCue) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{5}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CoachingCue) GetTitle() string {
@@ -598,7 +658,7 @@ type StoredVideo struct {
 
 func (x *StoredVideo) Reset() {
 	*x = StoredVideo{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[6]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -610,7 +670,7 @@ func (x *StoredVideo) String() string {
 func (*StoredVideo) ProtoMessage() {}
 
 func (x *StoredVideo) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[6]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -623,7 +683,7 @@ func (x *StoredVideo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoredVideo.ProtoReflect.Descriptor instead.
 func (*StoredVideo) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{6}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StoredVideo) GetObjectPath() string {
@@ -693,14 +753,19 @@ type ExpertMatch struct {
 	// The expert's own checkpoints, one per student timeline marker and in the
 	// same order, timestamped in the expert video. Playback interpolates between
 	// them so each phase stays aligned instead of drifting across the motion.
-	Timeline      []*PhaseMarker `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
+	Timeline []*PhaseMarker `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
+	// Dense student-to-expert correspondence from phase-segmental DTW, with the
+	// checkpoints above as fixed endpoints. Empty when it could not be computed,
+	// and on analyses recorded before it shipped; playback falls back to
+	// interpolating between the checkpoints.
+	Alignment     []*AlignmentSample `protobuf:"bytes,8,rep,name=alignment,proto3" json:"alignment,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExpertMatch) Reset() {
 	*x = ExpertMatch{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[7]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -712,7 +777,7 @@ func (x *ExpertMatch) String() string {
 func (*ExpertMatch) ProtoMessage() {}
 
 func (x *ExpertMatch) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[7]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +790,7 @@ func (x *ExpertMatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExpertMatch.ProtoReflect.Descriptor instead.
 func (*ExpertMatch) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{7}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExpertMatch) GetExpertId() string {
@@ -777,6 +842,13 @@ func (x *ExpertMatch) GetTimeline() []*PhaseMarker {
 	return nil
 }
 
+func (x *ExpertMatch) GetAlignment() []*AlignmentSample {
+	if x != nil {
+		return x.Alignment
+	}
+	return nil
+}
+
 type DiagnosticValue struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -787,7 +859,7 @@ type DiagnosticValue struct {
 
 func (x *DiagnosticValue) Reset() {
 	*x = DiagnosticValue{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[8]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -799,7 +871,7 @@ func (x *DiagnosticValue) String() string {
 func (*DiagnosticValue) ProtoMessage() {}
 
 func (x *DiagnosticValue) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[8]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -812,7 +884,7 @@ func (x *DiagnosticValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiagnosticValue.ProtoReflect.Descriptor instead.
 func (*DiagnosticValue) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{8}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DiagnosticValue) GetKey() string {
@@ -853,7 +925,7 @@ type AnalyzeVideoResponse struct {
 
 func (x *AnalyzeVideoResponse) Reset() {
 	*x = AnalyzeVideoResponse{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[9]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +937,7 @@ func (x *AnalyzeVideoResponse) String() string {
 func (*AnalyzeVideoResponse) ProtoMessage() {}
 
 func (x *AnalyzeVideoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[9]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +950,7 @@ func (x *AnalyzeVideoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnalyzeVideoResponse.ProtoReflect.Descriptor instead.
 func (*AnalyzeVideoResponse) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{9}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AnalyzeVideoResponse) GetAnalysisId() string {
@@ -974,7 +1046,7 @@ type RefreshPlaybackUrlsRequest struct {
 
 func (x *RefreshPlaybackUrlsRequest) Reset() {
 	*x = RefreshPlaybackUrlsRequest{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[10]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -986,7 +1058,7 @@ func (x *RefreshPlaybackUrlsRequest) String() string {
 func (*RefreshPlaybackUrlsRequest) ProtoMessage() {}
 
 func (x *RefreshPlaybackUrlsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[10]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -999,7 +1071,7 @@ func (x *RefreshPlaybackUrlsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshPlaybackUrlsRequest.ProtoReflect.Descriptor instead.
 func (*RefreshPlaybackUrlsRequest) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{10}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RefreshPlaybackUrlsRequest) GetObjectPaths() []string {
@@ -1018,7 +1090,7 @@ type RefreshPlaybackUrlsResponse struct {
 
 func (x *RefreshPlaybackUrlsResponse) Reset() {
 	*x = RefreshPlaybackUrlsResponse{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[11]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1030,7 +1102,7 @@ func (x *RefreshPlaybackUrlsResponse) String() string {
 func (*RefreshPlaybackUrlsResponse) ProtoMessage() {}
 
 func (x *RefreshPlaybackUrlsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[11]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1043,7 +1115,7 @@ func (x *RefreshPlaybackUrlsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshPlaybackUrlsResponse.ProtoReflect.Descriptor instead.
 func (*RefreshPlaybackUrlsResponse) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{11}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RefreshPlaybackUrlsResponse) GetVideos() []*StoredVideo {
@@ -1061,7 +1133,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[12]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1073,7 +1145,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[12]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1086,7 +1158,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{12}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{13}
 }
 
 type HealthResponse struct {
@@ -1099,7 +1171,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[13]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1111,7 +1183,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[13]
+	mi := &file_badminton_analysis_v1_analysis_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1124,7 +1196,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{13}
+	return file_badminton_analysis_v1_analysis_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *HealthResponse) GetStatus() string {
@@ -1174,7 +1246,10 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12)\n" +
 	"\x10normalized_frame\x18\x03 \x01(\x05R\x0fnormalizedFrame\x12/\n" +
 	"\x13normalized_position\x18\x04 \x01(\x01R\x12normalizedPosition\x12+\n" +
-	"\x11timestamp_seconds\x18\x05 \x01(\x01R\x10timestampSeconds\"\xaa\x02\n" +
+	"\x11timestamp_seconds\x18\x05 \x01(\x01R\x10timestampSeconds\"i\n" +
+	"\x0fAlignmentSample\x12/\n" +
+	"\x13normalized_position\x18\x01 \x01(\x01R\x12normalizedPosition\x12%\n" +
+	"\x0eexpert_seconds\x18\x02 \x01(\x01R\rexpertSeconds\"\xaa\x02\n" +
 	"\vCoachingCue\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x1a\n" +
 	"\bfeedback\x18\x02 \x01(\tR\bfeedback\x12)\n" +
@@ -1193,7 +1268,7 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x10duration_seconds\x18\x05 \x01(\x01R\x0fdurationSeconds\x12\x10\n" +
 	"\x03fps\x18\x06 \x01(\x01R\x03fps\x12\x14\n" +
 	"\x05width\x18\a \x01(\x05R\x05width\x12\x16\n" +
-	"\x06height\x18\b \x01(\x05R\x06height\"\xd8\x02\n" +
+	"\x06height\x18\b \x01(\x05R\x06height\"\x9e\x03\n" +
 	"\vExpertMatch\x12\x1b\n" +
 	"\texpert_id\x18\x01 \x01(\tR\bexpertId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12/\n" +
@@ -1201,7 +1276,8 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x05video\x18\x04 \x01(\v2\".badminton.analysis.v1.StoredVideoR\x05video\x120\n" +
 	"\x14motion_start_seconds\x18\x05 \x01(\x01R\x12motionStartSeconds\x12,\n" +
 	"\x12motion_end_seconds\x18\x06 \x01(\x01R\x10motionEndSeconds\x12>\n" +
-	"\btimeline\x18\a \x03(\v2\".badminton.analysis.v1.PhaseMarkerR\btimeline\"9\n" +
+	"\btimeline\x18\a \x03(\v2\".badminton.analysis.v1.PhaseMarkerR\btimeline\x12D\n" +
+	"\talignment\x18\b \x03(\v2&.badminton.analysis.v1.AlignmentSampleR\talignment\"9\n" +
 	"\x0fDiagnosticValue\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value\"\x93\x06\n" +
@@ -1261,7 +1337,7 @@ func file_badminton_analysis_v1_analysis_proto_rawDescGZIP() []byte {
 }
 
 var file_badminton_analysis_v1_analysis_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_badminton_analysis_v1_analysis_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_badminton_analysis_v1_analysis_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_badminton_analysis_v1_analysis_proto_goTypes = []any{
 	(Skill)(0),                          // 0: badminton.analysis.v1.Skill
 	(Handedness)(0),                     // 1: badminton.analysis.v1.Handedness
@@ -1270,46 +1346,48 @@ var file_badminton_analysis_v1_analysis_proto_goTypes = []any{
 	(*GradingDetail)(nil),               // 4: badminton.analysis.v1.GradingDetail
 	(*GradingOutcome)(nil),              // 5: badminton.analysis.v1.GradingOutcome
 	(*PhaseMarker)(nil),                 // 6: badminton.analysis.v1.PhaseMarker
-	(*CoachingCue)(nil),                 // 7: badminton.analysis.v1.CoachingCue
-	(*StoredVideo)(nil),                 // 8: badminton.analysis.v1.StoredVideo
-	(*ExpertMatch)(nil),                 // 9: badminton.analysis.v1.ExpertMatch
-	(*DiagnosticValue)(nil),             // 10: badminton.analysis.v1.DiagnosticValue
-	(*AnalyzeVideoResponse)(nil),        // 11: badminton.analysis.v1.AnalyzeVideoResponse
-	(*RefreshPlaybackUrlsRequest)(nil),  // 12: badminton.analysis.v1.RefreshPlaybackUrlsRequest
-	(*RefreshPlaybackUrlsResponse)(nil), // 13: badminton.analysis.v1.RefreshPlaybackUrlsResponse
-	(*HealthRequest)(nil),               // 14: badminton.analysis.v1.HealthRequest
-	(*HealthResponse)(nil),              // 15: badminton.analysis.v1.HealthResponse
+	(*AlignmentSample)(nil),             // 7: badminton.analysis.v1.AlignmentSample
+	(*CoachingCue)(nil),                 // 8: badminton.analysis.v1.CoachingCue
+	(*StoredVideo)(nil),                 // 9: badminton.analysis.v1.StoredVideo
+	(*ExpertMatch)(nil),                 // 10: badminton.analysis.v1.ExpertMatch
+	(*DiagnosticValue)(nil),             // 11: badminton.analysis.v1.DiagnosticValue
+	(*AnalyzeVideoResponse)(nil),        // 12: badminton.analysis.v1.AnalyzeVideoResponse
+	(*RefreshPlaybackUrlsRequest)(nil),  // 13: badminton.analysis.v1.RefreshPlaybackUrlsRequest
+	(*RefreshPlaybackUrlsResponse)(nil), // 14: badminton.analysis.v1.RefreshPlaybackUrlsResponse
+	(*HealthRequest)(nil),               // 15: badminton.analysis.v1.HealthRequest
+	(*HealthResponse)(nil),              // 16: badminton.analysis.v1.HealthResponse
 }
 var file_badminton_analysis_v1_analysis_proto_depIdxs = []int32{
 	0,  // 0: badminton.analysis.v1.AnalyzeVideoHeader.skill:type_name -> badminton.analysis.v1.Skill
 	1,  // 1: badminton.analysis.v1.AnalyzeVideoHeader.handedness:type_name -> badminton.analysis.v1.Handedness
 	2,  // 2: badminton.analysis.v1.AnalyzeVideoChunk.header:type_name -> badminton.analysis.v1.AnalyzeVideoHeader
 	4,  // 3: badminton.analysis.v1.GradingOutcome.grading_details:type_name -> badminton.analysis.v1.GradingDetail
-	8,  // 4: badminton.analysis.v1.ExpertMatch.video:type_name -> badminton.analysis.v1.StoredVideo
+	9,  // 4: badminton.analysis.v1.ExpertMatch.video:type_name -> badminton.analysis.v1.StoredVideo
 	6,  // 5: badminton.analysis.v1.ExpertMatch.timeline:type_name -> badminton.analysis.v1.PhaseMarker
-	0,  // 6: badminton.analysis.v1.AnalyzeVideoResponse.skill:type_name -> badminton.analysis.v1.Skill
-	1,  // 7: badminton.analysis.v1.AnalyzeVideoResponse.handedness:type_name -> badminton.analysis.v1.Handedness
-	5,  // 8: badminton.analysis.v1.AnalyzeVideoResponse.grade:type_name -> badminton.analysis.v1.GradingOutcome
-	8,  // 9: badminton.analysis.v1.AnalyzeVideoResponse.student_video:type_name -> badminton.analysis.v1.StoredVideo
-	9,  // 10: badminton.analysis.v1.AnalyzeVideoResponse.expert:type_name -> badminton.analysis.v1.ExpertMatch
-	6,  // 11: badminton.analysis.v1.AnalyzeVideoResponse.timeline:type_name -> badminton.analysis.v1.PhaseMarker
-	10, // 12: badminton.analysis.v1.AnalyzeVideoResponse.diagnostics:type_name -> badminton.analysis.v1.DiagnosticValue
-	7,  // 13: badminton.analysis.v1.AnalyzeVideoResponse.coaching_cues:type_name -> badminton.analysis.v1.CoachingCue
-	8,  // 14: badminton.analysis.v1.AnalyzeVideoResponse.skeleton_overlay_video:type_name -> badminton.analysis.v1.StoredVideo
-	8,  // 15: badminton.analysis.v1.AnalyzeVideoResponse.feedback_video:type_name -> badminton.analysis.v1.StoredVideo
-	8,  // 16: badminton.analysis.v1.RefreshPlaybackUrlsResponse.videos:type_name -> badminton.analysis.v1.StoredVideo
-	0,  // 17: badminton.analysis.v1.HealthResponse.loaded_skills:type_name -> badminton.analysis.v1.Skill
-	3,  // 18: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:input_type -> badminton.analysis.v1.AnalyzeVideoChunk
-	12, // 19: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:input_type -> badminton.analysis.v1.RefreshPlaybackUrlsRequest
-	14, // 20: badminton.analysis.v1.BadmintonAnalysis.Health:input_type -> badminton.analysis.v1.HealthRequest
-	11, // 21: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:output_type -> badminton.analysis.v1.AnalyzeVideoResponse
-	13, // 22: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:output_type -> badminton.analysis.v1.RefreshPlaybackUrlsResponse
-	15, // 23: badminton.analysis.v1.BadmintonAnalysis.Health:output_type -> badminton.analysis.v1.HealthResponse
-	21, // [21:24] is the sub-list for method output_type
-	18, // [18:21] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	7,  // 6: badminton.analysis.v1.ExpertMatch.alignment:type_name -> badminton.analysis.v1.AlignmentSample
+	0,  // 7: badminton.analysis.v1.AnalyzeVideoResponse.skill:type_name -> badminton.analysis.v1.Skill
+	1,  // 8: badminton.analysis.v1.AnalyzeVideoResponse.handedness:type_name -> badminton.analysis.v1.Handedness
+	5,  // 9: badminton.analysis.v1.AnalyzeVideoResponse.grade:type_name -> badminton.analysis.v1.GradingOutcome
+	9,  // 10: badminton.analysis.v1.AnalyzeVideoResponse.student_video:type_name -> badminton.analysis.v1.StoredVideo
+	10, // 11: badminton.analysis.v1.AnalyzeVideoResponse.expert:type_name -> badminton.analysis.v1.ExpertMatch
+	6,  // 12: badminton.analysis.v1.AnalyzeVideoResponse.timeline:type_name -> badminton.analysis.v1.PhaseMarker
+	11, // 13: badminton.analysis.v1.AnalyzeVideoResponse.diagnostics:type_name -> badminton.analysis.v1.DiagnosticValue
+	8,  // 14: badminton.analysis.v1.AnalyzeVideoResponse.coaching_cues:type_name -> badminton.analysis.v1.CoachingCue
+	9,  // 15: badminton.analysis.v1.AnalyzeVideoResponse.skeleton_overlay_video:type_name -> badminton.analysis.v1.StoredVideo
+	9,  // 16: badminton.analysis.v1.AnalyzeVideoResponse.feedback_video:type_name -> badminton.analysis.v1.StoredVideo
+	9,  // 17: badminton.analysis.v1.RefreshPlaybackUrlsResponse.videos:type_name -> badminton.analysis.v1.StoredVideo
+	0,  // 18: badminton.analysis.v1.HealthResponse.loaded_skills:type_name -> badminton.analysis.v1.Skill
+	3,  // 19: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:input_type -> badminton.analysis.v1.AnalyzeVideoChunk
+	13, // 20: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:input_type -> badminton.analysis.v1.RefreshPlaybackUrlsRequest
+	15, // 21: badminton.analysis.v1.BadmintonAnalysis.Health:input_type -> badminton.analysis.v1.HealthRequest
+	12, // 22: badminton.analysis.v1.BadmintonAnalysis.AnalyzeVideo:output_type -> badminton.analysis.v1.AnalyzeVideoResponse
+	14, // 23: badminton.analysis.v1.BadmintonAnalysis.RefreshPlaybackUrls:output_type -> badminton.analysis.v1.RefreshPlaybackUrlsResponse
+	16, // 24: badminton.analysis.v1.BadmintonAnalysis.Health:output_type -> badminton.analysis.v1.HealthResponse
+	22, // [22:25] is the sub-list for method output_type
+	19, // [19:22] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_badminton_analysis_v1_analysis_proto_init() }
@@ -1327,7 +1405,7 @@ func file_badminton_analysis_v1_analysis_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_badminton_analysis_v1_analysis_proto_rawDesc), len(file_badminton_analysis_v1_analysis_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

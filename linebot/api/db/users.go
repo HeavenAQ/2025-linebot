@@ -55,23 +55,21 @@ func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 }
 
 type Work struct {
-	DateTime                string                 `json:"date" firestore:"date"`
-	Handedness              string                 `json:"handedness" firestore:"handedness"`
-	Thumbnail               string                 `json:"thumbnail" firestore:"thumbnail"`
-	SkeletonVideo           string                 `json:"skeleton_video" firestore:"skeleton_video"`
-	SkeletonComparisonVideo string                 `json:"skeleton_comparison_video" firestore:"skeleton_comparison_video"`
-	Reflection              string                 `json:"reflection" firestore:"reflection"`
-	PreviewNote             string                 `json:"preview_note" firestore:"preview_note"`
-	AINote                  string                 `json:"ai_note" firestore:"ai_note"`
-	GradingOutcome          commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
-	AnalysisID              string                 `json:"analysis_id" firestore:"analysis_id"`
-	StudentVideo            commons.MediaRef       `json:"student_video" firestore:"student_video"`
-	FeedbackVideo           commons.MediaRef       `json:"feedback_video" firestore:"feedback_video"`
-	SkeletonOverlayVideo    commons.MediaRef       `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
-	Expert                  commons.ExpertMatch    `json:"expert" firestore:"expert"`
-	Timeline                []commons.PhaseMarker  `json:"timeline" firestore:"timeline"`
-	CoachingCues            []commons.CoachingCue  `json:"coaching_cues" firestore:"coaching_cues"`
-	Diagnostics             map[string]float64     `json:"diagnostics" firestore:"diagnostics"`
+	DateTime             string                 `json:"date" firestore:"date"`
+	Handedness           string                 `json:"handedness" firestore:"handedness"`
+	Thumbnail            string                 `json:"thumbnail" firestore:"thumbnail"`
+	Reflection           string                 `json:"reflection" firestore:"reflection"`
+	PreviewNote          string                 `json:"preview_note" firestore:"preview_note"`
+	AINote               string                 `json:"ai_note" firestore:"ai_note"`
+	GradingOutcome       commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
+	AnalysisID           string                 `json:"analysis_id" firestore:"analysis_id"`
+	StudentVideo         commons.MediaRef       `json:"student_video" firestore:"student_video"`
+	FeedbackVideo        commons.MediaRef       `json:"feedback_video" firestore:"feedback_video"`
+	SkeletonOverlayVideo commons.MediaRef       `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
+	Expert               commons.ExpertMatch    `json:"expert" firestore:"expert"`
+	Timeline             []commons.PhaseMarker  `json:"timeline" firestore:"timeline"`
+	CoachingCues         []commons.CoachingCue  `json:"coaching_cues" firestore:"coaching_cues"`
+	Diagnostics          map[string]float64     `json:"diagnostics" firestore:"diagnostics"`
 }
 
 func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptConvs *GPTConversationIDs) (*UserData, error) {
@@ -144,23 +142,21 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 	analysis commons.AnalysisOutcome,
 ) error {
 	work := Work{
-		DateTime:                date,
-		Handedness:              analysis.Handedness,
-		GradingOutcome:          analysis.Grade,
-		Reflection:              "尚未填寫心得",
-		PreviewNote:             "尚未填寫課前檢視要點",
-		AINote:                  analysis.OverallFeedback,
-		SkeletonVideo:           analysis.StudentVideo.SignedURL,
-		SkeletonComparisonVideo: "",
-		Thumbnail:               thumbnailFile.Path,
-		AnalysisID:              analysis.AnalysisID,
-		StudentVideo:            analysis.StudentVideo,
-		FeedbackVideo:           analysis.FeedbackVideo,
-		SkeletonOverlayVideo:    analysis.SkeletonOverlayVideo,
-		Expert:                  analysis.Expert,
-		Timeline:                analysis.Timeline,
-		CoachingCues:            analysis.CoachingCues,
-		Diagnostics:             analysis.Diagnostics,
+		DateTime:             date,
+		Handedness:           analysis.Handedness,
+		GradingOutcome:       analysis.Grade,
+		Reflection:           "尚未填寫心得",
+		PreviewNote:          "尚未填寫課前檢視要點",
+		AINote:               analysis.OverallFeedback,
+		Thumbnail:            thumbnailFile.Path,
+		AnalysisID:           analysis.AnalysisID,
+		StudentVideo:         analysis.StudentVideo,
+		FeedbackVideo:        analysis.FeedbackVideo,
+		SkeletonOverlayVideo: analysis.SkeletonOverlayVideo,
+		Expert:               analysis.Expert,
+		Timeline:             analysis.Timeline,
+		CoachingCues:         analysis.CoachingCues,
+		Diagnostics:          analysis.Diagnostics,
 	}
 	(*userPortfolio)[date] = work
 	err := client.UpdateUserSession(user.ID, *session)

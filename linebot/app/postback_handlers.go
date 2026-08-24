@@ -419,24 +419,24 @@ func (app *App) handleWatchPortfolioVideo(
 		return
 	}
 
-	videoURL := work.SkeletonVideo
-	if work.StudentVideo.ObjectPath != "" {
-		videos, err := app.AnalysisClient.RefreshPlaybackURLs(
-			context.Background(), work.StudentVideo.ObjectPath,
-		)
-		if err == nil && len(videos) == 1 {
-			videoURL = videos[0].SignedURL
-		} else if work.StudentVideo.SignedURLExpires <= time.Now().Unix() {
-			app.Logger.Error.Printf("failed to refresh portfolio video URL: %v", err)
-			app.LineBot.SendReply(replyToken, "影片連結更新失敗，請稍後再試")
-			return
-		}
+	if work.StudentVideo.ObjectPath == "" {
+		app.LineBot.SendReply(replyToken, "這次紀錄沒有可播放的影片，請重新上傳")
+		return
+	}
+	// Always signed fresh. The URL a record was created with expires within the
+	// hour, so there is nothing worth falling back to.
+	videos, err := app.AnalysisClient.RefreshPlaybackURLs(
+		context.Background(), work.StudentVideo.ObjectPath,
+	)
+	if err != nil || len(videos) != 1 {
+		app.Logger.Error.Printf("failed to refresh portfolio video URL: %v", err)
+		app.LineBot.SendReply(replyToken, "影片連結更新失敗，請稍後再試")
+		return
 	}
 
-	_, err := app.LineBot.SendVideoMessage(
-		replyToken, videoURL, work.Thumbnail,
-	)
-	if err != nil {
+	if _, err := app.LineBot.SendVideoMessage(
+		replyToken, videos[0].SignedURL, work.Thumbnail,
+	); err != nil {
 		app.Logger.Error.Printf("failed to send portfolio video through LINE: %v", err)
 	}
 }

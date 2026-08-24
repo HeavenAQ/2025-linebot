@@ -10,10 +10,12 @@ import (
 
 func TestPortfolioVideoPostbackStaysWithinLineLimit(t *testing.T) {
 	client := &Client{}
+	// A record carrying a long signed URL: the postback must still stay well
+	// inside LINE's limit, which it only does by referring to the work rather
+	// than embedding any URL.
 	work := db.Work{
-		DateTime:      "2026-08-01-20-30",
-		SkeletonVideo: "https://storage.example/signed?" + string(make([]byte, 500)),
-		Thumbnail:     "https://storage.example/thumbnail.jpeg",
+		DateTime:  "2026-08-01-20-30",
+		Thumbnail: "https://storage.example/thumbnail.jpeg?" + string(make([]byte, 500)),
 	}
 
 	buttons, err := client.createButtonActions(work, "serve", "right")

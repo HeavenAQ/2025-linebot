@@ -73,8 +73,6 @@ export const WorkSchema = z.object({
   date: z.string(),
   handedness: WorkHandednessSchema,
   thumbnail: z.string(),
-  skeleton_video: z.string().optional().default(''),
-  skeleton_comparison_video: z.string().optional().default(''),
   reflection: z.string(),
   preview_note: z.string(),
   ai_note: z.string(),

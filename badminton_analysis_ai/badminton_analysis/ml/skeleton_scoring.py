@@ -491,17 +491,6 @@ def full_transition_components(
     }
 
 
-def full_transition_distance(
-    original: NDArray[np.floating],
-    corrected: NDArray[np.floating],
-    confidence: NDArray[np.floating],
-    joints: tuple[int, ...],
-    lean_joints: tuple[int, ...],
-    direction_joint: int | None = None,
-) -> float:
-    return full_transition_components(
-        original, corrected, confidence, joints, lean_joints, direction_joint
-    )["transition_distance"]
 
 
 def correction_distance(

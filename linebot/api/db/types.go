@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-type enum interface {
-	String() string
-	ChnString() string
-}
-
 type UserState int8
 
 // UserState represents the action that a user is currently taking

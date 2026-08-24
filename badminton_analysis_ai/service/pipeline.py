@@ -416,9 +416,8 @@ class SkeletonAnalysisPipeline:
                 "pose_active_execution_providers": (
                     self.pose_detector.active_execution_providers
                 ),
-                # Detection runs through Torch-TensorRT now, not onnxruntime,
-                # so this reflects whether the compiled engine served the run
-                # rather than which ORT provider was selected.
+                # Whether the compiled TensorRT engine served this run, as
+                # opposed to falling back to PyTorch.
                 "pose_tensorrt_active": float(self.pose_detector.tensorrt_active),
             }
         )

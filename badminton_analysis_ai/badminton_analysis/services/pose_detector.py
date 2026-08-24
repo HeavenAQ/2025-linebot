@@ -46,9 +46,7 @@ class PoseDetector:
 
     RFDETRKeypointPreview predicts person detection and 17 COCO-order body
     keypoints in one forward pass, in the same index order as this repo's
-    `COCOKeypoints` enum, so no schema adapter is needed (unlike the prior
-    RF-DETR-detect + Sapiens2-pose two-stage pipeline, which needed one for
-    Sapiens2's differently-ordered 308-keypoint output). It has no hand
+    `COCOKeypoints` enum, so no schema adapter is needed. It has no hand
     keypoints, so `wholebody_keypoints`/`wholebody_scores` only ever carry
     real data in their first 17 slots.
     """

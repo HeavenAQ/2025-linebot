@@ -55,11 +55,11 @@ func (app *App) handleThumbnailCreationError(err error, replyToken string) {
 }
 
 func (app *App) handleUploadToDriveError(err error, replyToken string) {
-    // Despite the historical name, this handles Cloud Storage (GCS) uploads.
-    app.handleLineError(
-        "Error uploading the video to Cloud Storage",
-        "Video has been uploaded to Cloud Storage successfully",
-    )(err, replyToken)
+	// Despite the historical name, this handles Cloud Storage (GCS) uploads.
+	app.handleLineError(
+		"Error uploading the video to Cloud Storage",
+		"Video has been uploaded to Cloud Storage successfully",
+	)(err, replyToken)
 }
 
 func (app *App) handleSendingReplyMessageError(err error, replyToken string) {
@@ -119,22 +119,8 @@ func (app *App) handleVideoAnalysisError(err error, replyToken string) {
 }
 
 func (app *App) handleAddMessageToGPTConversationError(err error, replyToken string) {
-    app.handleLineError(
-        "Error adding message to GPT conversation",
-        "Message has been added to GPT conversation.",
-    )(err, replyToken)
-}
-
-func (app *App) handleGPTRunConversationError(err error, replyToken string) {
-    app.handleLineError(
-        "Error running GPT conversation",
-        "GPT conversation has been run. Response from LINE: %v",
-    )(err, replyToken)
-}
-
-func (app *App) handleGetGPTResponseError(err error, replyToken string) {
-    app.handleLineError(
-        "Error getting GPT response",
-        "GPT response has been received. Response from LINE: %v",
-    )(err, replyToken)
+	app.handleLineError(
+		"Error adding message to GPT conversation",
+		"Message has been added to GPT conversation.",
+	)(err, replyToken)
 }

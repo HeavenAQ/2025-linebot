@@ -7,16 +7,14 @@ sequence as the target. Learner data is never accepted by training functions.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
-from typing import Any, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 
 from badminton_analysis.ml.expert_motion_generator import (
     CONTACT_DIM,
@@ -29,12 +27,10 @@ from badminton_analysis.ml.expert_motion_generator import (
     _device,
     _fk_from_directions,
     _unit,
-    assert_expert_only_training_data,
     dominant_wrist_velocities,
     expert_wrist_velocity_limit,
     limit_correction_wrist_velocity,
     motion_features,
-    prepare_training_arrays,
     project_to_expert_motion_subspace,
     smooth_generated_motion_state,
     training_manifest,
@@ -139,38 +135,8 @@ def condition_phase_bounds(
 CONDITION_PHASE_BOUNDS = condition_phase_bounds(CANONICAL_PHASE_INDICES)
 
 
-def expert_canonical_phase_indices(
-    samples: Sequence[MotionSample],
-) -> NDArray[np.int64]:
-    """Estimate the canonical phase schedule from training experts only."""
-    if not samples:
-        raise ValueError("canonical timing requires expert samples")
-    phases = np.stack(
-        [_validate_canonical_phase_indices(sample.phase_indices) for sample in samples]
-    )
-    canonical = np.rint(np.median(phases, axis=0)).astype(np.int64)
-    canonical[0] = 0
-    canonical[-1] = FRAMES - 1
-    for index in range(1, len(canonical)):
-        canonical[index] = max(canonical[index], canonical[index - 1] + 1)
-    for index in range(len(canonical) - 2, -1, -1):
-        canonical[index] = min(canonical[index], canonical[index + 1] - 1)
-    return _validate_canonical_phase_indices(canonical)
 
 
-def expert_phase_duration_bounds(
-    samples: Sequence[MotionSample],
-) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
-    """Return per-phase duration bounds observed in training experts."""
-    if not samples:
-        raise ValueError("phase-duration bounds require expert samples")
-    durations = np.stack(
-        [
-            np.diff(_validate_canonical_phase_indices(sample.phase_indices))
-            for sample in samples
-        ]
-    )
-    return durations.min(axis=0), durations.max(axis=0)
 
 
 def stabilize_phase_timing(
@@ -254,374 +220,20 @@ def phase_joint_condition(
     )
 
 
-def prepare_error_isolated_arrays(
-    samples: Sequence[MotionSample],
-) -> tuple[dict[str, NDArray[np.float32]], dict[str, NDArray[np.float32]]]:
-    """Create clean expert targets and expert-derived conditioning arrays."""
-    if not samples:
-        raise ValueError("error-isolated training requires expert samples")
-    canonical = expert_canonical_phase_indices(samples)
-    base, metadata = prepare_training_arrays(
-        samples,
-        conditioning_policy="full_pose",
-        canonical_phase_indices=canonical,
-    )
-    metadata["canonical_phase_indices"] = canonical
-    conditions = [
-        phase_joint_condition(sample, canonical_phase_indices=canonical)
-        for sample in samples
-    ]
-    arrays = {
-        "state": base["state"],
-        "morphology": base["morphology"],
-        "handedness": base["handedness"],
-        "condition_directions": np.stack([item[0] for item in conditions]),
-        "condition_confidence": np.stack([item[1] for item in conditions]),
-    }
-    return arrays, metadata
 
 
-def curriculum_probability(
-    step: int, total_steps: int, curriculum: CorruptionCurriculum
-) -> float:
-    if total_steps < 1 or not 0 <= step < total_steps:
-        raise ValueError("curriculum step must be inside the training range")
-    warmup_steps = max(1, round(total_steps * curriculum.warmup_fraction))
-    progress = min(step / warmup_steps, 1.0)
-    return float(
-        curriculum.start_probability
-        + progress
-        * (curriculum.end_probability - curriculum.start_probability)
-    )
 
 
-def corrupt_expert_condition(
-    directions: Tensor,
-    confidence: Tensor,
-    *,
-    probability: float,
-    curriculum: CorruptionCurriculum,
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-    """Apply mixed joint/phase corruptions while preserving a reliability label."""
-    if directions.ndim != 4 or directions.shape[-3:] != (
-        CONDITION_PHASES,
-        JOINTS,
-        2,
-    ):
-        raise ValueError("directions must have shape (B, 4, 17, 2)")
-    if confidence.shape != directions.shape[:-1]:
-        raise ValueError("confidence must match direction joint tokens")
-    if not 0.0 <= probability <= 1.0:
-        raise ValueError("corruption probability must be in [0, 1]")
-    batch = len(directions)
-    device = directions.device
-    joint_weights = torch.ones(JOINTS, device=device)
-    joint_weights[[0, 1, 2, 3, 4]] = 0.65
-    joint_weights[[7, 8, 9, 10]] = 1.35
-    token_probability = (probability * joint_weights).clamp_max(0.85)
-    mask = torch.rand(batch, CONDITION_PHASES, JOINTS, device=device)
-    mask = mask < token_probability[None, None]
-    empty = ~mask.flatten(1).any(dim=1)
-    if probability > 0.0 and torch.any(empty):
-        random_tokens = torch.randint(
-            CONDITION_PHASES * JOINTS,
-            (int(empty.sum()),),
-            device=device,
-        )
-        rows = torch.nonzero(empty, as_tuple=False).flatten()
-        mask[rows, random_tokens // JOINTS, random_tokens % JOINTS] = True
-
-    noisy = directions + curriculum.clean_direction_noise * torch.randn_like(
-        directions
-    )
-    noisy = F.normalize(noisy, dim=-1, eps=1e-6)
-    corrupted = noisy.clone()
-    corrupted_confidence = confidence.clone()
-    type_value = torch.rand(mask.shape, device=device)
-    type_index = torch.full(mask.shape, -1, device=device, dtype=torch.long)
-
-    rotation = mask & (type_value < 0.50)
-    angle_magnitude = curriculum.minimum_rotation_radians + torch.rand(
-        mask.shape, device=device
-    ) * (
-        curriculum.maximum_rotation_radians
-        - curriculum.minimum_rotation_radians
-    )
-    sign = torch.where(
-        torch.rand(mask.shape, device=device) < 0.5,
-        -torch.ones((), device=device),
-        torch.ones((), device=device),
-    )
-    angle = angle_magnitude * sign
-    cosine, sine = torch.cos(angle), torch.sin(angle)
-    rotated = torch.stack(
-        (
-            noisy[..., 0] * cosine - noisy[..., 1] * sine,
-            noisy[..., 0] * sine + noisy[..., 1] * cosine,
-        ),
-        dim=-1,
-    )
-    corrupted = torch.where(rotation[..., None], rotated, corrupted)
-    type_index[rotation] = 0
-
-    occlusion = mask & (type_value >= 0.50) & (type_value < 0.72)
-    corrupted = torch.where(occlusion[..., None], torch.zeros_like(corrupted), corrupted)
-    corrupted_confidence = torch.where(
-        occlusion, torch.zeros_like(corrupted_confidence), corrupted_confidence
-    )
-    type_index[occlusion] = 1
-
-    reflection = mask & (type_value >= 0.72) & (type_value < 0.86)
-    reflected = corrupted.clone()
-    reflected[..., 0] = -reflected[..., 0]
-    corrupted = torch.where(reflection[..., None], reflected, corrupted)
-    type_index[reflection] = 2
-
-    phase_shift = mask & (type_value >= 0.86)
-    shifted = torch.roll(noisy, shifts=1, dims=1)
-    corrupted = torch.where(phase_shift[..., None], shifted, corrupted)
-    type_index[phase_shift] = 3
-    reliability = (~mask).to(directions.dtype)
-    return corrupted, corrupted_confidence, reliability, type_index
 
 
-def _raw_state(
-    standardized: Tensor, state_mean: Tensor, state_scale: Tensor
-) -> Tensor:
-    return standardized * state_scale[None, None] + state_mean[None, None]
 
 
-def _kinematic_losses(predicted: Tensor, target: Tensor) -> dict[str, Tensor]:
-    direction = predicted[..., :DIRECTION_DIM].reshape(
-        len(predicted), FRAMES, JOINTS, 2
-    )
-    velocity = predicted[:, 1:] - predicted[:, :-1]
-    target_velocity = target[:, 1:] - target[:, :-1]
-    acceleration = velocity[:, 1:] - velocity[:, :-1]
-    target_acceleration = target_velocity[:, 1:] - target_velocity[:, :-1]
-    return {
-        "velocity": F.smooth_l1_loss(velocity, target_velocity),
-        "acceleration": F.smooth_l1_loss(
-            acceleration, target_acceleration
-        ),
-        "direction_unit": torch.mean(
-            torch.square(torch.linalg.vector_norm(direction, dim=-1) - 1.0)
-        ),
-        "contacts": F.smooth_l1_loss(
-            predicted[..., -CONTACT_DIM:].contiguous(),
-            target[..., -CONTACT_DIM:].contiguous(),
-        ),
-    }
 
 
-def _phase_direction_summary(
-    state: Tensor,
-    phase_bounds: tuple[tuple[int, int], ...],
-) -> Tensor:
-    directions = state[..., :DIRECTION_DIM].reshape(
-        len(state), FRAMES, JOINTS, 2
-    )
-    return torch.stack(
-        [
-            F.normalize(directions[:, start:end].mean(dim=1), dim=-1, eps=1e-6)
-            for start, end in phase_bounds
-        ],
-        dim=1,
-    )
 
 
-def _condition_fidelity_loss(
-    predicted_state: Tensor,
-    clean_condition: Tensor,
-    reliability: Tensor,
-    confidence: Tensor,
-    phase_bounds: tuple[tuple[int, int], ...],
-) -> Tensor:
-    predicted_condition = _phase_direction_summary(predicted_state, phase_bounds)
-    valid = reliability * (confidence > 0.10).to(reliability.dtype)
-    error = F.smooth_l1_loss(
-        predicted_condition, clean_condition, reduction="none"
-    ).mean(dim=-1)
-    return torch.sum(error * valid) / valid.sum().clamp_min(1.0)
 
 
-def train_error_isolated_diffusion(
-    arrays: dict[str, NDArray[np.float32]],
-    metadata: dict[str, NDArray[np.float32]],
-    *,
-    steps: int,
-    batch_size: int,
-    learning_rate: float,
-    diffusion_steps: int,
-    device: str = "auto",
-    seed: int = 19,
-    model_dim: int = 96,
-    layers: int = 4,
-    diagnostic_layers: int = 2,
-    fusion_layers: int = 2,
-    use_reliability_gate: bool = True,
-    loss_weights: ErrorIsolationLossWeights | None = None,
-    curriculum: CorruptionCurriculum | None = None,
-) -> tuple[ErrorIsolatedMotionDenoiser, list[dict[str, float]]]:
-    """Fit EIMD on paired clean/corrupted views of expert motion only."""
-    if steps < 1 or batch_size < 1:
-        raise ValueError("steps and batch size must be positive")
-    weights = loss_weights or ErrorIsolationLossWeights()
-    corruption = curriculum or CorruptionCurriculum()
-    torch.manual_seed(seed)
-    np_rng = np.random.default_rng(seed)
-    target_device = _device(device)
-    network = ErrorIsolatedMotionDenoiser(
-        morphology_dim=int(arrays["morphology"].shape[1]),
-        model_dim=model_dim,
-        layers=layers,
-        diagnostic_layers=diagnostic_layers,
-        fusion_layers=fusion_layers,
-        use_reliability_gate=use_reliability_gate,
-    ).to(target_device)
-    optimizer = torch.optim.AdamW(
-        network.parameters(), learning_rate, weight_decay=1e-4
-    )
-    schedule = linear_diffusion_schedule(diffusion_steps, device=target_device)
-    phase_bounds = condition_phase_bounds(metadata["canonical_phase_indices"])
-    state_mean = torch.as_tensor(metadata["state_mean"], device=target_device)
-    state_scale = torch.as_tensor(metadata["state_scale"], device=target_device)
-    history: list[dict[str, float]] = []
-    network.train()
-    record_interval = max(steps // 50, 1)
-    for step in range(steps):
-        indices = np_rng.integers(0, len(arrays["state"]), size=batch_size)
-        clean = torch.as_tensor(arrays["state"][indices], device=target_device)
-        morphology = torch.as_tensor(
-            arrays["morphology"][indices], device=target_device
-        )
-        morphology = morphology + 0.08 * torch.randn_like(morphology)
-        handedness = torch.as_tensor(
-            arrays["handedness"][indices], device=target_device
-        )
-        directions = torch.as_tensor(
-            arrays["condition_directions"][indices], device=target_device
-        )
-        confidence = torch.as_tensor(
-            arrays["condition_confidence"][indices], device=target_device
-        )
-        probability = curriculum_probability(step, steps, corruption)
-        (
-            corrupted_directions,
-            corrupted_confidence,
-            corrupted_reliability,
-            _,
-        ) = corrupt_expert_condition(
-            directions,
-            confidence,
-            probability=probability,
-            curriculum=corruption,
-        )
-        clean_reliability = (confidence > 0.10).to(clean.dtype)
-        corrupted_reliability = corrupted_reliability * clean_reliability
-
-        diffusion_time = torch.randint(
-            diffusion_steps, (batch_size,), device=target_device
-        )
-        noise = torch.randn_like(clean)
-        alpha = schedule["sqrt_alpha_bar"][diffusion_time, None, None]
-        sigma = schedule["sqrt_one_minus_alpha_bar"][
-            diffusion_time, None, None
-        ]
-        noisy = alpha * clean + sigma * noise
-        clean_prediction, clean_logits = network(
-            noisy,
-            diffusion_time,
-            directions,
-            confidence,
-            morphology,
-            handedness,
-        )
-        corrupted_prediction, corrupted_logits = network(
-            noisy,
-            diffusion_time,
-            corrupted_directions,
-            corrupted_confidence,
-            morphology,
-            handedness,
-        )
-        denoising = 0.5 * (
-            F.mse_loss(clean_prediction, noise)
-            + F.mse_loss(corrupted_prediction, noise)
-        )
-        predicted_clean_view = (
-            noisy - sigma * clean_prediction
-        ) / alpha.clamp_min(1e-4)
-        predicted_corrupted_view = (
-            noisy - sigma * corrupted_prediction
-        ) / alpha.clamp_min(1e-4)
-        reconstruction = F.smooth_l1_loss(predicted_corrupted_view, clean)
-        invariance = F.smooth_l1_loss(
-            predicted_corrupted_view, predicted_clean_view.detach()
-        )
-        reliability = 0.5 * (
-            F.binary_cross_entropy_with_logits(
-                clean_logits, clean_reliability
-            )
-            + F.binary_cross_entropy_with_logits(
-                corrupted_logits, corrupted_reliability
-            )
-        )
-        raw_prediction = _raw_state(
-            predicted_corrupted_view, state_mean, state_scale
-        )
-        raw_target = _raw_state(clean, state_mean, state_scale)
-        kinematic = _kinematic_losses(raw_prediction, raw_target)
-        clean_fidelity = _condition_fidelity_loss(
-            _raw_state(predicted_clean_view, state_mean, state_scale),
-            directions,
-            clean_reliability,
-            confidence,
-            phase_bounds,
-        )
-        corrupted_fidelity = _condition_fidelity_loss(
-            raw_prediction,
-            directions,
-            corrupted_reliability,
-            confidence,
-            phase_bounds,
-        )
-        condition_fidelity = 0.5 * (clean_fidelity + corrupted_fidelity)
-        loss = (
-            weights.denoising * denoising
-            + weights.reconstruction * reconstruction
-            + weights.invariance * invariance
-            + weights.reliability * reliability
-            + weights.condition_fidelity * condition_fidelity
-            + weights.velocity * kinematic["velocity"]
-            + weights.acceleration * kinematic["acceleration"]
-            + weights.direction_unit * kinematic["direction_unit"]
-            + weights.contacts * kinematic["contacts"]
-        )
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
-        optimizer.step()
-        if step % record_interval == 0 or step == steps - 1:
-            history.append(
-                {
-                    "step": float(step),
-                    "loss": float(loss.detach().cpu()),
-                    "denoising": float(denoising.detach().cpu()),
-                    "reconstruction": float(reconstruction.detach().cpu()),
-                    "invariance": float(invariance.detach().cpu()),
-                    "reliability": float(reliability.detach().cpu()),
-                    "condition_fidelity": float(
-                        condition_fidelity.detach().cpu()
-                    ),
-                    "velocity": float(kinematic["velocity"].detach().cpu()),
-                    "acceleration": float(
-                        kinematic["acceleration"].detach().cpu()
-                    ),
-                    "corruption_probability": probability,
-                }
-            )
-    return network.eval(), history
 
 
 def sample_error_isolated_diffusion(
@@ -683,117 +295,10 @@ def sample_error_isolated_diffusion(
     return state, torch.sigmoid(reliability_logits)
 
 
-def expert_canonical_velocity_limits(
-    samples: Sequence[MotionSample],
-    canonical_phase_indices: NDArray[np.integer],
-) -> tuple[float, float]:
-    """Return strict wrist and any-joint ceilings from aligned experts."""
-    canonical = _validate_canonical_phase_indices(canonical_phase_indices)
-    wrist_maxima = []
-    joint_maxima = []
-    for sample in samples:
-        pose, _, _, _ = _aligned(
-            sample, canonical_phase_indices=canonical
-        )
-        wrist_maxima.append(float(np.max(dominant_wrist_velocities(pose))))
-        joint_maxima.append(
-            float(np.linalg.norm(np.diff(pose, axis=0), axis=-1).max())
-        )
-    wrist_limit = max(wrist_maxima)
-    joint_limit = max(joint_maxima)
-    if min(wrist_limit, joint_limit) <= 0.0 or not np.isfinite(
-        (wrist_limit, joint_limit)
-    ).all():
-        raise ValueError("expert canonical velocity limits must be finite and positive")
-    return wrist_limit, joint_limit
 
 
-def build_error_isolated_bundle(
-    *,
-    skill: str,
-    network: ErrorIsolatedMotionDenoiser,
-    diffusion_steps: int,
-    arrays: dict[str, NDArray[np.float32]],
-    metadata: dict[str, NDArray[np.float32]],
-    samples: Sequence[MotionSample],
-    loss_weights: ErrorIsolationLossWeights | None = None,
-    corruption_curriculum: CorruptionCurriculum | None = None,
-) -> ErrorIsolatedMotionBundle:
-    canonical = _validate_canonical_phase_indices(
-        metadata["canonical_phase_indices"]
-    )
-    canonical_wrist_limit, canonical_joint_limit = (
-        expert_canonical_velocity_limits(samples, canonical)
-    )
-    duration_min, duration_max = expert_phase_duration_bounds(samples)
-    return ErrorIsolatedMotionBundle(
-        skill=skill,
-        network=network,
-        diffusion_steps=diffusion_steps,
-        state_mean=metadata["state_mean"],
-        state_scale=metadata["state_scale"],
-        morphology_mean=metadata["morphology_mean"],
-        morphology_scale=metadata["morphology_scale"],
-        canonical_lengths=metadata["canonical_lengths"],
-        expert_states=arrays["state"],
-        expert_files=np.asarray([sample.path.name for sample in samples]),
-        expert_subject_ids=np.asarray(
-            [sample.subject_id for sample in samples]
-        ),
-        training_manifest_sha256=training_manifest(samples),
-        canonical_phase_indices=canonical,
-        expert_canonical_wrist_velocity_limit=canonical_wrist_limit,
-        expert_canonical_joint_velocity_limit=canonical_joint_limit,
-        expert_phase_duration_min=duration_min,
-        expert_phase_duration_max=duration_max,
-        expert_wrist_velocity_limit=expert_wrist_velocity_limit(samples),
-        loss_weights=loss_weights or ErrorIsolationLossWeights(),
-        corruption_curriculum=corruption_curriculum or CorruptionCurriculum(),
-    )
 
 
-def save_error_isolated_bundle(
-    bundle: ErrorIsolatedMotionBundle, path: str | Path
-) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "format_version": 3,
-            "method": "expert_only_error_isolated_motion_diffusion_v3",
-            "skill": bundle.skill,
-            "diffusion_steps": bundle.diffusion_steps,
-            "network_config": bundle.network.config(),
-            "state_dict": bundle.network.state_dict(),
-            "state_mean": torch.from_numpy(bundle.state_mean),
-            "state_scale": torch.from_numpy(bundle.state_scale),
-            "morphology_mean": torch.from_numpy(bundle.morphology_mean),
-            "morphology_scale": torch.from_numpy(bundle.morphology_scale),
-            "canonical_lengths": torch.from_numpy(bundle.canonical_lengths),
-            "expert_states": torch.from_numpy(bundle.expert_states),
-            "expert_files": bundle.expert_files.tolist(),
-            "expert_subject_ids": bundle.expert_subject_ids.tolist(),
-            "training_manifest_sha256": bundle.training_manifest_sha256,
-            "canonical_phase_indices": bundle.canonical_phase_indices.tolist(),
-            "expert_canonical_wrist_velocity_limit": (
-                bundle.expert_canonical_wrist_velocity_limit
-            ),
-            "expert_canonical_joint_velocity_limit": (
-                bundle.expert_canonical_joint_velocity_limit
-            ),
-            "expert_phase_duration_min": bundle.expert_phase_duration_min.tolist(),
-            "expert_phase_duration_max": bundle.expert_phase_duration_max.tolist(),
-            "expert_wrist_velocity_limit": bundle.expert_wrist_velocity_limit,
-            "condition_phase_bounds": condition_phase_bounds(
-                bundle.canonical_phase_indices
-            ),
-            "corruption_types": CORRUPTION_TYPES,
-            "loss_weights": asdict(bundle.loss_weights),
-            "corruption_curriculum": asdict(bundle.corruption_curriculum),
-            "student_data_used": False,
-        },
-        destination,
-    )
 
 
 def load_error_isolated_bundle(
@@ -910,19 +415,6 @@ def _inference_features(
     )
 
 
-def conditioning_reliability(
-    bundle: ErrorIsolatedMotionBundle, sample: MotionSample
-) -> NDArray[np.float32]:
-    features, _ = _inference_features(bundle, sample)
-    device = next(bundle.network.parameters()).device
-    with torch.no_grad():
-        _, logits = bundle.network.encode_condition(
-            torch.as_tensor(features["condition_directions"], device=device)[None],
-            torch.as_tensor(features["condition_confidence"], device=device)[None],
-            torch.as_tensor(features["morphology"], device=device)[None],
-            torch.as_tensor(features["handedness"], device=device)[None],
-        )
-    return torch.sigmoid(logits)[0].cpu().numpy().astype(np.float32)
 
 
 def _apply_reliable_condition_guidance(
@@ -1165,8 +657,3 @@ def correct_student_motion_error_isolated(
     return correction
 
 
-def validate_expert_training_inputs(
-    samples: Sequence[MotionSample], expert_root: str | Path
-) -> None:
-    """Public fail-closed training guard used by the EIMD command."""
-    assert_expert_only_training_data(samples, expert_root)

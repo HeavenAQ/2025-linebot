@@ -598,8 +598,6 @@ def get_skill_spec(skill: Skill | str) -> SkillCorrectionSpec:
         ) from exc
 
 
-def supported_skill_choices() -> tuple[str, ...]:
-    return tuple(str(skill) for skill in SUPPORTED_CORRECTION_SKILLS)
 
 
 def validate_checkpoint_spec(

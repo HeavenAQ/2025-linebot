@@ -583,20 +583,6 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 	return app.LineBot.GetVideoContent(videoMsg.ID)
 }
 
-// uploadVideoContent handles the final step of uploading the processed video
-// to Google Drive (or your storage), then updating the user’s portfolio.
-// generateUpdateNoteMessage forms a response prompt for note updating.
-func generateUpdateNoteMessage(workDate, skill string, actionStep db.ActionStep) string {
-	skillStr := db.SkillStrToEnum(skill).ChnString()
-	msg := "請輸入【" + workDate + "】的【" + skillStr + "】的"
-	if actionStep == db.WritingPreviewNote {
-		msg += "課前檢視要點"
-	} else {
-		msg += "學習反思"
-	}
-	return msg
-}
-
 // --------------------------------------------------------------------
 // 4.5 Helper for Selecting Skill
 // --------------------------------------------------------------------

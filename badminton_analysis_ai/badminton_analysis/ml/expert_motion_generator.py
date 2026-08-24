@@ -9,20 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import hashlib
 from pathlib import Path
-import random
-from typing import Any, Sequence
+from typing import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
 import torch
-from torch import Tensor
-from torch.nn import functional as F
 
 from badminton_analysis.ml.expert_phase_baseline import (
     ExpertCorrection,
-    ExpertPhaseModel,
     MotionSample,
-    _criterion_components_for_spec,
     _retarget_root_with_contacts,
 )
 from badminton_analysis.ml.kinematic_retargeting import (
@@ -73,26 +68,6 @@ class MotionFeatures:
     body_scale: float
 
 
-@dataclass(frozen=True)
-class ExpertMotionBundle:
-    skill: str
-    method: str
-    network: ExpertMotionDenoiser | ExpertMotionGANGenerator
-    diffusion_steps: int
-    state_mean: NDArray[np.float32]
-    state_scale: NDArray[np.float32]
-    morphology_mean: NDArray[np.float32]
-    morphology_scale: NDArray[np.float32]
-    stance_mean: NDArray[np.float32]
-    stance_scale: NDArray[np.float32]
-    canonical_lengths: NDArray[np.float32]
-    expert_states: NDArray[np.float32]
-    expert_files: NDArray[np.str_]
-    expert_subject_ids: NDArray[np.str_]
-    training_manifest_sha256: str
-    expert_wrist_velocity_limit: float
-    conditioning_policy: str = "selective"
-    stance_joint_ids: tuple[int, ...] = tuple(int(value) for value in STANCE_JOINTS)
 
 
 def _aligned(
@@ -219,25 +194,6 @@ def motion_features(
     return MotionFeatures(state, morphology, stance, handedness, body_scale)
 
 
-def assert_expert_only_training_data(
-    samples: Sequence[MotionSample], expert_root: str | Path
-) -> None:
-    """Fail closed if a learner archive reaches a training command."""
-    root = Path(expert_root).resolve()
-    if root.name.lower() != "experts":
-        raise ValueError("expert training root must be a directory named 'experts'")
-    if not samples:
-        raise ValueError("expert-only training requires at least two archives")
-    forbidden = {"beginner", "beginners", "student", "students", "初學者"}
-    for sample in samples:
-        resolved = sample.path.resolve()
-        if not resolved.is_relative_to(root):
-            raise ValueError(f"training archive is outside expert root: {sample.path}")
-        lowered_parts = {part.lower() for part in resolved.parts}
-        if lowered_parts & forbidden:
-            raise ValueError(f"student archive is forbidden in training: {sample.path}")
-        if not sample.subject_id:
-            raise ValueError(f"expert identity is missing: {sample.path}")
 
 
 def training_manifest(samples: Sequence[MotionSample]) -> str:
@@ -298,83 +254,12 @@ def expert_wrist_velocity_limit(
     return float(limit)
 
 
-def subject_disjoint_split(
-    samples: Sequence[MotionSample], *, seed: int = 19, validation_fraction: float = 0.2
-) -> tuple[list[MotionSample], list[MotionSample]]:
-    subjects = sorted({sample.subject_id for sample in samples})
-    if len(subjects) < 2:
-        raise ValueError("subject-disjoint validation requires at least two experts")
-    rng = random.Random(seed)
-    rng.shuffle(subjects)
-    count = max(1, min(len(subjects) - 1, round(len(subjects) * validation_fraction)))
-    held_out = set(subjects[:count])
-    train = [sample for sample in samples if sample.subject_id not in held_out]
-    validation = [sample for sample in samples if sample.subject_id in held_out]
-    return train, validation
 
 
-def _stats(values: NDArray[np.floating], minimum: float) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    array = np.asarray(values, dtype=np.float64)
-    mean = array.mean(axis=tuple(range(array.ndim - 1)))
-    scale = array.std(axis=tuple(range(array.ndim - 1)))
-    return mean.astype(np.float32), np.maximum(scale, minimum).astype(np.float32)
 
 
-def prepare_training_arrays(
-    samples: Sequence[MotionSample],
-    *,
-    conditioning_policy: str = "selective",
-    canonical_phase_indices: NDArray[np.integer] = CANONICAL_PHASE_INDICES,
-) -> tuple[dict[str, NDArray[np.float32]], dict[str, NDArray[np.float32]]]:
-    encoded = [
-        motion_features(
-            sample,
-            conditioning_policy=conditioning_policy,
-            canonical_phase_indices=canonical_phase_indices,
-        )
-        for sample in samples
-    ]
-    state = np.stack([item.state for item in encoded])
-    morphology = np.stack([item.morphology for item in encoded])
-    stance = np.stack([item.stance for item in encoded])
-    handedness = np.stack([item.handedness for item in encoded])
-    state_mean, state_scale = _stats(state, 0.05)
-    morphology_mean, morphology_scale = _stats(morphology, 0.025)
-    stance_mean, stance_scale = _stats(stance, 0.05)
-    arrays = {
-        "state": ((state - state_mean) / state_scale).astype(np.float32),
-        "morphology": ((morphology - morphology_mean) / morphology_scale).astype(np.float32),
-        "stance": ((stance - stance_mean) / stance_scale).astype(np.float32),
-        "handedness": handedness.astype(np.float32),
-    }
-    metadata = {
-        "state_mean": state_mean,
-        "state_scale": state_scale,
-        "morphology_mean": morphology_mean,
-        "morphology_scale": morphology_scale,
-        "stance_mean": stance_mean,
-        "stance_scale": stance_scale,
-        "canonical_lengths": np.median(
-            np.stack(
-                [item.morphology * item.body_scale for item in encoded]
-            ),
-            axis=0,
-        ).astype(np.float32),
-    }
-    return arrays, metadata
 
 
-def transform_features(
-    features: MotionFeatures, metadata: dict[str, NDArray[np.float32]]
-) -> dict[str, NDArray[np.float32]]:
-    return {
-        "state": (features.state - metadata["state_mean"]) / metadata["state_scale"],
-        "morphology": (features.morphology - metadata["morphology_mean"])
-        / metadata["morphology_scale"],
-        "stance": (features.stance - metadata["stance_mean"])
-        / metadata["stance_scale"],
-        "handedness": features.handedness,
-    }
 
 
 def _device(value: str) -> torch.device:
@@ -385,417 +270,22 @@ def _device(value: str) -> torch.device:
     return torch.device(value)
 
 
-def _batch(
-    arrays: dict[str, NDArray[np.float32]], indices: NDArray[np.integer], device: torch.device
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-    tensors = tuple(
-        torch.as_tensor(arrays[key][indices], device=device)
-        for key in ("state", "morphology", "stance", "handedness")
-    )
-    return tensors  # type: ignore[return-value]
 
 
-def train_diffusion(
-    arrays: dict[str, NDArray[np.float32]],
-    *,
-    steps: int,
-    batch_size: int,
-    learning_rate: float,
-    diffusion_steps: int,
-    device: str = "auto",
-    seed: int = 19,
-    model_dim: int = 96,
-    layers: int = 4,
-) -> tuple[ExpertMotionDenoiser, list[float]]:
-    torch.manual_seed(seed)
-    np_rng = np.random.default_rng(seed)
-    target_device = _device(device)
-    network = ExpertMotionDenoiser(
-        morphology_dim=int(arrays["morphology"].shape[1]),
-        stance_dim=int(arrays["stance"].shape[1]),
-        model_dim=model_dim,
-        layers=layers,
-    ).to(target_device)
-    optimizer = torch.optim.AdamW(network.parameters(), lr=learning_rate, weight_decay=1e-4)
-    schedule = linear_diffusion_schedule(diffusion_steps, device=target_device)
-    history: list[float] = []
-    network.train()
-    for step in range(steps):
-        indices = np_rng.integers(0, len(arrays["state"]), size=batch_size)
-        clean, morphology, stance, handedness = _batch(arrays, indices, target_device)
-        # Synthetic morphology is derived only from expert proportions and is
-        # deliberately independent of the target rotations.
-        morphology = morphology + 0.08 * torch.randn_like(morphology)
-        time = torch.randint(diffusion_steps, (batch_size,), device=target_device)
-        noise = torch.randn_like(clean)
-        alpha = schedule["sqrt_alpha_bar"][time, None, None]
-        sigma = schedule["sqrt_one_minus_alpha_bar"][time, None, None]
-        noisy = alpha * clean + sigma * noise
-        predicted_noise = network(noisy, time, morphology, stance, handedness)
-        denoising = F.mse_loss(predicted_noise, noise)
-        predicted_clean = (noisy - sigma * predicted_noise) / alpha.clamp_min(1e-4)
-        velocity = F.smooth_l1_loss(
-            predicted_clean[:, 1:] - predicted_clean[:, :-1],
-            clean[:, 1:] - clean[:, :-1],
-        )
-        loss = denoising + 0.05 * velocity
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
-        optimizer.step()
-        if step % max(steps // 50, 1) == 0 or step == steps - 1:
-            history.append(float(loss.detach().cpu()))
-    return network.eval(), history
 
 
-def sample_diffusion(
-    network: ExpertMotionDenoiser,
-    morphology: Tensor,
-    stance: Tensor,
-    handedness: Tensor,
-    *,
-    candidates: int,
-    diffusion_steps: int,
-    sampling_steps: int = 25,
-    seed: int = 19,
-) -> Tensor:
-    device = next(network.parameters()).device
-    generator = torch.Generator(device="cpu").manual_seed(seed)
-    state = torch.randn(
-        candidates, FRAMES, STATE_DIM, generator=generator, device="cpu"
-    ).to(device)
-    morphology = morphology.to(device).expand(candidates, -1)
-    stance = stance.to(device).expand(candidates, -1)
-    handedness = handedness.to(device).expand(candidates, -1)
-    schedule = linear_diffusion_schedule(diffusion_steps, device=device)
-    indices = torch.linspace(diffusion_steps - 1, 0, sampling_steps, device=device)
-    indices = torch.unique_consecutive(indices.round().long())
-    with torch.no_grad():
-        for position, time_value in enumerate(indices):
-            time = torch.full((candidates,), int(time_value), device=device, dtype=torch.long)
-            noise = network(state, time, morphology, stance, handedness)
-            alpha_bar = schedule["alpha_bar"][time_value]
-            clean = (state - torch.sqrt(1.0 - alpha_bar) * noise) / torch.sqrt(alpha_bar)
-            clean = clean.clamp(-7.0, 7.0)
-            if position == len(indices) - 1:
-                state = clean
-            else:
-                previous = indices[position + 1]
-                previous_alpha_bar = schedule["alpha_bar"][previous]
-                state = (
-                    torch.sqrt(previous_alpha_bar) * clean
-                    + torch.sqrt(1.0 - previous_alpha_bar) * noise
-                )
-    return state
 
 
-def train_gan(
-    arrays: dict[str, NDArray[np.float32]],
-    *,
-    steps: int,
-    batch_size: int,
-    learning_rate: float,
-    device: str = "auto",
-    seed: int = 19,
-    model_dim: int = 96,
-    layers: int = 3,
-) -> tuple[ExpertMotionGANGenerator, list[float]]:
-    """Train the explicit hinge-GAN fallback using expert states only."""
-    torch.manual_seed(seed)
-    np_rng = np.random.default_rng(seed)
-    target_device = _device(device)
-    morphology_dim = int(arrays["morphology"].shape[1])
-    stance_dim = int(arrays["stance"].shape[1])
-    generator = ExpertMotionGANGenerator(
-        morphology_dim=morphology_dim,
-        stance_dim=stance_dim,
-        model_dim=model_dim,
-        layers=layers,
-    ).to(target_device)
-    discriminator = ExpertMotionGANDiscriminator(
-        morphology_dim=morphology_dim,
-        stance_dim=stance_dim,
-        model_dim=model_dim,
-        layers=layers,
-    ).to(target_device)
-    generator_optimizer = torch.optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.0, 0.9))
-    discriminator_optimizer = torch.optim.Adam(
-        discriminator.parameters(), lr=learning_rate, betas=(0.0, 0.9)
-    )
-    history: list[float] = []
-    for step in range(steps):
-        indices = np_rng.integers(0, len(arrays["state"]), size=batch_size)
-        real, morphology, stance, handedness = _batch(arrays, indices, target_device)
-        morphology = morphology + 0.08 * torch.randn_like(morphology)
-        latent = torch.randn(batch_size, generator.latent_dim, device=target_device)
-        fake = generator(latent, morphology, stance, handedness).detach()
-        real_logit = discriminator(real, morphology, stance, handedness)
-        fake_logit = discriminator(fake, morphology, stance, handedness)
-        discriminator_loss = F.relu(1.0 - real_logit).mean() + F.relu(1.0 + fake_logit).mean()
-        discriminator_optimizer.zero_grad(set_to_none=True)
-        discriminator_loss.backward()
-        discriminator_optimizer.step()
-
-        if step % 2 == 0:
-            latent = torch.randn(batch_size, generator.latent_dim, device=target_device)
-            fake = generator(latent, morphology, stance, handedness)
-            adversarial = -discriminator(fake, morphology, stance, handedness).mean()
-            # A small expert moment loss stabilizes tiny-data training without
-            # pairing a generated sample to a particular expert trajectory.
-            moment = F.smooth_l1_loss(fake.mean(dim=0), real.mean(dim=0))
-            fake_velocity = fake[:, 1:] - fake[:, :-1]
-            real_velocity = real[:, 1:] - real[:, :-1]
-            fake_acceleration = fake_velocity[:, 1:] - fake_velocity[:, :-1]
-            real_acceleration = real_velocity[:, 1:] - real_velocity[:, :-1]
-            velocity_moment = F.smooth_l1_loss(
-                fake_velocity.abs().mean(dim=(0, 1)),
-                real_velocity.abs().mean(dim=(0, 1)),
-            )
-            acceleration_moment = F.smooth_l1_loss(
-                fake_acceleration.abs().mean(dim=(0, 1)),
-                real_acceleration.abs().mean(dim=(0, 1)),
-            )
-            generator_loss = (
-                adversarial
-                + 0.1 * moment
-                + 0.15 * velocity_moment
-                + 0.25 * acceleration_moment
-            )
-            generator_optimizer.zero_grad(set_to_none=True)
-            generator_loss.backward()
-            torch.nn.utils.clip_grad_norm_(generator.parameters(), 1.0)
-            generator_optimizer.step()
-        if step % max(steps // 50, 1) == 0 or step == steps - 1:
-            history.append(float(discriminator_loss.detach().cpu()))
-    return generator.eval(), history
 
 
-def sample_gan(
-    network: ExpertMotionGANGenerator,
-    morphology: Tensor,
-    stance: Tensor,
-    handedness: Tensor,
-    *,
-    candidates: int,
-    seed: int = 19,
-) -> Tensor:
-    device = next(network.parameters()).device
-    cpu_generator = torch.Generator(device="cpu").manual_seed(seed)
-    latent = torch.randn(
-        candidates, network.latent_dim, generator=cpu_generator, device="cpu"
-    ).to(device)
-    with torch.no_grad():
-        return network(
-            latent,
-            morphology.to(device).expand(candidates, -1),
-            stance.to(device).expand(candidates, -1),
-            handedness.to(device).expand(candidates, -1),
-        )
 
 
-def validation_report(
-    network: ExpertMotionDenoiser | ExpertMotionGANGenerator,
-    method: str,
-    validation_samples: Sequence[MotionSample],
-    metadata: dict[str, NDArray[np.float32]],
-    *,
-    diffusion_steps: int,
-    candidates: int = 8,
-    seed: int = 19,
-    conditioning_policy: str = "selective",
-) -> dict[str, Any]:
-    rows = []
-    for index, sample in enumerate(validation_samples):
-        transformed = transform_features(
-            motion_features(sample, conditioning_policy=conditioning_policy),
-            metadata,
-        )
-        morphology = torch.as_tensor(transformed["morphology"])[None]
-        stance = torch.as_tensor(transformed["stance"])[None]
-        handedness = torch.as_tensor(transformed["handedness"])[None]
-        if method == "diffusion":
-            assert isinstance(network, ExpertMotionDenoiser)
-            generated = sample_diffusion(
-                network,
-                morphology,
-                stance,
-                handedness,
-                candidates=candidates,
-                diffusion_steps=diffusion_steps,
-                seed=seed + index,
-            )
-        else:
-            assert isinstance(network, ExpertMotionGANGenerator)
-            generated = sample_gan(
-                network,
-                morphology,
-                stance,
-                handedness,
-                candidates=candidates,
-                seed=seed + index,
-            )
-        generated_array = generated.detach().cpu().numpy()
-        target = transformed["state"]
-        candidate_mse = np.mean(np.square(generated_array - target[None]), axis=(1, 2))
-        baseline_mse = float(np.mean(np.square(target)))
-        rows.append(
-            {
-                "file": sample.path.name,
-                "subject_id": sample.subject_id,
-                "best_of_k_mse": float(candidate_mse.min()),
-                "training_mean_mse": baseline_mse,
-                "relative_to_training_mean": float(
-                    candidate_mse.min() / max(baseline_mse, 1e-8)
-                ),
-            }
-        )
-    relative = [row["relative_to_training_mean"] for row in rows]
-    return {
-        "method": method,
-        "student_data_used": False,
-        "held_out_expert_samples": len(rows),
-        "median_relative_to_training_mean": float(np.median(relative)),
-        "accepted": bool(np.isfinite(relative).all() and np.median(relative) <= 1.5),
-        "rows": rows,
-    }
 
 
-def build_bundle(
-    *,
-    skill: str,
-    method: str,
-    network: ExpertMotionDenoiser | ExpertMotionGANGenerator,
-    diffusion_steps: int,
-    arrays: dict[str, NDArray[np.float32]],
-    metadata: dict[str, NDArray[np.float32]],
-    samples: Sequence[MotionSample],
-    conditioning_policy: str = "selective",
-) -> ExpertMotionBundle:
-    stance_joint_ids = tuple(
-        int(value) for value in conditioning_stance_joints(conditioning_policy)
-    )
-    expected_stance_dimension = 2 * len(stance_joint_ids) or 1
-    if int(network.stance_dim) != expected_stance_dimension:
-        raise ValueError(
-            "network stance dimension does not match conditioning policy: "
-            f"network={network.stance_dim}, policy={conditioning_policy}, "
-            f"expected={expected_stance_dimension}"
-        )
-    return ExpertMotionBundle(
-        skill=skill,
-        method=method,
-        network=network,
-        diffusion_steps=diffusion_steps,
-        state_mean=metadata["state_mean"],
-        state_scale=metadata["state_scale"],
-        morphology_mean=metadata["morphology_mean"],
-        morphology_scale=metadata["morphology_scale"],
-        stance_mean=metadata["stance_mean"],
-        stance_scale=metadata["stance_scale"],
-        canonical_lengths=metadata["canonical_lengths"],
-        expert_states=arrays["state"],
-        expert_files=np.asarray([sample.path.name for sample in samples]),
-        expert_subject_ids=np.asarray([sample.subject_id for sample in samples]),
-        training_manifest_sha256=training_manifest(samples),
-        expert_wrist_velocity_limit=expert_wrist_velocity_limit(samples),
-        conditioning_policy=conditioning_policy,
-        stance_joint_ids=stance_joint_ids,
-    )
 
 
-def save_expert_motion_bundle(bundle: ExpertMotionBundle, path: str | Path) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "format_version": 3,
-            "skill": bundle.skill,
-            "method": bundle.method,
-            "diffusion_steps": bundle.diffusion_steps,
-            "network_config": bundle.network.config(),
-            "state_dict": bundle.network.state_dict(),
-            "state_mean": torch.from_numpy(bundle.state_mean),
-            "state_scale": torch.from_numpy(bundle.state_scale),
-            "morphology_mean": torch.from_numpy(bundle.morphology_mean),
-            "morphology_scale": torch.from_numpy(bundle.morphology_scale),
-            "stance_mean": torch.from_numpy(bundle.stance_mean),
-            "stance_scale": torch.from_numpy(bundle.stance_scale),
-            "canonical_lengths": torch.from_numpy(bundle.canonical_lengths),
-            "expert_states": torch.from_numpy(bundle.expert_states),
-            "expert_files": bundle.expert_files.tolist(),
-            "expert_subject_ids": bundle.expert_subject_ids.tolist(),
-            "training_manifest_sha256": bundle.training_manifest_sha256,
-            "expert_wrist_velocity_limit": bundle.expert_wrist_velocity_limit,
-            "conditioning_policy": bundle.conditioning_policy,
-            "stance_joint_ids": list(bundle.stance_joint_ids),
-            "student_data_used": False,
-        },
-        destination,
-    )
 
 
-def load_expert_motion_bundle(
-    path: str | Path, *, device: str = "auto"
-) -> ExpertMotionBundle:
-    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if int(checkpoint["format_version"]) not in (1, 2, 3):
-        raise ValueError("unsupported expert motion model format")
-    if checkpoint.get("student_data_used", True):
-        raise ValueError("checkpoint provenance does not certify expert-only training")
-    method = str(checkpoint["method"])
-    config = checkpoint["network_config"]
-    conditioning_policy = str(checkpoint.get("conditioning_policy", "selective"))
-    expected_joint_ids = tuple(
-        int(value) for value in conditioning_stance_joints(conditioning_policy)
-    )
-    stance_joint_ids = tuple(
-        int(value)
-        for value in checkpoint.get("stance_joint_ids", STANCE_JOINTS.tolist())
-    )
-    if stance_joint_ids != expected_joint_ids:
-        raise ValueError(
-            "checkpoint stance joints do not match conditioning policy: "
-            f"policy={conditioning_policy}, joints={stance_joint_ids}"
-        )
-    expected_stance_dimension = 2 * len(stance_joint_ids) or 1
-    if int(config["stance_dim"]) != expected_stance_dimension:
-        raise ValueError(
-            "checkpoint network stance dimension does not match conditioning policy"
-        )
-    if method == "diffusion":
-        network: ExpertMotionDenoiser | ExpertMotionGANGenerator = ExpertMotionDenoiser(**config)
-    elif method == "gan":
-        network = ExpertMotionGANGenerator(**config)
-    else:
-        raise ValueError(f"unsupported generator method: {method}")
-    network.load_state_dict(checkpoint["state_dict"])
-    network.to(_device(device)).eval()
-
-    def array(key: str) -> NDArray[np.float32]:
-        return checkpoint[key].detach().cpu().numpy().astype(np.float32)
-
-    return ExpertMotionBundle(
-        skill=str(checkpoint["skill"]),
-        method=method,
-        network=network,
-        diffusion_steps=int(checkpoint["diffusion_steps"]),
-        state_mean=array("state_mean"),
-        state_scale=array("state_scale"),
-        morphology_mean=array("morphology_mean"),
-        morphology_scale=array("morphology_scale"),
-        stance_mean=array("stance_mean"),
-        stance_scale=array("stance_scale"),
-        canonical_lengths=array("canonical_lengths"),
-        expert_states=array("expert_states"),
-        expert_files=np.asarray(checkpoint["expert_files"]),
-        expert_subject_ids=np.asarray(checkpoint["expert_subject_ids"]),
-        training_manifest_sha256=str(checkpoint["training_manifest_sha256"]),
-        expert_wrist_velocity_limit=float(
-            checkpoint.get("expert_wrist_velocity_limit", float("inf"))
-        ),
-        conditioning_policy=conditioning_policy,
-        stance_joint_ids=stance_joint_ids,
-    )
 
 
 def _fk_from_directions(
@@ -1066,49 +556,8 @@ def limit_correction_wrist_velocity(
     )
 
 
-def _bundle_metadata(bundle: ExpertMotionBundle) -> dict[str, NDArray[np.float32]]:
-    return {
-        "state_mean": bundle.state_mean,
-        "state_scale": bundle.state_scale,
-        "morphology_mean": bundle.morphology_mean,
-        "morphology_scale": bundle.morphology_scale,
-        "stance_mean": bundle.stance_mean,
-        "stance_scale": bundle.stance_scale,
-    }
 
 
-def _sample_bundle(
-    bundle: ExpertMotionBundle,
-    transformed: dict[str, NDArray[np.float32]],
-    *,
-    candidates: int,
-    seed: int,
-) -> NDArray[np.float32]:
-    morphology = torch.as_tensor(transformed["morphology"])[None]
-    stance = torch.as_tensor(transformed["stance"])[None]
-    handedness = torch.as_tensor(transformed["handedness"])[None]
-    if bundle.method == "diffusion":
-        assert isinstance(bundle.network, ExpertMotionDenoiser)
-        result = sample_diffusion(
-            bundle.network,
-            morphology,
-            stance,
-            handedness,
-            candidates=candidates,
-            diffusion_steps=bundle.diffusion_steps,
-            seed=seed,
-        )
-    else:
-        assert isinstance(bundle.network, ExpertMotionGANGenerator)
-        result = sample_gan(
-            bundle.network,
-            morphology,
-            stance,
-            handedness,
-            candidates=candidates,
-            seed=seed,
-        )
-    return result.detach().cpu().numpy().astype(np.float32)
 
 
 def project_to_expert_motion_subspace(
@@ -1155,179 +604,5 @@ def project_to_expert_motion_subspace(
     return projected.reshape(samples.shape).astype(np.float32)
 
 
-def correct_student_motion_generated(
-    bundle: ExpertMotionBundle,
-    sample: MotionSample,
-    *,
-    candidates: int = 16,
-    seed: int = 19,
-) -> ExpertCorrection:
-    """Generate expert motion, then map it through the student's exact FK."""
-    if sample.skill != bundle.skill:
-        raise ValueError(f"student skill {sample.skill!r} does not match {bundle.skill!r}")
-    if candidates < 1:
-        raise ValueError("candidates must be positive")
-    features = motion_features(
-        sample,
-        conditioning_policy=bundle.conditioning_policy,
-        stance_joint_ids=bundle.stance_joint_ids,
-    )
-    transformed = transform_features(features, _bundle_metadata(bundle))
-    generated = _sample_bundle(bundle, transformed, candidates=candidates, seed=seed)
-    generated = project_to_expert_motion_subspace(generated, bundle.expert_states)
-
-    # Candidate choice is based on expert likelihood and temporal regularity,
-    # never on the learner's dynamic errors.
-    manifold = np.mean(
-        np.square(generated[:, None] - bundle.expert_states[None]), axis=(2, 3)
-    ).min(axis=1)
-    acceleration = np.diff(generated[:, :, :DIRECTION_DIM], n=2, axis=1)
-    smoothness = np.mean(np.square(acceleration), axis=(1, 2))
-    objective = manifold + 0.025 * smoothness
-    selected = int(np.argmin(objective))
-    standardized_state = generated[selected]
-    state = standardized_state * bundle.state_scale + bundle.state_mean
-    directions = _unit(state[:, :DIRECTION_DIM].reshape(FRAMES, JOINTS, 2))
-    normalized_root = state[:, DIRECTION_DIM : DIRECTION_DIM + ROOT_DIM]
-    contacts = np.clip(state[:, -CONTACT_DIM:], 0.0, 1.0).astype(np.float32)
-    directions, normalized_root, contacts = smooth_generated_motion_state(
-        directions, normalized_root, contacts
-    )
-    generated_pose = _fk_from_directions(directions, bundle.canonical_lengths)
-
-    aligned_pose, aligned_confidence, aligned_root, _ = _aligned(sample)
-    corrected = retarget_expert_canonical_2d_fk(
-        aligned_pose,
-        generated_pose,
-        aligned_confidence,
-        np.ones_like(aligned_confidence),
-        root_trajectory=np.zeros((FRAMES, 2), dtype=np.float32),
-    )
-    root_delta = normalized_root * features.body_scale
-    corrected_root = aligned_root[:1] + root_delta - root_delta[:1]
-    canonical_root = normalized_root * float(np.median(bundle.canonical_lengths))
-    corrected_root = _retarget_root_with_contacts(
-        corrected, corrected_root, contacts, generated_pose
-    )
-
-    distances = np.mean(
-        np.square(bundle.expert_states - standardized_state[None]), axis=(1, 2)
-    )
-    nearest = np.argsort(distances, kind="stable")[: min(3, len(distances))]
-    weights = np.exp(-distances[nearest] / max(float(np.median(distances[nearest])), 1e-4))
-    weights /= weights.sum()
-    correction = ExpertCorrection(
-        student=sample,
-        aligned_student_pose=aligned_pose,
-        aligned_student_root=aligned_root,
-        aligned_corrected_pose=corrected,
-        aligned_corrected_root=corrected_root.astype(np.float32),
-        corrected_pose=restore_phase_timing(corrected, sample.phase_indices),
-        corrected_root=restore_phase_timing(corrected_root, sample.phase_indices),
-        aligned_corrected_contacts=contacts,
-        corrected_contacts=restore_phase_timing(contacts, sample.phase_indices),
-        expert_prototype_pose=generated_pose,
-        expert_prototype_root=canonical_root.astype(np.float32),
-        reference_indices=nearest.astype(np.int64),
-        reference_weights=weights.astype(np.float32),
-        reference_distances=np.sqrt(distances[nearest]).astype(np.float32),
-    )
-    if bundle.skill == "serve" and np.isfinite(
-        bundle.expert_wrist_velocity_limit
-    ):
-        correction = limit_correction_wrist_velocity(
-            correction, bundle.expert_wrist_velocity_limit
-        )
-    return correction
 
 
-def score_generated_correction(
-    score_model: ExpertPhaseModel,
-    correction: ExpertCorrection,
-    *,
-    generator_method: str,
-    training_manifest_sha256: str,
-) -> dict[str, Any]:
-    """Continuous score against subject-held-out expert variability.
-
-    At the criterion's expert p90 distance the awarded fraction is 0.5.  This
-    removes the legacy full-score plateau while retaining expert-only robust
-    scales as uncertainty intervals.
-    """
-    spec = score_model.spec
-    confidence = np.clip(
-        phase_align_sequence(
-            correction.student.confidence, correction.student.phase_indices
-        ),
-        0.0,
-        1.0,
-    ).astype(np.float32)
-    components = _criterion_components_for_spec(
-        spec,
-        correction.aligned_student_pose,
-        correction.aligned_student_root,
-        correction.aligned_corrected_pose,
-        correction.aligned_corrected_root,
-        confidence,
-    )
-
-    def fraction(distance: float, reference: float) -> float:
-        return float(np.exp(-np.log(2.0) * np.square(distance / reference)))
-
-    criteria = []
-    for index, (rule, component) in enumerate(
-        zip(spec.rules, components, strict=True)
-    ):
-        distance = float(component["combined_distance"])
-        tolerance = float(score_model.criterion_tolerances[index])
-        robust_scale = float(score_model.criterion_scales[index])
-        reference = max(tolerance, robust_scale, 0.025)
-        lower_distance = max(0.0, distance - robust_scale)
-        upper_distance = distance + robust_scale
-        ratio = fraction(distance, reference)
-        criteria.append(
-            {
-                "name_zh_tw": rule.name_zh_tw,
-                "rule_reference": rule.id,
-                "score": rule.maximum * ratio,
-                "score_lower": rule.maximum * fraction(upper_distance, reference),
-                "score_upper": rule.maximum * fraction(lower_distance, reference),
-                "maximum": rule.maximum,
-                "expert_p90_distance": tolerance,
-                "expert_robust_scale": robust_scale,
-                "distance_to_expert_p90_ratio": distance / reference,
-                **component,
-            }
-        )
-    references = [
-        {
-            "file": str(score_model.expert_files[index]),
-            "subject_id": str(score_model.expert_subject_ids[index]),
-            "identity_level": str(score_model.expert_identity_levels[index]),
-            "alignment_contract": str(score_model.expert_alignment_contracts[index]),
-            "weight": float(weight),
-            "stance_distance": float(distance),
-            "usage": "nearest_real_expert_audit_only",
-        }
-        for index, weight, distance in zip(
-            correction.reference_indices,
-            correction.reference_weights,
-            correction.reference_distances,
-            strict=True,
-        )
-    ]
-    return {
-        "filename": correction.student.video_name,
-        "skill": score_model.skill,
-        "handedness": correction.student.handedness,
-        "score_method": "continuous_generated_expert_distribution_v1",
-        "correction_policy": "expert_only_generated_full_body_fk_projection",
-        "generator_method": generator_method,
-        "training_manifest_sha256": training_manifest_sha256,
-        "student_data_used_for_training": False,
-        "total_score": float(sum(item["score"] for item in criteria)),
-        "total_score_lower": float(sum(item["score_lower"] for item in criteria)),
-        "total_score_upper": float(sum(item["score_upper"] for item in criteria)),
-        "criteria": criteria,
-        "references": references,
-    }

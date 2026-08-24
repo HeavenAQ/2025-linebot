@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -1533,6 +1533,3 @@ def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
         )
 
 
-def model_training_inputs(paths: Iterable[Path]) -> list[str]:
-    """Expose auditable training inputs for reports and regression tests."""
-    return [str(path) for path in sorted(paths)]

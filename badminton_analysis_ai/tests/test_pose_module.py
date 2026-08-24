@@ -172,7 +172,7 @@ class TestPoseDetector:
         assert result[0]["keypoints"].shape == (17, 2)
         assert result[0]["wholebody_keypoints"].shape == (133, 2)
         # RFDETRKeypointPreview's native order already matches COCOKeypoints,
-        # so no schema adapter is needed (unlike the Sapiens2 pipeline).
+        # so no schema adapter is needed.
         np.testing.assert_allclose(
             result[0]["keypoints"][int(COCOKeypoints.RIGHT_WRIST)], (20.0, 21.0)
         )

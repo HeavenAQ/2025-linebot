@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 import cv2
-import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -146,21 +145,8 @@ def _validated_phase_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
     return values
 
 
-def load_phase_indices(path: Path) -> tuple[int, ...]:
-    with np.load(path, allow_pickle=False) as sample:
-        return _validated_phase_indices(sample["phase_indices"])
 
 
-def load_source_frame_indices(path: Path) -> tuple[int, ...]:
-    with np.load(path, allow_pickle=False) as sample:
-        if "source_frame_indices" not in sample.files:
-            return tuple(range(64))
-        values = tuple(int(value) for value in sample["source_frame_indices"])
-    if len(values) != 64 or any(value < 0 for value in values):
-        raise ValueError("source_frame_indices must contain 64 non-negative values")
-    if any(first > second for first, second in zip(values, values[1:])):
-        raise ValueError("source_frame_indices must be ordered")
-    return values
 
 
 def feedback_frame_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
@@ -224,13 +210,6 @@ def checkpoint_role(
     return roles.get(frame_index, "關鍵幀之間的動作過渡畫面")
 
 
-def load_advice_context(path: Path, filename: str) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as handle:
-        for line in handle:
-            record = json.loads(line)
-            if record.get("filename") == filename:
-                return dict(record)
-    raise ValueError(f"no advice context found for {filename} in {path}")
 
 
 def load_feedback_problems(

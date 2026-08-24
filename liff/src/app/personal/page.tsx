@@ -107,7 +107,7 @@ export default function PersonalPage() {
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
-  const { liff, profile, liffError } = useLiff()
+  const { liff, profile, liffError, sessionExpired } = useLiff()
   const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
 
   // The bot links straight to a tab (?tab=review from 每週回顧), so a student
@@ -213,8 +213,15 @@ export default function PersonalPage() {
   if (!userData) {
     return (
       <PageContainer className="pt-6">
-        <Alert variant="warning" title={liffError ? 'LINE 登入失敗' : '無法載入學習資料'}>
-          {userDataError || '請重新整理頁面後再試一次。'}
+        <Alert
+          variant="warning"
+          title={sessionExpired ? '登入已逾時' : liffError ? 'LINE 登入失敗' : '無法載入學習資料'}
+        >
+          {sessionExpired
+            ? // Reloading will not help: LIFF hands back the same expired token
+              // until the app is opened from LINE again.
+              '這個頁面開太久了，請從 LINE 重新開啟一次。'
+            : userDataError || '請重新整理頁面後再試一次。'}
         </Alert>
       </PageContainer>
     )

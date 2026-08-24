@@ -19,7 +19,8 @@ const LiffContext = createContext<{
   liff: Liff | null
   profile: Profile | null
   liffError: string | null
-}>({ liff: null, profile: null, liffError: null })
+  sessionExpired: boolean
+}>({ liff: null, profile: null, liffError: null, sessionExpired: false })
 
 export const useLiff = () => useContext(LiffContext)
 
@@ -43,12 +44,12 @@ const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
 const devIdToken = process.env.NEXT_PUBLIC_DEV_ID_TOKEN?.trim()
 
 /** Marks that an expired token already sent this session back through login. */
-const reloginGuardKey = 'liff-relogin-initiated'
 
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [liffError, setLiffError] = useState<string | null>(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
   const initializedRef = useRef(false)
 
   const initLiff = useCallback(async () => {
@@ -110,7 +111,6 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         // Clear guard once logged in
         if (typeof window !== 'undefined') {
           sessionStorage.removeItem('liff-login-initiated')
-          sessionStorage.removeItem(reloginGuardKey)
         }
 
         // update profile (only when logged in)
@@ -126,18 +126,12 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         setIdTokenSource(() => liff.getIDToken())
 
         // A LINE ID token lasts an hour and LIFF cannot refresh one, so a page
-        // left open eventually has every call refused. Logging in again is the
-        // only way to get a new token; the guard is what stops a backend that
-        // refuses every token from bouncing the learner in a loop, and it is
-        // cleared on a successful login above.
-        setExpiredTokenHandler(() => {
-          if (typeof window === 'undefined') return
-          if (sessionStorage.getItem(reloginGuardKey)) return
-          sessionStorage.setItem(reloginGuardKey, '1')
-          liff.login({
-            redirectUri: process.env.NEXT_PUBLIC_LIFF_REDIRECT_URI || window.location.href
-          })
-        })
+        // left open eventually has every call refused. This does NOT log the
+        // learner back in: liff.login() redirects to LINE and back to the
+        // endpoint URL registered in the console, which in an ordinary browser
+        // bounces them away from the page they were on. The session is marked
+        // stale instead, and the app asks them to reopen it from LINE.
+        setExpiredTokenHandler(() => setSessionExpired(true))
 
         setLiff(liff)
         initializedRef.current = true
@@ -159,7 +153,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
       value={{
         liff,
         profile,
-        liffError
+        liffError,
+        sessionExpired
       }}
     >
       {children}

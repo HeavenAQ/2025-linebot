@@ -34,8 +34,6 @@ const TAB_OPTIONS = [
 
 type TabValue = (typeof TAB_OPTIONS)[number]['value']
 
-const MAX_CRITERION = 20
-
 const chartConfig = {
   totalGrade: { label: '總分', color: 'hsl(var(--chart-1))' }
 } satisfies ChartConfig
@@ -59,12 +57,20 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
     return <p className="text-[13px] text-muted-foreground">這次分析沒有細項評分。</p>
   }
 
-  const weakest = details.reduce((low, d) => (d.grade < low.grade ? d : low), details[0])
+  // Weakest by share of its own maximum, not by raw score: 5.0 out of 5 is full
+  // marks while 4.0 out of 30 is the problem, and comparing the numbers alone
+  // would say the opposite.
+  const share = (d: GradingDetail) => d.grade / (d.maximum > 0 ? d.maximum : 20)
+  const weakest = details.reduce((low, d) => (share(d) < share(low) ? d : low), details[0])
 
   return (
     <ul className="space-y-4">
       {details.map((detail, i) => {
-        const ratio = Math.max(0, Math.min(1, detail.grade / MAX_CRITERION))
+        // Each criterion carries its own maximum -- serve alone runs 5, 5, 30,
+        // 10, 30, 20 -- so a shared cap both misdrew the bars and printed
+        // impossible scores like 30.0/20.
+        const maximum = detail.maximum > 0 ? detail.maximum : 20
+        const ratio = Math.max(0, Math.min(1, detail.grade / maximum))
         const isWeakest = details.length > 1 && detail === weakest
         return (
           <li key={`${detail.description}-${i}`}>
@@ -80,7 +86,7 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
               <span className="num shrink-0 font-data text-sm font-semibold">
                 {detail.grade.toFixed(1)}
                 <span className="ml-0.5 text-[11px] font-normal text-muted-foreground">
-                  /{MAX_CRITERION}
+                  /{maximum}
                 </span>
               </span>
             </div>

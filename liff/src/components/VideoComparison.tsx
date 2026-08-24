@@ -13,7 +13,7 @@ import {
   expertTimeAt,
   progressAtExpertTime
 } from '@/lib/expertAlignment'
-import type { CoachingCue, PlaybackResponse } from '@/types'
+import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
 
@@ -25,6 +25,13 @@ const VIEW_OPTIONS = [
 
 interface VideoComparisonProps {
   playback: PlaybackResponse
+}
+
+/** What the caption is saying right now: a correction, or the current phase. */
+interface Caption {
+  title: string
+  body: string
+  live: boolean
 }
 
 interface PauseInterval {
@@ -82,8 +89,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [captionsOn, setCaptionsOn] = useState(true)
-  const [captionCue, setCaptionCue] = useState<CoachingCue | null>(null)
-  const [captionLive, setCaptionLive] = useState(false)
+  const [caption, setCaption] = useState<Caption | null>(null)
   const [studentRatio, setStudentRatio] = useState(() =>
     metadataRatio(playback.student_video.width, playback.student_video.height)
   )
@@ -121,18 +127,25 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     playback.expert.motion_start_seconds,
     playback.expert.motion_end_seconds
   )
-  // Checkpoint-anchored map from the student's progress to the expert's clock.
-  // Falls back to the plain window stretch when an analysis carries no expert
-  // checkpoints.
+  // Map from the student's progress to the expert's clock: the analysis's
+  // warped samples where it has them, the checkpoints alone where it does not,
+  // and the plain window stretch when it carries neither.
   const alignmentAnchors = useMemo(
     () =>
       buildAlignmentAnchors(
         playback.timeline,
         playback.expert.timeline,
         expertMotionStart,
-        expertMotionEnd
+        expertMotionEnd,
+        playback.expert.alignment
       ),
-    [playback.timeline, playback.expert.timeline, expertMotionStart, expertMotionEnd]
+    [
+      playback.timeline,
+      playback.expert.timeline,
+      playback.expert.alignment,
+      expertMotionStart,
+      expertMotionEnd
+    ]
   )
 
   const expertTimeFromMotionProgress = useCallback(
@@ -145,22 +158,29 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauses]
   )
 
-  // Captions hold the last correction the playhead reached rather than clearing
-  // between cues: each one only occupies its two-second pause, and text that
-  // blinks in and out is harder to read than text that stays put.
+  // The caption always says where the stroke is. A correction takes it over for
+  // the two-second pause it occupies, and outside those the checkpoint the
+  // playhead has reached holds the line — so it reads as a commentary that runs
+  // to the end of the motion, rather than freezing on whichever correction
+  // happened to come last.
   const updateCaption = useCallback(
-    (studentTime: number) => {
+    (studentTime: number, position: number) => {
       const live = pauseAtTime(studentTime)
       if (live) {
-        setCaptionCue(live.cue)
-        setCaptionLive(true)
+        setCaption({ title: live.cue.title, body: live.cue.feedback, live: true })
         return
       }
-      setCaptionLive(false)
-      const passed = pauses.filter(pause => studentTime >= pause.start)
-      setCaptionCue(passed.length > 0 ? passed[passed.length - 1].cue : null)
+      // Checkpoints are listed in scoring order, not stroke order, so the one
+      // reached most recently is the furthest along that the playhead has
+      // passed — not the last one in the list.
+      let reached: PhaseMarker | null = null
+      for (const marker of playback.timeline) {
+        if (marker.normalized_position > position) continue
+        if (!reached || marker.normalized_position >= reached.normalized_position) reached = marker
+      }
+      setCaption(reached ? { title: reached.label, body: '', live: false } : null)
     },
-    [pauseAtTime, pauses]
+    [pauseAtTime, playback.timeline]
   )
 
   const motionProgressFromStudentTime = useCallback(
@@ -238,10 +258,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       setProgress(next)
       if (cue) {
         setActiveCue(cue)
-        setCaptionCue(cue)
-        setCaptionLive(true)
+        setCaption({ title: cue.title, body: cue.feedback, live: true })
       } else {
-        updateCaption(studentTime)
+        updateCaption(studentTime, next)
       }
     },
     [
@@ -291,7 +310,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         setProgress(next)
       }
       syncExpert(next, student.currentTime)
-      updateCaption(student.currentTime)
+      updateCaption(student.currentTime, next)
     },
     [motionProgressFromStudentTime, syncExpert, updateCaption]
   )
@@ -312,8 +331,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
     setActiveCue(playback.coaching_cues[0] ?? null)
-    setCaptionCue(null)
-    setCaptionLive(false)
+    setCaption(null)
     setStudentRatio(metadataRatio(playback.student_video.width, playback.student_video.height))
     setExpertRatio(metadataRatio(playback.expert.video.width, playback.expert.video.height))
   }, [playback])
@@ -370,17 +388,16 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek]
   )
 
-  const activeCheckpoint =
-    checkpoints.length === 0
-      ? -1
-      : checkpoints.reduce(
-          (nearest, marker, index) =>
-            Math.abs(marker.position - axisProgress) <
-            Math.abs(checkpoints[nearest].position - axisProgress)
-              ? index
-              : nearest,
-          0
-        )
+  // Criteria can share an instant -- serve marks both 髖關節前旋 and 肩膀旋轉朝前
+  // at the end of the motion -- so the nearest position can belong to more than
+  // one checkpoint, and all of them are current. Singling one out meant the
+  // other could never light up no matter where the playhead was.
+  const nearestCheckpointDistance = checkpoints.reduce(
+    (nearest, marker) => Math.min(nearest, Math.abs(marker.position - axisProgress)),
+    Number.POSITIVE_INFINITY
+  )
+  const isCurrentCheckpoint = (position: number) =>
+    Math.abs(position - axisProgress) === nearestCheckpointDistance
 
   return (
     // The player is a panel like any other: same surface, same border, same
@@ -473,15 +490,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       <AutoHeight className="mx-3">
         {captionsOn ? (
           <div className="mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
-            {captionCue ? (
+            {caption ? (
               <>
                 <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
                   <span
-                    className={`h-1.5 w-1.5 rounded-full ${captionLive ? 'bg-destructive' : 'bg-white/40'}`}
+                    className={`h-1.5 w-1.5 rounded-full ${caption.live ? 'bg-destructive' : 'bg-white/40'}`}
                   />
-                  {captionCue.title}
+                  {caption.title}
                 </p>
-                <p className="mt-1 text-[15px] leading-6">{captionCue.feedback}</p>
+                {caption.body && <p className="mt-1 text-[15px] leading-6">{caption.body}</p>}
               </>
             ) : (
               <p className="text-[13px] leading-6 text-white/55">
@@ -505,19 +522,6 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
             className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
           />
-          {checkpoints.map((marker, index) => (
-            <button
-              key={marker.id}
-              type="button"
-              title={marker.label}
-              aria-label={`前往${marker.label}`}
-              onClick={() => seek(marker.seekTo)}
-              className="absolute top-0 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
-              style={{ left: `${marker.position * 100}%` }}
-            >
-              {index + 1}
-            </button>
-          ))}
           {playback.coaching_cues.map((cue, index) => (
             <button
               key={`${cue.normalized_frame}-${index}`}
@@ -534,6 +538,19 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 }%`
               }}
             />
+          ))}
+          {checkpoints.map((marker, index) => (
+            <button
+              key={marker.id}
+              type="button"
+              title={marker.label}
+              aria-label={`前往${marker.label}`}
+              onClick={() => seek(marker.seekTo)}
+              className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
+              style={{ left: `${marker.position * 100}%` }}
+            >
+              {index + 1}
+            </button>
           ))}
         </div>
 
@@ -594,7 +611,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 type="button"
                 onClick={() => seek(marker.seekTo)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
-                  index === activeCheckpoint
+                  isCurrentCheckpoint(marker.position)
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground'
                 }`}

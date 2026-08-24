@@ -39,7 +39,12 @@ export default function AutoHeight({ children, className }: AutoHeightProps) {
       className={className ? `auto-height ${className}` : 'auto-height'}
       style={{ height: height === null ? undefined : height }}
     >
-      <div ref={contentRef}>{children}</div>
+      {/* flow-root, so a margin on the content cannot collapse out through this
+          wrapper. It measured short by exactly that margin otherwise, and the
+          height being clipped to it cut the bottom off the caption. */}
+      <div ref={contentRef} style={{ display: 'flow-root' }}>
+        {children}
+      </div>
     </div>
   )
 }

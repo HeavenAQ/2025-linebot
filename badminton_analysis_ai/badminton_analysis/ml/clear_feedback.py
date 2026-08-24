@@ -199,9 +199,9 @@ def phase_for_frame(
     if resolved_spec.skill == Skill.SERVE:
         if frame_index <= anchor_1:
             return "preparation"
-        if frame_index < anchor_3:
+        if frame_index < anchor_2:
             return "weight_transfer"
-        if frame_index <= anchor_3:
+        if frame_index <= anchor_2:
             return "contact"
         return "follow_through"
     if frame_index < anchor_1:

@@ -346,7 +346,7 @@ _SERVE_RULES = (
         "擊球瞬間用持拍手手腕發力，讓球拍快速向前。",
         (6, 8, 10),
         (8, 10),
-        (3,),
+        (2,),
     ),
     FeedbackRuleSpec(
         "shoulder_rotation",
@@ -508,8 +508,8 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         checkpoint_roles_zh_tw=(
             "第0關鍵幀：發球準備起點",
             "第1關鍵幀：雙手平舉與持拍腳承重",
-            "第2關鍵幀：重心轉移過渡",
-            "第3關鍵幀：擊球與手腕發力",
+            "第2關鍵幀：重心轉移與最大手腕加速度（擊球事件）",
+            "第3關鍵幀：擊球後隨揮",
             "第4關鍵幀：髖部及肩膀完成前旋",
         ),
         joint_weights=(

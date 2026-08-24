@@ -52,15 +52,24 @@ def test_phase_for_frame_uses_clear_feedback_windows() -> None:
     assert phase_for_frame(40) == "follow_through"
 
 
-@pytest.mark.parametrize("skill", (Skill.SERVE, Skill.LIFT))
-def test_short_final_phase_keeps_last_anchor_in_follow_through(
-    skill: Skill,
-) -> None:
+def test_lift_short_final_phase_keeps_last_anchor_in_follow_through() -> None:
     phases = (0, 29, 59, 61, 63)
-    spec = get_skill_spec(skill)
+    spec = get_skill_spec(Skill.LIFT)
 
     assert phase_for_frame(61, phases, spec) == "contact"
     assert phase_for_frame(63, phases, spec) == "follow_through"
+
+
+def test_serve_uses_maximum_wrist_acceleration_as_contact_anchor() -> None:
+    phases = (0, 29, 59, 61, 63)
+    spec = get_skill_spec(Skill.SERVE)
+
+    assert phase_for_frame(29, phases, spec) == "preparation"
+    assert phase_for_frame(30, phases, spec) == "weight_transfer"
+    assert phase_for_frame(58, phases, spec) == "weight_transfer"
+    assert phase_for_frame(59, phases, spec) == "contact"
+    assert phase_for_frame(60, phases, spec) == "follow_through"
+    assert phase_for_frame(61, phases, spec) == "follow_through"
 
 
 def test_sample_video_frames_includes_exact_grading_checkpoints(tmp_path: Path) -> None:

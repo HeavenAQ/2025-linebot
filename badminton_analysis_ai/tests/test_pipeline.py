@@ -149,7 +149,10 @@ def test_serve_expert_timeline_follows_scoring_order_not_stroke_order() -> None:
     )
 
     by_id = {marker.id: marker for marker in expert}
-    assert by_id["wrist_flick"].timestamp_seconds == 2.5
+    # The wrist flick marks the strike itself -- anchor 2, where serve
+    # extraction puts maximum wrist acceleration -- not the anchor after it.
+    assert by_id["wrist_flick"].timestamp_seconds == 1.9
+    assert by_id["weight_transfer"].timestamp_seconds == 1.9
     assert by_id["hip_rotation"].timestamp_seconds == 3.0
     assert by_id["shoulder_rotation"].timestamp_seconds == 3.0
     assert [marker.timestamp_seconds for marker in expert] != sorted(

@@ -193,9 +193,35 @@ def test_each_rule_anchor_has_the_rule_phase(skill: Skill) -> None:
     for rule in spec.rules:
         for anchor_index in rule.allowed_anchor_indices:
             frame_index = DEFAULT_PHASE_INDICES[anchor_index]
+            # Serve weight transfer is assessed over the full motion and its
+            # display frame is the contact boundary where that transfer
+            # culminates. Display location and semantic evidence phase are
+            # intentionally distinct for this one transition criterion.
+            if skill == Skill.SERVE and rule.id == "weight_transfer":
+                assert rule.phase == "weight_transfer"
+                assert (
+                    phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec)
+                    == "contact"
+                )
+                continue
             assert (
                 phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec)
                 == rule.phase
             )
+
+
+def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    by_id = {rule.id: rule for rule in spec.rules}
+
+    # Serve extraction aligns the dominant wrist's maximum acceleration to
+    # anchor 2, and the grader measures the burst around it. The checkpoint has
+    # to be drawn at that event, not at the deceleration after it.
+    assert by_id["racket_foot_weight"].allowed_anchor_indices == (1,)
+    assert by_id["racket_foot_weight"].phase == "preparation"
+    assert by_id["wrist_flick"].allowed_anchor_indices == (2,)
+    assert by_id["wrist_flick"].phase == "contact"
+    assert "最大手腕加速度" in spec.checkpoint_roles_zh_tw[2]
+    assert "隨揮" in spec.checkpoint_roles_zh_tw[3]
 
 

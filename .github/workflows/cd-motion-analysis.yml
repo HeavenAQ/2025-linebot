@@ -123,6 +123,12 @@ jobs:
           echo "ANALYSIS_CANDIDATE_TAG=${candidate_tag}" >> "${GITHUB_ENV}"
           echo "ANALYSIS_CANDIDATE_REVISION=${candidate_revision}" >> "${GITHUB_ENV}"
           echo "ANALYSIS_CANDIDATE_URL=${candidate_url}" >> "${GITHUB_ENV}"
+          # The service's own URL, which is what an identity token has to name
+          # as its audience even when the request goes to a candidate tag.
+          service_url="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 --format='value(status.url)')"
+          test -n "${service_url}"
+          echo "ANALYSIS_SERVICE_URL=${service_url}" >> "${GITHUB_ENV}"
 
       - name: Restrict analysis service to the bot backend
         run: |
@@ -159,10 +165,27 @@ jobs:
           # authenticated by workload identity federation, which cannot mint an
           # audience-bound token from ambient credentials, so impersonate the
           # service account the bot backend runs as and hand the token over.
+          # Audienced to the service URL, not the candidate tag URL that the
+          # request actually goes to. Cloud Run validates an identity token
+          # against the service, so a token minted for a tag URL is refused with
+          # a bare 401 -- which is why this passed while the service was being
+          # bootstrapped, when the two URLs were the same, and failed as soon as
+          # a candidate revision got its own tag.
           export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
             --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
-            --audiences "${ANALYSIS_CANDIDATE_URL}")"
+            --audiences "${ANALYSIS_SERVICE_URL}")"
           test -n "${ANALYSIS_IDENTITY_TOKEN}"
+          # Check the claims here, with a reason, rather than letting a video
+          # analysis fail on a bare 401 twenty minutes into the job.
+          claims="$(echo "${ANALYSIS_IDENTITY_TOKEN}" | cut -d. -f2)"
+          while [ $(( ${#claims} % 4 )) -ne 0 ]; do claims="${claims}="; done
+          payload="$(echo "${claims}" | tr '_-' '/+' | base64 -d 2>/dev/null)"
+          token_aud="$(echo "${payload}" | jq -r '.aud // empty')"
+          if [ "${token_aud}" != "${ANALYSIS_SERVICE_URL}" ]; then
+            echo "identity token audience ${token_aud} is not ${ANALYSIS_SERVICE_URL}" >&2
+            exit 1
+          fi
+          echo "identity token audience: ${token_aud}"
           export RUN_LIVE_ANALYSIS=1
           cd linebot
           run_fixture() {

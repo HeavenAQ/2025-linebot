@@ -13,7 +13,7 @@ import React, {
 import { Profile } from '@liff/get-profile'
 import { Liff } from '@line/liff'
 
-import { setIdTokenSource } from '@/lib/api/client'
+import { setExpiredTokenHandler, setIdTokenSource } from '@/lib/api/client'
 
 const LiffContext = createContext<{
   liff: Liff | null
@@ -41,6 +41,9 @@ const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
  * unset, backend calls come back 401 and only the static UI renders.
  */
 const devIdToken = process.env.NEXT_PUBLIC_DEV_ID_TOKEN?.trim()
+
+/** Marks that an expired token already sent this session back through login. */
+const reloginGuardKey = 'liff-relogin-initiated'
 
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
@@ -92,18 +95,23 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           // Redirect back to a stable endpoint URL to satisfy LIFF expectations
           const explicitRedirect =
             typeof window !== 'undefined'
-              ? (process.env.NEXT_PUBLIC_LIFF_REDIRECT_URI || window.location.href)
+              ? process.env.NEXT_PUBLIC_LIFF_REDIRECT_URI || window.location.href
               : undefined
           if (!explicitRedirect) throw new Error('Missing redirectUri for LIFF login')
           liff.login({ redirectUri: explicitRedirect })
           return
         } else {
           // We already attempted login but still not logged in; avoid looping
-          setLiffError('LIFF login could not be completed. Please try again or check LIFF settings.')
+          setLiffError(
+            'LIFF login could not be completed. Please try again or check LIFF settings.'
+          )
         }
       } else {
         // Clear guard once logged in
-        if (typeof window !== 'undefined') sessionStorage.removeItem('liff-login-initiated')
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('liff-login-initiated')
+          sessionStorage.removeItem(reloginGuardKey)
+        }
 
         // update profile (only when logged in)
         try {
@@ -113,10 +121,23 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         } catch (e) {
           console.warn('Failed to get LIFF profile:', e)
         }
-        // Every backend call proves who is asking with this token, and LIFF
-        // refreshes it behind the scenes — so hand over the getter, not the
-        // string it returns right now.
+        // Every backend call proves who is asking with this token, so hand over
+        // the getter rather than the string it returns right now.
         setIdTokenSource(() => liff.getIDToken())
+
+        // A LINE ID token lasts an hour and LIFF cannot refresh one, so a page
+        // left open eventually has every call refused. Logging in again is the
+        // only way to get a new token; the guard is what stops a backend that
+        // refuses every token from bouncing the learner in a loop, and it is
+        // cleared on a successful login above.
+        setExpiredTokenHandler(() => {
+          if (typeof window === 'undefined') return
+          if (sessionStorage.getItem(reloginGuardKey)) return
+          sessionStorage.setItem(reloginGuardKey, '1')
+          liff.login({
+            redirectUri: process.env.NEXT_PUBLIC_LIFF_REDIRECT_URI || window.location.href
+          })
+        })
 
         setLiff(liff)
         initializedRef.current = true

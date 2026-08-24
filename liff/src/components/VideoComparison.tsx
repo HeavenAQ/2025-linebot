@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import {
   buildAlignmentAnchors,
+  expertMotionWindow,
   expertRateAt,
   expertTimeAt,
   progressAtExpertTime
@@ -115,14 +116,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauses]
   )
   const motionDuration = Math.max(0.01, studentDuration - totalPauseDuration)
-  const expertMotionStart = Math.min(
+  const { start: expertMotionStart, end: expertMotionEnd } = expertMotionWindow(
     expertDuration,
-    Math.max(0, playback.expert.motion_start_seconds)
-  )
-  const configuredExpertEnd = playback.expert.motion_end_seconds
-  const expertMotionEnd = Math.min(
-    expertDuration,
-    configuredExpertEnd > expertMotionStart ? configuredExpertEnd : expertDuration
+    playback.expert.motion_start_seconds,
+    playback.expert.motion_end_seconds
   )
   // Checkpoint-anchored map from the student's progress to the expert's clock.
   // Falls back to the plain window stretch when an analysis carries no expert
@@ -193,7 +190,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const syncExpert = useCallback(
     (position: number, studentTime: number) => {
       const expert = expertRef.current
-      if (!expert || !Number.isFinite(expertDuration) || expertDuration <= 0) return
+      // Gated on the motion window rather than the duration: the window is what
+      // playback actually needs, and it is known before the clip has loaded.
+      if (!expert || expertMotionEnd <= expertMotionStart) return
       const target = expertTimeFromMotionProgress(position)
       // Each segment has its own tempo relative to the student -- the two
       // performances reach the same checkpoint at different points in their own
@@ -216,7 +215,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         void expert.play().catch(() => undefined)
       }
     },
-    [alignmentAnchors, expertDuration, expertTimeFromMotionProgress, motionDuration, pauseAtTime]
+    [
+      alignmentAnchors,
+      expertMotionEnd,
+      expertMotionStart,
+      expertTimeFromMotionProgress,
+      motionDuration,
+      pauseAtTime
+    ]
   )
 
   const seek = useCallback(
@@ -226,7 +232,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       const expert = expertRef.current
       const studentTime = cue?.student_timestamp_seconds ?? studentTimeFromMotionProgress(next)
       if (student) student.currentTime = studentTime
-      if (expert && expertDuration > 0) {
+      if (expert && expertMotionEnd > expertMotionStart) {
         expert.currentTime = expertTimeFromMotionProgress(next)
       }
       setProgress(next)
@@ -238,7 +244,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         updateCaption(studentTime)
       }
     },
-    [expertDuration, expertTimeFromMotionProgress, studentTimeFromMotionProgress, updateCaption]
+    [
+      expertMotionEnd,
+      expertMotionStart,
+      expertTimeFromMotionProgress,
+      studentTimeFromMotionProgress,
+      updateCaption
+    ]
   )
 
   const setPlayback = useCallback(

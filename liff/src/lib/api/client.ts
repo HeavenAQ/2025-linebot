@@ -18,13 +18,11 @@ export function setIdTokenSource(source: IdTokenSource | null): void {
 }
 
 /**
- * Registers what to do when the backend refuses our token.
+ * Registers what to do when the backend refuses a token we actually held.
  *
  * LINE ID tokens last an hour and LIFF has no way to refresh one: getIDToken()
- * keeps returning the token from login long after it has expired. A page left
- * open therefore starts failing every call, and the only way back is to log in
- * again — which the provider does, rather than leaving the learner looking at
- * an error that reloading will not fix.
+ * keeps returning the token from login long after it has expired, so a page
+ * left open starts failing every call and reloading will not fix it.
  */
 export function setExpiredTokenHandler(handler: (() => void) | null): void {
   onExpired = handler
@@ -36,9 +34,11 @@ export async function authorizedFetch(path: string, init: RequestInit = {}): Pro
   const token = idTokenSource()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const response = await fetch(`${getBackendBaseUrl()}${path}`, { ...init, headers })
-  // 401 is the backend saying it could not verify the token, which for a page
-  // that had been working means it has expired. 403 is a different thing — the
-  // caller is known and refused — so it is left alone.
-  if (response.status === 401) onExpired?.()
+  // Only a token we sent and the backend refused means an expired session. A
+  // 401 with no token is the ordinary state of a page whose LIFF login has not
+  // finished yet — calling it an expired session there strands the learner on
+  // "reopen from LINE" instead of letting the login they are mid-way through
+  // complete. 403 is left alone either way: the caller is known and refused.
+  if (response.status === 401 && token) onExpired?.()
   return response
 }

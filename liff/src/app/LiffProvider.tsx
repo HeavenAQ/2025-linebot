@@ -43,8 +43,6 @@ const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
  */
 const devIdToken = process.env.NEXT_PUBLIC_DEV_ID_TOKEN?.trim()
 
-/** Marks that an expired token already sent this session back through login. */
-
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -124,6 +122,14 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         // Every backend call proves who is asking with this token, so hand over
         // the getter rather than the string it returns right now.
         setIdTokenSource(() => liff.getIDToken())
+        // getIDToken() needs the openid scope, and returns null without it. The
+        // backend then sees an anonymous caller and refuses everything, which
+        // looks like a login failure rather than a missing scope — so say which
+        // it is.
+        if (!liff.getIDToken()) {
+          console.warn('LIFF returned no ID token; the openid scope may not be granted')
+          setLiffError('LINE 未提供登入憑證，請確認 LIFF 應用已開啟 openid 權限。')
+        }
 
         // A LINE ID token lasts an hour and LIFF cannot refresh one, so a page
         // left open eventually has every call refused. This does NOT log the

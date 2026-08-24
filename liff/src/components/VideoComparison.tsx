@@ -60,6 +60,12 @@ const clampRate = (rate: number) => Math.min(4, Math.max(0.25, rate))
 /** How often the scrubber's React state follows the playhead, in ms. */
 const PROGRESS_STATE_INTERVAL = 66
 
+/**
+ * Slack for deciding a checkpoint has been reached, in normalized position.
+ * A frame of the 64-frame timeline is about 0.016, so this is well inside one.
+ */
+const CHECKPOINT_REACHED_EPSILON = 0.002
+
 /** Portrait phone footage, used until a video reports its real dimensions. */
 const FALLBACK_RATIO = 3 / 4
 
@@ -173,9 +179,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       // Checkpoints are listed in scoring order, not stroke order, so the one
       // reached most recently is the furthest along that the playhead has
       // passed — not the last one in the list.
+      //
+      // "Passed" needs slack. Seeking to a checkpoint sets a video time that
+      // converts back a hair short of the position asked for — a seek to
+      // 0.3650794 came back as 0.3650625 — and on an exact test the checkpoint
+      // just jumped to counts as not yet reached, so the caption named the one
+      // before it. The tolerance is a small fraction of a frame of 63.
       let reached: PhaseMarker | null = null
       for (const marker of playback.timeline) {
-        if (marker.normalized_position > position) continue
+        if (marker.normalized_position > position + CHECKPOINT_REACHED_EPSILON) continue
         if (!reached || marker.normalized_position >= reached.normalized_position) reached = marker
       }
       setCaption(reached ? { title: reached.label, body: '', live: false } : null)

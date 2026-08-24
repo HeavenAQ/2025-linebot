@@ -286,7 +286,15 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 expert_id=reference.subject_id,
                 display_name=reference.subject_id,
                 correction_distance=reference.distance,
-                video=self._stored_video(expert_signed, {"fps": reference.fps}),
+                video=self._stored_video(
+                    expert_signed,
+                    {
+                        "fps": reference.fps,
+                        "duration_seconds": reference.duration_seconds,
+                        "width": reference.width,
+                        "height": reference.height,
+                    },
+                ),
                 motion_start_seconds=reference.motion_start_seconds,
                 motion_end_seconds=reference.motion_end_seconds,
                 timeline=self._expert_timeline(spec, reference),

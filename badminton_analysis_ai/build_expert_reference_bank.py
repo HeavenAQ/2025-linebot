@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 # The datasets the current serve and smash checkpoints were trained from.
@@ -33,11 +34,36 @@ SOURCES = {
 VIDEO_PREFIX = "experts/v3"
 
 
+def _clip_metadata(video: Path) -> tuple[float, int, int]:
+    """The clip's duration and frame size, read from the file itself.
+
+    Only the videos live in Cloud Storage, and the service hands the browser a
+    signed URL without ever opening them, so anything the player needs before it
+    has loaded the clip has to be recorded here. Without a duration the player
+    cannot bound the expert's motion window, and without the frame size it
+    guesses an aspect ratio and reflows once the clip arrives.
+    """
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            raise RuntimeError(f"could not open {video}")
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        frames = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    finally:
+        capture.release()
+    if fps <= 0 or frames <= 0 or width <= 0 or height <= 0:
+        raise RuntimeError(f"{video} reports no usable metadata")
+    return frames / fps, width, height
+
+
 def build(source_root: Path, output: Path) -> dict[str, int]:
     skeletons: list[np.ndarray] = []
     meta: dict[str, list] = {
         "skill": [], "handedness": [], "video_object_path": [], "subject_id": [],
         "fps": [], "analysis_window": [], "source_phase_indices": [],
+        "duration_seconds": [], "width": [], "height": [],
     }
     counts: dict[str, int] = {}
 
@@ -69,6 +95,10 @@ def build(source_root: Path, output: Path) -> dict[str, int]:
                 meta["fps"].append(float(sample["fps"].item()))
                 meta["analysis_window"].append(sample["analysis_window"].astype(np.int64))
                 meta["source_phase_indices"].append(sample["source_phase_indices"].astype(np.int64))
+                duration, width, height = _clip_metadata(video)
+                meta["duration_seconds"].append(duration)
+                meta["width"].append(width)
+                meta["height"].append(height)
         counts[skill] = len(paths)
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +112,9 @@ def build(source_root: Path, output: Path) -> dict[str, int]:
         fps=np.asarray(meta["fps"], dtype=np.float32),
         analysis_window=np.stack(meta["analysis_window"]),
         source_phase_indices=np.stack(meta["source_phase_indices"]),
+        duration_seconds=np.asarray(meta["duration_seconds"], dtype=np.float32),
+        width=np.asarray(meta["width"], dtype=np.int64),
+        height=np.asarray(meta["height"], dtype=np.int64),
     )
     return counts
 

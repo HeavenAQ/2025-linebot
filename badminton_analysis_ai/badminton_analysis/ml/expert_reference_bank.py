@@ -35,6 +35,11 @@ class ExpertReference:
     source_phase_indices: tuple[int, ...]
     distance: float
     similarity: float
+    # What the browser needs before it has loaded the clip. Banks built before
+    # these were recorded report zero, which the player treats as "unknown".
+    duration_seconds: float = 0.0
+    width: int = 0
+    height: int = 0
 
     @property
     def motion_start_seconds(self) -> float:
@@ -62,6 +67,18 @@ class ExpertReferenceBank:
             self.fps = bank["fps"].astype(np.float32)
             self.analysis_window = bank["analysis_window"].astype(np.int64)
             self.source_phase_indices = bank["source_phase_indices"].astype(np.int64)
+            count = len(self.subject_id)
+            self.duration_seconds = (
+                bank["duration_seconds"].astype(np.float32)
+                if "duration_seconds" in bank
+                else np.zeros(count, dtype=np.float32)
+            )
+            self.width = (
+                bank["width"].astype(np.int64) if "width" in bank else np.zeros(count, dtype=np.int64)
+            )
+            self.height = (
+                bank["height"].astype(np.int64) if "height" in bank else np.zeros(count, dtype=np.int64)
+            )
         if self.skeletons.ndim != 4 or self.skeletons.shape[1:] != (64, 17, 2):
             raise ValueError(f"unexpected expert bank shape: {self.skeletons.shape}")
 
@@ -120,4 +137,7 @@ class ExpertReferenceBank:
             source_phase_indices=tuple(int(v) for v in self.source_phase_indices[index]),
             distance=distance,
             similarity=similarity,
+            duration_seconds=float(self.duration_seconds[index]),
+            width=int(self.width[index]),
+            height=int(self.height[index]),
         )

@@ -18,9 +18,13 @@ on:
   push:
     branches: [main]
     paths:
+      # Only what actually goes into the GPU image. The Go client under
+      # linebot/api/analysis is a consumer of this service, not part of it --
+      # editing it used to trigger a full image rebuild and GPU redeploy that
+      # could not change what was deployed. proto stays, because the Python
+      # stubs baked into the image are generated from it.
       - 'badminton_analysis_ai/**'
       - 'proto/**'
-      - 'linebot/api/analysis/**'
       - '.github/workflows/cd-motion-analysis.yml'
   workflow_dispatch:
 

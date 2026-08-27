@@ -31,6 +31,13 @@ message AnalyzeVideoHeader {
   string filename = 3;
   Skill skill = 4;
   Handedness handedness = 5;
+  // Skip the coaching pass entirely. Coaching is the only stage that leaves
+  // this service: it sends sampled frames of the learner to a third-party
+  // model. A deployment that has not obtained consent for that sets this, and
+  // then no image of the learner goes anywhere. The analysis itself is
+  // unaffected -- pose, correction, grading and expert matching are local --
+  // so the response is the same minus coaching_cues and overall_feedback.
+  bool skip_coaching = 6;
 }
 
 message AnalyzeVideoChunk {

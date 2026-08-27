@@ -27,6 +27,7 @@ class _Backend:
 class _Pipeline:
     def __init__(self) -> None:
         self.backends = {Skill.SERVE: _Backend()}
+        self.skip_coaching_seen: bool | None = None
 
     def analyze(
         self,
@@ -37,7 +38,9 @@ class _Pipeline:
         filename: str,
         skill: Skill,
         requested_handedness: str,
+        skip_coaching: bool = False,
     ) -> AnalysisResult:
+        self.skip_coaching_seen = skip_coaching
         assert video_path.read_bytes() == b"video-bytes"
         assert filename == "serve.mp4"
         assert skill == Skill.SERVE
@@ -251,3 +254,52 @@ def test_an_expert_without_an_alignment_still_returns() -> None:
     assert list(response.expert.alignment) == []
     assert response.expert.expert_id == "test-expert"
     assert len(response.expert.timeline) == len(response.timeline)
+
+
+def test_skip_coaching_reaches_the_pipeline(monkeypatch) -> None:
+    """The header's skip_coaching must survive the wire.
+
+    It is the switch that decides whether frames of the learner are uploaded to
+    a third-party model, so a deployment that sets it and is silently ignored
+    would be sending imagery it promised not to.
+    """
+    monkeypatch.setattr(
+        "service.server.probe_video",
+        lambda _: {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280},
+    )
+    service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
+    service.settings = SimpleNamespace(grpc_api_key="test-key", max_video_bytes=1024)
+    pipeline = _Pipeline()
+    service.pipeline = pipeline
+    service.storage = _Storage()
+    service.catalog = _Catalog()
+
+    grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    analysis_pb2_grpc.add_BadmintonAnalysisServicer_to_server(service, grpc_server)
+    port = grpc_server.add_insecure_port("127.0.0.1:0")
+    grpc_server.start()
+    try:
+        with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+            stub = analysis_pb2_grpc.BadmintonAnalysisStub(channel)
+            stub.AnalyzeVideo(
+                iter(
+                    (
+                        analysis_pb2.AnalyzeVideoChunk(
+                            header=analysis_pb2.AnalyzeVideoHeader(
+                                request_id="r",
+                                user_id="u",
+                                filename="serve.mp4",
+                                skill=analysis_pb2.SKILL_SERVE,
+                                handedness=analysis_pb2.HANDEDNESS_RIGHT,
+                                skip_coaching=True,
+                            )
+                        ),
+                        analysis_pb2.AnalyzeVideoChunk(data=b"video-bytes"),
+                    )
+                ),
+                metadata=(("x-api-key", "test-key"),),
+            )
+    finally:
+        grpc_server.stop(None)
+
+    assert pipeline.skip_coaching_seen is True

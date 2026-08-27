@@ -85,7 +85,6 @@ func (app *App) sendVideoUploadedReply(
 		event,
 		user,
 		db.SkillStrToEnum(session.Skill),
-		session.Handedness,
 		session.UserState,
 		"影片分析完成，已加入學習歷程。",
 		true,

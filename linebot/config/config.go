@@ -54,6 +54,11 @@ type AnalysisServerConfig struct {
 	Target   string `env:"ANALYSIS_GRPC_TARGET"`
 	APIKey   string `env:"ANALYSIS_GRPC_API_KEY"`
 	Insecure bool   `env:"ANALYSIS_GRPC_INSECURE"`
+	// SkipCoaching turns off the one stage that leaves the analysis service:
+	// coaching uploads sampled frames of the learner to a third-party model.
+	// A deployment without consent for that sets it, and no image of a learner
+	// is sent anywhere. Grading is unaffected -- it is entirely local.
+	SkipCoaching bool `env:"ANALYSIS_SKIP_COACHING"`
 }
 
 // PreviewConfig guards the weekly 課前預習 push. The token is required: the

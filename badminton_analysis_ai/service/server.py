@@ -145,6 +145,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     filename=header.filename or "video.mp4",
                     skill=skill,
                     requested_handedness=handedness,
+                    skip_coaching=bool(header.skip_coaching),
                 )
                 storage_started = time.perf_counter()
                 user_segment = _safe_segment(header.user_id, "anonymous")

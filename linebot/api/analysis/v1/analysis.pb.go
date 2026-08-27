@@ -129,12 +129,19 @@ func (Handedness) EnumDescriptor() ([]byte, []int) {
 }
 
 type AnalyzeVideoHeader struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Filename      string                 `protobuf:"bytes,3,opt,name=filename,proto3" json:"filename,omitempty"`
-	Skill         Skill                  `protobuf:"varint,4,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
-	Handedness    Handedness             `protobuf:"varint,5,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId     string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Filename   string                 `protobuf:"bytes,3,opt,name=filename,proto3" json:"filename,omitempty"`
+	Skill      Skill                  `protobuf:"varint,4,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
+	Handedness Handedness             `protobuf:"varint,5,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	// Skip the coaching pass entirely. Coaching is the only stage that leaves
+	// this service: it sends sampled frames of the learner to a third-party
+	// model. A deployment that has not obtained consent for that sets this, and
+	// then no image of the learner goes anywhere. The analysis itself is
+	// unaffected -- pose, correction, grading and expert matching are local --
+	// so the response is the same minus coaching_cues and overall_feedback.
+	SkipCoaching  bool `protobuf:"varint,6,opt,name=skip_coaching,json=skipCoaching,proto3" json:"skip_coaching,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,6 +209,13 @@ func (x *AnalyzeVideoHeader) GetHandedness() Handedness {
 		return x.Handedness
 	}
 	return Handedness_HANDEDNESS_UNSPECIFIED
+}
+
+func (x *AnalyzeVideoHeader) GetSkipCoaching() bool {
+	if x != nil {
+		return x.SkipCoaching
+	}
+	return false
 }
 
 type AnalyzeVideoChunk struct {
@@ -1217,7 +1231,7 @@ var File_badminton_analysis_v1_analysis_proto protoreflect.FileDescriptor
 
 const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\n" +
-	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\xdf\x01\n" +
+	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\x84\x02\n" +
 	"\x12AnalyzeVideoHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -1226,7 +1240,8 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x05skill\x18\x04 \x01(\x0e2\x1c.badminton.analysis.v1.SkillR\x05skill\x12A\n" +
 	"\n" +
 	"handedness\x18\x05 \x01(\x0e2!.badminton.analysis.v1.HandednessR\n" +
-	"handedness\"y\n" +
+	"handedness\x12#\n" +
+	"\rskip_coaching\x18\x06 \x01(\bR\fskipCoaching\"y\n" +
 	"\x11AnalyzeVideoChunk\x12C\n" +
 	"\x06header\x18\x01 \x01(\v2).badminton.analysis.v1.AnalyzeVideoHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\t\n" +

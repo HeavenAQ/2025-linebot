@@ -11,16 +11,19 @@ import (
 type Client struct {
 	bot        *linebot.Client
 	bucketName string
+	// reviewURL is the web app's review tab. Portfolio cards link into it per
+	// attempt, so the deployment's URL has to reach the message builders.
+	reviewURL string
 }
 
 // NewBotClient creates a new BotClient instance
-func NewBotClient(channelSecret, channelToken, bucketName string) (*Client, error) {
+func NewBotClient(channelSecret, channelToken, bucketName, reviewURL string) (*Client, error) {
 	bot, err := linebot.New(channelSecret, channelToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create linebot client: %w", err)
 	}
 
-	return &Client{bot: bot, bucketName: bucketName}, nil
+	return &Client{bot: bot, bucketName: bucketName, reviewURL: reviewURL}, nil
 }
 
 // ParseRequest wraps the linebot.Client's ParseRequest method

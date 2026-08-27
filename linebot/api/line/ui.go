@@ -3,6 +3,7 @@ package line
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"sort"
 	"time"
@@ -44,28 +45,25 @@ func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 	}
 }
 
-// createButtonActions generates the buttons for preview and reflection actions
-func (client *Client) createButtonActions(work db.Work, skill string, handedness string) ([]linebot.FlexComponent, error) {
-	previewData, err := json.Marshal(WritingNotePostback{
-		State:      db.WritingNotes.String(),
-		WorkDate:   work.DateTime,
-		ActionStep: db.WritingPreviewNote.String(),
-		Skill:      skill,
-	})
+// workReviewURL points the review tab at one recorded attempt. The configured
+// URL already carries a query of its own (?tab=review), so the work is merged
+// into it rather than appended behind a second "?".
+func workReviewURL(reviewURL string, skill string, workDate string) string {
+	parsed, err := url.Parse(reviewURL)
 	if err != nil {
-		return nil, err
+		// Nothing to build on, but the plain review tab still gets the learner
+		// to their reflections -- they just have to pick the video themselves.
+		return reviewURL
 	}
+	query := parsed.Query()
+	query.Set("skill", skill)
+	query.Set("date", workDate)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
 
-	reflectionData, err := json.Marshal(WritingNotePostback{
-		State:      db.WritingNotes.String(),
-		WorkDate:   work.DateTime,
-		ActionStep: db.WritingReflection.String(),
-		Skill:      skill,
-	})
-	if err != nil {
-		return nil, err
-	}
-
+// createButtonActions generates the buttons for reflection and video actions
+func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
 	videoData, err := json.Marshal(VideoPostback{
 		WorkDate: work.DateTime,
 		Skill:    skill,
@@ -74,50 +72,17 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 		return nil, err
 	}
 
-	askedAIForHelpData, err := json.Marshal(AnalyzingWithGPTPostback{
-		Handedness: handedness,
-		WorkDate:   work.DateTime,
-		Skill:      skill,
-	})
-
 	return []linebot.FlexComponent{
 		&linebot.ButtonComponent{
 			Type:   "button",
 			Style:  "primary",
 			Height: "sm",
-			Action: linebot.NewPostbackAction(
+			// The reflection is written in the web app, alongside the video and
+			// the AI feedback for this same attempt, so the button opens that
+			// attempt directly instead of starting a note over chat.
+			Action: linebot.NewURIAction(
 				"更新學習反思",
-				string(reflectionData),
-				"",
-				"",
-				"openKeyboard",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"更新課前動作檢測要點",
-				string(previewData),
-				"",
-				"",
-				"openKeyboard",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"詢問AI建議",
-				string(askedAIForHelpData),
-				"",
-				"",
-				"",
-				"",
+				workReviewURL(client.reviewURL, skill, work.DateTime),
 			),
 		},
 		&linebot.ButtonComponent{
@@ -136,7 +101,7 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 	}, nil
 }
 
-// createNotesSection generates the notes sections for AI Note, Preview Note, and Reflection
+// createNotesSection generates the notes sections for AI Note and Reflection
 func createNotesSection(label string, content string) *linebot.BoxComponent {
 	// If content is empty, provide a default placeholder text
 	if content == "" {
@@ -168,11 +133,11 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 }
 
 // getCarouselItem constructs the carousel item using helper functions
-func (client *Client) getCarouselItem(work db.Work, skill string, handedness string, showBtns bool) *linebot.BubbleContainer {
+func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
 	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
 	rating := client.getPortfolioRating(work)
-	buttons, err := client.createButtonActions(work, skill, handedness)
+	buttons, err := client.createButtonActions(work, skill)
 	if err != nil {
 		return nil
 	}
@@ -198,15 +163,16 @@ func (client *Client) getCarouselItem(work db.Work, skill string, handedness str
 				},
 				rating,
 				createNotesSection("需調整細節：", work.AINote),
-				createNotesSection("課前動作檢測要點：", work.PreviewNote),
 				createNotesSection("學習反思：", work.Reflection),
 			},
 		},
+		// Outside the update flow the card is a record to look at, so it offers
+		// playback only -- buttons[0] is the reflection link.
 		Footer: &linebot.BoxComponent{
 			Type:     "box",
 			Layout:   "vertical",
 			Spacing:  "sm",
-			Contents: buttons[2:],
+			Contents: buttons[1:],
 		},
 	}
 
@@ -247,12 +213,12 @@ func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
-func (client *Client) getCarousels(works map[string]db.Work, skill string, handedness string, showBtns bool) ([]*linebot.FlexMessage, error) {
+func (client *Client) getCarousels(works map[string]db.Work, skill string, showBtns bool) ([]*linebot.FlexMessage, error) {
 	items := []*linebot.BubbleContainer{}
 	carouselItems := []*linebot.FlexMessage{}
 	sortedWorks := client.sortWorks(works)
 	for _, work := range sortedWorks {
-		items = append(items, client.getCarouselItem(work, skill, handedness, showBtns))
+		items = append(items, client.getCarouselItem(work, skill, showBtns))
 
 		// since the carousel can only contain 10 items, we need to split the works into multiple carousels in order to display all of them
 		if len(items) == 10 {

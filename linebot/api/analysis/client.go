@@ -27,12 +27,13 @@ const chunkSize = 1024 * 1024
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
 
 type Client struct {
-	connection *grpc.ClientConn
-	service    analysisv1.BadmintonAnalysisClient
-	apiKey     string
+	connection   *grpc.ClientConn
+	service      analysisv1.BadmintonAnalysisClient
+	apiKey       string
+	skipCoaching bool
 }
 
-func NewClient(target, apiKey string, useInsecure bool) (*Client, error) {
+func NewClient(target, apiKey string, useInsecure, skipCoaching bool) (*Client, error) {
 	target = strings.TrimPrefix(strings.TrimPrefix(target, "https://"), "http://")
 	if !strings.Contains(target, ":") {
 		if useInsecure {
@@ -70,9 +71,10 @@ func NewClient(target, apiKey string, useInsecure bool) (*Client, error) {
 		return nil, fmt.Errorf("connect to analysis service: %w", err)
 	}
 	return &Client{
-		connection: connection,
-		service:    analysisv1.NewBadmintonAnalysisClient(connection),
-		apiKey:     apiKey,
+		connection:   connection,
+		service:      analysisv1.NewBadmintonAnalysisClient(connection),
+		apiKey:       apiKey,
+		skipCoaching: skipCoaching,
 	}, nil
 }
 
@@ -150,6 +152,10 @@ func (c *Client) AnalyzeVideo(
 		Payload: &analysisv1.AnalyzeVideoChunk_Header{Header: &analysisv1.AnalyzeVideoHeader{
 			RequestId: requestID, UserId: userID, Filename: filename,
 			Skill: skillEnum, Handedness: handednessEnum,
+			// Whether learner frames may be sent to a third-party model is a
+			// property of the deployment, not of one upload, so it is carried
+			// by the client rather than passed at every call site.
+			SkipCoaching: c.skipCoaching,
 		}},
 	}); err != nil {
 		return nil, fmt.Errorf("send analysis header: %w", err)

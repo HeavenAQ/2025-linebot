@@ -287,6 +287,7 @@ class SkeletonAnalysisPipeline:
         filename: str,
         skill: Skill,
         requested_handedness: str,
+        skip_coaching: bool = False,
     ) -> AnalysisResult:
         if skill not in self.backends:
             raise ValueError("only serve and smash are currently supported")
@@ -355,15 +356,26 @@ class SkeletonAnalysisPipeline:
                 generated_full_body=True,
             )
             overlay_finished = time.perf_counter()
-            coaching_payload = self.coaching.generate(
-                video_path=skeleton_overlay_path,
-                working_dir=output_path.parent,
-                filename=filename,
-                handedness=str(handedness),
-                phase_indices=tuple(int(value) for value in phases),
-                spec=spec,
-                correction_grade=correction_grade,
-            )
+            # Coaching is the only stage that leaves this machine: it uploads
+            # sampled frames of the learner to a third-party model. Skipping it
+            # is therefore not an optimisation but a guarantee -- no image of
+            # this learner is sent anywhere. Everything that decides the grade
+            # has already happened above, and all of it is local.
+            if skip_coaching:
+                coaching_payload = {
+                    "analysis": {"problems": [], "overall_feedback": ""},
+                    "latency_llm_inference_seconds": 0.0,
+                }
+            else:
+                coaching_payload = self.coaching.generate(
+                    video_path=skeleton_overlay_path,
+                    working_dir=output_path.parent,
+                    filename=filename,
+                    handedness=str(handedness),
+                    phase_indices=tuple(int(value) for value in phases),
+                    spec=spec,
+                    correction_grade=correction_grade,
+                )
             coaching_finished = time.perf_counter()
             problems = coaching_payload["analysis"]["problems"]
             render_correction_video(

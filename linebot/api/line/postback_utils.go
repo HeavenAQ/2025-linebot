@@ -76,10 +76,6 @@ func (client *Client) HandleVideoPostbackData(rawData string) (*VideoPostback, e
 	return handlePostbackData[VideoPostback](rawData)
 }
 
-func (client *Client) HandleAskingAIForHelpPostbackData(rawData string) (*AnalyzingWithGPTPostback, error) {
-	return handlePostbackData[AnalyzingWithGPTPostback](rawData)
-}
-
 func (client *Client) HandleStopGPTPostbackData(rawData string) (*StopGPTPostback, error) {
 	return handlePostbackData[StopGPTPostback](rawData)
 }

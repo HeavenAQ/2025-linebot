@@ -62,13 +62,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 		return
 	}
 
-	// 4. Ask AI for help
-	if data, ok := app.isAnalyzingPortfolioWithGPT(rawData); ok {
-		app.handleAnalyzePortfolioWithGPT(event, user, data, session, replyToken)
-		return
-	}
-
-	// 5. Route by user state
+	// 4. Route by user state
 	switch session.UserState {
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
@@ -116,7 +110,6 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 			event,
 			user,
 			db.SkillStrToEnum(data.Skill),
-			session.Handedness,
 			session.UserState,
 			"請選擇您要更新的學習歷程：",
 			true,
@@ -128,7 +121,7 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 	case db.SelectingPortfolio:
 		app.handleSelectingPortfolio(rawData, user, session, replyToken)
 
-	case db.WritingPreviewNote, db.WritingReflection:
+	case db.WritingReflection:
 		app.handleUpdatingNote(event, user, session)
 		app.FirestoreClient.ResetSession(user.ID)
 
@@ -267,7 +260,6 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 		event,
 		user,
 		db.SkillStrToEnum(data.Skill),
-		session.Handedness,
 		session.UserState,
 		"以下為您的學習歷程：",
 		false,
@@ -345,9 +337,9 @@ func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, sess
 	}
 }
 
-// handleUpdatingNote updates the preview or reflection note in the user’s portfolio.
+// handleUpdatingNote updates the reflection note in the user’s portfolio.
 func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, session *db.UserSession) {
-	if session.ActionStep != db.WritingPreviewNote && session.ActionStep != db.WritingReflection {
+	if session.ActionStep != db.WritingReflection {
 		app.Logger.Warn.Println("Invalid action step for updating note")
 		app.handleInvalidActionStep(user.ID, event.ReplyToken)
 		return
@@ -362,49 +354,21 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 
 	portfolio := user.Portfolio.GetSkillPortfolio(session.Skill)
 
-	if session.ActionStep == db.WritingPreviewNote {
-		app.FirestoreClient.UpdateUserPortfolioPreviewNote(
-			user,
-			&portfolio,
-			session.UpdatedDate,
-			note.Text,
-		)
-	} else {
-		app.FirestoreClient.UpdateUserPortfolioReflection(
-			user,
-			&portfolio,
-			session.UpdatedDate,
-			note.Text,
-		)
-	}
+	app.FirestoreClient.UpdateUserPortfolioReflection(
+		user,
+		&portfolio,
+		session.UpdatedDate,
+		note.Text,
+	)
 
 	app.LineBot.SendPortfolio(
 		event,
 		user,
 		db.SkillStrToEnum(session.Skill),
-		session.Handedness,
 		session.UserState,
 		"以下為您的學習歷程：",
 		false,
 	)
-}
-
-// handleAnalyzePortfolioWithGPT processes the user's request to ask GPT for help.
-func (app *App) handleAnalyzePortfolioWithGPT(
-	_ *linebot.Event,
-	user *db.UserData,
-	data *line.AnalyzingWithGPTPostback,
-	_ *db.UserSession,
-	replyToken string,
-) {
-	portfolio := app.getUserPortfolio(user, data.Skill)
-	work, ok := (*portfolio)[data.WorkDate]
-	if !ok || work.AINote == "" {
-		app.LineBot.SendReply(replyToken, "這次分析尚未產生教練建議，請重新上傳影片")
-		return
-	}
-
-	app.LineBot.SendReply(replyToken, work.AINote)
 }
 
 func (app *App) handleWatchPortfolioVideo(
@@ -554,14 +518,6 @@ func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, b
 
 func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
 	data, err := app.LineBot.HandleVideoPostbackData(rawData)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
-func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWithGPTPostback, bool) {
-	data, err := app.LineBot.HandleAskingAIForHelpPostbackData(rawData)
 	if err != nil {
 		return nil, false
 	}

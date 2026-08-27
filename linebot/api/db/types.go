@@ -53,7 +53,6 @@ type ActionStep int8
 const (
 	SelectingSkill ActionStep = iota
 	SelectingHandedness
-	WritingPreviewNote
 	WritingReflection
 	UploadingVideo
 	Chatting
@@ -67,8 +66,6 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 		return SelectingSkill, nil
 	case "selecting_handedness":
 		return SelectingHandedness, nil
-	case "writing_preview_note":
-		return WritingPreviewNote, nil
 	case "writing_reflection":
 		return WritingReflection, nil
 	case "uploading_video":
@@ -85,7 +82,9 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 }
 
 func (s ActionStep) String() string {
-	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "selecting_portfolio", "empty"}[s]
+	// One entry per constant above, in the same order: the value indexes this
+	// array directly, so a missing name shifts every step after it.
+	return [...]string{"selecting_skill", "selecting_handedness", "writing_reflection", "uploading_video", "chatting", "selecting_portfolio", "empty"}[s]
 }
 
 // Handedness represents the handedness of a player

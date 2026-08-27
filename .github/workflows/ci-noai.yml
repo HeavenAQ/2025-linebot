@@ -1,0 +1,84 @@
+# CI for the GPT-free variant. Production's ci.yml is left untouched on this
+# branch so a merge could never replace it; this runs the same three suites
+# against the variant's own dependency set, which has no OpenAI SDK in it.
+name: CI (no-AI variant)
+
+on:
+  pull_request:
+    branches: [variant/no-ai]
+  push:
+    branches: [variant/no-ai]
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: linebot/go.mod
+          cache-dependency-path: linebot/go.sum
+      - working-directory: linebot
+        run: go build ./...
+      - working-directory: linebot
+        run: go vet ./...
+      - working-directory: linebot
+        run: go test ./...
+      - name: Check for code left behind by the GPT removal
+        working-directory: linebot
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          "$(go env GOPATH)/bin/staticcheck" -checks 'U1000' ./...
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install checkpoint-test dependencies
+        working-directory: badminton_analysis_ai
+        run: |
+          # torchvision comes with torch, from the same CPU index and at the
+          # version pinned in requirements.txt: the pose detector imports it at
+          # module scope, so every test that touches the services package needs
+          # it present even though none of them run a model.
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchvision==0.20.1
+          pip install google-auth==2.40.3 google-cloud-firestore==2.21.0 google-cloud-storage==3.4.0 grpcio==1.75.1 protobuf==6.32.1 numpy==1.26.4 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
+      - name: Test correction and skill contracts
+        working-directory: badminton_analysis_ai
+        run: PYTHONPATH=.:generated pytest -q tests
+      - name: Import the server the image starts
+        working-directory: badminton_analysis_ai
+        run: PYTHONPATH=.:generated python -c "import service.server"
+
+  liff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: liff/package-lock.json
+      - working-directory: liff
+        run: npm ci
+      - working-directory: liff
+        run: npm test
+      - working-directory: liff
+        run: npm run build
+
+  no-llm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The whole point of this variant. A reintroduced SDK call, prompt or
+      # model name fails the build rather than reaching a student.
+      - name: Refuse any reintroduced LLM reference
+        run: |
+          if grep -rniE 'openai|gpt' \
+            --include='*.go' --include='*.py' --include='*.ts' --include='*.tsx' .; then
+            echo "the no-AI variant must contain no OpenAI or GPT references" >&2
+            exit 1
+          fi

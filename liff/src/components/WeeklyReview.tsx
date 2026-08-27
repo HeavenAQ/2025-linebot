@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MessageCircleQuestion, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 
 import type { PlaybackResponse, UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'
@@ -16,8 +16,6 @@ import {
   type WeeklyReflection
 } from '@/lib/api/weeklyReflections'
 import { SkillNameMap, type Skill } from '@/lib/types'
-import { authorizedFetch } from '@/lib/api/client'
-import { SCORE_RECORD_LABEL, type ChatMessage } from '@/lib/useSkillSummary'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
 
 interface WeeklyReviewProps {
@@ -30,13 +28,6 @@ interface WeekEntry {
   workDate: string
   at: Date
   totalGrade: number
-}
-
-interface QuestionPair {
-  question: string
-  answer: string
-  skill: string
-  at: Date
 }
 
 const SKILLS = Object.keys(SkillNameMap) as Skill[]
@@ -64,61 +55,11 @@ function entriesByWeek(userData: UserData): Map<string, WeekEntry[]> {
   return weeks
 }
 
-/**
- * Pairs the learner's questions with the coach's answers for each week.
- *
- * History is stored as a flat run of turns, so an answer is whatever assistant
- * turn follows a question. A question with nothing after it is still shown —
- * it is a thing the student asked.
- */
-function questionsByWeek(messages: readonly ChatMessage[]): Map<string, QuestionPair[]> {
-  const weeks = new Map<string, QuestionPair[]>()
-  messages.forEach((message, index) => {
-    if (message.role !== 'user' || !message.text) return
-    // The score record the bot filed on the learner's behalf is not a question.
-    if (message.text === SCORE_RECORD_LABEL) return
-    const at = message.timestamp ? new Date(message.timestamp) : null
-    if (!at || Number.isNaN(at.getTime())) return
-    const next = messages[index + 1]
-    const label = isoWeek(at)
-    const pair: QuestionPair = {
-      question: message.text,
-      answer: next && next.role === 'assistant' ? next.text : '',
-      skill: message.skill,
-      at
-    }
-    weeks.set(label, [...(weeks.get(label) ?? []), pair])
-  })
-  return weeks
-}
-
 export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
-  // Every skill's questions, not just the one selected on the page above: a
-  // week's review covers whatever the student practised that week.
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    const query = new URLSearchParams({ user_id: userId })
-    authorizedFetch(`/api/chat/history?${query}`)
-      .then(response => (response.ok ? response.json() : { data: [] }))
-      .then(json => {
-        if (!cancelled) setMessages(Array.isArray(json.data) ? json.data : [])
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [userId])
-
   const weeks = useMemo(() => entriesByWeek(userData), [userData])
-  const questions = useMemo(() => questionsByWeek(messages), [messages])
 
-  // Every week that has anything in it, newest first.
-  const weekLabels = useMemo(() => {
-    const labels = new Set([...weeks.keys(), ...questions.keys()])
-    return [...labels].sort().reverse()
-  }, [questions, weeks])
+  // Every week the learner recorded something in, newest first.
+  const weekLabels = useMemo(() => [...weeks.keys()].sort().reverse(), [weeks])
 
   const [selectedWeek, setSelectedWeek] = useState('')
   const [openWork, setOpenWork] = useState<WeekEntry | null>(null)
@@ -200,14 +141,11 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
 
   if (weekLabels.length === 0) {
     return (
-      <Alert title="還沒有可回顧的紀錄">
-        上傳練習影片或與教練機器人對話後，這裡會以每週為單位整理你的學習。
-      </Alert>
+      <Alert title="還沒有可回顧的紀錄">上傳練習影片後，這裡會以每週為單位整理你的學習。</Alert>
     )
   }
 
   const entries = weeks.get(week) ?? []
-  const weekQuestions = questions.get(week) ?? []
   const saved = reflections[week]
   const dirty = note !== (saved?.note ?? '')
 
@@ -280,38 +218,6 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
                 </li>
               )
             })}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h3 className="eyebrow mb-2 flex items-center gap-1.5">
-          <MessageCircleQuestion size={15} className="text-primary" aria-hidden />
-          本週向 AI 提問
-          {weekQuestions.length > 0 && (
-            <span className="text-muted-foreground">（{weekQuestions.length}）</span>
-          )}
-        </h3>
-        {weekQuestions.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">這週沒有提問紀錄。</p>
-        ) : (
-          <ul className="space-y-3">
-            {weekQuestions.map((pair, index) => (
-              <li
-                key={`${pair.at.toISOString()}-${index}`}
-                className="rounded-lg border border-border p-3"
-              >
-                <p className="text-sm font-medium leading-6">{pair.question}</p>
-                {pair.answer && (
-                  <p className="mt-1.5 whitespace-pre-line border-t border-border pt-1.5 text-[13px] leading-6 text-muted-foreground">
-                    {pair.answer}
-                  </p>
-                )}
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {SkillNameMap[pair.skill as Skill] || pair.skill} · {formatDay(pair.at)}
-                </p>
-              </li>
-            ))}
           </ul>
         )}
       </section>

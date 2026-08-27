@@ -76,26 +76,11 @@ class FeedbackRuleSpec:
     maximum: float
     calculation_zh_tw: str
     measured_joints: tuple[int, ...]
-    coaching_joints: tuple[int, ...]
     allowed_anchor_indices: tuple[int, ...]
     # Most criteria display inside their semantic phase. A transition may
     # instead culminate on a shared event boundary, such as serve weight
     # transfer at the contact anchor.
     display_phase: str | None = None
-
-    def as_prompt_dict(self) -> dict[str, str | float | list[int]]:
-        payload: dict[str, str | float | list[int]] = {
-            "id": self.id,
-            "name_zh_tw": self.name_zh_tw,
-            "phase": self.phase,
-            "maximum": self.maximum,
-            "calculation_zh_tw": self.calculation_zh_tw,
-            "measured_joint_ids": list(self.measured_joints),
-            "coaching_joint_ids": list(self.coaching_joints),
-        }
-        if self.display_phase is not None:
-            payload["display_phase"] = self.display_phase
-        return payload
 
 
 @dataclass(frozen=True)
@@ -184,7 +169,6 @@ _CLEAR_RULES = (
         10,
         "準備時將球拍舉至腰部，保持身體放鬆並準備轉身。",
         (5, 6, 7, 8, 9, 10),
-        (6, 8, 10),
         (0,),
     ),
     FeedbackRuleSpec(
@@ -194,7 +178,6 @@ _CLEAR_RULES = (
         10,
         "引拍時先轉身，讓髖部與肩膀一起帶動身體。",
         (5, 6, 11, 12, 13, 14, 15, 16),
-        (11, 12),
         (1,),
     ),
     FeedbackRuleSpec(
@@ -204,7 +187,6 @@ _CLEAR_RULES = (
         20,
         "轉身蓄力時雙手手肘保持平衡，非慣用手協助穩定身體。",
         (5, 6, 7, 8, 9, 10),
-        (7, 8),
         (1,),
     ),
     FeedbackRuleSpec(
@@ -214,7 +196,6 @@ _CLEAR_RULES = (
         20,
         "擊球前讓慣用手手肘往前轉到身體前方，再帶動前臂。",
         (0, 6, 8, 10),
-        (6, 8),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -224,7 +205,6 @@ _CLEAR_RULES = (
         20,
         "擊球瞬間用手腕發力，讓球拍快速向前通過擊球點。",
         (6, 8, 10),
-        (8, 10),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -234,7 +214,6 @@ _CLEAR_RULES = (
         20,
         "隨揮時讓慣用側肩膀往前轉，並順勢帶動上半身向前。",
         (5, 6, 8, 10, 11, 12),
-        (6,),
         (3, 4),
     ),
 )
@@ -248,7 +227,6 @@ _SMASH_RULES = (
         10,
         "準備時將球拍舉至腰部，保持身體放鬆並準備轉身蓄力。",
         (5, 6, 7, 8, 9, 10),
-        (6, 8, 10),
         (0,),
     ),
     FeedbackRuleSpec(
@@ -258,7 +236,6 @@ _SMASH_RULES = (
         10,
         "引拍時先轉身，讓髖部與肩膀共同完成殺球蓄力。",
         (5, 6, 11, 12, 13, 14, 15, 16),
-        (11, 12),
         (1,),
     ),
     FeedbackRuleSpec(
@@ -268,7 +245,6 @@ _SMASH_RULES = (
         20,
         "蓄力時雙手手肘保持平衡：自然抬起並向兩側展開，非慣用手協助穩定並指向來球；兩側因功能不同可有合理高低差，不要求等高。",
         (5, 6, 7, 8, 9, 10),
-        (7, 8),
         (1,),
     ),
     FeedbackRuleSpec(
@@ -278,7 +254,6 @@ _SMASH_RULES = (
         20,
         "擊球前讓慣用手手肘往前轉到身體前方，再帶動前臂加速。",
         (0, 6, 8, 10),
-        (6, 8),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -288,7 +263,6 @@ _SMASH_RULES = (
         20,
         "擊球瞬間用手腕發力，讓球拍快速向下通過擊球點。",
         (6, 8, 10),
-        (8, 10),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -298,7 +272,6 @@ _SMASH_RULES = (
         20,
         "隨揮時讓慣用側肩膀往前轉，並順勢帶動上半身向前。",
         (5, 6, 8, 10, 11, 12),
-        (6,),
         (3, 4),
     ),
 )
@@ -312,7 +285,6 @@ _SERVE_RULES = (
         5,
         "發球準備時雙手平舉，雙臂自然抬起並保持穩定；持拍手與非持拍手可因功能不同呈現合理高低差，不要求雙手或雙肘等高。",
         (5, 6, 7, 8, 9, 10),
-        (7, 8),
         (0,),
     ),
     FeedbackRuleSpec(
@@ -322,7 +294,6 @@ _SERVE_RULES = (
         5,
         "動作開始時先將重心放在持拍腳，準備向前轉移。",
         (11, 12, 13, 14, 15, 16),
-        (12, 14, 16),
         (1,),
     ),
     FeedbackRuleSpec(
@@ -332,7 +303,6 @@ _SERVE_RULES = (
         30,
         "揮拍過程將重心由持拍腳轉到非持拍腳，同時讓上半身順勢向前。",
         (5, 6, 11, 12, 13, 14, 15, 16),
-        (5, 6, 11, 12, 15, 16),
         (2,),
         display_phase="contact",
     ),
@@ -343,7 +313,6 @@ _SERVE_RULES = (
         10,
         "重心轉移時讓髖關節向前旋轉，帶動整個揮拍動作。",
         (5, 6, 11, 12),
-        (11, 12),
         (4,),
     ),
     FeedbackRuleSpec(
@@ -353,7 +322,6 @@ _SERVE_RULES = (
         30,
         "擊球瞬間用持拍手手腕發力，讓球拍快速向前。",
         (6, 8, 10),
-        (8, 10),
         (2,),
     ),
     FeedbackRuleSpec(
@@ -363,7 +331,6 @@ _SERVE_RULES = (
         20,
         "隨揮時讓慣用側肩膀旋轉朝前，持拍前臂順勢收向對側頸部附近，完成發球動作。",
         (5, 6, 8, 10, 11, 12),
-        (6, 8, 10),
         (4,),
     ),
 )
@@ -377,7 +344,6 @@ _LIFT_RULES = (
         15,
         "準備時保持放鬆，球拍置於身前，雙腳維持可啟動的平衡姿勢。",
         (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (6, 8, 10, 12, 14, 16),
         (0,),
     ),
     FeedbackRuleSpec(
@@ -387,7 +353,6 @@ _LIFT_RULES = (
         30,
         "朝來球方向以持拍腳跨步，不可朝相反方向出腳；持拍手臂放鬆伸向擊球點並完成短引拍。",
         (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (8, 10, 12, 14, 16),
         (1, 2),
     ),
     FeedbackRuleSpec(
@@ -397,7 +362,6 @@ _LIFT_RULES = (
         35,
         "持拍腳形成穩定弓步並在擊球前落地，保持身體平衡，再以前臂旋轉與手腕發力將球拍送過擊球點。",
         (5, 6, 8, 10, 11, 12, 13, 14, 15, 16),
-        (8, 10, 12, 14, 16),
         (3,),
     ),
     FeedbackRuleSpec(
@@ -407,7 +371,6 @@ _LIFT_RULES = (
         20,
         "擊球後讓球拍依動量順勢隨揮，維持弓步與上半身平衡，再開始回復場地預備位置。",
         (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (6, 8, 10, 11, 12),
         (4,),
     ),
 )

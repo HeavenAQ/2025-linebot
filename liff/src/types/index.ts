@@ -1,6 +1,5 @@
 export type {
   AlignmentSample,
-  CoachingCue,
   GradingDetail,
   PhaseMarker,
   PlaybackResponse,

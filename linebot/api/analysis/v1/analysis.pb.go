@@ -902,21 +902,22 @@ func (x *DiagnosticValue) GetValue() float64 {
 }
 
 type AnalyzeVideoResponse struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	AnalysisId      string                 `protobuf:"bytes,1,opt,name=analysis_id,json=analysisId,proto3" json:"analysis_id,omitempty"`
-	Skill           Skill                  `protobuf:"varint,2,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
-	Handedness      Handedness             `protobuf:"varint,3,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
-	Grade           *GradingOutcome        `protobuf:"bytes,4,opt,name=grade,proto3" json:"grade,omitempty"`
-	StudentVideo    *StoredVideo           `protobuf:"bytes,5,opt,name=student_video,json=studentVideo,proto3" json:"student_video,omitempty"`
-	Expert          *ExpertMatch           `protobuf:"bytes,6,opt,name=expert,proto3" json:"expert,omitempty"`
-	Timeline        []*PhaseMarker         `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
-	Diagnostics     []*DiagnosticValue     `protobuf:"bytes,8,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
-	CoachingCues    []*CoachingCue         `protobuf:"bytes,9,rep,name=coaching_cues,json=coachingCues,proto3" json:"coaching_cues,omitempty"`
-	OverallFeedback string                 `protobuf:"bytes,10,opt,name=overall_feedback,json=overallFeedback,proto3" json:"overall_feedback,omitempty"`
-	// Clean detected/corrected skeletons over the source video, without GPT
-	// annotations or inserted coaching pauses.
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	AnalysisId   string                 `protobuf:"bytes,1,opt,name=analysis_id,json=analysisId,proto3" json:"analysis_id,omitempty"`
+	Skill        Skill                  `protobuf:"varint,2,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
+	Handedness   Handedness             `protobuf:"varint,3,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	Grade        *GradingOutcome        `protobuf:"bytes,4,opt,name=grade,proto3" json:"grade,omitempty"`
+	StudentVideo *StoredVideo           `protobuf:"bytes,5,opt,name=student_video,json=studentVideo,proto3" json:"student_video,omitempty"`
+	Expert       *ExpertMatch           `protobuf:"bytes,6,opt,name=expert,proto3" json:"expert,omitempty"`
+	Timeline     []*PhaseMarker         `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
+	Diagnostics  []*DiagnosticValue     `protobuf:"bytes,8,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	// Reserved by the wire contract and always empty in this deployment: nothing
+	// here writes natural-language coaching.
+	CoachingCues    []*CoachingCue `protobuf:"bytes,9,rep,name=coaching_cues,json=coachingCues,proto3" json:"coaching_cues,omitempty"`
+	OverallFeedback string         `protobuf:"bytes,10,opt,name=overall_feedback,json=overallFeedback,proto3" json:"overall_feedback,omitempty"`
+	// Clean detected/corrected skeletons over the source video.
 	SkeletonOverlayVideo *StoredVideo `protobuf:"bytes,11,opt,name=skeleton_overlay_video,json=skeletonOverlayVideo,proto3" json:"skeleton_overlay_video,omitempty"`
-	// GPT suggestions, circled joints, and coaching pauses. student_video is a
+	// The same render, under the name older clients look for. student_video is a
 	// backward-compatible alias of this field.
 	FeedbackVideo *StoredVideo `protobuf:"bytes,12,opt,name=feedback_video,json=feedbackVideo,proto3" json:"feedback_video,omitempty"`
 	unknownFields protoimpl.UnknownFields

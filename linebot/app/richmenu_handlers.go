@@ -66,14 +66,3 @@ func (app *App) processWritingNotes(user *db.UserData, _ db.UserState, replyToke
 		return app.LineBot.SendWeeklyReviewLink(replyToken, app.Config.ReviewURL())
 	})()
 }
-
-func (app *App) processChattingWithGPT(user *db.UserData, userState db.UserState, replyToken string) {
-	processWrapper(app, user, replyToken, func(replyToken string) (*linebot.BasicResponse, error) {
-		err := app.FirestoreClient.UpdateSessionUserState(user.ID, db.ChattingWithGPT, db.SelectingSkill)
-		if err != nil {
-			app.handleUpdateSessionError(err, replyToken)
-			return nil, err
-		}
-		return app.LineBot.PromptSkillSelection(replyToken, userState, "請選擇要與 GPT 討論的動作")
-	})()
-}

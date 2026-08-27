@@ -7,7 +7,6 @@ numpy==1.26.4
 rfdetr==1.9.1
 torchvision==0.20.1
 opencv-python-headless==4.10.0.84
-openai==2.14.0
 pandas==2.2.3
 pillow==10.4.0
 pydantic==2.12.5

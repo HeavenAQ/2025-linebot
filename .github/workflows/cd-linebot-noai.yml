@@ -1,0 +1,124 @@
+# Deploys the GPT-free variant's Go LINE bot to Cloud Run.
+#
+# Every name here is deliberately distinct from production's. This workflow
+# fires only on the variant branch and production's cd-linebot.yml fires only on
+# main, so neither can ever deploy over the other.
+name: LINE Bot Server CD (no-AI variant)
+
+on:
+  push:
+    branches: [variant/no-ai]
+    paths:
+      - 'linebot/**'
+      - '.github/workflows/cd-linebot-noai.yml'
+  workflow_dispatch:
+
+env:
+  # The variant's own Cloud Run service, image and analysis service. Production
+  # runs nstc-linebot-2025 / badminton-analysis-ai; nothing here may name those.
+  SERVICE_NAME: nstc-linebot-2025-noai
+  IMAGE_NAME: nstc-linebot-2025-noai
+  REGION: asia-east1
+  ANALYSIS_SERVICE_NAME: badminton-analysis-ai-noai
+  ANALYSIS_REGION: asia-southeast1
+
+jobs:
+  deploy:
+    defaults:
+      run:
+        working-directory: ./linebot
+    runs-on: ubuntu-latest
+    environment: nstc-linebot-2025-noai
+    permissions:
+      contents: read
+      id-token: write # for OIDC
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authorize Google Cloud SDK
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.NOAI_GCP_SA_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Refuse to deploy over production
+        run: |
+          # A copied workflow is one careless edit away from redeploying the
+          # live bot. These names are the variant's; assert it before building.
+          for name in "${SERVICE_NAME}" "${IMAGE_NAME}"; do
+            case "${name}" in
+              *-noai) ;;
+              *) echo "${name} is not a variant name" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Build and push Docker image
+        run: |-
+          gcloud builds submit \
+            --timeout=1800s \
+            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }}
+
+      - name: Deploy to Cloud Run
+        env:
+          LIFF_ID: ${{ secrets.NOAI_NEXT_PUBLIC_LIFF_ID }}
+        run: |
+          # The GPU analysis service is deployed and torn down on its own
+          # schedule, so it may not exist right now. --update-env-vars only
+          # touches the keys it is given, so when the service is missing the
+          # target is left at whatever the running revision already has rather
+          # than being blanked -- and this deploy is not blocked on it.
+          env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
+          env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.NOAI_GCP_SA_EMAIL }}"
+          env_vars="${env_vars},GCP_ENV_SECRET_NAME=${{ secrets.NOAI_ENV_SECRET_NAME }}"
+          env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          if analysis_url="$(gcloud run services describe "${ANALYSIS_SERVICE_NAME}" \
+            --region "${ANALYSIS_REGION}" --format='value(status.url)' 2>/dev/null)"; then
+            env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"
+          else
+            echo "${ANALYSIS_SERVICE_NAME} is not deployed; keeping the existing ANALYSIS_GRPC_TARGET"
+          fi
+          # Learner endpoints authenticate callers by verifying their LINE ID
+          # token against the channel that issued it, so the server needs that
+          # channel's ID. A LIFF ID is "<login channel id>-<suffix>", which
+          # makes the deployed web app and the server it calls impossible to
+          # point at different channels by accident.
+          login_channel_id="${LIFF_ID%%-*}"
+          if ! [[ "${login_channel_id}" =~ ^[0-9]+$ ]]; then
+            echo "NOAI_NEXT_PUBLIC_LIFF_ID does not start with a channel ID" >&2
+            exit 1
+          fi
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }} \
+            --platform managed \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --service-account ${{ secrets.NOAI_GCP_SA_EMAIL }} \
+            --memory 2Gi \
+            --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id},LIFF_REVIEW_URL=${{ secrets.NOAI_LIFF_REVIEW_URL }}" \
+            --update-secrets ANALYSIS_GRPC_API_KEY=${{ secrets.NOAI_ANALYSIS_API_KEY_SECRET }}:latest
+
+      - name: Verify deployed backend health
+        run: |
+          service_url="$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${REGION}" --format='value(status.url)')"
+          curl --fail --silent --show-error "${service_url}/test"
+
+          # Learner routes refuse a bad token with 401 and refuse everything
+          # with 503 when LINE_LOGIN_CHANNEL_ID is missing. Asserting 401 is how
+          # this catches a deploy that silently lost the channel ID and would
+          # have locked every student out of their own history.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Authorization: Bearer not-a-real-token' \
+            "${service_url}/api/db/user")"
+          echo "learner route answered ${status} for an invalid token"
+          if [ "${status}" != "401" ]; then
+            echo "expected 401; 503 means LINE_LOGIN_CHANNEL_ID is not configured" >&2
+            exit 1
+          fi

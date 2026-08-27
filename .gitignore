@@ -18,3 +18,9 @@ badminton_analysis_ai/models/trt-engines/
 badminton_analysis_ai/models/tensorrt-cache/
 linebot/tmp*/
 generated_videos/
+
+# Local toolchains and build output.
+liff/node_modules/
+liff/.next/
+liff/out/
+liff/tsconfig.tsbuildinfo

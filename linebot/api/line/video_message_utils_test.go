@@ -122,5 +122,5 @@ func TestLiveLINEVideoAnalysis(t *testing.T) {
 	require.NotEmpty(t, result.Expert.ExpertID)
 	require.NotEmpty(t, result.StudentVideo.SignedURL)
 	require.NotEmpty(t, result.Expert.Video.SignedURL)
-	require.NotEmpty(t, result.CoachingCues)
+	require.NotEmpty(t, result.SkeletonOverlayVideo.SignedURL)
 }

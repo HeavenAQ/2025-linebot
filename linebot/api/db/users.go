@@ -8,12 +8,11 @@ import (
 )
 
 type UserData struct {
-	Portfolio          Portfolios         `json:"portfolio" firestore:"portfolio"`
-	FolderPaths        FolderPaths        `json:"folder_paths" firestore:"folder_paths"`
-	GPTConversationIDs GPTConversationIDs `json:"gpt_conversation_ids" firestore:"gpt_conversation_ids"`
-	Name               string             `json:"name" firestore:"name"`
-	ID                 string             `json:"id" firestore:"id"`
-	Handedness         Handedness         `json:"handedness" firestore:"handedness"`
+	Portfolio   Portfolios  `json:"portfolio" firestore:"portfolio"`
+	FolderPaths FolderPaths `json:"folder_paths" firestore:"folder_paths"`
+	Name        string      `json:"name" firestore:"name"`
+	ID          string      `json:"id" firestore:"id"`
+	Handedness  Handedness  `json:"handedness" firestore:"handedness"`
 }
 
 type FolderPaths struct {
@@ -30,13 +29,6 @@ type Portfolios struct {
 	Smash map[string]Work `json:"smash" firestore:"smash"`
 	Clear map[string]Work `json:"clear" firestore:"clear"`
 	Lift  map[string]Work `json:"lift" firestore:"lift"`
-}
-
-type GPTConversationIDs struct {
-	Serve string `json:"serve" firestore:"serve"`
-	Smash string `json:"smash" firestore:"smash"`
-	Clear string `json:"clear" firestore:"clear"`
-	Lift  string `json:"lift" firestore:"lift"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
@@ -60,7 +52,6 @@ type Work struct {
 	Thumbnail            string                 `json:"thumbnail" firestore:"thumbnail"`
 	Reflection           string                 `json:"reflection" firestore:"reflection"`
 	PreviewNote          string                 `json:"preview_note" firestore:"preview_note"`
-	AINote               string                 `json:"ai_note" firestore:"ai_note"`
 	GradingOutcome       commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
 	AnalysisID           string                 `json:"analysis_id" firestore:"analysis_id"`
 	StudentVideo         commons.MediaRef       `json:"student_video" firestore:"student_video"`
@@ -68,11 +59,10 @@ type Work struct {
 	SkeletonOverlayVideo commons.MediaRef       `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
 	Expert               commons.ExpertMatch    `json:"expert" firestore:"expert"`
 	Timeline             []commons.PhaseMarker  `json:"timeline" firestore:"timeline"`
-	CoachingCues         []commons.CoachingCue  `json:"coaching_cues" firestore:"coaching_cues"`
 	Diagnostics          map[string]float64     `json:"diagnostics" firestore:"diagnostics"`
 }
 
-func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptConvs *GPTConversationIDs) (*UserData, error) {
+func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
 	newUserTemplate := &UserData{
 		Name:       userFolders.UserName,
@@ -91,12 +81,6 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 			Smash: map[string]Work{},
 			Clear: map[string]Work{},
 			Lift:  map[string]Work{},
-		},
-		GPTConversationIDs: GPTConversationIDs{
-			Serve: gptConvs.Serve,
-			Smash: gptConvs.Smash,
-			Clear: gptConvs.Clear,
-			Lift:  gptConvs.Lift,
 		},
 	}
 
@@ -147,7 +131,6 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		GradingOutcome:       analysis.Grade,
 		Reflection:           "尚未填寫心得",
 		PreviewNote:          "尚未填寫課前檢視要點",
-		AINote:               analysis.OverallFeedback,
 		Thumbnail:            thumbnailFile.Path,
 		AnalysisID:           analysis.AnalysisID,
 		StudentVideo:         analysis.StudentVideo,
@@ -155,7 +138,6 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		SkeletonOverlayVideo: analysis.SkeletonOverlayVideo,
 		Expert:               analysis.Expert,
 		Timeline:             analysis.Timeline,
-		CoachingCues:         analysis.CoachingCues,
 		Diagnostics:          analysis.Diagnostics,
 	}
 	(*userPortfolio)[date] = work
@@ -188,37 +170,6 @@ func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
 ) error {
 	targetWork := (*userPortfolio)[date]
 	targetWork.PreviewNote = previewNote
-	(*userPortfolio)[date] = targetWork
-	return client.updateUserData(user)
-}
-
-func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill string, id string) error {
-	switch skill {
-	case "serve":
-		user.GPTConversationIDs.Serve = id
-	case "smash":
-		user.GPTConversationIDs.Smash = id
-	case "clear":
-		user.GPTConversationIDs.Clear = id
-	case "lift":
-		user.GPTConversationIDs.Lift = id
-	}
-	return client.updateUserData(user)
-}
-
-func (client *FirestoreClient) UpdateUserGPTConversationIDs(user *UserData, ids *GPTConversationIDs) error {
-	user.GPTConversationIDs = *ids
-	return client.updateUserData(user)
-}
-
-func (client *FirestoreClient) UpdateUserPortfolioAINote(
-	user *UserData,
-	userPortfolio *map[string]Work,
-	date string,
-	aiNote string,
-) error {
-	targetWork := (*userPortfolio)[date]
-	targetWork.AINote = aiNote
 	(*userPortfolio)[date] = targetWork
 	return client.updateUserData(user)
 }

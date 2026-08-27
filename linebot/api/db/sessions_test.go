@@ -55,13 +55,13 @@ func TestUpdateSessionUserState(t *testing.T) {
 	firestoreClient.CreateUserSession(testUserID)
 
 	// Update the user state
-	err := firestoreClient.UpdateSessionUserState(testUserID, db.ChattingWithGPT, db.SelectingSkill)
+	err := firestoreClient.UpdateSessionUserState(testUserID, db.ViewingPortfoilo, db.SelectingSkill)
 	require.NoError(t, err)
 
 	// Verify the state was updated in Firestore
 	savedSession, err := firestoreClient.GetUserSession(testUserID)
 	require.NoError(t, err)
-	require.Equal(t, db.ChattingWithGPT, savedSession.UserState)
+	require.Equal(t, db.ViewingPortfoilo, savedSession.UserState)
 
 	// Clean up
 	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)

@@ -1,0 +1,59 @@
+# Deploys the GPT-free variant's LIFF web app to its own Netlify site.
+#
+# NETLIFY_SITE_ID here must be the variant's site, never production's. The two
+# are told apart only by that secret, so it is the one value to get right.
+name: LIFF CD (no-AI variant)
+
+on:
+  push:
+    branches: [variant/no-ai]
+    paths:
+      - 'liff/**'
+      - '.github/workflows/cd-liff-noai.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: liff
+    env:
+      # The variant's own Cloud Run bot. Set to that service's URL once it has
+      # been deployed; a wrong value here points students at production's data.
+      NEXT_PUBLIC_BACKEND_BASE_URL: ${{ secrets.NOAI_BACKEND_BASE_URL }}
+      NEXT_PUBLIC_LIFF_ID: ${{ secrets.NOAI_NEXT_PUBLIC_LIFF_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: liff/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Verify the variant's backend is compiled into LIFF
+        run: |
+          test -n "${NEXT_PUBLIC_BACKEND_BASE_URL}"
+          ! grep -R --fixed-strings '127.0.0.1:8080' out/_next/static
+          grep -R --quiet --fixed-strings "${NEXT_PUBLIC_BACKEND_BASE_URL}" out/_next/static
+          # Production's bot must never be what this build talks to.
+          ! grep -R --fixed-strings 'nstc-linebot-2025-bfn4xpszya-de.a.run.app' out/_next/static
+
+      - name: Deploy the variant's LIFF site
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NOAI_NETLIFY_SITE_ID }}
+        run: |
+          test -n "${NETLIFY_SITE_ID}"
+          npx --yes netlify-cli@26.1.0 deploy \
+            --prod \
+            --no-build \
+            --auth "${NETLIFY_AUTH_TOKEN}" \
+            --site "${NETLIFY_SITE_ID}" \
+            --dir out \
+            --message "${GITHUB_SHA}"

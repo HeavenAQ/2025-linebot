@@ -33,7 +33,6 @@ class _Pipeline:
         *,
         video_path: Path,
         output_path: Path,
-        skeleton_overlay_path: Path,
         filename: str,
         skill: Skill,
         requested_handedness: str,
@@ -42,8 +41,7 @@ class _Pipeline:
         assert filename == "serve.mp4"
         assert skill == Skill.SERVE
         assert requested_handedness == "right"
-        output_path.write_bytes(b"feedback-video")
-        skeleton_overlay_path.write_bytes(b"overlay-video")
+        output_path.write_bytes(b"corrected-video")
         spec = self.backends[skill].spec
         return AnalysisResult(
             skill=skill,
@@ -71,11 +69,7 @@ class _Pipeline:
                 )
                 for index, rule in enumerate(spec.rules)
             ),
-            overall_feedback="保持動作連續。",
-            coaching_problems=(),
-            pause_seconds=2.0,
             output_path=output_path,
-            skeleton_overlay_path=skeleton_overlay_path,
         )
 
 
@@ -110,7 +104,9 @@ def test_api_exposes_only_serve_and_smash_analysis() -> None:
     }
 
 
-def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> None:
+def test_streamed_grpc_api_returns_one_clean_render_for_every_video_field(
+    monkeypatch,
+) -> None:
     metadata = {
         "duration_seconds": 2.0,
         "fps": 30.0,
@@ -154,15 +150,14 @@ def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> No
     finally:
         server.stop(grace=None).wait()
 
+    # Nothing annotates the render, so the three video fields are one upload
+    # and every existing client keeps finding a video under the name it knows.
     assert response.student_video == response.feedback_video
-    assert response.feedback_video.object_path.endswith("student_corrected.mp4")
-    assert response.skeleton_overlay_video.object_path.endswith(
-        "student_skeleton_overlay.mp4"
-    )
-    assert response.feedback_video.signed_url.endswith("student_corrected.mp4")
-    assert response.skeleton_overlay_video.signed_url.endswith(
-        "student_skeleton_overlay.mp4"
-    )
+    assert response.student_video == response.skeleton_overlay_video
+    assert response.student_video.object_path.endswith("student_corrected.mp4")
+    assert response.student_video.signed_url.endswith("student_corrected.mp4")
+    assert not response.coaching_cues
+    assert response.overall_feedback == ""
     assert response.grade.score_status == "expert_only_generated_distribution"
     assert response.expert.display_name == "Generated expert prior"
     assert not response.expert.HasField("video")
@@ -213,7 +208,6 @@ def _matched_response(alignment: tuple[tuple[float, float], ...]):
     result = pipeline.analyze(
         video_path=_video(),
         output_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
-        skeleton_overlay_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
         filename="serve.mp4",
         skill=Skill.SERVE,
         requested_handedness="right",
@@ -221,9 +215,7 @@ def _matched_response(alignment: tuple[tuple[float, float], ...]):
     result = replace(
         result, expert_reference=_expert_reference(), expert_alignment=alignment
     )
-    return service._response(
-        "analysis-1", result, signed, signed, metadata, metadata
-    )
+    return service._response("analysis-1", result, signed, metadata)
 
 
 def _video() -> Path:

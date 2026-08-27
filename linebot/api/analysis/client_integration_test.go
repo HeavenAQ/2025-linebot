@@ -139,13 +139,6 @@ func TestLiveAnalysisService(t *testing.T) {
 			require.GreaterOrEqual(t, byPosition[index].TimestampSeconds, byPosition[index-1].TimestampSeconds)
 		}
 	}
-	require.NotEmpty(t, result.OverallFeedback)
-	if os.Getenv("LIVE_ANALYSIS_EXPECT_NO_CUES") == "1" {
-		require.Empty(t, result.CoachingCues)
-		require.Zero(t, result.Diagnostics["latency_llm_inference_seconds"])
-	} else {
-		require.NotEmpty(t, result.CoachingCues)
-	}
 	require.Positive(t, result.Diagnostics["latency_pose_seconds"])
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
@@ -154,8 +147,8 @@ func TestLiveAnalysisService(t *testing.T) {
 	// replaced the skeleton corrector runs in torch and reports no engine.
 	require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
-	t.Logf("grade=%.2f expert=%q distance=%.4f cues=%d",
-		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance, len(result.CoachingCues))
+	t.Logf("grade=%.2f expert=%q distance=%.4f",
+		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance)
 
 	playbackPaths := []string{
 		result.FeedbackVideo.ObjectPath,

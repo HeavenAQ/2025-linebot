@@ -14,6 +14,14 @@ import (
 // textarea; anything longer is a paste or a client bug, not a student.
 const MaxReflectionLength = 4000
 
+// ISOWeek labels a week the way reflection document IDs need it, e.g.
+// "2026-W32". It is the one producer of those labels, so the web app and the
+// stored keys cannot drift apart.
+func ISOWeek(at time.Time) string {
+	year, week := at.ISOWeek()
+	return fmt.Sprintf("%d-W%02d", year, week)
+}
+
 // weekPattern is the ISO week label produced by ISOWeek, e.g. "2026-W34".
 var weekPattern = regexp.MustCompile(`^\d{4}-W\d{2}$`)
 

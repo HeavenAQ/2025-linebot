@@ -72,7 +72,6 @@ def mk_work_item(date_iso: str, score: int, base_path: str) -> dict:
         "skeleton_comparison_video": f"{base_path}/compare.mp4",
         "reflection": "Test reflection",
         "preview_note": "Test preview note",
-        "ai_note": "Test AI note",
         "grading_outcome": mk_grading_outcome(score),
     }
 
@@ -112,7 +111,6 @@ def mk_user_doc(user_id: str, user_name: str) -> dict:
             "clear": f"users/{user_id}/clear/",
             "thumbnail": f"users/{user_id}/thumbnail",
         },
-        "gpt_conversation_ids": {"serve": "", "smash": "", "clear": ""},
         "name": user_name,
         "id": user_id,
         # Right-handed = 1 (per backend enum)

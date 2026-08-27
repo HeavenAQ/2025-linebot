@@ -5,7 +5,6 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
-	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/secret"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
@@ -18,7 +17,6 @@ type App struct {
 	LineBot         *line.Client
 	FirestoreClient *db.FirestoreClient
 	StorageClient   *storage.BucketClient
-	GPTClient       *gpt.Client
 	AnalysisClient  *analysis.Client
 }
 
@@ -48,7 +46,7 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
-	// When in test mode, skip external clients (Firestore, Storage, GPT)
+	// When in test mode, skip external clients (Firestore, Storage, analysis)
 	if testMode {
 		return &App{
 			Config:  cfg,
@@ -75,9 +73,6 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
-	// Set up GPT Client
-	gptClient := gpt.NewGPTClient(cfg.GPT.APIKey, cfg.GPT.Model)
-
 	analysisClient, err := analysis.NewClient(
 		cfg.AnalysisServer.Target,
 		cfg.AnalysisServer.APIKey,
@@ -93,7 +88,6 @@ func NewApp(configPath string) *App {
 		LineBot:         lineBot,
 		FirestoreClient: firestoreClient,
 		StorageClient:   storageClient,
-		GPTClient:       gptClient,
 		AnalysisClient:  analysisClient,
 	}
 }

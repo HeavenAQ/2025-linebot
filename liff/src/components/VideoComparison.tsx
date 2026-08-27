@@ -13,7 +13,7 @@ import {
   expertTimeAt,
   progressAtExpertTime
 } from '@/lib/expertAlignment'
-import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
+import type { PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
 
@@ -27,19 +27,9 @@ interface VideoComparisonProps {
   playback: PlaybackResponse
 }
 
-/** What the caption is saying right now: a correction, or the current phase. */
+/** What the caption is saying right now: the checkpoint the playhead reached. */
 interface Caption {
   title: string
-  body: string
-  live: boolean
-}
-
-interface PauseInterval {
-  start: number
-  end: number
-  duration: number
-  position: number
-  cue: CoachingCue
 }
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
@@ -102,32 +92,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const [expertRatio, setExpertRatio] = useState(() =>
     metadataRatio(playback.expert.video.width, playback.expert.video.height)
   )
-  const [activeCue, setActiveCue] = useState<CoachingCue | null>(playback.coaching_cues[0] ?? null)
-
-  const pauses = useMemo<PauseInterval[]>(() => {
-    const unique = new Map<number, CoachingCue>()
-    for (const cue of playback.coaching_cues) {
-      const current = unique.get(cue.normalized_frame)
-      if (!current || cue.pause_duration_seconds > current.pause_duration_seconds) {
-        unique.set(cue.normalized_frame, cue)
-      }
-    }
-    return [...unique.values()]
-      .sort((a, b) => a.student_timestamp_seconds - b.student_timestamp_seconds)
-      .map(cue => ({
-        start: cue.student_timestamp_seconds,
-        end: cue.student_timestamp_seconds + cue.pause_duration_seconds,
-        duration: cue.pause_duration_seconds,
-        position: clamp(cue.normalized_position),
-        cue
-      }))
-  }, [playback.coaching_cues])
-
-  const totalPauseDuration = useMemo(
-    () => pauses.reduce((total, pause) => total + pause.duration, 0),
-    [pauses]
-  )
-  const motionDuration = Math.max(0.01, studentDuration - totalPauseDuration)
+  // The render runs straight through, so a position maps onto the student clip
+  // by proportion alone. The floor only keeps a clip whose metadata has not
+  // loaded yet from dividing by zero.
+  const motionDuration = Math.max(0.01, studentDuration)
   const { start: expertMotionStart, end: expertMotionEnd } = expertMotionWindow(
     expertDuration,
     playback.expert.motion_start_seconds,
@@ -159,23 +127,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [alignmentAnchors]
   )
 
-  const pauseAtTime = useCallback(
-    (time: number) => pauses.find(pause => time >= pause.start && time < pause.end),
-    [pauses]
-  )
-
-  // The caption always says where the stroke is. A correction takes it over for
-  // the two-second pause it occupies, and outside those the checkpoint the
-  // playhead has reached holds the line — so it reads as a commentary that runs
-  // to the end of the motion, rather than freezing on whichever correction
-  // happened to come last.
+  // The caption says where in the stroke the playhead is: the checkpoint it has
+  // most recently reached, so it reads as a commentary that runs to the end of
+  // the motion.
   const updateCaption = useCallback(
-    (studentTime: number, position: number) => {
-      const live = pauseAtTime(studentTime)
-      if (live) {
-        setCaption({ title: live.cue.title, body: live.cue.feedback, live: true })
-        return
-      }
+    (position: number) => {
       // Checkpoints are listed in scoring order, not stroke order, so the one
       // reached most recently is the furthest along that the playhead has
       // passed — not the last one in the list.
@@ -190,37 +146,23 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         if (marker.normalized_position > position + CHECKPOINT_REACHED_EPSILON) continue
         if (!reached || marker.normalized_position >= reached.normalized_position) reached = marker
       }
-      setCaption(reached ? { title: reached.label, body: '', live: false } : null)
+      setCaption(reached ? { title: reached.label } : null)
     },
-    [pauseAtTime, playback.timeline]
+    [playback.timeline]
   )
 
   const motionProgressFromStudentTime = useCallback(
-    (time: number) => {
-      let completedPauseDuration = 0
-      for (const pause of pauses) {
-        if (time < pause.start) break
-        if (time < pause.end) return pause.position
-        completedPauseDuration += pause.duration
-      }
-      return clamp((time - completedPauseDuration) / motionDuration)
-    },
-    [motionDuration, pauses]
+    (time: number) => clamp(time / motionDuration),
+    [motionDuration]
   )
 
   const studentTimeFromMotionProgress = useCallback(
-    (position: number) => {
-      let time = clamp(position) * motionDuration
-      for (const pause of pauses) {
-        if (pause.position < position - 0.0001) time += pause.duration
-      }
-      return Math.min(studentDuration, time)
-    },
-    [motionDuration, pauses, studentDuration]
+    (position: number) => Math.min(studentDuration, clamp(position) * motionDuration),
+    [motionDuration, studentDuration]
   )
 
   const syncExpert = useCallback(
-    (position: number, studentTime: number) => {
+    (position: number) => {
       const expert = expertRef.current
       // Gated on the motion window rather than the duration: the window is what
       // playback actually needs, and it is known before the clip has loaded.
@@ -241,9 +183,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         const trimmed = clampRate(base - drift / DRIFT_CORRECTION_WINDOW)
         if (Math.abs(expert.playbackRate - trimmed) > 0.01) expert.playbackRate = trimmed
       }
-      if (pauseAtTime(studentTime)) {
-        expert.pause()
-      } else if (playingRef.current && expert.paused) {
+      if (playingRef.current && expert.paused) {
         void expert.play().catch(() => undefined)
       }
     },
@@ -252,28 +192,21 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertMotionEnd,
       expertMotionStart,
       expertTimeFromMotionProgress,
-      motionDuration,
-      pauseAtTime
+      motionDuration
     ]
   )
 
   const seek = useCallback(
-    (position: number, cue?: CoachingCue) => {
+    (position: number) => {
       const next = clamp(position)
       const student = studentRef.current
       const expert = expertRef.current
-      const studentTime = cue?.student_timestamp_seconds ?? studentTimeFromMotionProgress(next)
-      if (student) student.currentTime = studentTime
+      if (student) student.currentTime = studentTimeFromMotionProgress(next)
       if (expert && expertMotionEnd > expertMotionStart) {
         expert.currentTime = expertTimeFromMotionProgress(next)
       }
       setProgress(next)
-      if (cue) {
-        setActiveCue(cue)
-        setCaption({ title: cue.title, body: cue.feedback, live: true })
-      } else {
-        updateCaption(studentTime, next)
-      }
+      updateCaption(next)
     },
     [
       expertMotionEnd,
@@ -301,9 +234,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         playingRef.current = false
         setPlaying(false)
       })
-      if (!pauseAtTime(student.currentTime)) void expert.play().catch(() => undefined)
+      void expert.play().catch(() => undefined)
     },
-    [pauseAtTime, progress, seek]
+    [progress, seek]
   )
 
   // Following the playhead on `timeupdate` alone is too coarse to hold two
@@ -321,8 +254,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         lastProgressAtRef.current = now
         setProgress(next)
       }
-      syncExpert(next, student.currentTime)
-      updateCaption(student.currentTime, next)
+      syncExpert(next)
+      updateCaption(next)
     },
     [motionProgressFromStudentTime, syncExpert, updateCaption]
   )
@@ -342,7 +275,6 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     setProgress(0)
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
-    setActiveCue(playback.coaching_cues[0] ?? null)
     setCaption(null)
     setStudentRatio(metadataRatio(playback.student_video.width, playback.student_video.height))
     setExpertRatio(metadataRatio(playback.expert.video.width, playback.expert.video.height))
@@ -496,28 +428,19 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         </div>
       </AutoHeight>
 
-      {/* The caption carries the AI's correction for the moment on screen. It
-          sits under the frames rather than over them: at half a phone's width
-          an overlay would cover the very joints it is talking about. */}
+      {/* The caption names the technical checkpoint on screen. It sits under
+          the frames rather than over them: at half a phone's width an overlay
+          would cover the very joints it is naming. */}
       <AutoHeight className="mx-3">
         {captionsOn ? (
           <div className="mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
             {caption ? (
-              <>
-                <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${caption.live ? 'bg-destructive' : 'bg-white/40'}`}
-                  />
-                  {caption.title}
-                </p>
-                {caption.body && <p className="mt-1 text-[15px] leading-6">{caption.body}</p>}
-              </>
-            ) : (
-              <p className="text-[13px] leading-6 text-white/55">
-                {playback.coaching_cues.length > 0
-                  ? '播放後會在這裡顯示 AI 提醒'
-                  : '這次分析沒有需要修正的地方'}
+              <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-white/60">
+                <span className="h-1.5 w-1.5 rounded-full bg-white/40" />
+                {caption.title}
               </p>
+            ) : (
+              <p className="text-[13px] leading-6 text-white/55">播放後會顯示目前的技術檢核點</p>
             )}
           </div>
         ) : null}
@@ -534,23 +457,6 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
             className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
           />
-          {playback.coaching_cues.map((cue, index) => (
-            <button
-              key={`${cue.normalized_frame}-${index}`}
-              type="button"
-              title={cue.title}
-              aria-label={`前往問題：${cue.title}`}
-              onClick={() => seek(cue.normalized_position, cue)}
-              className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive transition-[left] duration-200"
-              style={{
-                left: `${
-                  (onExpertAxis
-                    ? expertAxisPosition(expertTimeFromMotionProgress(cue.normalized_position))
-                    : clamp(cue.normalized_position)) * 100
-                }%`
-              }}
-            />
-          ))}
           {checkpoints.map((marker, index) => (
             <button
               key={marker.id}
@@ -594,8 +500,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             variant={captionsOn ? 'primary' : 'outline'}
             size="icon"
             className="ml-auto"
-            title={captionsOn ? '關閉 AI 字幕' : '開啟 AI 字幕'}
-            aria-label={captionsOn ? '關閉 AI 字幕' : '開啟 AI 字幕'}
+            title={captionsOn ? '關閉字幕' : '開啟字幕'}
+            aria-label={captionsOn ? '關閉字幕' : '開啟字幕'}
             aria-pressed={captionsOn}
             onClick={() => setCaptionsOn(value => !value)}
           >
@@ -635,48 +541,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               </button>
             ))}
           </div>
-          {pauses.length > 0 && (
-            <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="h-2 w-2 rounded-full bg-destructive" /> GPT 暫停點
-            </span>
-          )}
         </div>
 
-        {/* Every correction as a full, tappable entry. The caption shows one at
-            a time while playing; this is where a student reads them all without
-            scrubbing the timeline to find each one. */}
-        {playback.coaching_cues.length > 0 && (
-          <div className="mt-4 border-t border-border pt-4">
-            <p className="eyebrow mb-2">AI 修正建議</p>
-            <ul className="space-y-2">
-              {playback.coaching_cues.map((cue, index) => {
-                const isActive = activeCue === cue
-                return (
-                  <li key={`${cue.normalized_frame}-${index}`}>
-                    <button
-                      type="button"
-                      onClick={() => seek(cue.normalized_position, cue)}
-                      className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                        isActive ? 'border-destructive bg-destructive/5' : 'border-border'
-                      }`}
-                    >
-                      <span className="flex items-baseline gap-2">
-                        <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" />
-                        <span className="text-sm font-semibold">{cue.title}</span>
-                        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                          {formatTime(cue.student_timestamp_seconds)}
-                        </span>
-                      </span>
-                      <span className="mt-1 block pl-4 text-sm leading-6 text-muted-foreground">
-                        {cue.feedback}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        )}
       </div>
     </section>
   )

@@ -8,13 +8,10 @@ import (
 )
 
 type FirestoreClient struct {
-	Ctx            *context.Context
-	Client         *firestore.Client
-	Data           *firestore.CollectionRef
-	Sessions       *firestore.CollectionRef
-	ChatHistory    *firestore.CollectionRef
-	DailySummaries *firestore.CollectionRef
-	WeeklyPreviews *firestore.CollectionRef
+	Ctx      *context.Context
+	Client   *firestore.Client
+	Data     *firestore.CollectionRef
+	Sessions *firestore.CollectionRef
 	// WeeklyReflections holds what learners write in the LIFF review tab.
 	WeeklyReflections *firestore.CollectionRef
 }
@@ -40,9 +37,6 @@ func NewFirestoreClient(projectID string, dataCollection string, sessionCollecti
 		Client:            client,
 		Data:              client.Collection(dataCollection),
 		Sessions:          client.Collection(sessionCollection),
-		ChatHistory:       client.Collection("chat_history"),
-		DailySummaries:    client.Collection("daily_summaries"),
-		WeeklyPreviews:    client.Collection("weekly_previews"),
 		WeeklyReflections: client.Collection("weekly_reflections"),
 	}, nil
 }

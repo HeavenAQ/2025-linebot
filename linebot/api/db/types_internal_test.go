@@ -57,12 +57,11 @@ func TestSkillOrderStillCoversWithdrawnSkills(t *testing.T) {
 
 	require.Equal(t, [...]string{"serve", "smash", "clear", "lift"}, SkillOrder)
 
-	user := &UserData{Portfolio: Portfolios{
-		Lift:  map[string]Work{"2026-07-01-10-00": work(71, "")},
-		Clear: map[string]Work{"2026-07-02-10-00": work(65, "")},
-	}}
-	history := learningHistory(user, 5)
-	require.Len(t, history, 2)
-	require.Equal(t, "clear", history[0].Skill)
-	require.Equal(t, "lift", history[1].Skill)
+	portfolio := Portfolios{
+		Lift:  map[string]Work{"2026-07-01-10-00": {DateTime: "2026-07-01-10-00"}},
+		Clear: map[string]Work{"2026-07-02-10-00": {DateTime: "2026-07-02-10-00"}},
+	}
+	for _, skill := range []string{"clear", "lift"} {
+		require.Len(t, portfolio.GetSkillPortfolio(skill), 1, skill)
+	}
 }

@@ -19,11 +19,10 @@ func TestLoadConfig(t *testing.T) {
 	t.Setenv("GCP_SECRET_VERSION", "test_secret_version")
 	t.Setenv("FIREBASE_DATA_DB", "test_firebase_data_db")
 	t.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
-	t.Setenv("OPENAI_API_KEY", "test_openai_api_key")
-	t.Setenv("OPENAI_MODEL", "gpt-test-model")
 	t.Setenv("ANALYSIS_GRPC_TARGET", "analysis.example.test:443")
 	t.Setenv("ANALYSIS_GRPC_API_KEY", "test_analysis_api_key")
 	t.Setenv("ANALYSIS_GRPC_INSECURE", "false")
+	t.Setenv("LIFF_REVIEW_URL", "https://liff.example.test/personal?tab=review")
 	t.Setenv("PORT", "8080")
 
 	// Load config
@@ -41,10 +40,9 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, "test_secret_version", config.GCP.Secrets.SecretVersion)
 	require.Equal(t, "test_firebase_data_db", config.GCP.Database.DataDB)
 	require.Equal(t, "test_firebase_session_db", config.GCP.Database.SessionDB)
-	require.Equal(t, "test_openai_api_key", config.GPT.APIKey)
-	require.Equal(t, "gpt-test-model", config.GPT.Model)
 	require.Equal(t, "analysis.example.test:443", config.AnalysisServer.Target)
 	require.Equal(t, "test_analysis_api_key", config.AnalysisServer.APIKey)
 	require.False(t, config.AnalysisServer.Insecure)
 	require.Equal(t, "8080", config.Port)
+	require.Equal(t, "https://liff.example.test/personal?tab=review", config.ReviewURL())
 }

@@ -1,7 +1,6 @@
 package line
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -75,7 +74,7 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 				},
 				&linebot.TextComponent{
 					Type:   "text",
-					Text:   "課前檢視與學習反思已移至學習網頁。在網頁上可以一邊看自己的動作與專家對照影片、回顧當週向 AI 提問的內容，一邊寫下這一週的反思。",
+					Text:   "課前檢視與學習反思已移至學習網頁。在網頁上可以一邊看自己的動作與專家對照影片、回顧當週的評分紀錄，一邊寫下這一週的反思。",
 					Size:   "sm",
 					Wrap:   true,
 					Color:  "#666666",
@@ -139,12 +138,11 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
 	const addReflection = "➡️ 預習及反思：開啟學習網頁的「每週回顧」，一邊看影片一邊寫每週學習反思\n\n"
 	const analyzeRecording = "➡️ 動作分析：上傳個人動作錄影，系統將自動產生分析結果\n\n"
-	const chatWithGPT = "➡️ 與GPT對話：與GPT進行對話\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
 	const learningDashboard = "➡️ 學習儀表板：查看學習進度及成就\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
 	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + portfolio + addReflection + analyzeRecording + chatWithGPT + expertVideo + learningDashboard + note1 + note2
+	const msg = welcome + instruction + portfolio + addReflection + analyzeRecording + expertVideo + learningDashboard + note1 + note2
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 
@@ -216,7 +214,6 @@ func (client *Client) SendPortfolio(
 	event *linebot.Event,
 	user *db.UserData,
 	skill db.BadmintonSkill,
-	handedness string,
 	userState db.UserState,
 	textMsg string,
 	showBtns bool,
@@ -228,7 +225,7 @@ func (client *Client) SendPortfolio(
 	}
 
 	// generate carousels from works
-	carousels, err := client.getCarousels(works, skill.String(), handedness, showBtns)
+	carousels, err := client.getCarousels(works, skill.String(), showBtns)
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)
 		return errors.New("Error getting carousels: " + err.Error())
@@ -309,27 +306,3 @@ func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.Badmin
 	return nil
 }
 
-func (client *Client) SendGPTChattingModeReply(replyToken string, msg string) (*linebot.BasicResponse, error) {
-	data, err := json.Marshal(StopGPTPostback{Stop: true})
-	if err != nil {
-		return nil, err
-	}
-
-	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(
-		msg,
-	).WithQuickReplies(&linebot.QuickReplyItems{
-		Items: []*linebot.QuickReplyButton{
-			linebot.NewQuickReplyButton(
-				"",
-				linebot.NewPostbackAction(
-					"結束對話",
-					string(data),
-					"",
-					"結束對話",
-					"OpenRichMenu",
-					"",
-				),
-			),
-		},
-	})).Do()
-}

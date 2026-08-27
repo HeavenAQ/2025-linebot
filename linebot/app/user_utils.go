@@ -1,9 +1,6 @@
 package app
 
 import (
-	"fmt"
-	"sync"
-
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 )
 
@@ -24,57 +21,14 @@ func (app *App) createUser(userID string) *db.UserData {
 	}
 	app.Logger.Info.Println("User's folders has been created")
 
-	// create GPT conversations for users
-	app.Logger.Info.Println("Creating the user's GPT conversations")
-	gptConversationIDs, err := app.createUserGPTConversations()
-	if err != nil {
-		app.Logger.Error.Println("Error creating user's GPT conversations:", err)
-	}
-	app.Logger.Info.Println("User's GPT conversations have been created")
-
 	// Store user's data in database
 	app.Logger.Info.Println("Add the user's data to database")
-	userData, err := app.FirestoreClient.CreateUserData(userFolders, gptConversationIDs)
+	userData, err := app.FirestoreClient.CreateUserData(userFolders)
 	if err != nil {
 		app.Logger.Error.Println("Error creating new user's data:", err)
 	}
 	app.Logger.Info.Println("User's data has been added")
 	return userData
-}
-
-func (app *App) createUserGPTConversations() (*db.GPTConversationIDs, error) {
-	userGPTConversations := db.GPTConversationIDs{}
-	idAddrs := []*string{
-		&userGPTConversations.Serve,
-		&userGPTConversations.Clear,
-		&userGPTConversations.Smash,
-		&userGPTConversations.Lift,
-	}
-
-	var wait sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-	wait.Add(len(idAddrs))
-	for _, idAddr := range idAddrs {
-		go func(target *string) {
-			defer wait.Done()
-			conv, err := app.GPTClient.CreateConversation()
-			if err != nil {
-				errMu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				errMu.Unlock()
-				return
-			}
-			*target = conv.ID
-		}(idAddr)
-	}
-	wait.Wait()
-	if firstErr != nil {
-		return nil, fmt.Errorf("create GPT conversations: %w", firstErr)
-	}
-	return &userGPTConversations, nil
 }
 
 func (app *App) createUserIfNotExist(userID string) *db.UserData {
@@ -116,19 +70,4 @@ func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db
 		work = user.Portfolio.Lift
 	}
 	return &work
-}
-
-func (app *App) getUserGPTConversation(user *db.UserData, skill string) string {
-	switch skill {
-	case "serve":
-		return user.GPTConversationIDs.Serve
-	case "smash":
-		return user.GPTConversationIDs.Smash
-	case "clear":
-		return user.GPTConversationIDs.Clear
-	case "lift":
-		return user.GPTConversationIDs.Lift
-	default:
-		return ""
-	}
 }

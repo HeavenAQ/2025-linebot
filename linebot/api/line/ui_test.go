@@ -18,10 +18,10 @@ func TestPortfolioVideoPostbackStaysWithinLineLimit(t *testing.T) {
 		Thumbnail: "https://storage.example/thumbnail.jpeg?" + string(make([]byte, 500)),
 	}
 
-	buttons, err := client.createButtonActions(work, "serve", "right")
+	buttons, err := client.createButtonActions(work, "serve")
 	require.NoError(t, err)
-	require.Len(t, buttons, 4)
-	button, ok := buttons[3].(*linebotsdk.ButtonComponent)
+	require.Len(t, buttons, 3)
+	button, ok := buttons[2].(*linebotsdk.ButtonComponent)
 	require.True(t, ok)
 	action, ok := button.Action.(*linebotsdk.PostbackAction)
 	require.True(t, ok)

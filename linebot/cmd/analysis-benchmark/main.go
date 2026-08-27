@@ -23,10 +23,6 @@ var diagnosticColumns = []string{
 	"latency_preprocessing_seconds",
 	"latency_scoring_seconds",
 	"latency_preview_render_seconds",
-	"latency_coaching_preparation_seconds",
-	"latency_llm_inference_seconds",
-	"latency_coaching_total_seconds",
-	"latency_final_render_seconds",
 	"latency_pipeline_seconds",
 	"latency_catalog_seconds",
 	"latency_storage_seconds",
@@ -83,7 +79,7 @@ func main() {
 		"recorded_at", "skill", "video", "run", "health_seconds",
 		"client_analyze_seconds", "refresh_urls_seconds", "student_range_get_seconds",
 		"expert_range_get_seconds", "score", "analysis_id", "expert_id", "handedness",
-		"coaching_cue_count", "student_object_path", "expert_object_path",
+		"student_object_path", "expert_object_path",
 	}
 	header = append(header, diagnosticColumns...)
 	if err := writer.Write(header); err != nil {
@@ -139,8 +135,7 @@ func main() {
 				decimal(healthSeconds), decimal(analyzeSeconds), decimal(refreshSeconds),
 				decimal(studentGetSeconds), decimal(expertGetSeconds), decimal(result.Grade.TotalGrade),
 				result.AnalysisID, result.Expert.ExpertID, result.Handedness,
-				strconv.Itoa(len(result.CoachingCues)), result.StudentVideo.ObjectPath,
-				result.Expert.Video.ObjectPath,
+				result.StudentVideo.ObjectPath, result.Expert.Video.ObjectPath,
 			}
 			for _, name := range diagnosticColumns {
 				row = append(row, decimal(result.Diagnostics[name]))

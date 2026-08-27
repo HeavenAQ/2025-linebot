@@ -45,7 +45,7 @@ func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 }
 
 // createButtonActions generates the buttons for preview and reflection actions
-func (client *Client) createButtonActions(work db.Work, skill string, handedness string) ([]linebot.FlexComponent, error) {
+func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
 	previewData, err := json.Marshal(WritingNotePostback{
 		State:      db.WritingNotes.String(),
 		WorkDate:   work.DateTime,
@@ -73,12 +73,6 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 	if err != nil {
 		return nil, err
 	}
-
-	askedAIForHelpData, err := json.Marshal(AnalyzingWithGPTPostback{
-		Handedness: handedness,
-		WorkDate:   work.DateTime,
-		Skill:      skill,
-	})
 
 	return []linebot.FlexComponent{
 		&linebot.ButtonComponent{
@@ -109,19 +103,6 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 		},
 		&linebot.ButtonComponent{
 			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"詢問AI建議",
-				string(askedAIForHelpData),
-				"",
-				"",
-				"",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
 			Style:  "link",
 			Height: "sm",
 			Action: linebot.NewPostbackAction(
@@ -136,7 +117,7 @@ func (client *Client) createButtonActions(work db.Work, skill string, handedness
 	}, nil
 }
 
-// createNotesSection generates the notes sections for AI Note, Preview Note, and Reflection
+// createNotesSection generates the notes sections for the preview note and the reflection
 func createNotesSection(label string, content string) *linebot.BoxComponent {
 	// If content is empty, provide a default placeholder text
 	if content == "" {
@@ -168,11 +149,11 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 }
 
 // getCarouselItem constructs the carousel item using helper functions
-func (client *Client) getCarouselItem(work db.Work, skill string, handedness string, showBtns bool) *linebot.BubbleContainer {
+func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
 	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
 	rating := client.getPortfolioRating(work)
-	buttons, err := client.createButtonActions(work, skill, handedness)
+	buttons, err := client.createButtonActions(work, skill)
 	if err != nil {
 		return nil
 	}
@@ -197,7 +178,6 @@ func (client *Client) getCarouselItem(work db.Work, skill string, handedness str
 					Size:   "xl",
 				},
 				rating,
-				createNotesSection("需調整細節：", work.AINote),
 				createNotesSection("課前動作檢測要點：", work.PreviewNote),
 				createNotesSection("學習反思：", work.Reflection),
 			},
@@ -247,12 +227,12 @@ func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
-func (client *Client) getCarousels(works map[string]db.Work, skill string, handedness string, showBtns bool) ([]*linebot.FlexMessage, error) {
+func (client *Client) getCarousels(works map[string]db.Work, skill string, showBtns bool) ([]*linebot.FlexMessage, error) {
 	items := []*linebot.BubbleContainer{}
 	carouselItems := []*linebot.FlexMessage{}
 	sortedWorks := client.sortWorks(works)
 	for _, work := range sortedWorks {
-		items = append(items, client.getCarouselItem(work, skill, handedness, showBtns))
+		items = append(items, client.getCarouselItem(work, skill, showBtns))
 
 		// since the carousel can only contain 10 items, we need to split the works into multiple carousels in order to display all of them
 		if len(items) == 10 {

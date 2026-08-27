@@ -1,7 +1,19 @@
-# Badminton Motion Coaching
+# Badminton Motion Coaching (no-AI variant)
 
 This monorepo contains the Python motion-analysis service, Go LINE/API backend,
 and LIFF review interface for badminton coaching.
+
+> **This is the `variant/no-ai` branch.** It is the same product with every
+> large-language-model layer removed, so it can be run beside the original and
+> compared. The analysis itself was never GPT: pose estimation, the EIMD
+> diffusion correction, grading, checkpoints and expert matching are all local
+> models and are all unchanged. What is gone is the natural-language layer on
+> top -- coaching cues, the chat coach, the AI summary and the weekly 課前預習
+> push. See [VARIANT.md](VARIANT.md) for what was removed, how to stand the
+> variant up, and the secrets it needs.
+>
+> **Never merge `variant/no-ai` into `main`.** It is a parallel product line,
+> not a feature branch.
 
 > Current production support: **serve and smash only**. Lift and clear remain in
 > the shared enums and some research utilities for compatibility, but the
@@ -22,8 +34,8 @@ Python analysis service
   - RTMW3D pose extraction
   - serve/smash phase alignment
   - expert-only diffusion inference
-  - grading and GPT coaching
-  - two H.264 video renders
+  - grading
+  - one H.264 video render
   - upload to GCS
        |
        | protobuf response: grades, feedback, object metadata, signed URLs
@@ -40,8 +52,8 @@ signed URLs; clients should call Go, not the Python service, for playback.
 
 ## Repository layout
 
-- `badminton_analysis_ai/`: Python gRPC analysis, models, rendering, GPT feedback,
-  and GCS upload/signing.
+- `badminton_analysis_ai/`: Python gRPC analysis, models, rendering, and GCS
+  upload/signing.
 - `linebot/`: Go gRPC client, public application/playback API, LINE workflow, and
   Firestore persistence.
 - `liff/`: review interface for feedback and generated-expert overlay videos.
@@ -137,17 +149,17 @@ Smash criteria and maxima:
 
 The API reports `score_status=expert_only_generated_distribution`.
 
-## Generated videos
+## Generated video
 
-Every successful analysis generates and uploads two H.264/yuv420p videos:
+Every successful analysis generates and uploads one H.264/yuv420p video: the
+detected and generated-expert skeletons drawn over the source footage, running
+straight through with no inserted pauses. The annotated second render existed
+only to burn coaching captions and pauses over this one; with nothing to draw it
+would come out frame for frame identical, and an L4 is billed by the second.
 
-1. `feedback_video`: detected and generated-expert skeletons, GPT-selected problem
-   circles, feedback panels, and inserted coaching pauses.
-2. `skeleton_overlay_video`: the same detected/generated skeleton overlay without
-   GPT annotations or pauses.
-
-`student_video` is retained as a backward-compatible alias of `feedback_video`.
-The protobuf response contains only URLs and metadata:
+`student_video`, `feedback_video` and `skeleton_overlay_video` therefore all name
+that single upload, so every existing client keeps finding a video under the name
+it knows. The protobuf response contains only URLs and metadata:
 
 - GCS object path and `gs://` URI;
 - expiring signed HTTPS URL;
@@ -161,7 +173,9 @@ No generated video is embedded in protobuf, JSON, or base64.
 `proto/badminton/analysis/v1/analysis.proto` defines:
 
 - `AnalyzeVideo`: client-streamed request containing one header followed by MP4
-  chunks; returns analysis results and both generated-video URLs.
+  chunks; returns analysis results and the generated-video URL. `coaching_cues`
+  and `overall_feedback` remain in the contract and are always empty: nothing in
+  this variant writes natural language.
 - `Health`: reports service readiness and the loaded skills. It should currently
   return only `SKILL_SERVE` and `SKILL_SMASH`.
 - `RefreshPlaybackUrls`: internal transition helper used by Go to refresh signed
@@ -173,7 +187,7 @@ Public playback is owned by Go:
 GET /api/db/playback?user_id=<id>&skill=<serve|smash>&work_date=<timestamp>
 ```
 
-The Go client streams video input in 1 MiB chunks and persists both returned media
+The Go client streams video input in 1 MiB chunks and persists the returned media
 records. Serve/smash return `Generated expert prior` rather than a separate
 catalog expert video; the clean overlay is the generated-expert review view.
 
@@ -187,7 +201,6 @@ Required Python analysis-service variables:
 | `GCP_PROJECT_ID` | GCS project |
 | `GCS_BUCKET_NAME` | Destination for generated videos |
 | `GCP_SERVICE_ACCOUNT_EMAIL` | IAM signed-URL fallback identity |
-| `OPENAI_API_KEY` | GPT coaching generation |
 
 Important optional variables:
 
@@ -195,8 +208,6 @@ Important optional variables:
 |---|---|---|
 | `EXPERT_MOTION_MODEL_ROOT` | `badminton_analysis_ai/models/expert_motion` | Directory containing `serve/` and `smash/` model pairs |
 | `EXPERT_MOTION_DEVICE` | `auto` | `auto`, `cpu`, `mps`, `cuda`, or a concrete PyTorch device |
-| `OPENAI_COACHING_MODEL` | `gpt-5.6-terra` | Coaching model |
-| `COACHING_PAUSE_SECONDS` | `2` | Pause inserted at each feedback frame |
 | `MAX_VIDEO_BYTES` | 150 MiB | Maximum streamed request size |
 | `SIGNED_URL_MINUTES` | `60` | Generated-video URL lifetime |
 | `POSE_EXECUTION_PROVIDER` | environment-dependent | RTMW3D provider; production uses `tensorrt` |
@@ -244,13 +255,13 @@ Before deployment, verify:
 
 1. all four expert-motion artifacts exist and match the hashes above;
 2. `Health` lists only serve and smash;
-3. a streamed serve and smash request each return non-empty `feedback_video` and
-   `skeleton_overlay_video` signed URLs;
-4. both URLs decode as H.264/yuv420p;
-5. feedback duration is equal to or longer than the clean overlay because of
-   coaching pauses;
+3. a streamed serve and smash request each return a non-empty `student_video`
+   signed URL, and `coaching_cues` and `overall_feedback` come back empty;
+4. that URL decodes as H.264/yuv420p;
+5. the video duration matches the checkpoint timeline, which is measured in
+   render time with no pause offset;
 6. no `models/skeleton_correction` or TensorRT `correctors/` directory is present;
-7. the Go playback endpoint refreshes and returns both media records.
+7. the Go playback endpoint refreshes and returns the media records.
 
 ## Main inference trace
 
@@ -263,8 +274,7 @@ Before deployment, verify:
 7. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_backend.py`
 8. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_generator.py`
 9. `badminton_analysis_ai/badminton_analysis/ml/kinematic_retargeting.py`
-10. `badminton_analysis_ai/service/coaching.py`
-11. `badminton_analysis_ai/service/renderer.py`
-12. `linebot/api/analysis/client.go`
-13. `linebot/main.go`
-14. `liff/src/components/VideoComparison.tsx`
+10. `badminton_analysis_ai/service/renderer.py`
+11. `linebot/api/analysis/client.go`
+12. `linebot/main.go`
+13. `liff/src/components/VideoComparison.tsx`

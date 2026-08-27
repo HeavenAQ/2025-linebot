@@ -13,22 +13,6 @@ type GradingOutcome struct {
 	ScoreStatus    string          `json:"score_status" firestore:"score_status"`
 }
 
-// SkillScore is one graded attempt flattened out of a portfolio entry, so the
-// grades can be reported and prompted on without carrying the whole Work.
-type SkillScore struct {
-	Date        string          `json:"date" firestore:"date"`
-	TotalGrade  float64         `json:"total_grade" firestore:"total_grade"`
-	ScoreStatus string          `json:"score_status" firestore:"score_status"`
-	Details     []GradingDetail `json:"grading_details" firestore:"grading_details"`
-}
-
-// SkillHistory is one skill's recent graded attempts, newest first. It is what
-// the weekly preview reasons over: how a learner is doing, skill by skill.
-type SkillHistory struct {
-	Skill  string       `json:"skill" firestore:"skill"`
-	Scores []SkillScore `json:"scores" firestore:"scores"`
-}
-
 type MediaRef struct {
 	ObjectPath       string  `json:"object_path" firestore:"object_path"`
 	GCSURI           string  `json:"gcs_uri" firestore:"gcs_uri"`
@@ -71,16 +55,6 @@ type PhaseMarker struct {
 	TimestampSeconds   float64 `json:"timestamp_seconds" firestore:"timestamp_seconds"`
 }
 
-type CoachingCue struct {
-	Title                   string  `json:"title" firestore:"title"`
-	Feedback                string  `json:"feedback" firestore:"feedback"`
-	NormalizedFrame         int32   `json:"normalized_frame" firestore:"normalized_frame"`
-	NormalizedPosition      float64 `json:"normalized_position" firestore:"normalized_position"`
-	StudentTimestampSeconds float64 `json:"student_timestamp_seconds" firestore:"student_timestamp_seconds"`
-	PauseDurationSeconds    float64 `json:"pause_duration_seconds" firestore:"pause_duration_seconds"`
-	JointIDs                []int32 `json:"joint_ids" firestore:"joint_ids"`
-}
-
 type AnalysisOutcome struct {
 	AnalysisID           string             `json:"analysis_id" firestore:"analysis_id"`
 	Skill                string             `json:"skill" firestore:"skill"`
@@ -91,7 +65,5 @@ type AnalysisOutcome struct {
 	SkeletonOverlayVideo MediaRef           `json:"skeleton_overlay_video" firestore:"skeleton_overlay_video"`
 	Expert               ExpertMatch        `json:"expert" firestore:"expert"`
 	Timeline             []PhaseMarker      `json:"timeline" firestore:"timeline"`
-	CoachingCues         []CoachingCue      `json:"coaching_cues" firestore:"coaching_cues"`
-	OverallFeedback      string             `json:"overall_feedback" firestore:"overall_feedback"`
 	Diagnostics          map[string]float64 `json:"diagnostics" firestore:"diagnostics"`
 }

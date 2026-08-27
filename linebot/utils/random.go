@@ -20,7 +20,6 @@ func SetRandomEnv(t *testing.T) {
 	t.Setenv("SECRET_VERSION", "test_secret_version")
 	t.Setenv("FIREBASE_DATA_DB", "test_firebase_data_db")
 	t.Setenv("FIREBASE_SESSION_DB", "test_firebase_session_db")
-    t.Setenv("OPENAI_API_KEY", "test_openai_api_key")
 	t.Setenv("POSE_ESTIMATION_SERVER_HOST", "test_pose_estimation_server_host")
 	t.Setenv("POSE_ESTIMATION_SERVER_USER", "test_pose_estimation_server_user")
 	t.Setenv("POSE_ESTIMATION_SERVER_PASSWORD", "test_pose_estimation_server_password")

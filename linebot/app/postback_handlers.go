@@ -9,7 +9,6 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
-	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
@@ -21,10 +20,6 @@ import (
 // handlePostbackEvent processes LINE postback events.
 // - If it’s a menu-switch event, it’s ignored.
 // - Otherwise, it delegates to handleUserState.
-// coachingScoreLimit caps how many graded attempts ride along with a learner's
-// question. Enough to show a trend, short enough to leave room for the reply.
-const coachingScoreLimit = 5
-
 func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, session *db.UserSession) {
 	if isMenuSwitchEvent(event.Postback.Data) {
 		app.Logger.Info.Printf("Menu switch event ignored. User ID: %v", event.Source.UserID)
@@ -41,39 +36,22 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 	rawData := getPostbackData(event)
 	app.Logger.Info.Println("rawData: ", rawData)
 
-	// 1. GPT stop-chatting action
-	if data, ok := app.isStopChattingWithGPTAction(rawData); ok {
-		if data.Stop {
-			app.FirestoreClient.ResetSession(user.ID)
-			app.LineBot.SendReply(replyToken, "已結束對話")
-			return
-		}
-	}
-
-	// 2. Note updating action
+	// 1. Note updating action
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
 		app.forceStateToWritingNotes(user, session, data, replyToken)
 		return
 	}
 
-	// 3. Video watching action
+	// 2. Video watching action
 	if data, ok := app.isWatchVideoAction(rawData); ok {
 		app.handleWatchPortfolioVideo(user, data, replyToken)
 		return
 	}
 
-	// 4. Ask AI for help
-	if data, ok := app.isAnalyzingPortfolioWithGPT(rawData); ok {
-		app.handleAnalyzePortfolioWithGPT(event, user, data, session, replyToken)
-		return
-	}
-
-	// 5. Route by user state
+	// 3. Route by user state
 	switch session.UserState {
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
-	case db.ChattingWithGPT:
-		app.handleChattingWithGPT(event, rawData, user, session, replyToken)
 	case db.ViewingExpertVideos:
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
 	case db.ViewingPortfoilo:
@@ -116,7 +94,6 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 			event,
 			user,
 			db.SkillStrToEnum(data.Skill),
-			session.Handedness,
 			session.UserState,
 			"請選擇您要更新的學習歷程：",
 			true,
@@ -131,100 +108,6 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 	case db.WritingPreviewNote, db.WritingReflection:
 		app.handleUpdatingNote(event, user, session)
 		app.FirestoreClient.ResetSession(user.ID)
-
-	default:
-		app.handleInvalidActionStep(user.ID, replyToken)
-	}
-}
-
-// handleChattingWithGPT handles logic for the “ChattingWithGPT” state.
-func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
-	switch session.ActionStep {
-	case db.SelectingSkill:
-		// Move to “Chatting”
-		session.ActionStep = db.Chatting
-		lineData, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
-		if err != nil {
-			app.handlePostbackDataTypeError(err, replyToken)
-			return
-		}
-		if !db.IsSupportedSkill(lineData.Skill) {
-			app.rejectUnsupportedSkill(user.ID, lineData.Skill, replyToken)
-			return
-		}
-		session.Skill = lineData.Skill
-		app.FirestoreClient.UpdateUserSession(user.ID, *session)
-
-		// Inform user we are entering GPT chatting mode
-		app.LineBot.SendGPTChattingModeReply(replyToken, "已進入和GPT對話模式")
-
-	case db.Chatting:
-		// A session saved before the skill was withdrawn would otherwise keep
-		// coaching on it for the rest of the conversation.
-		if !db.IsSupportedSkill(session.Skill) {
-			app.rejectUnsupportedSkill(user.ID, session.Skill, replyToken)
-			return
-		}
-
-		// Get user text message
-		var msg string
-		message, ok := event.Message.(*linebot.TextMessage)
-		if ok {
-			msg = message.Text
-		}
-
-		// Resolve omitted references against persisted, skill-specific history.
-		history, err := app.FirestoreClient.GetChatHistory(user.ID)
-		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
-			return
-		}
-		rewriteHistory := make([]gpt.HistoryMessage, 0, 12)
-		for _, value := range history.Messages {
-			if value.Skill == session.Skill {
-				rewriteHistory = append(rewriteHistory, gpt.HistoryMessage{Role: value.Role, Text: value.Text})
-			}
-		}
-		rewritten, err := app.GPTClient.RewriteQuery(rewriteHistory, msg)
-		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
-			return
-		}
-
-		// The coach answers "how am I doing" from the learner's actual grades,
-		// not from the conversation alone. A lookup failure is not worth
-		// refusing the question over -- the reply is simply less specific.
-		scores, err := app.FirestoreClient.GetRecentSkillScores(
-			user.ID, session.Skill, coachingScoreLimit,
-		)
-		if err != nil {
-			app.Logger.Warn.Printf("failed to load scores for coaching: %v", err)
-			scores = nil
-		}
-
-		// Send the standalone query through the skill conversation.
-		conversationID := app.getUserGPTConversation(user, session.Skill)
-		response, err := app.GPTClient.AddMessageToConversation(conversationID, rewritten, scores)
-		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
-			return
-		}
-
-		// Persist the user/assistant exchange to Firestore chat history
-		if err := app.FirestoreClient.AppendChatExchange(
-			user.ID,
-			session.Skill,
-			conversationID,
-			msg,
-			response,
-		); err != nil {
-			app.Logger.Error.Printf("failed to append chat history: %v\n", err)
-		}
-
-		if _, err := app.LineBot.SendGPTChattingModeReply(replyToken, response); err != nil {
-			handleLineMessageResponseError(err)
-			return
-		}
 
 	default:
 		app.handleInvalidActionStep(user.ID, replyToken)
@@ -267,7 +150,6 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 		event,
 		user,
 		db.SkillStrToEnum(data.Skill),
-		session.Handedness,
 		session.UserState,
 		"以下為您的學習歷程：",
 		false,
@@ -382,29 +264,10 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 		event,
 		user,
 		db.SkillStrToEnum(session.Skill),
-		session.Handedness,
 		session.UserState,
 		"以下為您的學習歷程：",
 		false,
 	)
-}
-
-// handleAnalyzePortfolioWithGPT processes the user's request to ask GPT for help.
-func (app *App) handleAnalyzePortfolioWithGPT(
-	_ *linebot.Event,
-	user *db.UserData,
-	data *line.AnalyzingWithGPTPostback,
-	_ *db.UserSession,
-	replyToken string,
-) {
-	portfolio := app.getUserPortfolio(user, data.Skill)
-	work, ok := (*portfolio)[data.WorkDate]
-	if !ok || work.AINote == "" {
-		app.LineBot.SendReply(replyToken, "這次分析尚未產生教練建議，請重新上傳影片")
-		return
-	}
-
-	app.LineBot.SendReply(replyToken, work.AINote)
 }
 
 func (app *App) handleWatchPortfolioVideo(
@@ -536,14 +399,6 @@ func isMenuSwitchEvent(data string) bool {
 // 4.2 Specialized Postback Actions
 // --------------------------------------------------------------------
 
-func (app *App) isStopChattingWithGPTAction(rawData string) (*line.StopGPTPostback, bool) {
-	data, err := app.LineBot.HandleStopGPTPostbackData(rawData)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
 func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, bool) {
 	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
 	if err != nil {
@@ -554,14 +409,6 @@ func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, b
 
 func (app *App) isWatchVideoAction(rawData string) (*line.VideoPostback, bool) {
 	data, err := app.LineBot.HandleVideoPostbackData(rawData)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
-func (app *App) isAnalyzingPortfolioWithGPT(rawData string) (*line.AnalyzingWithGPTPostback, bool) {
-	data, err := app.LineBot.HandleAskingAIForHelpPostbackData(rawData)
 	if err != nil {
 		return nil, false
 	}
@@ -591,8 +438,8 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 // running this semester. The selection UI never offers one, so reaching here
 // means a stale postback, an old rich menu, or a client that skipped the menu.
 // The session is reset so the learner lands back on the main menu instead of
-// being stranded mid-flow, and nothing downstream (analysis, GPT, portfolio
-// writes) is called.
+// being stranded mid-flow, and nothing downstream (analysis, portfolio writes)
+// is called.
 func (app *App) rejectUnsupportedSkill(userID, skill, replyToken string) {
 	app.Logger.Warn.Printf(
 		"Unsupported skill requested. User ID: %v, Skill: %v", userID, skill,

@@ -8,7 +8,6 @@ const work = {
   thumbnail: 'https://example.test/thumbnail.jpeg',
   reflection: '',
   preview_note: '',
-  ai_note: '',
   grading_outcome: {
     grading_details: [],
     total_grade: 90

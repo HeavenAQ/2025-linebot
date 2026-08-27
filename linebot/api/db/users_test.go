@@ -23,15 +23,8 @@ func TestCreateUserData(t *testing.T) {
 		RootPath: utils.RandomAlphabetString(10),
 	}
 
-	testGPTConvs := &db.GPTConversationIDs{
-		Serve: utils.RandomAlphabetString(10),
-		Smash: utils.RandomAlphabetString(10),
-		Clear: utils.RandomAlphabetString(10),
-		Lift:  utils.RandomAlphabetString(10),
-	}
-
 	// Call the method to create user data
-	userData, err := firestoreClient.CreateUserData(testUserFolders, testGPTConvs)
+	userData, err := firestoreClient.CreateUserData(testUserFolders)
 	require.NoError(t, err)
 	require.NotNil(t, userData)
 
@@ -155,9 +148,8 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 				Maximum:     20,
 			},
 		}},
-		StudentVideo:    commons.MediaRef{ObjectPath: "analyses/live/student.mp4", SignedURL: "https://example.test/student"},
-		Expert:          commons.ExpertMatch{ExpertID: "ES01", Video: commons.MediaRef{ObjectPath: "experts/v1/serve/video.mp4"}},
-		OverallFeedback: "接觸點請保持在身體前方。",
+		StudentVideo: commons.MediaRef{ObjectPath: "analyses/live/student.mp4", SignedURL: "https://example.test/student"},
+		Expert:       commons.ExpertMatch{ExpertID: "ES01", Video: commons.MediaRef{ObjectPath: "experts/v1/serve/video.mp4"}},
 	}
 	// Call the method to add video to portfolio
 	today := time.Now().Format("2006-01-02-15-04")

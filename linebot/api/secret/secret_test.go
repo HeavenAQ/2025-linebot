@@ -12,6 +12,11 @@ func TestSecretManagerAccess(t *testing.T) {
 	if os.Getenv("RUN_LIVE_SECRET") != "1" {
 		t.Skip("Skipping Secret Manager live test; set RUN_LIVE_SECRET=1 to enable.")
 	}
+	require.NotEmpty(
+		t,
+		os.Getenv("GCP_ENV_SECRET_NAME"),
+		"GCP_ENV_SECRET_NAME names the variant's own secret and must be set for a live run",
+	)
 	originalDirectory, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(t.TempDir()))

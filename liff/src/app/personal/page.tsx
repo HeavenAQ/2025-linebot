@@ -21,8 +21,6 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
-import { useSkillSummary } from '@/lib/useSkillSummary'
-import SkillSummary from '@/components/SkillSummary'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
 
@@ -114,7 +112,6 @@ export default function PersonalPage() {
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const { liff, profile, liffError, sessionExpired } = useLiff()
-  const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
 
   // The bot links straight to a tab (?tab=review from 每週回顧), so a student
   // arriving from LINE lands where they were sent rather than on the default.
@@ -304,13 +301,6 @@ export default function PersonalPage() {
             </div>
           </div>
         )}
-
-        <SkillSummary
-          skill={selectedSkill}
-          summary={aiSummary.summary}
-          loading={aiSummary.loading}
-          error={aiSummary.error}
-        />
 
         <Segmented
           role="tablist"

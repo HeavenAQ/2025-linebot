@@ -10,7 +10,6 @@ type UserState int8
 // UserState represents the action that a user is currently taking
 const (
 	WritingNotes UserState = iota
-	ChattingWithGPT
 	ViewingExpertVideos
 	ViewingPortfoilo
 	AnalyzingVideo
@@ -19,19 +18,17 @@ const (
 )
 
 func (s UserState) String() string {
-	return [...]string{"writing_notes", "chatting_with_gpt", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
+	return [...]string{"writing_notes", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
 }
 
 func (s UserState) ChnString() string {
-	return [...]string{"預習及反思", "GPT對談", "專家影片", "學習歷程", "動作分析", "使用說明", "無"}[s]
+	return [...]string{"預習及反思", "專家影片", "學習歷程", "動作分析", "使用說明", "無"}[s]
 }
 
 func UserStateChnStrToEnum(str string) (UserState, error) {
 	switch str {
 	case "預習及反思":
 		return WritingNotes, nil
-	case "GPT對談":
-		return ChattingWithGPT, nil
 	case "專家影片":
 		return ViewingExpertVideos, nil
 	case "學習歷程":
@@ -56,7 +53,6 @@ const (
 	WritingPreviewNote
 	WritingReflection
 	UploadingVideo
-	Chatting
 	SelectingPortfolio
 	Empty
 )
@@ -73,8 +69,6 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 		return WritingReflection, nil
 	case "uploading_video":
 		return UploadingVideo, nil
-	case "chatting":
-		return Chatting, nil
 	case "selecting_portfolio":
 		return SelectingPortfolio, nil
 	case "empty":
@@ -85,7 +79,7 @@ func ActionStepStrToEnum(str string) (ActionStep, error) {
 }
 
 func (s ActionStep) String() string {
-	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "chatting", "selecting_portfolio", "empty"}[s]
+	return [...]string{"selecting_skill", "selecting_handedness", "writing_preview_note", "writing_reflection", "uploading_video", "selecting_portfolio", "empty"}[s]
 }
 
 // Handedness represents the handedness of a player
@@ -113,6 +107,16 @@ func HandednessStrToEnum(str string) (Handedness, error) {
 	default:
 		return -1, errors.New("invalid handedness")
 	}
+}
+
+// SkillOrder is the order skills are reported in, so a learner's records read
+// the same way every time regardless of Go's map iteration. It is derived from
+// the skill enum so the two cannot drift apart.
+var SkillOrder = [...]string{
+	Serve.String(),
+	Smash.String(),
+	Clear.String(),
+	Lift.String(),
 }
 
 // Badminton skill types

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"log"
 	"net/http"
 	"strings"
@@ -16,9 +15,6 @@ import (
 )
 
 // (runtime snake_case conversion removed; DB is migrated instead)
-
-// recentScoreLimit caps how many graded attempts feed the learning summary.
-const recentScoreLimit = 5
 
 // authenticatedUserKey holds the LINE user ID proven by the caller's ID token.
 const authenticatedUserKey = "authenticatedUserID"
@@ -73,168 +69,6 @@ func main() {
 	}
 	// learnerID is the only identity these handlers may act on.
 	learnerID := func(c *gin.Context) string { return c.GetString(authenticatedUserKey) }
-
-	// Backend APIs for chat history and summarization
-	r.GET("/api/chat/history", requireLearner, func(c *gin.Context) {
-		start := time.Now()
-		userID := learnerID(c)
-		skill := strings.ToLower(strings.TrimSpace(c.Query("skill")))
-		application.Logger.Info.Printf("[chat.history] user_id=%s skill=%s", userID, skill)
-		history, err := application.FirestoreClient.GetChatHistory(userID)
-		if err != nil {
-			application.Logger.Error.Printf("[chat.history] user_id=%s error=%v", userID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch chat history"})
-			return
-		}
-		// Raw score dumps from the retired analysis-prompt flow never reach a
-		// client; the learner sees a label where the payload was.
-		messages := db.RedactScoreRecords(history).Messages
-		if skill != "" {
-			filtered := make([]interface{}, 0, len(messages))
-			for _, m := range messages {
-				if strings.ToLower(m.Skill) == skill {
-					filtered = append(filtered, m)
-				}
-			}
-			application.Logger.Info.Printf("[chat.history] user_id=%s skill=%s count=%d took=%s", userID, skill, len(filtered), time.Since(start))
-			c.JSON(http.StatusOK, gin.H{"data": filtered})
-			return
-		}
-		application.Logger.Info.Printf("[chat.history] user_id=%s count=%d took=%s", userID, len(messages), time.Since(start))
-		c.JSON(http.StatusOK, gin.H{"data": messages})
-	})
-
-	type summarizeReq struct {
-		Content string `json:"content"`
-		UserID  string `json:"user_id"`
-		Skill   string `json:"skill"`
-	}
-	r.POST("/api/chat/summarize", requireLearner, func(c *gin.Context) {
-		start := time.Now()
-		var req summarizeReq
-		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Skill) == "" {
-			application.Logger.Warn.Printf("[chat.summarize] invalid body content_len=%d skill_present=%t", len(req.Content), strings.TrimSpace(req.Skill) != "")
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
-			return
-		}
-		// The body may still carry a user_id from older clients; it is ignored.
-		req.UserID = learnerID(c)
-
-		// Determine today's date in server local time (YYYY-MM-DD)
-		today := time.Now().Format("2006-01-02")
-
-		// Compute current chat message count for the user+skill
-		history, err := application.FirestoreClient.GetChatHistory(req.UserID)
-		if err != nil {
-			application.Logger.Error.Printf("[chat.summarize] user_id=%s history_error=%v", req.UserID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch chat history"})
-			return
-		}
-		skillLower := strings.ToLower(strings.TrimSpace(req.Skill))
-		currentCount := 0
-		if skillLower == "" {
-			currentCount = len(history.Messages)
-		} else {
-			for _, m := range history.Messages {
-				if strings.ToLower(m.Skill) == skillLower {
-					currentCount++
-				}
-			}
-		}
-
-		// The learner's recent grades ground the summary, so a summary is worth
-		// producing from scores alone even before they have chatted.
-		scores, err := application.FirestoreClient.GetRecentSkillScores(req.UserID, skillLower, recentScoreLimit)
-		if err != nil {
-			application.Logger.Warn.Printf("[chat.summarize] user_id=%s skill=%s scores_error=%v", req.UserID, skillLower, err)
-			scores = nil
-		}
-		scoreKey := db.ScoreFingerprint(scores)
-
-		if strings.TrimSpace(req.Content) == "" && len(scores) == 0 {
-			application.Logger.Info.Printf("[chat.summarize] nothing_to_summarize user_id=%s skill=%s took=%s", req.UserID, skillLower, time.Since(start))
-			c.JSON(http.StatusOK, gin.H{"summary": "", "cached": false})
-			return
-		}
-
-		// Try cache first
-		cached, err := application.FirestoreClient.GetDailySummary(req.UserID, today, skillLower)
-		if err == nil && cached != nil && cached.LastCount == currentCount && cached.ScoreKey == scoreKey && strings.TrimSpace(cached.Summary) != "" {
-			application.Logger.Info.Printf("[chat.summarize] cache_hit user_id=%s date=%s skill=%s count=%d took=%s", req.UserID, today, skillLower, currentCount, time.Since(start))
-			c.JSON(http.StatusOK, gin.H{"summary": cached.Summary, "cached": true})
-			return
-		}
-
-		// Cache miss, or the message count or scores changed; generate new summary
-		application.Logger.Info.Printf("[chat.summarize] cache_miss user_id=%s date=%s skill=%s count=%d scores=%d content_len=%d", req.UserID, today, skillLower, currentCount, len(scores), len(req.Content))
-		sum, err := application.GPTClient.Summarize(req.Content, scores)
-		if err != nil {
-			application.Logger.Error.Printf("[chat.summarize] error=%v took=%s", err, time.Since(start))
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to summarize"})
-			return
-		}
-
-		// Store/Update cache
-		if err := application.FirestoreClient.SetDailySummary(req.UserID, today, skillLower, sum, currentCount, scoreKey); err != nil {
-			application.Logger.Warn.Printf("[chat.summarize] failed_cache_store user_id=%s date=%s skill=%s err=%v", req.UserID, today, skillLower, err)
-		}
-
-		application.Logger.Info.Printf("[chat.summarize] ok summary_len=%d took=%s", len(sum), time.Since(start))
-		c.JSON(http.StatusOK, gin.H{"summary": sum, "cached": false})
-	})
-
-	// Weekly 課前預習 push. Intended for a scheduler; it messages the whole
-	// roster, so it is refused outright unless a token is configured, and only
-	// runs for a caller that presents it.
-	type previewReq struct {
-		UserIDs []string `json:"user_ids"`
-		DryRun  bool     `json:"dry_run"`
-	}
-	r.POST("/api/preview/weekly", func(c *gin.Context) {
-		start := time.Now()
-		expected := strings.TrimSpace(application.Config.Preview.PushToken)
-		if expected == "" {
-			application.Logger.Warn.Println("[preview.weekly] refused: WEEKLY_PREVIEW_TOKEN is not configured")
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "weekly preview is not configured"})
-			return
-		}
-		provided := strings.TrimSpace(c.GetHeader("X-Preview-Token"))
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
-			application.Logger.Warn.Println("[preview.weekly] rejected an unauthorized call")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
-		}
-
-		var req previewReq
-		if c.Request.ContentLength > 0 {
-			if err := c.BindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
-				return
-			}
-		}
-
-		outcomes, err := application.RunWeeklyPreview(time.Now(), req.DryRun, req.UserIDs)
-		if err != nil {
-			application.Logger.Error.Printf("[preview.weekly] run failed err=%v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "weekly preview run failed"})
-			return
-		}
-
-		counts := map[string]int{}
-		for _, outcome := range outcomes {
-			counts[string(outcome.Status)]++
-		}
-		application.Logger.Info.Printf(
-			"[preview.weekly] done users=%d dry_run=%t counts=%v took=%s",
-			len(outcomes), req.DryRun, counts, time.Since(start),
-		)
-		c.JSON(http.StatusOK, gin.H{
-			"week":     db.ISOWeek(time.Now()),
-			"dry_run":  req.DryRun,
-			"counts":   counts,
-			"outcomes": outcomes,
-		})
-	})
 
 	// Weekly reflections, written by learners in the LIFF review tab.
 	r.GET("/api/db/weekly-reflections", requireLearner, func(c *gin.Context) {
@@ -370,8 +204,6 @@ func main() {
 			"skeleton_overlay_video": work.SkeletonOverlayVideo,
 			"expert":                 work.Expert,
 			"timeline":               work.Timeline,
-			"coaching_cues":          work.CoachingCues,
-			"overall_feedback":       work.AINote,
 			"grade":                  work.GradingOutcome,
 		})
 	})

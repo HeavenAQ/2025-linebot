@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import cv2
 import numpy as np
@@ -39,17 +38,6 @@ def _font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     ):
         if Path(candidate).exists():
             return ImageFont.truetype(candidate, 28)
-    return ImageFont.load_default()
-
-
-@lru_cache(maxsize=1)
-def _feedback_font() -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    for candidate in (
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-    ):
-        if Path(candidate).exists():
-            return ImageFont.truetype(candidate, 22)
     return ImageFont.load_default()
 
 
@@ -356,54 +344,6 @@ def _draw_header(frame: NDArray[np.uint8], filename: str, score: float) -> None:
     cv2.putText(frame, "corrected", (256, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (245, 245, 245), 1, cv2.LINE_AA)
 
 
-def _draw_feedback(
-    frame: NDArray[np.uint8],
-    detected_pixels: NDArray[np.float32],
-    issues: list[dict[str, Any]],
-) -> None:
-    height, width = frame.shape[:2]
-    radius = max(20, round(min(height, width) * 0.025))
-    for issue in issues:
-        for joint_id in issue["joint_ids"]:
-            point = detected_pixels[int(joint_id)]
-            location = (int(round(point[0])), int(round(point[1])))
-            if 0 <= location[0] < width and 0 <= location[1] < height:
-                cv2.circle(frame, location, radius + 5, (15, 15, 15), 9, cv2.LINE_AA)
-                cv2.circle(frame, location, radius, (40, 40, 245), 7, cv2.LINE_AA)
-
-    panel_height = min(height // 3, 108 + 72 * len(issues))
-    panel_top = height - panel_height
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, panel_top), (width, height), (15, 15, 15), -1)
-    cv2.addWeighted(overlay, 0.9, frame, 0.1, 0.0, frame)
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(image)
-    draw.text((22, panel_top + 13), "教練指導暫停", font=_feedback_font(), fill=(255, 110, 95))
-    y = panel_top + 50
-    for index, issue in enumerate(issues, start=1):
-        message = (
-            f"{index}. {issue['title']} "
-            f"{float(issue['criterion_score']):.1f}/"
-            f"{float(issue['criterion_maximum']):.0f}分：{issue['feedback']}"
-        )
-        line = ""
-        lines: list[str] = []
-        for character in message:
-            candidate = line + character
-            if draw.textlength(candidate, font=_feedback_font()) <= width - 44:
-                line = candidate
-            else:
-                lines.append(line)
-                line = character
-        if line:
-            lines.append(line)
-        for rendered_line in lines[:2]:
-            draw.text((22, y), rendered_line, font=_feedback_font(), fill=(248, 248, 248))
-            y += 28
-        y += 7
-    frame[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
-
-
 def source_fps(video_path: Path) -> float:
     capture = cv2.VideoCapture(str(video_path))
     try:
@@ -444,8 +384,6 @@ def render_correction_video(
     original_root: NDArray[np.float32] | None = None,
     corrected_root: NDArray[np.float32] | None = None,
     generated_full_body: bool = False,
-    feedback: list[dict[str, Any]] | None = None,
-    pause_seconds: float = 0.0,
 ) -> None:
     start, _, end = window
     target_frames = len(original)
@@ -489,9 +427,6 @@ def render_correction_video(
     if not writer.isOpened():
         raise RuntimeError(f"could not open output writer: {raw_path}")
     try:
-        feedback_by_frame: dict[int, list[dict[str, Any]]] = {}
-        for issue in feedback or []:
-            feedback_by_frame.setdefault(int(issue["frame_index"]), []).append(issue)
         for target_index, frame_index in enumerate(frame_indices):
             frame = tracking["frames"][int(frame_index)].copy()
             mask = np.minimum(confidence[target_index], pixel_confidence[target_index])
@@ -516,12 +451,7 @@ def render_correction_video(
                 frame, corrected_pixels, display_mask, (55, 225, 75), 3
             )
             _draw_header(frame, filename, score)
-            issues = feedback_by_frame.get(target_index, [])
-            if issues:
-                _draw_feedback(frame, pixel_2d[target_index], issues)
-            repetitions = 1 + (round(fps * pause_seconds) if issues else 0)
-            for _ in range(repetitions):
-                writer.write(frame)
+            writer.write(frame)
     finally:
         writer.release()
 

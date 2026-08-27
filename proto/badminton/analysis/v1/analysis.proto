@@ -127,12 +127,13 @@ message AnalyzeVideoResponse {
   ExpertMatch expert = 6;
   repeated PhaseMarker timeline = 7;
   repeated DiagnosticValue diagnostics = 8;
+  // Reserved by the wire contract and always empty in this deployment: nothing
+  // here writes natural-language coaching.
   repeated CoachingCue coaching_cues = 9;
   string overall_feedback = 10;
-  // Clean detected/corrected skeletons over the source video, without GPT
-  // annotations or inserted coaching pauses.
+  // Clean detected/corrected skeletons over the source video.
   StoredVideo skeleton_overlay_video = 11;
-  // GPT suggestions, circled joints, and coaching pauses. student_video is a
+  // The same render, under the name older clients look for. student_video is a
   // backward-compatible alias of this field.
   StoredVideo feedback_video = 12;
 }

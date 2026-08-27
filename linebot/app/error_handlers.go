@@ -117,10 +117,3 @@ func (app *App) handleVideoAnalysisError(err error, replyToken string) {
 		"Video has been analyzed",
 	)(err, replyToken)
 }
-
-func (app *App) handleAddMessageToGPTConversationError(err error, replyToken string) {
-	app.handleLineError(
-		"Error adding message to GPT conversation",
-		"Message has been added to GPT conversation.",
-	)(err, replyToken)
-}

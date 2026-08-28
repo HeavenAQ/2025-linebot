@@ -7,7 +7,6 @@ const work = {
   date: '2026-08-02-02-15',
   thumbnail: 'https://example.test/thumbnail.jpeg',
   reflection: '',
-  preview_note: '',
   grading_outcome: {
     grading_details: [],
     total_grade: 90

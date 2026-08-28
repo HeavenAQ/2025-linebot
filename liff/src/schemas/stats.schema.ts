@@ -30,8 +30,6 @@ export const StatsPointSchema = BasePointVariants.transform(v => ({
   value: v.value
 }))
 
-export const StatsSeriesSchema = z.array(StatsPointSchema)
-
 // Summary shape returned by backend for both user and class
 export const StatsSummarySchema = z.object({
   avg: z.number(),

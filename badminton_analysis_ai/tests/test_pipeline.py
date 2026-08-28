@@ -1,10 +1,92 @@
 import pytest
+from pathlib import Path
 
+import service.pipeline as pipeline_module
 from service.pipeline import (
+    SkeletonAnalysisPipeline,
+    _correction_grade_context,
     _qualitative_phase_results,
+    _source_qualitative_phase_results,
     expert_phase_results,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
+from badminton_analysis.models.types import Skill
+
+
+def test_serve_and_smash_backends_enable_ankle_spine_projection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    created: list[tuple[Skill, bool]] = []
+
+    class Backend:
+        def __init__(
+            self,
+            model_root: Path,
+            skill: Skill,
+            **kwargs: object,
+        ) -> None:
+            del model_root
+            created.append((skill, bool(kwargs["align_ankle_spine_view"])))
+
+    monkeypatch.setattr(pipeline_module, "PoseDetector", lambda: object())
+    monkeypatch.setattr(pipeline_module, "CoachingGenerator", lambda model: object())
+    monkeypatch.setattr(pipeline_module, "ExpertMotionGeneratorBackend", Backend)
+
+    pipeline = SkeletonAnalysisPipeline(
+        tmp_path / "models",
+        expert_reference_bank=tmp_path / "missing-reference-bank.npz",
+    )
+
+    assert set(pipeline.loaded_skills) == {Skill.SERVE, Skill.SMASH}
+    assert created == [(Skill.SERVE, True), (Skill.SMASH, True)]
+
+
+def test_serve_gpt_context_includes_full_body_transition_evidence() -> None:
+    spec = get_skill_spec("serve")
+    diagnostics = {
+        "correction_distance": 0.8,
+        "position_distance": 0.4,
+        "angle_distance": 0.1,
+        "velocity_distance": 0.1,
+        "bone_length_distance": 0.0,
+        "support_transition_distance": 0.3,
+        "torso_lean_transition_distance": 0.2,
+        "transition_distance": 0.265,
+    }
+    criteria = [
+        (rule.name_zh_tw, 0.1 + index * 0.01, rule.maximum * 0.5)
+        for index, rule in enumerate(spec.rules)
+    ]
+
+    context = _correction_grade_context(
+        {"total_grade": 45.0}, diagnostics, spec, criteria
+    )
+
+    assert context["distance_components"]["support_transition_distance"] == 0.3
+    assert context["distance_components"]["torso_lean_transition_distance"] == 0.2
+    assert context["distance_components"]["transition_distance"] == 0.265
+    assert "軀幹前傾" in context["score_method_zh_tw"]
+
+
+def test_generated_expert_gpt_context_describes_expert_only_score() -> None:
+    spec = get_skill_spec("smash")
+    diagnostics = {
+        "correction_distance": 0.25,
+        "position_distance": 0.2,
+        "angle_distance": 0.1,
+        "scorer": "continuous_generated_expert_distribution_v1",
+    }
+    criteria = [
+        (rule.name_zh_tw, 0.1, rule.maximum * 0.8) for rule in spec.rules
+    ]
+
+    context = _correction_grade_context(
+        {"total_grade": 80.0}, diagnostics, spec, criteria
+    )
+
+    assert context["score_status"] == "expert_only_generated_distribution"
+    assert "歐氏距離" in context["score_method_zh_tw"]
+    assert "專家動作分布" in context["score_method_zh_tw"]
 
 
 def test_playback_timeline_uses_ordered_qualitative_skill_rules() -> None:
@@ -24,6 +106,25 @@ def test_playback_timeline_uses_ordered_qualitative_skill_rules() -> None:
     assert [marker.normalized_frame for marker in timeline] == sorted(
         marker.normalized_frame for marker in timeline
     )
+
+
+def test_source_playback_timeline_uses_original_video_clock() -> None:
+    spec = get_skill_spec("serve")
+    source_phases = [12, 18, 24, 31, 43]
+
+    timeline = _source_qualitative_phase_results(
+        spec,
+        phase_indices=(0, 16, 32, 48, 63),
+        source_phase_frames=source_phases,
+        normalized_sequence_length=64,
+        source_sequence_length=58,
+        fps=30.0,
+    )
+
+    assert timeline[0].timestamp_seconds == pytest.approx(12 / 30)
+    assert timeline[-1].timestamp_seconds == pytest.approx(43 / 30)
+    assert timeline[-1].normalized_position == pytest.approx(43 / 57)
+    assert timeline[-1].normalized_frame == 63
 
 
 def test_lift_playback_timeline_has_four_qualitative_checkpoints() -> None:

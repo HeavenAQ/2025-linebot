@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
+from badminton_analysis.ml.clear_feedback import (
+    DEFAULT_PHASE_INDICES,
+    SkillFeedbackAnalysis,
+    phase_for_frame,
+)
 from badminton_analysis.ml.skeleton_scoring import ScoreCalibration
 from badminton_analysis.ml.skill_specs import (
     SUPPORTED_CORRECTION_SKILLS,
     get_skill_spec,
+    motion_completion_bounds,
     validate_checkpoint_spec,
 )
 from badminton_analysis.models.types import Skill
@@ -46,6 +53,29 @@ EXPECTED_CRITERIA = {
 }
 
 
+def _feedback_payload(skill: Skill) -> dict[str, object]:
+    spec = get_skill_spec(skill)
+    rule = spec.rules[0]
+    return {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "整體動作順序正確，但第一個技術階段仍需要調整。",
+        "problems": [
+            {
+                "priority": "中",
+                "title": rule.name_zh_tw,
+                "feedback": "請依照專家動作調整這個階段的身體位置與動作節奏。",
+                "evidence": "目前畫面中的關節位置與專家化修正骨架仍有明顯差距。",
+                "frame_index": 0,
+                "phase": rule.phase,
+                "joint_ids": [rule.measured_joints[0]],
+                "rule_reference": rule.id,
+                "confidence": 0.8,
+            }
+        ],
+    }
+
+
 def test_each_supported_skill_has_an_independent_complete_contract() -> None:
     assert set(SUPPORTED_CORRECTION_SKILLS) == set(EXPECTED_CRITERIA)
     for skill, expected_names in EXPECTED_CRITERIA.items():
@@ -56,6 +86,26 @@ def test_each_supported_skill_has_an_independent_complete_contract() -> None:
         assert len(spec.joint_weights) == 17
         assert spec.dataset_root.name == spec.slug
         assert spec.slug in spec.model_path.name
+
+
+def test_scoring_windows_scale_with_motion_completion() -> None:
+    serve = get_skill_spec(Skill.SERVE)
+    wrist = next(
+        detail
+        for detail, rule in zip(serve.details, serve.rules, strict=True)
+        if rule.id == "wrist_flick"
+    )
+    follow_through = next(
+        detail
+        for detail, rule in zip(serve.details, serve.rules, strict=True)
+        if rule.id == "shoulder_rotation"
+    )
+
+    assert wrist.bounds(64) == (36, 56)
+    assert wrist.bounds(128) == (72, 112)
+    assert follow_through.bounds(64) == (48, 64)
+    assert follow_through.bounds(128) == (96, 128)
+    assert motion_completion_bounds(80, 0.875, 1.0) == (70, 80)
 
 
 def test_rules_retain_qualitative_grader_instructions() -> None:
@@ -86,6 +136,21 @@ def test_rules_retain_qualitative_grader_instructions() -> None:
             for expected, calculation in zip(movements, calculations, strict=True)
         )
         assert all("度" not in calculation for calculation in calculations)
+
+
+@pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
+def test_feedback_schema_accepts_each_skill_contract(skill: Skill) -> None:
+    analysis = SkillFeedbackAnalysis.model_validate(_feedback_payload(skill))
+    assert analysis.skill == str(skill)
+
+
+def test_feedback_schema_rejects_a_criterion_from_another_skill() -> None:
+    payload = _feedback_payload(Skill.LIFT)
+    problem = payload["problems"][0]  # type: ignore[index]
+    problem["title"] = "雙手平舉"  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="criterion title"):
+        SkillFeedbackAnalysis.model_validate(payload)
 
 
 def test_checkpoint_metadata_enforces_skill_separation() -> None:
@@ -140,6 +205,19 @@ def test_serve_follow_through_checks_forearm_near_opposite_neck() -> None:
 
     assert "前臂" in follow_through.calculation_zh_tw
     assert "對側頸部" in follow_through.calculation_zh_tw
+    assert follow_through.coaching_joints == (6, 8, 10)
+
+
+@pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
+def test_each_rule_anchor_has_its_declared_display_phase(skill: Skill) -> None:
+    spec = get_skill_spec(skill)
+    for rule in spec.rules:
+        for anchor_index in rule.allowed_anchor_indices:
+            frame_index = DEFAULT_PHASE_INDICES[anchor_index]
+            assert (
+                phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec)
+                == (rule.display_phase or rule.phase)
+            )
 
 
 def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() -> None:
@@ -157,5 +235,4 @@ def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() ->
     assert spec.rule("wrist_flick").display_phase is None
     assert "最大手腕加速度" in spec.checkpoint_roles_zh_tw[2]
     assert "隨揮" in spec.checkpoint_roles_zh_tw[3]
-
 

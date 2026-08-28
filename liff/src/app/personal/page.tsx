@@ -21,6 +21,7 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
+import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
 
@@ -111,17 +112,28 @@ export default function PersonalPage() {
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
+  const [focusWork, setFocusWork] = useState<WorkFocus | null>(null)
   const { liff, profile, liffError, sessionExpired } = useLiff()
 
-  // The bot links straight to a tab (?tab=review from 每週回顧), so a student
-  // arriving from LINE lands where they were sent rather than on the default.
+  // The bot links straight to a tab (?tab=review from 每週回顧), and a portfolio
+  // card names the attempt it shows as well, so a student arriving from LINE
+  // lands where they were sent rather than on the default. The attempt can only
+  // be checked once the portfolio is here, which is why this waits for userData
+  // instead of running on mount.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const requested = new URLSearchParams(window.location.search).get('tab')
+    const search = window.location.search
+    const requested = new URLSearchParams(search).get('tab')
     if (TAB_OPTIONS.some(option => option.value === requested)) {
       setActiveTab(requested as TabValue)
     }
-  }, [])
+    if (!userData) return
+    const focus = resolveWorkFocus(search, userData.portfolio)
+    if (!focus) return
+    setSelectedSkill(focus.skill)
+    setSelectedDate(focus.date)
+    setFocusWork(focus)
+  }, [userData])
 
   useEffect(() => {
     if (liffError) {
@@ -373,7 +385,7 @@ export default function PersonalPage() {
 
         {activeTab === 'review' && profile?.userId && (
           <div role="tabpanel">
-            <WeeklyReview userId={profile.userId} userData={userData} />
+            <WeeklyReview userId={profile.userId} userData={userData} focusWork={focusWork} />
           </div>
         )}
       </main>

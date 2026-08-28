@@ -6,7 +6,12 @@ from typing import Iterable
 import numpy as np
 from numpy.typing import NDArray
 
-from badminton_analysis.models.types import COCOKeypoints, CoordinateDict, Handedness
+from badminton_analysis.models.types import (
+    COCOKeypoints,
+    CoordinateDict,
+    Handedness,
+    TrackingData,
+)
 
 COCO_JOINT_COUNT = 17
 CANONICAL_PHASE_INDICES = np.asarray((0, 16, 32, 48, 63), dtype=np.int64)
@@ -86,6 +91,33 @@ def landmark_dicts_to_array(
             coordinates[frame_index, joint_index] = value
             confidence[frame_index, joint_index] = 1.0
     return coordinates.astype(np.float32), confidence.astype(np.float32)
+
+
+def tracking_body_arrays(
+    tracking: TrackingData,
+) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """Return dense body coordinates with continuous detector confidence.
+
+    New RF-DETR tracking data carries dense coordinates and scores.  Older
+    caches and test doubles only have sparse dictionaries, so they retain a
+    compatibility fallback with a binary observed mask.  Keeping this choice
+    in one function prevents inference, audit, and handedness paths from
+    silently using different confidence semantics.
+    """
+    coordinates = tracking.get("body_keypoints_2d")
+    confidence = tracking.get("body_confidence_2d")
+    if coordinates is not None and confidence is not None:
+        dense = np.asarray(coordinates, dtype=np.float32)
+        scores = np.asarray(confidence, dtype=np.float32)
+        if dense.ndim != 3 or dense.shape[1:] != (COCO_JOINT_COUNT, 2):
+            raise ValueError("body_keypoints_2d must have shape (T, 17, 2)")
+        if scores.shape != dense.shape[:2]:
+            raise ValueError("body_confidence_2d must have shape (T, 17)")
+        return dense, np.clip(scores, 0.0, 1.0).astype(np.float32)
+    body_2d = tracking.get("body_landmarks_2d")
+    if not body_2d:
+        raise ValueError("aligned 2D body landmarks are unavailable")
+    return landmark_dicts_to_array(body_2d, 2)
 
 
 def _interpolate_missing(

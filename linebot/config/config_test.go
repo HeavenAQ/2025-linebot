@@ -46,3 +46,25 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, "8080", config.Port)
 	require.Equal(t, "https://liff.example.test/personal?tab=review", config.ReviewURL())
 }
+
+// The flag that decides whether learner frames reach a third-party model must
+// come from configuration, so one binary can serve a consented deployment and a
+// non-consented one without a code difference between them.
+func TestSkipCoachingComesFromTheEnvironment(t *testing.T) {
+	t.Setenv("ANALYSIS_SKIP_COACHING", "true")
+	t.Setenv("PORT", "8080")
+
+	config, err := config.LoadConfig(".env.absent")
+
+	require.NoError(t, err)
+	require.True(t, config.AnalysisServer.SkipCoaching)
+}
+
+func TestSkipCoachingDefaultsToSendingCoaching(t *testing.T) {
+	t.Setenv("PORT", "8080")
+
+	config, err := config.LoadConfig(".env.absent")
+
+	require.NoError(t, err)
+	require.False(t, config.AnalysisServer.SkipCoaching)
+}

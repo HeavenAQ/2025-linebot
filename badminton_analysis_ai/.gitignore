@@ -8,5 +8,7 @@ uploads/
 validation/
 expert_videos/
 test_videos/
+coaching_frames/
+feedback.json
 sa-key.json
 .env

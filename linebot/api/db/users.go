@@ -51,7 +51,6 @@ type Work struct {
 	Handedness           string                 `json:"handedness" firestore:"handedness"`
 	Thumbnail            string                 `json:"thumbnail" firestore:"thumbnail"`
 	Reflection           string                 `json:"reflection" firestore:"reflection"`
-	PreviewNote          string                 `json:"preview_note" firestore:"preview_note"`
 	GradingOutcome       commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
 	AnalysisID           string                 `json:"analysis_id" firestore:"analysis_id"`
 	StudentVideo         commons.MediaRef       `json:"student_video" firestore:"student_video"`
@@ -130,7 +129,6 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		Handedness:           analysis.Handedness,
 		GradingOutcome:       analysis.Grade,
 		Reflection:           "尚未填寫心得",
-		PreviewNote:          "尚未填寫課前檢視要點",
 		Thumbnail:            thumbnailFile.Path,
 		AnalysisID:           analysis.AnalysisID,
 		StudentVideo:         analysis.StudentVideo,
@@ -159,18 +157,6 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	targetWork.Reflection = reflection
 	(*userPortfolio)[date] = targetWork
 
-	return client.updateUserData(user)
-}
-
-func (client *FirestoreClient) UpdateUserPortfolioPreviewNote(
-	user *UserData,
-	userPortfolio *map[string]Work,
-	date string,
-	previewNote string,
-) error {
-	targetWork := (*userPortfolio)[date]
-	targetWork.PreviewNote = previewNote
-	(*userPortfolio)[date] = targetWork
 	return client.updateUserData(user)
 }
 

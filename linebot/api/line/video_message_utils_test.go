@@ -69,6 +69,7 @@ func TestLiveGetVideoContent(t *testing.T) {
 		os.Getenv("LINE_CHANNEL_SECRET"),
 		os.Getenv("LINE_CHANNEL_TOKEN"),
 		os.Getenv("GCS_BUCKET_NAME"),
+		os.Getenv("LIFF_REVIEW_URL"),
 	)
 	require.NoError(t, err)
 
@@ -98,13 +99,14 @@ func TestLiveLINEVideoAnalysis(t *testing.T) {
 		os.Getenv("LINE_CHANNEL_SECRET"),
 		os.Getenv("LINE_CHANNEL_TOKEN"),
 		os.Getenv("GCS_BUCKET_NAME"),
+		os.Getenv("LIFF_REVIEW_URL"),
 	)
 	require.NoError(t, err)
 	video, err := lineClient.GetVideoContent(messageID)
 	require.NoError(t, err)
 	require.Greater(t, len(video), 1024)
 
-	analysisClient, err := analysis.NewClient(target, apiKey, false)
+	analysisClient, err := analysis.NewClient(target, apiKey, false, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, analysisClient.Close()) })
 	result, err := analysisClient.AnalyzeVideo(

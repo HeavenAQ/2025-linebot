@@ -3,6 +3,7 @@ package line
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"sort"
 	"time"
@@ -44,28 +45,25 @@ func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 	}
 }
 
-// createButtonActions generates the buttons for preview and reflection actions
+// workReviewURL points the review tab at one recorded attempt. The configured
+// URL already carries a query of its own (?tab=review), so the work is merged
+// into it rather than appended behind a second "?".
+func workReviewURL(reviewURL string, skill string, workDate string) string {
+	parsed, err := url.Parse(reviewURL)
+	if err != nil {
+		// Nothing to build on, but the plain review tab still gets the learner
+		// to their reflections -- they just have to pick the video themselves.
+		return reviewURL
+	}
+	query := parsed.Query()
+	query.Set("skill", skill)
+	query.Set("date", workDate)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// createButtonActions generates the buttons for reflection and video actions
 func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot.FlexComponent, error) {
-	previewData, err := json.Marshal(WritingNotePostback{
-		State:      db.WritingNotes.String(),
-		WorkDate:   work.DateTime,
-		ActionStep: db.WritingPreviewNote.String(),
-		Skill:      skill,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	reflectionData, err := json.Marshal(WritingNotePostback{
-		State:      db.WritingNotes.String(),
-		WorkDate:   work.DateTime,
-		ActionStep: db.WritingReflection.String(),
-		Skill:      skill,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	videoData, err := json.Marshal(VideoPostback{
 		WorkDate: work.DateTime,
 		Skill:    skill,
@@ -79,26 +77,12 @@ func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot
 			Type:   "button",
 			Style:  "primary",
 			Height: "sm",
-			Action: linebot.NewPostbackAction(
+			// The reflection is written in the web app, alongside the video
+			// and the grades for this same attempt, so the button opens that
+			// attempt directly instead of starting a note over chat.
+			Action: linebot.NewURIAction(
 				"更新學習反思",
-				string(reflectionData),
-				"",
-				"",
-				"openKeyboard",
-				"",
-			),
-		},
-		&linebot.ButtonComponent{
-			Type:   "button",
-			Style:  "primary",
-			Height: "sm",
-			Action: linebot.NewPostbackAction(
-				"更新課前動作檢測要點",
-				string(previewData),
-				"",
-				"",
-				"openKeyboard",
-				"",
+				workReviewURL(client.reviewURL, skill, work.DateTime),
 			),
 		},
 		&linebot.ButtonComponent{
@@ -117,7 +101,7 @@ func (client *Client) createButtonActions(work db.Work, skill string) ([]linebot
 	}, nil
 }
 
-// createNotesSection generates the notes sections for the preview note and the reflection
+// createNotesSection generates the notes section for the reflection
 func createNotesSection(label string, content string) *linebot.BoxComponent {
 	// If content is empty, provide a default placeholder text
 	if content == "" {
@@ -178,15 +162,16 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 					Size:   "xl",
 				},
 				rating,
-				createNotesSection("課前動作檢測要點：", work.PreviewNote),
 				createNotesSection("學習反思：", work.Reflection),
 			},
 		},
+		// Outside the update flow the card is a record to look at, so it offers
+		// playback only -- buttons[0] is the reflection link.
 		Footer: &linebot.BoxComponent{
 			Type:     "box",
 			Layout:   "vertical",
 			Spacing:  "sm",
-			Contents: buttons[2:],
+			Contents: buttons[1:],
 		},
 	}
 

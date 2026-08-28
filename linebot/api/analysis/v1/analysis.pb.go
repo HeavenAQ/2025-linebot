@@ -129,12 +129,19 @@ func (Handedness) EnumDescriptor() ([]byte, []int) {
 }
 
 type AnalyzeVideoHeader struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Filename      string                 `protobuf:"bytes,3,opt,name=filename,proto3" json:"filename,omitempty"`
-	Skill         Skill                  `protobuf:"varint,4,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
-	Handedness    Handedness             `protobuf:"varint,5,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	UserId     string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Filename   string                 `protobuf:"bytes,3,opt,name=filename,proto3" json:"filename,omitempty"`
+	Skill      Skill                  `protobuf:"varint,4,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
+	Handedness Handedness             `protobuf:"varint,5,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	// Skip the coaching pass entirely. Coaching is the only stage that leaves
+	// this service: it sends sampled frames of the learner to a third-party
+	// model. A deployment that has not obtained consent for that sets this, and
+	// then no image of the learner goes anywhere. The analysis itself is
+	// unaffected -- pose, correction, grading and expert matching are local --
+	// so the response is the same minus coaching_cues and overall_feedback.
+	SkipCoaching  bool `protobuf:"varint,6,opt,name=skip_coaching,json=skipCoaching,proto3" json:"skip_coaching,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,6 +209,13 @@ func (x *AnalyzeVideoHeader) GetHandedness() Handedness {
 		return x.Handedness
 	}
 	return Handedness_HANDEDNESS_UNSPECIFIED
+}
+
+func (x *AnalyzeVideoHeader) GetSkipCoaching() bool {
+	if x != nil {
+		return x.SkipCoaching
+	}
+	return false
 }
 
 type AnalyzeVideoChunk struct {
@@ -902,22 +916,21 @@ func (x *DiagnosticValue) GetValue() float64 {
 }
 
 type AnalyzeVideoResponse struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	AnalysisId   string                 `protobuf:"bytes,1,opt,name=analysis_id,json=analysisId,proto3" json:"analysis_id,omitempty"`
-	Skill        Skill                  `protobuf:"varint,2,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
-	Handedness   Handedness             `protobuf:"varint,3,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
-	Grade        *GradingOutcome        `protobuf:"bytes,4,opt,name=grade,proto3" json:"grade,omitempty"`
-	StudentVideo *StoredVideo           `protobuf:"bytes,5,opt,name=student_video,json=studentVideo,proto3" json:"student_video,omitempty"`
-	Expert       *ExpertMatch           `protobuf:"bytes,6,opt,name=expert,proto3" json:"expert,omitempty"`
-	Timeline     []*PhaseMarker         `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
-	Diagnostics  []*DiagnosticValue     `protobuf:"bytes,8,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
-	// Reserved by the wire contract and always empty in this deployment: nothing
-	// here writes natural-language coaching.
-	CoachingCues    []*CoachingCue `protobuf:"bytes,9,rep,name=coaching_cues,json=coachingCues,proto3" json:"coaching_cues,omitempty"`
-	OverallFeedback string         `protobuf:"bytes,10,opt,name=overall_feedback,json=overallFeedback,proto3" json:"overall_feedback,omitempty"`
-	// Clean detected/corrected skeletons over the source video.
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AnalysisId      string                 `protobuf:"bytes,1,opt,name=analysis_id,json=analysisId,proto3" json:"analysis_id,omitempty"`
+	Skill           Skill                  `protobuf:"varint,2,opt,name=skill,proto3,enum=badminton.analysis.v1.Skill" json:"skill,omitempty"`
+	Handedness      Handedness             `protobuf:"varint,3,opt,name=handedness,proto3,enum=badminton.analysis.v1.Handedness" json:"handedness,omitempty"`
+	Grade           *GradingOutcome        `protobuf:"bytes,4,opt,name=grade,proto3" json:"grade,omitempty"`
+	StudentVideo    *StoredVideo           `protobuf:"bytes,5,opt,name=student_video,json=studentVideo,proto3" json:"student_video,omitempty"`
+	Expert          *ExpertMatch           `protobuf:"bytes,6,opt,name=expert,proto3" json:"expert,omitempty"`
+	Timeline        []*PhaseMarker         `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
+	Diagnostics     []*DiagnosticValue     `protobuf:"bytes,8,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	CoachingCues    []*CoachingCue         `protobuf:"bytes,9,rep,name=coaching_cues,json=coachingCues,proto3" json:"coaching_cues,omitempty"`
+	OverallFeedback string                 `protobuf:"bytes,10,opt,name=overall_feedback,json=overallFeedback,proto3" json:"overall_feedback,omitempty"`
+	// Clean detected/corrected skeletons over the source video, without GPT
+	// annotations or inserted coaching pauses.
 	SkeletonOverlayVideo *StoredVideo `protobuf:"bytes,11,opt,name=skeleton_overlay_video,json=skeletonOverlayVideo,proto3" json:"skeleton_overlay_video,omitempty"`
-	// The same render, under the name older clients look for. student_video is a
+	// GPT suggestions, circled joints, and coaching pauses. student_video is a
 	// backward-compatible alias of this field.
 	FeedbackVideo *StoredVideo `protobuf:"bytes,12,opt,name=feedback_video,json=feedbackVideo,proto3" json:"feedback_video,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1218,7 +1231,7 @@ var File_badminton_analysis_v1_analysis_proto protoreflect.FileDescriptor
 
 const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\n" +
-	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\xdf\x01\n" +
+	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\x84\x02\n" +
 	"\x12AnalyzeVideoHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -1227,7 +1240,8 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\x05skill\x18\x04 \x01(\x0e2\x1c.badminton.analysis.v1.SkillR\x05skill\x12A\n" +
 	"\n" +
 	"handedness\x18\x05 \x01(\x0e2!.badminton.analysis.v1.HandednessR\n" +
-	"handedness\"y\n" +
+	"handedness\x12#\n" +
+	"\rskip_coaching\x18\x06 \x01(\bR\fskipCoaching\"y\n" +
 	"\x11AnalyzeVideoChunk\x12C\n" +
 	"\x06header\x18\x01 \x01(\v2).badminton.analysis.v1.AnalyzeVideoHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\t\n" +

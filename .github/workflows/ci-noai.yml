@@ -73,12 +73,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # The whole point of this variant. A reintroduced SDK call, prompt or
-      # model name fails the build rather than reaching a student.
-      - name: Refuse any reintroduced LLM reference
+      # badminton_analysis_ai/ and proto/ are shared with main and do contain the
+      # coaching stage; this variant turns it off per deployment rather than by
+      # deleting it. So the check covers the code this branch actually owns.
+      # linebot/api/analysis/v1 is generated from the shared contract.
+      - name: Refuse any reintroduced LLM reference in variant-owned code
         run: |
           if grep -rniE 'openai|gpt' \
-            --include='*.go' --include='*.py' --include='*.ts' --include='*.tsx' .; then
-            echo "the no-AI variant must contain no OpenAI or GPT references" >&2
+            --include='*.go' --include='*.py' --include='*.ts' --include='*.tsx' \
+            --exclude-dir=v1 linebot/ liff/; then
+            echo "variant-owned code must contain no OpenAI or GPT references" >&2
             exit 1
           fi
+
+      # The flag is the whole of what makes the analysis side GPT-free, so a
+      # deploy that lost it must not pass silently.
+      - name: Require the deploy to set ANALYSIS_SKIP_COACHING
+        run: |
+          grep -q 'ANALYSIS_SKIP_COACHING=true' .github/workflows/cd-linebot-noai.yml
+          grep -q 'ANALYSIS_SKIP_COACHING=true' .env.example

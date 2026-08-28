@@ -14,12 +14,15 @@ on:
   workflow_dispatch:
 
 env:
-  # The variant's own Cloud Run service, image and analysis service. Production
-  # runs nstc-linebot-2025 / badminton-analysis-ai; nothing here may name those.
+  # The variant's own Cloud Run service and image. Production runs
+  # nstc-linebot-2025; nothing here may name that.
   SERVICE_NAME: nstc-linebot-2025-noai
   IMAGE_NAME: nstc-linebot-2025-noai
   REGION: asia-east1
-  ANALYSIS_SERVICE_NAME: badminton-analysis-ai-noai
+  # The analysis service is deliberately shared with production. What makes this
+  # deployment GPT-free is ANALYSIS_SKIP_COACHING below: the service branches
+  # before coaching, the only stage that sends learner frames to a third party.
+  ANALYSIS_SERVICE_NAME: badminton-analysis-ai
   ANALYSIS_REGION: asia-southeast1
 
 jobs:
@@ -41,7 +44,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.NOAI_GCP_SA_EMAIL }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -75,9 +78,13 @@ jobs:
           # target is left at whatever the running revision already has rather
           # than being blanked -- and this deploy is not blocked on it.
           env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
-          env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.NOAI_GCP_SA_EMAIL }}"
+          env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
           env_vars="${env_vars},GCP_ENV_SECRET_NAME=${{ secrets.NOAI_ENV_SECRET_NAME }}"
           env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          # The one setting that makes this deployment GPT-free. It is asserted
+          # after the deploy, because a silent loss of it would send learner
+          # imagery to a third party with nothing else failing.
+          env_vars="${env_vars},ANALYSIS_SKIP_COACHING=true"
           if analysis_url="$(gcloud run services describe "${ANALYSIS_SERVICE_NAME}" \
             --region "${ANALYSIS_REGION}" --format='value(status.url)' 2>/dev/null)"; then
             env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"
@@ -99,10 +106,47 @@ jobs:
             --platform managed \
             --region "${REGION}" \
             --allow-unauthenticated \
-            --service-account ${{ secrets.NOAI_GCP_SA_EMAIL }} \
+            --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
             --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id},LIFF_REVIEW_URL=${{ secrets.NOAI_LIFF_REVIEW_URL }}" \
-            --update-secrets ANALYSIS_GRPC_API_KEY=${{ secrets.NOAI_ANALYSIS_API_KEY_SECRET }}:latest
+            --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
+
+      - name: Verify the deployed service is the variant's own
+        run: |
+          # One service account and one project serve both deployments, so
+          # nothing but these env vars keeps this variant out of production's
+          # bucket and databases. Read them back rather than trusting the
+          # deploy: a wrong value mixes two products' learner data silently.
+          deployed="$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${REGION}" --format=json | jq -r \
+            '.spec.template.spec.containers[0].env[]? | "\(.name)=\(.value // "")"')"
+          echo "${deployed}"
+          echo "${deployed}" | grep -qx 'ANALYSIS_SKIP_COACHING=true' \
+            || { echo "ANALYSIS_SKIP_COACHING is not true; coaching would run" >&2; exit 1; }
+          secret_name="$(echo "${deployed}" | sed -n 's/^GCP_ENV_SECRET_NAME=//p')"
+          test -n "${secret_name}" || { echo "GCP_ENV_SECRET_NAME is unset" >&2; exit 1; }
+          if [ "${secret_name}" = "2025-linebot-env" ]; then
+            echo "GCP_ENV_SECRET_NAME is production's secret" >&2
+            exit 1
+          fi
+          # And the bucket and databases inside that secret must be the
+          # variant's too -- that is where the data plane is actually chosen.
+          env_body="$(gcloud secrets versions access latest --secret "${secret_name}")"
+          for pair in "GCS_BUCKET_NAME=nstc-2025-storage"; do
+            key="${pair%%=*}"; forbidden="${pair#*=}"
+            value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
+            test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }
+            if [ "${value}" = "${forbidden}" ]; then
+              echo "${key} is production's ${forbidden}" >&2
+              exit 1
+            fi
+            echo "${key} is ${value}"
+          done
+          for key in FIREBASE_DATA_DB FIREBASE_SESSION_DB; do
+            value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
+            test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }
+            echo "${key} is ${value}"
+          done
 
       - name: Verify deployed backend health
         run: |

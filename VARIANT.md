@@ -10,6 +10,30 @@ and the bill that comes with it.
 
 **Never merge `variant/no-ai` into `main`.** It is a parallel product line.
 
+## Topology
+
+Same GCP project, same service account, **separate Cloud Run services**, its own
+Netlify site, its own bucket and its own Firestore databases. The GPU analysis
+service is **shared with production**.
+
+Sharing the analysis service is safe because of `skip_coaching`. Coaching is the
+only stage of an analysis that leaves the machine -- it uploads sampled JPEG
+frames of the learner to a third-party model as `input_image`. The service
+branches *before* that call, so with the flag set no image of a learner is sent
+anywhere, and the response comes back without `coaching_cues` or
+`overall_feedback`. Everything that decides the grade -- pose, the diffusion
+correction, the rubric, checkpoints, expert matching -- is local and runs either
+way.
+
+The bot sets it deployment-wide from `ANALYSIS_SKIP_COACHING=true` and puts it on
+every request. **That flag is the whole of what makes this deployment GPT-free on
+the analysis side.** If it is ever unset, this deployment silently stops being
+GPT-free: nothing else fails, and learner imagery starts going to a third party
+again. The CD workflow reads it back off the deployed revision for that reason.
+
+`badminton_analysis_ai/` and `proto/` on this branch are therefore byte-identical
+to `main`, and must stay that way.
+
 ## What is gone, and what is not
 
 The analysis was never GPT. Pose estimation, the EIMD diffusion correction,
@@ -22,7 +46,7 @@ Removed:
 | Area | Gone |
 |---|---|
 | Go | `api/gpt/` in full; the `ChattingWithGPT` state and its rich-menu, postback and quick-reply entries; chat history (`api/db/chat_history.go`) and `daily_summaries` (`api/db/daily_summary.go`); the weekly 課前預習 push (`app/weekly_preview.go`, `api/db/weekly_preview.go`, `PushWeeklyPreview`); `/api/chat/history`, `/api/chat/summarize` and `/api/preview/weekly`; `OPENAI_*` and `WEEKLY_PREVIEW_TOKEN` config; `gpt_conversation_ids` and `ai_note` on the user record; the 詢問AI建議 portfolio button |
-| Python | `service/coaching.py` and `badminton_analysis/ml/clear_feedback.py` (the prompt, sampling and response-schema layer); the coaching-cue render pass and its 2-second pauses; `OPENAI_*` env vars and the `openai` dependency; `coaching_joints` and `as_prompt_dict` on the rule spec, which only ever fed a prompt |
+| Python | Nothing. `badminton_analysis_ai/` is identical to `main`; the coaching stage is switched off per deployment by `ANALYSIS_SKIP_COACHING` rather than deleted, so one GPU service serves both products |
 | Web app | `SkillSummary.tsx`, `useSkillSummary.ts`, the `gpt-chat` page and its menu entry; the chat-history panel in `WeeklyReview.tsx`; the coaching-cue markers, cue list and pause legend in `VideoComparison.tsx` |
 
 Kept, deliberately: uploads, grading and the score charts, the checkpoint
@@ -30,8 +54,9 @@ timeline, the expert comparison with checkpoint alignment and segmental warping,
 weekly reflections, stats, the portfolio carousel, and both `student_video` and
 `skeleton_overlay_video` fields on the response.
 
-`coaching_cues` and `overall_feedback` remain in the protobuf contract and are
-always empty. They are not populated anywhere.
+`coaching_cues` and `overall_feedback` remain in the protobuf contract and come
+back empty for this deployment because the service skips the stage that fills
+them. The Go client and the web app no longer read either field.
 
 ## Separate data plane
 
@@ -60,25 +85,33 @@ bucket is `nstc-2025-storage` and the live Cloud Run services are
 export PROJECT_ID=<your project>
 export REGION=asia-east1              # bot; keep data and bucket in one region
 export BUCKET=nstc-2025-storage-noai
-export SA_EMAIL=nstc-linebot-noai@${PROJECT_ID}.iam.gserviceaccount.com
+export SA_EMAIL=nstc-linebot-2025@${PROJECT_ID}.iam.gserviceaccount.com  # shared with production
 ```
 
 ### Service account
 
-```bash
-gcloud iam service-accounts create nstc-linebot-noai \
-  --project "${PROJECT_ID}" \
-  --display-name "No-AI variant runtime"
+**There is no new service account.** The variant runs as the existing
+`nstc-linebot-2025@nstc-linebot-2025.iam.gserviceaccount.com`, which is already
+the sole `roles/run.invoker` on the analysis service, so **no IAM change is
+needed** to let the variant call it.
 
-for role in roles/datastore.user roles/storage.objectAdmin \
-            roles/secretmanager.secretAccessor roles/iam.serviceAccountTokenCreator; do
-  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-    --member "serviceAccount:${SA_EMAIL}" --role "${role}"
-done
-```
+Be clear about what one shared identity costs, because it is the real price of
+this topology:
 
-`roles/iam.serviceAccountTokenCreator` is what lets the account sign playback
-URLs through IAM: on Cloud Run the metadata credentials carry no private key.
+- **The two deployments are indistinguishable at the identity layer.** Cloud Run
+  audit logs show the same principal for both, so "which product did this?"
+  cannot be answered from IAM.
+- **You cannot revoke one without revoking the other.** Any binding you remove to
+  cut the variant off also cuts off production.
+- **Nothing but configuration keeps the variant out of production's data.** That
+  account holds project-wide Firestore and Storage permissions, so a wrong
+  `GCS_BUCKET_NAME` or `FIREBASE_DATA_DB` does not fail -- it silently reads and
+  writes the live product's learner data, and the first sign of it is two
+  cohorts' work mixed in one portfolio.
+
+There is no permission boundary between the two products. The separation is
+entirely in the four values below, which is why the deploy reads them back off
+the running revision instead of trusting that it set them.
 
 ### GCS bucket
 
@@ -174,14 +207,13 @@ gcloud secrets add-iam-policy-binding 2025-linebot-noai-env --project "${PROJECT
   --member "serviceAccount:${SA_EMAIL}" --role roles/secretmanager.secretAccessor
 ```
 
-And the analysis gRPC key, which both services check:
+No second gRPC key is created. The analysis service accepts exactly one
+configured `x-api-key`, so the variant presents the existing
+`analysis-grpc-api-key` -- put that same value in the `ANALYSIS_GRPC_API_KEY`
+line of `.env` before uploading it, and read it back with:
 
 ```bash
-openssl rand -hex 32 | tr -d '\n' | \
-  gcloud secrets create analysis-grpc-api-key-noai --project "${PROJECT_ID}" \
-    --replication-policy automatic --data-file -
-gcloud secrets add-iam-policy-binding analysis-grpc-api-key-noai --project "${PROJECT_ID}" \
-  --member "serviceAccount:${SA_EMAIL}" --role roles/secretmanager.secretAccessor
+gcloud secrets versions access latest --secret analysis-grpc-api-key
 ```
 
 ### Netlify site
@@ -200,47 +232,17 @@ is not in this repo, so this is the one step that cannot be scripted from CI.
 
 ### The analysis service
 
-You have a choice here, and it is a real trade rather than a detail.
+Nothing to create. The variant points at the existing `badminton-analysis-ai` in
+asia-southeast1 and sets `ANALYSIS_SKIP_COACHING=true`.
 
-**Option A — run the variant's own GPU service.** The service in this branch has
-no OpenAI call in it at all. This is the only option that makes the side-by-side
-comparison honest, because in Option B every analysis in *both* arms still goes
-through GPT. It costs a second NVIDIA L4 on the bill, though it scales to zero
-(`--min 0`), so the cost is per analysis rather than per week.
+**Reuse the existing `analysis-grpc-api-key`.** The service compares the
+`x-api-key` metadata against a single configured value with
+`secrets.compare_digest`; it has no notion of several valid keys, so a
+variant-specific key would simply be rejected. Both deployments present the same
+one.
 
-Deploy it with distinct names — `badminton-analysis-ai-noai` in
-asia-southeast1, image `gcr.io/${PROJECT_ID}/badminton-analysis-noai` — mirroring
-`.github/workflows/cd-motion-analysis.yml` but dropping its `OPENAI_COACHING_MODEL`,
-`COACHING_PAUSE_SECONDS`, `COACHING_NO_SUGGESTION_*` env vars and its
-`OPENAI_API_KEY` secret, which this code no longer reads. Copy the expert
-reference bank, expert clips and the RF-DETR TensorRT engines into the variant
-bucket first; the deploy verifies itself against two expert fixtures that have to
-be there. No CD workflow for this is shipped on the branch, deliberately: standing
-up a second L4 is your call, not a push trigger's.
-
-**Option B — share the already-deployed `badminton-analysis-ai`.** Set
-`ANALYSIS_GRPC_TARGET` to that service's host and use the existing
-`analysis-grpc-api-key`. Nothing needs deploying. Be clear about what you are
-buying: the shared service still calls OpenAI on every analysis, so every
-student's video frames still reach OpenAI in both arms, the API bill is unchanged,
-and "with AI" versus "without AI" no longer distinguishes the two deployments —
-only what the learner is shown differs. If that is acceptable, then consume
-`skeleton_overlay_video` rather than `student_video`, since the shared service
-burns coaching captions and 2-second pauses into `student_video`'s pixels, which
-no consumer-side filtering can remove. The checkpoint timeline is computed as
-`frame / fps` with no pause offset (`_qualitative_phase_results` in
-`service/pipeline.py`), so it is already expressed in overlay-render time and
-lines up against that video without adjustment.
-
-Either way, the service accepts only one invoker. If the variant's bot runs as
-its own service account, add it:
-
-```bash
-gcloud run services add-iam-policy-binding <analysis service> \
-  --region asia-southeast1 \
-  --member "serviceAccount:${SA_EMAIL}" \
-  --role roles/run.invoker
-```
+No invoker binding is needed either: the variant runs as the account that is
+already the only `roles/run.invoker` on that service.
 
 The Go client attaches an OIDC token audienced to the **service** URL, not a tag
 URL; Cloud Run refuses a token minted for a tag URL with a bare 401.
@@ -255,9 +257,8 @@ variant's CD workflows use an environment named `nstc-linebot-2025-noai`.
 | `GCP_PROJECT_ID` | Project both deployments live in (shared with production's workflows) |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | OIDC provider for GitHub → GCP auth (shared) |
 | `NETLIFY_AUTH_TOKEN` | Netlify personal access token (shared) |
-| `NOAI_GCP_SA_EMAIL` | `${SA_EMAIL}` above — the variant's runtime service account |
+| `GCP_SA_EMAIL` | The shared runtime service account (same as production) |
 | `NOAI_ENV_SECRET_NAME` | `2025-linebot-noai-env` |
-| `NOAI_ANALYSIS_API_KEY_SECRET` | `analysis-grpc-api-key-noai` |
 | `NOAI_GCS_BUCKET_NAME` | `${BUCKET}` |
 | `NOAI_NEXT_PUBLIC_LIFF_ID` | The variant's LIFF ID, `<login channel id>-<suffix>` |
 | `NOAI_BACKEND_BASE_URL` | The variant's Cloud Run bot URL, with `https://` |
@@ -270,12 +271,20 @@ Three workflows are added, all firing only on `variant/no-ai` and each with the
 narrowest path filter that can change what it deploys:
 
 - `.github/workflows/ci-noai.yml` — build, vet, tests, `staticcheck -checks U1000`,
-  and a check that refuses any reintroduced `openai`/`gpt` reference.
+  a check that refuses a reintroduced `openai`/`gpt` reference in variant-owned
+  code, and a check that the deploy still sets `ANALYSIS_SKIP_COACHING=true`.
 - `.github/workflows/cd-linebot-noai.yml` — `linebot/**`; Cloud Run service
-  `nstc-linebot-2025-noai`, image `gcr.io/<project>/nstc-linebot-2025-noai`.
+  `nstc-linebot-2025-noai`, image `gcr.io/<project>/nstc-linebot-2025-noai`. After
+  deploying it reads the running revision's env back and fails unless
+  `ANALYSIS_SKIP_COACHING` is `true`, `GCP_ENV_SECRET_NAME` is not production's,
+  and the bucket and database names inside that secret are the variant's own.
 - `.github/workflows/cd-liff-noai.yml` — `liff/**`; Netlify site
   `NOAI_NETLIFY_SITE_ID`, and it refuses to ship a build that has production's bot
   URL compiled into it.
+
+No GPU deploy workflow is added: the analysis service is shared, so the variant
+has nothing to build or deploy there. `cd-motion-analysis.yml` stays production's
+alone.
 
 Production's `ci.yml`, `cd-linebot.yml`, `cd-liff.yml` and `cd-motion-analysis.yml`
 are inherited on this branch and left byte-identical. They all filter
@@ -291,9 +300,30 @@ cd linebot && go build ./... && go vet ./... && go test ./...
 cd linebot && PATH="$PATH:$(go env GOPATH)/bin" staticcheck -checks 'U1000' ./...
 cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -m pytest -q tests
 cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -c "import service.server"
-cd liff && npx tsc --noEmit    # two pre-existing TS5097 errors are expected
+cd liff && npx tsc --noEmit    # three pre-existing TS5097 errors are expected
 cd liff && npm test && npm run build
-grep -rniE "openai|gpt" --include='*.go' --include='*.py' --include='*.ts' --include='*.tsx' .
+
+# Variant-owned code carries no LLM reference. badminton_analysis_ai/ and the
+# generated stubs under api/analysis/v1 are the shared contract and do, correctly.
+grep -rniE "openai|gpt" --include='*.go' --include='*.py' --include='*.ts' \
+  --include='*.tsx' --exclude-dir=v1 linebot/ liff/
+
+# badminton_analysis_ai/ and proto/ must not drift from main.
+git diff --stat main -- badminton_analysis_ai/ proto/ linebot/api/analysis/v1/
 ```
 
-The last one must print nothing.
+The last two must print nothing.
+
+After a deploy, confirm the running service is pointed at the variant's own data
+plane -- with one shared service account this is the only thing separating the
+two products:
+
+```bash
+gcloud run services describe nstc-linebot-2025-noai --region asia-east1 --format=json \
+  | jq -r '.spec.template.spec.containers[0].env[]? | "\(.name)=\(.value // "")"'
+# expect ANALYSIS_SKIP_COACHING=true and a GCP_ENV_SECRET_NAME that is not 2025-linebot-env
+
+gcloud secrets versions access latest --secret 2025-linebot-noai-env \
+  | grep -E '^(GCS_BUCKET_NAME|FIREBASE_DATA_DB|FIREBASE_SESSION_DB)='
+# none of these may be the live bucket (nstc-2025-storage) or the live databases
+```

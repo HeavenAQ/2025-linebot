@@ -16,6 +16,8 @@ class Settings:
     signed_url_minutes: int
     expert_motion_model_root: Path
     device: str
+    openai_model: str
+    coaching_pause_seconds: float
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -37,6 +39,8 @@ class Settings:
             device=os.getenv(
                 "EXPERT_MOTION_DEVICE", os.getenv("SKELETON_DEVICE", "auto")
             ),
+            openai_model=os.getenv("OPENAI_COACHING_MODEL", "gpt-5.6-terra"),
+            coaching_pause_seconds=float(os.getenv("COACHING_PAUSE_SECONDS", "2.0")),
         )
         missing = [
             name
@@ -51,4 +55,6 @@ class Settings:
             raise ValueError(f"missing required environment variables: {', '.join(missing)}")
         if values.signed_url_minutes < 1 or values.signed_url_minutes > 10080:
             raise ValueError("SIGNED_URL_MINUTES must be between 1 and 10080")
+        if not 0.0 <= values.coaching_pause_seconds <= 10.0:
+            raise ValueError("COACHING_PAUSE_SECONDS must be between 0 and 10")
         return values

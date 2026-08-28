@@ -41,7 +41,12 @@ func NewApp(configPath string) *App {
 	}
 
 	// Set up the LineBot client
-	lineBot, err := line.NewBotClient(cfg.Line.ChannelSecret, cfg.Line.ChannelToken, cfg.GCP.Storage.BucketName)
+	lineBot, err := line.NewBotClient(
+		cfg.Line.ChannelSecret,
+		cfg.Line.ChannelToken,
+		cfg.GCP.Storage.BucketName,
+		cfg.ReviewURL(),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -77,6 +82,7 @@ func NewApp(configPath string) *App {
 		cfg.AnalysisServer.Target,
 		cfg.AnalysisServer.APIKey,
 		cfg.AnalysisServer.Insecure,
+		cfg.AnalysisServer.SkipCoaching,
 	)
 	if err != nil {
 		panic(err)

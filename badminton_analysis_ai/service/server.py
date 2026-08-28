@@ -61,6 +61,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         self.pipeline = SkeletonAnalysisPipeline(
             settings.expert_motion_model_root,
             device=settings.device,
+            openai_model=settings.openai_model,
+            pause_seconds=settings.coaching_pause_seconds,
         )
 
     def _authorize(self, context: grpc.ServicerContext) -> None:
@@ -134,13 +136,16 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness")
 
             output_path = temp_dir / "student_corrected.mp4"
+            skeleton_overlay_path = temp_dir / "student_skeleton_overlay.mp4"
             try:
                 result = self.pipeline.analyze(
                     video_path=input_path,
                     output_path=output_path,
+                    skeleton_overlay_path=skeleton_overlay_path,
                     filename=header.filename or "video.mp4",
                     skill=skill,
                     requested_handedness=handedness,
+                    skip_coaching=bool(header.skip_coaching),
                 )
                 storage_started = time.perf_counter()
                 user_segment = _safe_segment(header.user_id, "anonymous")
@@ -152,6 +157,15 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
+                overlay_object_path = (
+                    f"analyses/v1/{user_segment}/{request_segment}/"
+                    "student_skeleton_overlay.mp4"
+                )
+                overlay_signed = self.storage.upload_file(
+                    skeleton_overlay_path,
+                    overlay_object_path,
+                    content_type="video/mp4",
+                )
                 storage_finished = time.perf_counter()
                 result.diagnostics.update(
                     {
@@ -161,7 +175,12 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     }
                 )
                 return self._response(
-                    analysis_id, result, student_signed, probe_video(output_path)
+                    analysis_id,
+                    result,
+                    student_signed,
+                    overlay_signed,
+                    probe_video(output_path),
+                    probe_video(skeleton_overlay_path),
                 )
             except (ValueError, KeyError) as exc:
                 LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
@@ -208,7 +227,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         analysis_id: str,
         result: AnalysisResult,
         student_signed: SignedObject,
+        overlay_signed: SignedObject,
         student_metadata: dict[str, float | int],
+        overlay_metadata: dict[str, float | int],
     ) -> analysis_pb2.AnalyzeVideoResponse:
         backend = self.pipeline.backends[result.skill]
         spec = backend.spec
@@ -223,6 +244,51 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 spec.rules, result.grade["grading_details"], strict=True
             )
         ]
+        problems_by_frame: dict[int, list[dict[str, object]]] = {}
+        for problem in result.coaching_problems:
+            problems_by_frame.setdefault(int(problem["frame_index"]), []).append(problem)
+        fps = float(student_metadata["fps"])
+        pause_frames = round(fps * result.pause_seconds)
+        cues: list[analysis_pb2.CoachingCue] = []
+        pauses_before = 0
+        for frame in sorted(problems_by_frame):
+            window_start = int(
+                result.diagnostics.get("analysis_window_start_frame", 0)
+            )
+            window_end = int(
+                result.diagnostics.get("analysis_window_end_frame", frame)
+            )
+            normalized_length = int(
+                result.diagnostics.get("normalized_sequence_length", 0)
+            )
+            source_frame_count = int(
+                result.diagnostics.get("source_frame_count", 0)
+            )
+            if normalized_length > 1 and source_frame_count > 0:
+                progress = min(max(frame, 0), normalized_length - 1) / (
+                    normalized_length - 1
+                )
+                source_frame = round(
+                    window_start + progress * (window_end - window_start)
+                )
+                normalized_position = source_frame / max(1, source_frame_count - 1)
+            else:
+                source_frame = frame
+                normalized_position = frame / 63.0
+            start_time = (source_frame + pauses_before) / fps
+            for problem in problems_by_frame[frame]:
+                cues.append(
+                    analysis_pb2.CoachingCue(
+                        title=str(problem["title"]),
+                        feedback=str(problem["feedback"]),
+                        normalized_frame=frame,
+                        normalized_position=normalized_position,
+                        student_timestamp_seconds=start_time,
+                        pause_duration_seconds=result.pause_seconds,
+                        joint_ids=[int(value) for value in problem["joint_ids"]],
+                    )
+                )
+            pauses_before += pause_frames
         diagnostics = [
             analysis_pb2.DiagnosticValue(key=key, value=float(value))
             for key, value in result.diagnostics.items()
@@ -263,11 +329,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     for position, seconds in result.expert_alignment
                 ],
             )
-        # One render serves all three fields. The annotated pass existed to burn
-        # captions and coaching pauses over this one; with no cues to draw it
-        # would come out frame for frame identical, and an L4 is billed by the
-        # second.
-        student_video = self._stored_video(student_signed, student_metadata)
+        feedback_video = self._stored_video(student_signed, student_metadata)
+        overlay_video = self._stored_video(overlay_signed, overlay_metadata)
         return analysis_pb2.AnalyzeVideoResponse(
             analysis_id=analysis_id,
             skill=_SKILL_TO_PROTO[result.skill],
@@ -277,9 +340,11 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 grading_details=details,
                 score_status="expert_only_generated_distribution",
             ),
-            student_video=student_video,
-            feedback_video=student_video,
-            skeleton_overlay_video=student_video,
+            # Backward-compatible alias: old clients continue to receive the
+            # GPT feedback version through student_video.
+            student_video=feedback_video,
+            feedback_video=feedback_video,
+            skeleton_overlay_video=overlay_video,
             expert=expert_message,
             timeline=[
                 analysis_pb2.PhaseMarker(
@@ -292,6 +357,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 for phase in result.phases
             ],
             diagnostics=diagnostics,
+            coaching_cues=cues,
+            overall_feedback=result.overall_feedback,
         )
 
     def RefreshPlaybackUrls(

@@ -31,6 +31,13 @@ message AnalyzeVideoHeader {
   string filename = 3;
   Skill skill = 4;
   Handedness handedness = 5;
+  // Skip the coaching pass entirely. Coaching is the only stage that leaves
+  // this service: it sends sampled frames of the learner to a third-party
+  // model. A deployment that has not obtained consent for that sets this, and
+  // then no image of the learner goes anywhere. The analysis itself is
+  // unaffected -- pose, correction, grading and expert matching are local --
+  // so the response is the same minus coaching_cues and overall_feedback.
+  bool skip_coaching = 6;
 }
 
 message AnalyzeVideoChunk {
@@ -127,13 +134,12 @@ message AnalyzeVideoResponse {
   ExpertMatch expert = 6;
   repeated PhaseMarker timeline = 7;
   repeated DiagnosticValue diagnostics = 8;
-  // Reserved by the wire contract and always empty in this deployment: nothing
-  // here writes natural-language coaching.
   repeated CoachingCue coaching_cues = 9;
   string overall_feedback = 10;
-  // Clean detected/corrected skeletons over the source video.
+  // Clean detected/corrected skeletons over the source video, without GPT
+  // annotations or inserted coaching pauses.
   StoredVideo skeleton_overlay_video = 11;
-  // The same render, under the name older clients look for. student_video is a
+  // GPT suggestions, circled joints, and coaching pauses. student_video is a
   // backward-compatible alias of this field.
   StoredVideo feedback_video = 12;
 }

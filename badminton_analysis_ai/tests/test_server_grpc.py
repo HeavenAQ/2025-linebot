@@ -27,21 +27,26 @@ class _Backend:
 class _Pipeline:
     def __init__(self) -> None:
         self.backends = {Skill.SERVE: _Backend()}
+        self.skip_coaching_seen: bool | None = None
 
     def analyze(
         self,
         *,
         video_path: Path,
         output_path: Path,
+        skeleton_overlay_path: Path,
         filename: str,
         skill: Skill,
         requested_handedness: str,
+        skip_coaching: bool = False,
     ) -> AnalysisResult:
+        self.skip_coaching_seen = skip_coaching
         assert video_path.read_bytes() == b"video-bytes"
         assert filename == "serve.mp4"
         assert skill == Skill.SERVE
         assert requested_handedness == "right"
-        output_path.write_bytes(b"corrected-video")
+        output_path.write_bytes(b"feedback-video")
+        skeleton_overlay_path.write_bytes(b"overlay-video")
         spec = self.backends[skill].spec
         return AnalysisResult(
             skill=skill,
@@ -69,7 +74,11 @@ class _Pipeline:
                 )
                 for index, rule in enumerate(spec.rules)
             ),
+            overall_feedback="保持動作連續。",
+            coaching_problems=(),
+            pause_seconds=2.0,
             output_path=output_path,
+            skeleton_overlay_path=skeleton_overlay_path,
         )
 
 
@@ -104,9 +113,7 @@ def test_api_exposes_only_serve_and_smash_analysis() -> None:
     }
 
 
-def test_streamed_grpc_api_returns_one_clean_render_for_every_video_field(
-    monkeypatch,
-) -> None:
+def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> None:
     metadata = {
         "duration_seconds": 2.0,
         "fps": 30.0,
@@ -150,14 +157,15 @@ def test_streamed_grpc_api_returns_one_clean_render_for_every_video_field(
     finally:
         server.stop(grace=None).wait()
 
-    # Nothing annotates the render, so the three video fields are one upload
-    # and every existing client keeps finding a video under the name it knows.
     assert response.student_video == response.feedback_video
-    assert response.student_video == response.skeleton_overlay_video
-    assert response.student_video.object_path.endswith("student_corrected.mp4")
-    assert response.student_video.signed_url.endswith("student_corrected.mp4")
-    assert not response.coaching_cues
-    assert response.overall_feedback == ""
+    assert response.feedback_video.object_path.endswith("student_corrected.mp4")
+    assert response.skeleton_overlay_video.object_path.endswith(
+        "student_skeleton_overlay.mp4"
+    )
+    assert response.feedback_video.signed_url.endswith("student_corrected.mp4")
+    assert response.skeleton_overlay_video.signed_url.endswith(
+        "student_skeleton_overlay.mp4"
+    )
     assert response.grade.score_status == "expert_only_generated_distribution"
     assert response.expert.display_name == "Generated expert prior"
     assert not response.expert.HasField("video")
@@ -208,6 +216,7 @@ def _matched_response(alignment: tuple[tuple[float, float], ...]):
     result = pipeline.analyze(
         video_path=_video(),
         output_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
+        skeleton_overlay_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
         filename="serve.mp4",
         skill=Skill.SERVE,
         requested_handedness="right",
@@ -215,7 +224,9 @@ def _matched_response(alignment: tuple[tuple[float, float], ...]):
     result = replace(
         result, expert_reference=_expert_reference(), expert_alignment=alignment
     )
-    return service._response("analysis-1", result, signed, metadata)
+    return service._response(
+        "analysis-1", result, signed, signed, metadata, metadata
+    )
 
 
 def _video() -> Path:
@@ -243,3 +254,52 @@ def test_an_expert_without_an_alignment_still_returns() -> None:
     assert list(response.expert.alignment) == []
     assert response.expert.expert_id == "test-expert"
     assert len(response.expert.timeline) == len(response.timeline)
+
+
+def test_skip_coaching_reaches_the_pipeline(monkeypatch) -> None:
+    """The header's skip_coaching must survive the wire.
+
+    It is the switch that decides whether frames of the learner are uploaded to
+    a third-party model, so a deployment that sets it and is silently ignored
+    would be sending imagery it promised not to.
+    """
+    monkeypatch.setattr(
+        "service.server.probe_video",
+        lambda _: {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280},
+    )
+    service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
+    service.settings = SimpleNamespace(grpc_api_key="test-key", max_video_bytes=1024)
+    pipeline = _Pipeline()
+    service.pipeline = pipeline
+    service.storage = _Storage()
+    service.catalog = _Catalog()
+
+    grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    analysis_pb2_grpc.add_BadmintonAnalysisServicer_to_server(service, grpc_server)
+    port = grpc_server.add_insecure_port("127.0.0.1:0")
+    grpc_server.start()
+    try:
+        with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+            stub = analysis_pb2_grpc.BadmintonAnalysisStub(channel)
+            stub.AnalyzeVideo(
+                iter(
+                    (
+                        analysis_pb2.AnalyzeVideoChunk(
+                            header=analysis_pb2.AnalyzeVideoHeader(
+                                request_id="r",
+                                user_id="u",
+                                filename="serve.mp4",
+                                skill=analysis_pb2.SKILL_SERVE,
+                                handedness=analysis_pb2.HANDEDNESS_RIGHT,
+                                skip_coaching=True,
+                            )
+                        ),
+                        analysis_pb2.AnalyzeVideoChunk(data=b"video-bytes"),
+                    )
+                ),
+                metadata=(("x-api-key", "test-key"),),
+            )
+    finally:
+        grpc_server.stop(None)
+
+    assert pipeline.skip_coaching_seen is True

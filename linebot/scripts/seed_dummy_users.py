@@ -71,7 +71,6 @@ def mk_work_item(date_iso: str, score: int, base_path: str) -> dict:
         "skeleton_video": f"{base_path}/skeleton.mp4",
         "skeleton_comparison_video": f"{base_path}/compare.mp4",
         "reflection": "Test reflection",
-        "preview_note": "Test preview note",
         "grading_outcome": mk_grading_outcome(score),
     }
 

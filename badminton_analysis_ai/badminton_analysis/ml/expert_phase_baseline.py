@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -1070,57 +1070,6 @@ def _robust_window_value(
     return float(np.median(finite)) if len(finite) else 0.0
 
 
-def _serve_balance_features(
-    pose: NDArray[np.floating],
-    root: NDArray[np.floating],
-    confidence: NDArray[np.floating],
-) -> NDArray[np.float64]:
-    """Measure transfer along the player's ankle axis, not the image x-axis."""
-    world = np.asarray(pose, dtype=np.float64) + np.asarray(
-        root, dtype=np.float64
-    )[:, None]
-    observed = np.asarray(confidence, dtype=np.float64)
-    pelvis = 0.5 * (world[:, 11] + world[:, 12])
-    shoulders = 0.5 * (world[:, 5] + world[:, 6])
-    body_centre = 0.55 * pelvis + 0.45 * shoulders
-    foot_centre = 0.5 * (world[:, 15] + world[:, 16])
-    preparation_start, preparation_end = motion_completion_bounds(
-        len(world), 0.125, 0.34375
-    )
-    ankle_vector = world[:, 16] - world[:, 15]
-    lateral_axis = np.median(
-        ankle_vector[preparation_start:preparation_end], axis=0
-    )
-    lateral_norm = float(np.linalg.norm(lateral_axis))
-    if not np.isfinite(lateral_norm) or lateral_norm <= _EPS:
-        lateral_axis = np.asarray((1.0, 0.0), dtype=np.float64)
-    else:
-        lateral_axis = lateral_axis / lateral_norm
-    stance_width = np.maximum(
-        np.linalg.norm(ankle_vector, axis=-1), 0.15
-    )
-    balance = np.sum(
-        (body_centre - foot_centre) * lateral_axis[None], axis=-1
-    ) / stance_width
-    balance_confidence = np.min(observed[:, (5, 6, 11, 12, 15, 16)], axis=1)
-    completion_start, completion_end = motion_completion_bounds(
-        len(world), 0.71875, 1.0
-    )
-    preparation = _robust_window_value(
-        balance,
-        balance_confidence,
-        start=preparation_start,
-        end=preparation_end,
-    )
-    completion = _robust_window_value(
-        balance,
-        balance_confidence,
-        start=completion_start,
-        end=completion_end,
-    )
-    return np.asarray(
-        (preparation, completion, preparation - completion), dtype=np.float64
-    )
 
 
 def _serve_weight_transfer_components(
@@ -3341,6 +3290,3 @@ def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
         )
 
 
-def model_training_inputs(paths: Iterable[Path]) -> list[str]:
-    """Expose auditable training inputs for reports and regression tests."""
-    return [str(path) for path in sorted(paths)]

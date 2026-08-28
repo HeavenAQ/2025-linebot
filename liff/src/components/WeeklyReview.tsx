@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageCircleQuestion, Play } from 'lucide-react'
 
 import type { PlaybackResponse, UserData } from '@/types'
@@ -19,10 +19,17 @@ import { SkillNameMap, type Skill } from '@/lib/types'
 import { authorizedFetch } from '@/lib/api/client'
 import { SCORE_RECORD_LABEL, type ChatMessage } from '@/lib/useSkillSummary'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
+import type { WorkFocus } from '@/lib/workLink'
 
 interface WeeklyReviewProps {
   userId: string
   userData: UserData
+  /**
+   * One attempt to open on arrival, named by the link the student followed from
+   * LINE. Passed in rather than read from the URL here so this stays a
+   * component that shows what it is given.
+   */
+  focusWork?: WorkFocus | null
 }
 
 interface WeekEntry {
@@ -92,7 +99,7 @@ function questionsByWeek(messages: readonly ChatMessage[]): Map<string, Question
   return weeks
 }
 
-export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
+export default function WeeklyReview({ userId, userData, focusWork }: WeeklyReviewProps) {
   // Every skill's questions, not just the one selected on the page above: a
   // week's review covers whatever the student practised that week.
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -152,7 +159,33 @@ export default function WeeklyReview({ userId, userData }: WeeklyReviewProps) {
     setSaveError('')
   }, [reflections, week])
 
+  // The week a deep link opened, so the reset below can tell that week's video
+  // being opened for the student apart from the student leaving the week.
+  const focusedWeek = useRef('')
+
+  // A link from a portfolio card names one attempt: show the week it belongs to
+  // with that video already expanded, so the feedback and the reflection box
+  // are on screen together. Only its own arrival triggers this — from then on
+  // the student navigates freely.
   useEffect(() => {
+    if (!focusWork) return
+    const at = parseWorkDate(focusWork.date)
+    if (!at) return
+    const label = isoWeek(at)
+    const entry = weeks
+      .get(label)
+      ?.find(
+        candidate => candidate.skill === focusWork.skill && candidate.workDate === focusWork.date
+      )
+    if (!entry) return
+    focusedWeek.current = label
+    setSelectedWeek(label)
+    setOpenWork(entry)
+  }, [focusWork, weeks])
+
+  // Changing week puts the list back to its collapsed state.
+  useEffect(() => {
+    if (focusedWeek.current === week) return
     setOpenWork(null)
     setPlayback(null)
   }, [week])

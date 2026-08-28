@@ -33,7 +33,6 @@ from badminton_analysis.ml.expert_motion_generator import (
     motion_features,
     project_to_expert_motion_subspace,
     smooth_generated_motion_state,
-    training_manifest,
 )
 from badminton_analysis.ml.expert_phase_baseline import (
     ExpertCorrection,

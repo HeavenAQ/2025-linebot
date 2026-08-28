@@ -7,8 +7,6 @@ preparation stance, phase timing, and the source camera transform.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import hashlib
-from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -18,25 +16,16 @@ import torch
 from badminton_analysis.ml.expert_phase_baseline import (
     ExpertCorrection,
     MotionSample,
-    _retarget_root_with_contacts,
 )
 from badminton_analysis.ml.kinematic_retargeting import (
     COCO_PARENTS,
     implicit_pelvis,
     parent_offsets,
-    retarget_expert_canonical_2d_fk,
     stable_parent_lengths,
-)
-from badminton_analysis.ml.models.expert_motion_diffusion import (
-    ExpertMotionDenoiser,
-    ExpertMotionGANDiscriminator,
-    ExpertMotionGANGenerator,
-    linear_diffusion_schedule,
 )
 from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     phase_align_sequence,
-    restore_phase_timing,
 )
 
 
@@ -196,13 +185,6 @@ def motion_features(
 
 
 
-def training_manifest(samples: Sequence[MotionSample]) -> str:
-    digest = hashlib.sha256()
-    for sample in sorted(samples, key=lambda value: str(value.path)):
-        digest.update(sample.path.name.encode("utf-8"))
-        digest.update(sample.subject_id.encode("utf-8"))
-        digest.update(hashlib.sha256(sample.path.read_bytes()).digest())
-    return digest.hexdigest()
 
 
 def dominant_wrist_velocities(

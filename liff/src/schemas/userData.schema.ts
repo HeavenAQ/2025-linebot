@@ -74,7 +74,6 @@ export const WorkSchema = z.object({
   handedness: WorkHandednessSchema,
   thumbnail: z.string(),
   reflection: z.string(),
-  preview_note: z.string(),
   ai_note: z.string(),
   grading_outcome: GradingOutcomeSchema,
   analysis_id: z.string().optional().default(''),
@@ -134,15 +133,10 @@ export const PlaybackResponseSchema = z.object({
   grade: GradingOutcomeSchema
 })
 
+export type Work = z.infer<typeof WorkSchema>
 export type UserData = z.infer<typeof UserDataSchema>
 export type Portfolios = z.infer<typeof PortfoliosSchema>
-export type Work = z.infer<typeof WorkSchema>
-export type GradingOutcome = z.infer<typeof GradingOutcomeSchema>
 export type GradingDetail = z.infer<typeof GradingDetailSchema>
-export type FolderIDs = z.infer<typeof FolderIDsSchema>
-export type GPTConversationIDs = z.infer<typeof GPTConversationIDsSchema>
-export type MediaRef = z.infer<typeof MediaRefSchema>
-export type ExpertMatch = z.infer<typeof ExpertMatchSchema>
 export type PhaseMarker = z.infer<typeof PhaseMarkerSchema>
 export type AlignmentSample = z.infer<typeof AlignmentSampleSchema>
 export type CoachingCue = z.infer<typeof CoachingCueSchema>

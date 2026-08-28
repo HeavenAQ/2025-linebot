@@ -64,9 +64,37 @@ jobs:
 
       - name: Build and push Docker image
         run: |-
-          gcloud builds submit \
-            --timeout=1800s \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }}
+          # `gcloud builds submit` waits by polling the build once a second. Several
+          # CD workflows can be in flight at once, so their waits share the project's
+          # 60-get-requests-per-minute quota; once they exceed it the wait dies on a
+          # 429 while the build carries on and succeeds unnoticed, leaving the job
+          # hanging until its own timeout. Submit asynchronously and poll slowly, so
+          # a rejected poll costs one interval rather than the whole deploy.
+          build_id="$(gcloud builds submit --async \
+              --timeout=1800s \
+              --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }} \
+              --format='value(id)')"
+          test -n "${build_id}" || { echo "build was not submitted" >&2; exit 1; }
+          echo "build ${build_id} submitted"
+          reported=""
+          for _ in $(seq 1 90); do
+            sleep 20
+            # A describe that fails is a lost poll, not a failed build: keep waiting.
+            status="$(gcloud builds describe "${build_id}" --format='value(status)' 2>/dev/null)" || continue
+            if [ "${status}" != "${reported}" ]; then
+              echo "  ${status}"
+              reported="${status}"
+            fi
+            case "${status}" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                gcloud builds log "${build_id}" 2>/dev/null | tail -60
+                echo "build ${build_id} ended ${status}" >&2
+                exit 1 ;;
+            esac
+          done
+          echo "build ${build_id} still running after 30 minutes" >&2
+          exit 1
 
       - name: Deploy to Cloud Run
         env:

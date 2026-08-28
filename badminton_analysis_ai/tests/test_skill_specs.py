@@ -13,6 +13,7 @@ from badminton_analysis.ml.skeleton_scoring import ScoreCalibration
 from badminton_analysis.ml.skill_specs import (
     SUPPORTED_CORRECTION_SKILLS,
     get_skill_spec,
+    motion_completion_bounds,
     validate_checkpoint_spec,
 )
 from badminton_analysis.models.types import Skill
@@ -85,6 +86,26 @@ def test_each_supported_skill_has_an_independent_complete_contract() -> None:
         assert len(spec.joint_weights) == 17
         assert spec.dataset_root.name == spec.slug
         assert spec.slug in spec.model_path.name
+
+
+def test_scoring_windows_scale_with_motion_completion() -> None:
+    serve = get_skill_spec(Skill.SERVE)
+    wrist = next(
+        detail
+        for detail, rule in zip(serve.details, serve.rules, strict=True)
+        if rule.id == "wrist_flick"
+    )
+    follow_through = next(
+        detail
+        for detail, rule in zip(serve.details, serve.rules, strict=True)
+        if rule.id == "shoulder_rotation"
+    )
+
+    assert wrist.bounds(64) == (36, 56)
+    assert wrist.bounds(128) == (72, 112)
+    assert follow_through.bounds(64) == (48, 64)
+    assert follow_through.bounds(128) == (96, 128)
+    assert motion_completion_bounds(80, 0.875, 1.0) == (70, 80)
 
 
 def test_rules_retain_qualitative_grader_instructions() -> None:
@@ -214,5 +235,4 @@ def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() ->
     assert spec.rule("wrist_flick").display_phase is None
     assert "最大手腕加速度" in spec.checkpoint_roles_zh_tw[2]
     assert "隨揮" in spec.checkpoint_roles_zh_tw[3]
-
 

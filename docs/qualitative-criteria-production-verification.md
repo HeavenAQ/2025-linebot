@@ -1,4 +1,9 @@
-# Qualitative Criteria Production Verification
+# Historical Qualitative Criteria Verification (Superseded Pose Runtime)
+
+> This report was produced against the former RTMW3D/ONNX Runtime path. The
+> current service uses RF-DETR Keypoint Preview and the expert-only EIMD
+> serve/smash pipeline. It is preserved as historical evidence, not as a
+> description of the active production runtime.
 
 Date: 2026-08-02 (Asia/Tokyo)
 

@@ -1,4 +1,8 @@
-# Badminton Motion Analysis Latency Benchmark
+# Historical Badminton Motion Analysis Latency Benchmark
+
+> The YOLOX/RTMW3D timings below describe a retired pose stack. Current
+> production pose extraction uses batched RF-DETR Keypoint Preview through a
+> cached FP16 TensorRT engine; new latency decisions must be based on that path.
 
 ## Purpose
 

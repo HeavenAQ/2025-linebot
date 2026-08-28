@@ -55,17 +55,42 @@ class CorrectionDetailSpec:
     description: str
     name_zh_tw: str
     maximum: float
-    start: int
-    end: int
+    start_fraction: float
+    end_fraction: float
     joints: tuple[int, ...] | None = None
     metric: str = "window_distance"
+
+    def bounds(self, frame_count: int) -> tuple[int, int]:
+        return motion_completion_bounds(
+            frame_count, self.start_fraction, self.end_fraction
+        )
 
 
 @dataclass(frozen=True)
 class PhaseWindowSpec:
     name: str
-    start: int
-    end: int
+    start_fraction: float
+    end_fraction: float
+
+    def bounds(self, frame_count: int) -> tuple[int, int]:
+        return motion_completion_bounds(
+            frame_count, self.start_fraction, self.end_fraction
+        )
+
+
+def motion_completion_bounds(
+    frame_count: int, start_fraction: float, end_fraction: float
+) -> tuple[int, int]:
+    """Resolve a fractional motion interval to an end-exclusive frame range."""
+    if frame_count < 1:
+        raise ValueError("motion must contain at least one frame")
+    if not 0.0 <= start_fraction < end_fraction <= 1.0:
+        raise ValueError("motion completion bounds must satisfy 0 <= start < end <= 1")
+    start = int(np.floor(start_fraction * frame_count))
+    end = int(np.ceil(end_fraction * frame_count))
+    start = min(start, frame_count - 1)
+    end = min(frame_count, max(start + 1, end))
+    return start, end
 
 
 @dataclass(frozen=True)
@@ -413,14 +438,17 @@ _LIFT_RULES = (
 )
 
 
-def _details(rules: tuple[FeedbackRuleSpec, ...], windows: tuple[tuple[int, int, tuple[int, ...] | None], ...]) -> tuple[CorrectionDetailSpec, ...]:
+def _details(
+    rules: tuple[FeedbackRuleSpec, ...],
+    windows: tuple[tuple[float, float, tuple[int, ...] | None], ...],
+) -> tuple[CorrectionDetailSpec, ...]:
     return tuple(
         CorrectionDetailSpec(
             description=f"{rule.id.replace('_', ' ').title()} correction",
             name_zh_tw=rule.name_zh_tw,
             maximum=rule.maximum,
-            start=start,
-            end=end,
+            start_fraction=start,
+            end_fraction=end,
             joints=joints,
             metric=(
                 "full_transition"
@@ -457,19 +485,19 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         details=_details(
             _CLEAR_RULES,
             (
-                (0, 16, None),
-                (8, 32, (5, 6, 11, 12, 13, 14, 15, 16)),
-                (16, 40, (5, 7, 9, 6, 8, 10)),
-                (27, 38, (6, 8, 10)),
-                (24, 48, (6, 8, 10)),
-                (40, 64, None),
+                (0.0, 0.25, None),
+                (0.125, 0.5, (5, 6, 11, 12, 13, 14, 15, 16)),
+                (0.25, 0.625, (5, 7, 9, 6, 8, 10)),
+                (0.421875, 0.59375, (6, 8, 10)),
+                (0.375, 0.75, (6, 8, 10)),
+                (0.625, 1.0, None),
             ),
         ),
         phase_windows=(
-            PhaseWindowSpec("preparation", 0, 16),
-            PhaseWindowSpec("rotation", 8, 32),
-            PhaseWindowSpec("contact", 27, 38),
-            PhaseWindowSpec("follow_through", 38, 64),
+            PhaseWindowSpec("preparation", 0.0, 0.25),
+            PhaseWindowSpec("rotation", 0.125, 0.5),
+            PhaseWindowSpec("contact", 0.421875, 0.59375),
+            PhaseWindowSpec("follow_through", 0.59375, 1.0),
         ),
         rules=_CLEAR_RULES,
         model_version="v3",
@@ -493,19 +521,19 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         details=_details(
             _SMASH_RULES,
             (
-                (0, 16, None),
-                (8, 32, (5, 6, 11, 12, 13, 14, 15, 16)),
-                (16, 40, (5, 7, 9, 6, 8, 10)),
-                (27, 38, (6, 8, 10)),
-                (24, 48, (6, 8, 10)),
-                (40, 64, (5, 6, 8, 10, 11, 12)),
+                (0.0, 0.25, None),
+                (0.125, 0.5, (5, 6, 11, 12, 13, 14, 15, 16)),
+                (0.25, 0.625, (5, 7, 9, 6, 8, 10)),
+                (0.421875, 0.59375, (6, 8, 10)),
+                (0.375, 0.75, (6, 8, 10)),
+                (0.625, 1.0, (5, 6, 8, 10, 11, 12)),
             ),
         ),
         phase_windows=(
-            PhaseWindowSpec("preparation", 0, 16),
-            PhaseWindowSpec("rotation", 8, 32),
-            PhaseWindowSpec("contact", 27, 38),
-            PhaseWindowSpec("follow_through", 38, 64),
+            PhaseWindowSpec("preparation", 0.0, 0.25),
+            PhaseWindowSpec("rotation", 0.125, 0.5),
+            PhaseWindowSpec("contact", 0.421875, 0.59375),
+            PhaseWindowSpec("follow_through", 0.59375, 1.0),
         ),
         rules=_SMASH_RULES,
     ),
@@ -528,19 +556,19 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         details=_details(
             _SERVE_RULES,
             (
-                (8, 32, (5, 6, 7, 8, 9, 10)),
-                (8, 32, (11, 12, 13, 14, 15, 16)),
-                (0, 64, (11, 12, 13, 14, 15, 16)),
-                (16, 64, (5, 6, 11, 12)),
-                (36, 56, (6, 8, 10)),
-                (48, 64, (5, 6, 8, 10, 11, 12)),
+                (0.125, 0.5, (5, 6, 7, 8, 9, 10)),
+                (0.125, 0.5, (11, 12, 13, 14, 15, 16)),
+                (0.0, 1.0, (11, 12, 13, 14, 15, 16)),
+                (0.25, 1.0, (5, 6, 11, 12)),
+                (0.5625, 0.875, (6, 8, 10)),
+                (0.75, 1.0, (5, 6, 8, 10, 11, 12)),
             ),
         ),
         phase_windows=(
-            PhaseWindowSpec("preparation", 0, 24),
-            PhaseWindowSpec("weight_transfer", 16, 48),
-            PhaseWindowSpec("contact", 36, 56),
-            PhaseWindowSpec("follow_through", 48, 64),
+            PhaseWindowSpec("preparation", 0.0, 0.375),
+            PhaseWindowSpec("weight_transfer", 0.25, 0.75),
+            PhaseWindowSpec("contact", 0.5625, 0.875),
+            PhaseWindowSpec("follow_through", 0.75, 1.0),
         ),
         rules=_SERVE_RULES,
         transition_weight=1.0,
@@ -566,17 +594,17 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
         details=_details(
             _LIFT_RULES,
             (
-                (0, 20, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
-                (8, 44, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
-                (32, 56, (5, 6, 8, 10, 11, 12, 13, 14, 15, 16)),
-                (44, 64, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                (0.0, 0.3125, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                (0.125, 0.6875, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
+                (0.5, 0.875, (5, 6, 8, 10, 11, 12, 13, 14, 15, 16)),
+                (0.6875, 1.0, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
             ),
         ),
         phase_windows=(
-            PhaseWindowSpec("preparation", 0, 20),
-            PhaseWindowSpec("backswing", 12, 40),
-            PhaseWindowSpec("contact", 36, 56),
-            PhaseWindowSpec("follow_through", 48, 64),
+            PhaseWindowSpec("preparation", 0.0, 0.3125),
+            PhaseWindowSpec("backswing", 0.1875, 0.625),
+            PhaseWindowSpec("contact", 0.5625, 0.875),
+            PhaseWindowSpec("follow_through", 0.75, 1.0),
         ),
         rules=_LIFT_RULES,
         transition_weight=0.75,

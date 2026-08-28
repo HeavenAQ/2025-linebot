@@ -93,6 +93,42 @@ def test_process_frames_batched_chunks_and_records_results() -> None:
     assert call_sizes == [BATCH_SIZE, 3]
 
 
+def test_process_frames_preserves_continuous_rfdetr_body_confidence() -> None:
+    detector = MagicMock()
+    detector.min_detection_confidence = 0.15
+    detector.get_poses_batch = MagicMock(return_value=[_fake_pose_prediction(1.0)])
+    detector.get_2d_landmarks = MagicMock(
+        return_value={
+            COCOKeypoints.RIGHT_WRIST: np.asarray((1.0, 1.0)),
+            COCOKeypoints.RIGHT_ELBOW: np.asarray((1.0, 2.0)),
+        }
+    )
+    detector.get_wholebody_2d_landmarks = MagicMock(return_value={})
+    scores = np.zeros(133, dtype=np.float64)
+    scores[int(COCOKeypoints.RIGHT_WRIST)] = 0.42
+    scores[int(COCOKeypoints.RIGHT_ELBOW)] = 0.73
+    scores[int(COCOKeypoints.LEFT_ELBOW)] = 0.10
+    scores[int(COCOKeypoints.LEFT_WRIST)] = 0.10
+    detector.elbow_detection_confidence = 0.05
+    detector.get_wholebody_2d_keypoints = MagicMock(
+        return_value=(np.zeros((133, 2), dtype=np.float64), scores)
+    )
+    processor = VideoProcessor("test.mp4", "out.mp4", "/tmp", detector)
+
+    with patch(
+        "badminton_analysis.services.video_processor.cv2.VideoCapture",
+        return_value=_FakeCapture(1),
+    ):
+        tracking = processor.process_frames_batched(Handedness.RIGHT)
+
+    confidence = tracking["body_confidence_2d"][0]
+    assert confidence[int(COCOKeypoints.RIGHT_WRIST)] == pytest.approx(0.42)
+    assert confidence[int(COCOKeypoints.RIGHT_ELBOW)] == pytest.approx(0.73)
+    # Elbows use a lower acceptance threshold than other body joints.
+    assert confidence[int(COCOKeypoints.LEFT_ELBOW)] == pytest.approx(0.10)
+    assert confidence[int(COCOKeypoints.LEFT_WRIST)] == 0.0
+
+
 def test_process_frames_batched_skips_frames_missing_expected_hand() -> None:
     detector = MagicMock()
     detector.min_detection_confidence = 0.5
@@ -194,6 +230,24 @@ def test_directional_acceleration_uses_body_relative_wrist_motion() -> None:
     )
 
     assert peak == 24
+
+
+def test_explicit_forward_axis_rejects_faster_backward_wrist_swing() -> None:
+    positions = _directional_swing_with_recovery_spike()
+
+    peak = VideoAnalyzer._directional_acceleration_peak(
+        positions,
+        forward_axis=np.asarray((1.0, 0.0)),
+    )
+    mirrored_peak = VideoAnalyzer._directional_acceleration_peak(
+        positions @ np.asarray(((-1.0, 0.0), (0.0, 1.0))),
+        forward_axis=np.asarray((-1.0, 0.0)),
+    )
+
+    velocity = np.diff(positions, axis=0)
+    assert peak > 20
+    assert velocity[peak - 1, 0] > 0.0
+    assert mirrored_peak == peak
 
 
 @pytest.mark.parametrize("skill", (Skill.SERVE,))
@@ -332,7 +386,7 @@ def test_overhead_window_keeps_two_second_preparation_context(
 
 
 @pytest.mark.parametrize("skill", (Skill.CLEAR, Skill.SMASH))
-def test_overhead_window_includes_slow_follow_through_after_acceleration(
+def test_overhead_window_includes_slow_wrist_follow_through_after_acceleration(
     monkeypatch: pytest.MonkeyPatch, skill: Skill
 ) -> None:
     monkeypatch.setattr(
@@ -342,8 +396,9 @@ def test_overhead_window_includes_slow_follow_through_after_acceleration(
     )
     hand_positions = np.zeros((100, 2), dtype=np.float64)
     hand_positions[40, 1] = -10.0
+    hand_positions[41:87, 1] = np.linspace(-8.0, 12.0, 46)
+    hand_positions[87:, 1] = 12.0
     elbow_positions = np.zeros((100, 2), dtype=np.float64)
-    elbow_positions[86, 1] = 12.0
 
     _, peak, end = VideoAnalyzer.find_analysis_window(
         skill=skill,
@@ -352,4 +407,60 @@ def test_overhead_window_includes_slow_follow_through_after_acceleration(
     )
 
     assert peak == 40
-    assert end == 86
+    assert 85 <= end <= 89
+
+
+def test_smash_ends_at_first_low_wrist_velocity_stop_not_later_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        VideoAnalyzer,
+        "find_acc_analysis_window",
+        classmethod(lambda cls, positions, anchors=None: (10, 40, 70)),
+    )
+    hand_positions = np.zeros((120, 2), dtype=np.float64)
+    hand_positions[:, 1] = 100.0
+    hand_positions[40, 1] = 40.0
+    # First real follow-through: the wrist descends and stops around frame 59.
+    hand_positions[41:59, 1] = np.linspace(45.0, 150.0, 18)
+    hand_positions[59:70, 1] = 150.0
+    hand_positions[70:90, 1] = np.linspace(150.0, 110.0, 20)
+    # A later rest/recovery position is even lower, but is not part of the
+    # completed smash and must not become the analysis endpoint.
+    hand_positions[90:101, 1] = np.linspace(110.0, 180.0, 11)
+    hand_positions[101:, 1] = 180.0
+    elbow_positions = np.zeros((120, 2), dtype=np.float64)
+    elbow_positions[110, 1] = 250.0
+
+    start, peak, end = VideoAnalyzer.find_analysis_window(
+        skill=Skill.SMASH,
+        hand_positions=list(hand_positions),
+        elbow_positions=list(elbow_positions),
+    )
+
+    assert start == 0
+    assert peak == 40
+    assert 58 <= end <= 61
+
+
+def test_smash_wrist_stop_requires_a_velocity_trend_not_single_frame_jitter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        VideoAnalyzer,
+        "find_acc_analysis_window",
+        classmethod(lambda cls, positions, anchors=None: (10, 40, 70)),
+    )
+    hand_positions = np.zeros((100, 2), dtype=np.float64)
+    hand_positions[40, 1] = -10.0
+    hand_positions[48, 1] = 1.0  # isolated detector spike
+    elbow_positions = np.zeros((100, 2), dtype=np.float64)
+
+    _, peak, end = VideoAnalyzer.find_analysis_window(
+        skill=Skill.SMASH,
+        hand_positions=list(hand_positions),
+        elbow_positions=list(elbow_positions),
+    )
+
+    assert peak == 40
+    assert end == 70

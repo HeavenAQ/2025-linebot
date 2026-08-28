@@ -35,6 +35,7 @@ class TestPoseDetector:
 
     def test_pose_detector_initialization(self):
         assert self.detector.min_detection_confidence == 0.15
+        assert self.detector.elbow_detection_confidence == 0.05
         assert self.detector.person_detection_threshold == 0.5
         assert self.detector._model is None
         assert hasattr(self.detector, "logger")
@@ -83,6 +84,29 @@ class TestPoseDetector:
         assert COCOKeypoints.NOSE in landmarks
         np.testing.assert_allclose(landmarks[COCOKeypoints.NOSE], (10.0, 20.0))
         assert COCOKeypoints.LEFT_EYE not in landmarks
+
+    def test_get_2d_landmarks_uses_lower_elbow_threshold(self):
+        keypoints = np.arange(34, dtype=np.float64).reshape(17, 2)
+        scores = np.full(17, 0.9, dtype=np.float64)
+        scores[int(COCOKeypoints.LEFT_ELBOW)] = 0.08
+        scores[int(COCOKeypoints.RIGHT_ELBOW)] = 0.04
+        scores[int(COCOKeypoints.LEFT_WRIST)] = 0.08
+        results = [{"keypoints": keypoints, "keypoint_scores": scores}]
+
+        landmarks = self.detector.get_2d_landmarks(results)
+
+        assert landmarks is not None
+        assert COCOKeypoints.LEFT_ELBOW in landmarks
+        assert COCOKeypoints.RIGHT_ELBOW not in landmarks
+        # The same score is still too low for a non-elbow joint.
+        assert COCOKeypoints.LEFT_WRIST not in landmarks
+
+    def test_elbow_threshold_cannot_exceed_general_threshold(self):
+        with pytest.raises(ValueError, match="elbow_detection_confidence"):
+            PoseDetector(
+                min_detection_confidence=0.15,
+                elbow_detection_confidence=0.2,
+            )
 
     def test_get_wholebody_keypoints_preserves_coordinates_and_confidence(self):
         keypoints = np.zeros((133, 2), dtype=np.float64)

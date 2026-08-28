@@ -1,4 +1,10 @@
-# Pose Framework Selection
+# Historical Pose Framework Selection (Superseded)
+
+> This benchmark records the former RTMW3D selection and is retained for
+> reproducibility only. The current production service uses RF-DETR Keypoint
+> Preview (COCO-17), with a fixed-batch FP16 TensorRT engine on NVIDIA L4 and
+> PyTorch/MPS for local Apple Silicon validation. Do not use the production
+> claims below as current deployment documentation.
 
 ## Decision
 

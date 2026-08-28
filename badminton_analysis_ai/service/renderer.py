@@ -529,6 +529,27 @@ def source_fps(video_path: Path) -> float:
     return float(Fraction(source_frame_rate(video_path)))
 
 
+@lru_cache(maxsize=1)
+def _constant_frame_rate_flag() -> str:
+    """Name the flag this ffmpeg uses to force a constant frame rate.
+
+    -fps_mode arrived in ffmpeg 5.0. The container takes ffmpeg from the base
+    image's distribution packages, which are older than that and spell the
+    same thing -vsync; a development machine is usually far newer and accepts
+    both. Asking the binary keeps the two in step, and beats parsing a version
+    string that varies between builds and forks.
+    """
+    probe = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "nullsrc=s=16x16:d=0.1",
+            "-fps_mode", "cfr", "-f", "null", "-",
+        ],
+        capture_output=True,
+    )
+    return "-fps_mode" if probe.returncode == 0 else "-vsync"
+
+
 def _transcode_preserving_frame_rate(
     raw_path: Path, output_path: Path, frame_rate: str
 ) -> None:
@@ -542,7 +563,7 @@ def _transcode_preserving_frame_rate(
             "-i", str(raw_path), "-an",
             "-vf", f"setpts=N/(({normalized_rate})*TB)",
             "-r", normalized_rate,
-            "-fps_mode", "cfr",
+            _constant_frame_rate_flag(), "cfr",
             "-c:v", "libx264", "-crf", "21", "-preset", "fast",
             "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             str(output_path),

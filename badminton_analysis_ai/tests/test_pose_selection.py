@@ -40,3 +40,38 @@ def test_no_person_detected_yields_no_prediction() -> None:
     empty.class_id = np.zeros(1, dtype=np.int64)  # not the person class
 
     assert detector._largest_person_prediction(empty) == []
+
+
+# The batched engine path reads raw postprocess tensors rather than a
+# supervision result, so it selects through the same helper. It once did not,
+# and picked the largest detection of any class -- which produces a plausible
+# pose for the wrong object and a silently wrong grade, never an error.
+def test_largest_person_index_ignores_bigger_non_person_detections() -> None:
+    from badminton_analysis.services.pose_detector import _largest_person_index
+
+    class_ids = np.asarray([0, 1, 1], dtype=np.int64)  # 0 is not a person
+    boxes = np.asarray(
+        [
+            [0.0, 0.0, 900.0, 900.0],  # biggest overall, but not a person
+            [10.0, 10.0, 60.0, 70.0],
+            [100.0, 80.0, 260.0, 300.0],  # biggest person
+        ],
+        dtype=np.float64,
+    )
+    scores = np.asarray([0.99, 0.80, 0.90], dtype=np.float64)
+
+    assert _largest_person_index(class_ids, boxes, scores, 0.5) == 2
+    assert _largest_person_index(class_ids, boxes) == 2
+
+
+def test_largest_person_index_applies_the_score_threshold() -> None:
+    from badminton_analysis.services.pose_detector import _largest_person_index
+
+    class_ids = np.asarray([1, 1], dtype=np.int64)
+    boxes = np.asarray(
+        [[0.0, 0.0, 500.0, 500.0], [10.0, 10.0, 60.0, 70.0]], dtype=np.float64
+    )
+    scores = np.asarray([0.10, 0.90], dtype=np.float64)
+
+    assert _largest_person_index(class_ids, boxes, scores, 0.5) == 1
+    assert _largest_person_index(class_ids, boxes, scores, 0.95) is None

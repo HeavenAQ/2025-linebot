@@ -377,6 +377,26 @@ class SkeletonAnalysisPipeline:
                 )
                 for item in generated.score["criteria"]
             ]
+            # A grade that disagrees with the offline run is invisible in the
+            # response, which carries only the total and the Chinese criterion
+            # names. Log the scorer identity, every criterion, and the gate
+            # state so a divergence can be located from the deploy log alone.
+            LOGGER.info(
+                "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+                skill,
+                diagnostics.get("scorer", "unknown"),
+                self.pose_detector.execution_provider,
+                float(grade["total_grade"]),
+                [
+                    (name, round(distance, 6), round(score, 4))
+                    for name, distance, score in criterion_values
+                ],
+                {
+                    key: round(float(value), 6)
+                    for key, value in sorted(diagnostics.items())
+                    if isinstance(value, (int, float))
+                },
+            )
             scoring_finished = time.perf_counter()
             frame_rate = source_frame_rate(video_path)
             fps = source_fps(video_path)

@@ -90,8 +90,16 @@ class VideoAnalyzer:
         positions: NDArray[np.floating[Any]],
         *,
         prefer_peak_velocity: bool = False,
+        forward_axis: NDArray[np.floating[Any]] | None = None,
     ) -> int:
-        """Select the coherent forward swing rather than faster recovery."""
+        """Select forward acceleration rather than an opposite backswing.
+
+        When ``forward_axis`` is supplied, its sign is authoritative. Serve
+        preprocessing derives that axis from the dominant shoulder toward the
+        opposite shoulder, so the same rule works for either racket hand and
+        under image mirroring. Without it, the legacy coherent-episode axis is
+        retained for callers that do not have body orientation.
+        """
         trajectory = np.asarray(positions, dtype=np.float64)
         velocities = np.diff(trajectory, axis=0)
         if len(velocities) < 2:
@@ -99,6 +107,36 @@ class VideoAnalyzer:
         speeds = np.linalg.norm(velocities, axis=1)
         if not np.any(speeds > 1e-8):
             return 0
+        if forward_axis is not None:
+            axis = np.asarray(forward_axis, dtype=np.float64)
+            if axis.shape != (velocities.shape[1],):
+                raise ValueError("forward_axis must match trajectory dimensions")
+            axis_norm = float(np.linalg.norm(axis))
+            if not np.isfinite(axis_norm) or axis_norm <= 1e-8:
+                raise ValueError("forward_axis must be finite and non-zero")
+            axis /= axis_norm
+            projected_velocity = velocities @ axis
+            directional_acceleration = np.diff(projected_velocity)
+            direction_cosine = projected_velocity / np.maximum(speeds, 1e-8)
+            candidate_velocity = projected_velocity[1:]
+            candidate_alignment = np.clip(direction_cosine[1:], 0.0, 1.0)
+            if prefer_peak_velocity:
+                score = np.maximum(candidate_velocity, 0.0) * candidate_alignment
+                return (
+                    int(np.argmax(score) + 2)
+                    if np.any(score > 0.0)
+                    else int(np.argmax(projected_velocity) + 1)
+                )
+            score = (
+                np.maximum(directional_acceleration, 0.0)
+                * candidate_alignment
+                * np.maximum(candidate_velocity, 0.0)
+            )
+            return (
+                int(np.argmax(score) + 2)
+                if np.any(score > 0.0)
+                else int(np.argmax(projected_velocity) + 1)
+            )
         window = min(7, len(velocities))
         if window % 2 == 0:
             window -= 1
@@ -230,29 +268,135 @@ class VideoAnalyzer:
         hand_positions: list[Coordinate],
         elbow_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
-        start_frame, _, acceleration_end_frame = cls.find_acc_analysis_window(
-            hand_positions, elbow_positions
+        start_frame, acceleration_peak_frame, acceleration_end_frame = (
+            cls.find_acc_analysis_window(
+                hand_positions, elbow_positions
+            )
         )
         idx = np.argmin(
             np.asarray(hand_positions)[start_frame : acceleration_end_frame + 1, 1]
         )
         new_peak = int(idx + start_frame)
         new_start = max(0, new_peak - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
-        # The acceleration window identifies impact, but a slower beginner can
-        # finish the follow-through well after it. Search the complete
-        # post-impact elbow path so the correction reaches its final pose when
-        # the player's arm has actually come down.
-        new_end = int(
-            np.argmax(np.asarray(elbow_positions)[new_peak:, 1]) + new_peak
+        # End at the first completed downward wrist episode after acceleration.
+        # Image y increases downward, so the endpoint is the first local maximum
+        # in wrist y where the smoothed vertical velocity reaches zero.  Using
+        # the elbow's global lowest point used to include a later recovery pose
+        # and stretch the generated follow-through beyond the action itself.
+        wrist_stop = cls._first_post_acceleration_wrist_stop(
+            hand_positions,
+            acceleration_peak_frame=acceleration_peak_frame,
+            contact_frame=new_peak,
         )
-        minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
-        new_end = max(
-            new_end,
-            acceleration_end_frame,
-            new_peak + minimum_follow_through,
-        )
+        if wrist_stop is None:
+            # Degenerate or nearly static tracks do not contain a trustworthy
+            # velocity zero-crossing. Preserve enough context in that case.
+            minimum_follow_through = max(
+                4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2
+            )
+            new_end = max(
+                acceleration_end_frame,
+                new_peak + minimum_follow_through,
+            )
+        else:
+            new_end = wrist_stop
         new_end = min(len(hand_positions) - 1, new_end)
         return new_start, new_peak, new_end
+
+    @classmethod
+    def _first_post_acceleration_wrist_stop(
+        cls,
+        hand_positions: list[Coordinate],
+        *,
+        acceleration_peak_frame: int,
+        contact_frame: int,
+    ) -> int | None:
+        """Return the first low wrist point at the end of a downward episode.
+
+        The wrist coordinates are smoothed before differentiating.  A candidate
+        must have a sustained downward trend, meaningful displacement, and a
+        sustained near-zero/reversing vertical velocity.  This makes the event
+        resistant to one-frame detector jitter while still selecting the first
+        completed follow-through rather than a later rest/recovery position.
+        """
+        positions = np.asarray(hand_positions, dtype=np.float64)
+        if positions.ndim != 2 or positions.shape[1] < 2 or len(positions) < 7:
+            return None
+        if not np.all(np.isfinite(positions[:, :2])):
+            return None
+
+        smoothing_window = min(5, len(positions))
+        if smoothing_window % 2 == 0:
+            smoothing_window -= 1
+        smoothed_y = cls.moving_average(
+            positions[:, :2], window_size=max(1, smoothing_window)
+        )[:, 1]
+        raw_vertical_velocity = np.diff(positions[:, 1], prepend=positions[0, 1])
+        vertical_velocity = np.gradient(smoothed_y)
+        velocity_window = min(3, len(vertical_velocity))
+        velocity_trend = cls.moving_average(
+            np.column_stack((vertical_velocity, np.zeros_like(vertical_velocity))),
+            window_size=max(1, velocity_window),
+        )[:, 0]
+
+        search_start = int(
+            np.clip(
+                max(acceleration_peak_frame, contact_frame),
+                0,
+                len(smoothed_y) - 1,
+            )
+        )
+        post_velocity = velocity_trend[search_start:]
+        positive_velocity = post_velocity[post_velocity > 0.0]
+        if positive_velocity.size == 0:
+            return None
+
+        peak_downward_velocity = float(np.percentile(positive_velocity, 90.0))
+        descent_threshold = max(0.15, 0.18 * peak_downward_velocity)
+        stop_threshold = max(0.08, 0.10 * peak_downward_velocity)
+        raw_descent_threshold = max(0.10, 0.10 * peak_downward_velocity)
+        post_range = float(
+            np.max(smoothed_y[search_start:]) - smoothed_y[search_start]
+        )
+        minimum_displacement = max(1.5, 0.08 * max(post_range, 0.0))
+        # At 30 fps a genuine overhead follow-through persists across several
+        # frames. Shorter excursions are usually a single noisy keypoint made
+        # wider by the smoothing kernel, not a completed wrist trajectory.
+        minimum_descent_frames = 6
+
+        descent_start: int | None = None
+        for frame in range(search_start + 1, len(smoothed_y) - 2):
+            prior_trend = velocity_trend[max(search_start, frame - 2) : frame + 1]
+            if descent_start is None:
+                if (
+                    len(prior_trend) >= 2
+                    and np.count_nonzero(prior_trend > descent_threshold) >= 2
+                ):
+                    descent_start = max(search_start, frame - 2)
+                continue
+
+            following_trend = velocity_trend[frame : frame + 3]
+            coherent_raw_descent = np.count_nonzero(
+                raw_vertical_velocity[descent_start : frame + 1]
+                > raw_descent_threshold
+            )
+            if (
+                frame - descent_start >= minimum_descent_frames
+                and coherent_raw_descent >= 3
+                and np.max(following_trend) <= stop_threshold
+                and smoothed_y[frame] - smoothed_y[descent_start]
+                >= minimum_displacement
+            ):
+                neighborhood_start = max(descent_start, frame - 2)
+                neighborhood_end = min(len(smoothed_y), frame + 3)
+                return int(
+                    neighborhood_start
+                    + np.argmax(
+                        smoothed_y[neighborhood_start:neighborhood_end]
+                    )
+                )
+
+        return None
 
     @classmethod
     def __find_serve_analysis_window(

@@ -252,14 +252,37 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         cues: list[analysis_pb2.CoachingCue] = []
         pauses_before = 0
         for frame in sorted(problems_by_frame):
-            start_time = (frame + pauses_before) / fps
+            window_start = int(
+                result.diagnostics.get("analysis_window_start_frame", 0)
+            )
+            window_end = int(
+                result.diagnostics.get("analysis_window_end_frame", frame)
+            )
+            normalized_length = int(
+                result.diagnostics.get("normalized_sequence_length", 0)
+            )
+            source_frame_count = int(
+                result.diagnostics.get("source_frame_count", 0)
+            )
+            if normalized_length > 1 and source_frame_count > 0:
+                progress = min(max(frame, 0), normalized_length - 1) / (
+                    normalized_length - 1
+                )
+                source_frame = round(
+                    window_start + progress * (window_end - window_start)
+                )
+                normalized_position = source_frame / max(1, source_frame_count - 1)
+            else:
+                source_frame = frame
+                normalized_position = frame / 63.0
+            start_time = (source_frame + pauses_before) / fps
             for problem in problems_by_frame[frame]:
                 cues.append(
                     analysis_pb2.CoachingCue(
                         title=str(problem["title"]),
                         feedback=str(problem["feedback"]),
                         normalized_frame=frame,
-                        normalized_position=frame / 63.0,
+                        normalized_position=normalized_position,
                         student_timestamp_seconds=start_time,
                         pause_duration_seconds=result.pause_seconds,
                         joint_ids=[int(value) for value in problem["joint_ids"]],

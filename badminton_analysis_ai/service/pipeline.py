@@ -16,7 +16,10 @@ from badminton_analysis.ml.expert_reference_bank import (
 from badminton_analysis.ml.expert_motion_backend import (
     ExpertMotionGeneratorBackend,
 )
-from badminton_analysis.ml.skeleton_normalization import landmark_dicts_to_array
+from badminton_analysis.ml.skeleton_normalization import (
+    landmark_dicts_to_array,
+    tracking_body_arrays,
+)
 from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
 from badminton_analysis.models.types import (
     COCOKeypoints,
@@ -28,7 +31,7 @@ from badminton_analysis.models.types import (
 from badminton_analysis.services.pose_detector import PoseDetector
 from badminton_analysis.services.video_processor import VideoProcessor
 
-from service.renderer import render_correction_video, source_fps
+from service.renderer import render_correction_video, source_fps, source_frame_rate
 from service.coaching import CoachingGenerator
 
 
@@ -220,13 +223,50 @@ def _qualitative_phase_results(
     )
 
 
+def _source_qualitative_phase_results(
+    spec: SkillCorrectionSpec,
+    *,
+    phase_indices: tuple[int, ...],
+    source_phase_frames: list[int],
+    normalized_sequence_length: int,
+    source_sequence_length: int,
+    fps: float,
+) -> tuple[PhaseResult, ...]:
+    if source_sequence_length <= 0 or normalized_sequence_length <= 0 or fps <= 0:
+        raise ValueError("source checkpoint timeline requires positive dimensions")
+    if len(source_phase_frames) != len(phase_indices):
+        raise ValueError("source timeline needs one source frame per phase")
+    normalized_frames = _rule_anchor_frames(
+        spec, phase_indices, normalized_sequence_length - 1
+    )
+    last_source_frame = source_sequence_length - 1
+    return tuple(
+        PhaseResult(
+            id=rule.id,
+            label=rule.name_zh_tw,
+            normalized_frame=normalized_frame,
+            normalized_position=float(source_frame) / max(1, last_source_frame),
+            timestamp_seconds=float(source_frame) / fps,
+        )
+        for rule, normalized_frame, source_frame in zip(
+            spec.rules,
+            normalized_frames,
+            (
+                source_phase_frames[rule.allowed_anchor_indices[-1]]
+                for rule in spec.rules
+            ),
+            strict=True,
+        )
+    )
+
+
 def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
     if requested in ("left", "right"):
         return Handedness.convert_to_enum(requested)
     body_2d = tracking.get("body_landmarks_2d")
     if not body_2d:
         raise ValueError("cannot estimate handedness without 2D landmarks")
-    skeleton, confidence = landmark_dicts_to_array(body_2d, 2)
+    skeleton, confidence = tracking_body_arrays(tracking)
     estimate = estimate_handedness(skeleton, confidence)
     if estimate.handedness is None:
         raise ValueError("handedness is ambiguous; specify left or right")
@@ -239,7 +279,7 @@ def _populate_dominant_motion(
     body_2d = tracking.get("body_landmarks_2d")
     if not body_2d:
         raise ValueError("2D landmarks are required for motion analysis")
-    skeleton, confidence = landmark_dicts_to_array(body_2d, 2)
+    skeleton, confidence = tracking_body_arrays(tracking)
     wrist = COCOKeypoints.RIGHT_WRIST if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_WRIST
     elbow = COCOKeypoints.RIGHT_ELBOW if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_ELBOW
     tracking["hand_positions"] = list(interpolated_keypoint(skeleton, confidence, wrist))
@@ -272,6 +312,11 @@ class SkeletonAnalysisPipeline:
                 expert_motion_model_root,
                 skill,
                 device=device,
+                # Serve and smash share the same camera-frame contract. Apply
+                # the ankle–spine projection before both scoring and rendering;
+                # the renderer then rigidly grounds the generated full body on
+                # the detected support ankle in pixel space.
+                align_ankle_spine_view=True,
             )
 
     @property
@@ -334,6 +379,7 @@ class SkeletonAnalysisPipeline:
                 for item in generated.score["criteria"]
             ]
             scoring_finished = time.perf_counter()
+            frame_rate = source_frame_rate(video_path)
             fps = source_fps(video_path)
             spec: SkillCorrectionSpec = backend.spec
             correction_grade = _correction_grade_context(
@@ -353,7 +399,9 @@ class SkeletonAnalysisPipeline:
                 score=float(grade["total_grade"]),
                 output_path=skeleton_overlay_path,
                 fps=fps,
+                frame_rate=frame_rate,
                 generated_full_body=True,
+                fixed_hierarchical_placement=True,
             )
             overlay_finished = time.perf_counter()
             # Coaching is the only stage that leaves this machine: it uploads
@@ -392,15 +440,19 @@ class SkeletonAnalysisPipeline:
                 score=float(grade["total_grade"]),
                 output_path=output_path,
                 fps=fps,
+                frame_rate=frame_rate,
                 feedback=problems,
                 pause_seconds=self.pause_seconds,
                 generated_full_body=True,
+                fixed_hierarchical_placement=True,
             )
             final_render_finished = time.perf_counter()
 
         diagnostics.update(
             {
                 "source_fps": fps,
+                "source_frame_count": len(tracking["frames"]),
+                "normalized_sequence_length": len(skeleton),
                 "analysis_window_start_frame": int(window[0]),
                 "analysis_window_peak_frame": int(window[1]),
                 "analysis_window_end_frame": int(window[2]),
@@ -437,11 +489,13 @@ class SkeletonAnalysisPipeline:
         expert_id = str(diagnostics.get("expert_reference_id", ""))
         if not expert_id:
             raise RuntimeError("checkpoint did not report a selected expert")
-        duration = len(skeleton) / fps
-        phase_results = _qualitative_phase_results(
+        duration = len(tracking["frames"]) / fps
+        phase_results = _source_qualitative_phase_results(
             spec,
             phase_indices=tuple(int(value) for value in phases),
-            sequence_length=len(skeleton),
+            source_phase_frames=source_phase_frames,
+            normalized_sequence_length=len(skeleton),
+            source_sequence_length=len(tracking["frames"]),
             fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:

@@ -36,6 +36,14 @@ _WHOLEBODY_KEYPOINTS = 133
 # frame-at-a-time path stays on the unbatched, non-TensorRT get_pose().
 BATCH_SIZE = 16
 
+# Elbows are frequently self-occluded during a badminton swing. RF-DETR still
+# tracks them coherently below the general body-joint cutoff, so accept these
+# two joints at a lower confidence instead of synthesizing their coordinates
+# later in the renderer.
+_ELBOW_KEYPOINT_INDICES = frozenset(
+    (int(COCOKeypoints.LEFT_ELBOW), int(COCOKeypoints.RIGHT_ELBOW))
+)
+
 _TRT_CACHE_ROOT = Path(
     os.getenv("BADMINTON_TRT_CACHE_DIR", str(Path.home() / ".cache" / "badminton_analysis" / "trt_engines"))
 )
@@ -53,16 +61,21 @@ class PoseDetector:
 
     def __init__(
         self,
-        # 0.5 dropped real, stable elbow/wrist detections during a swing --
-        # the non-dominant arm (partially self-occluded, held close to the
-        # body from most camera angles) commonly scores 0.18-0.45 while still
-        # tracking the correct position frame to frame; 0.15 keeps those and
-        # still excludes near-zero noise.
+        # General body joints remain conservative enough to exclude near-zero
+        # noise. Elbows have a separate lower cutoff because self-occlusion
+        # during a swing depresses their confidence more than other joints.
         min_detection_confidence: float = 0.15,
+        elbow_detection_confidence: float = 0.05,
         person_detection_threshold: float = 0.5,
     ):
+        if not 0.0 <= elbow_detection_confidence <= min_detection_confidence:
+            raise ValueError(
+                "elbow_detection_confidence must be between zero and "
+                "min_detection_confidence"
+            )
         self.logger = Logger(self.__class__.__name__)
         self.min_detection_confidence = min_detection_confidence
+        self.elbow_detection_confidence = elbow_detection_confidence
         self.person_detection_threshold = person_detection_threshold
         self.device = (
             "cuda"
@@ -85,6 +98,17 @@ class PoseDetector:
             "pose": ("torch", self.device),
         }
 
+    def keypoint_detection_threshold(self, index: int) -> float:
+        """Return the acceptance threshold for one COCO body joint.
+
+        Both the native PyTorch/MPS path and TensorRT path produce the same
+        ``PosePrediction`` structure, so applying this threshold while reading
+        predictions keeps their joint filtering identical.
+        """
+        if int(index) in _ELBOW_KEYPOINT_INDICES:
+            return self.elbow_detection_confidence
+        return self.min_detection_confidence
+
     # Added for this deployment: the analysis response reports which provider
     # served a request, and the release gate asserts TensorRT was actually
     # used. Kept as properties so re-syncing this file from the analysis repo
@@ -105,6 +129,19 @@ class PoseDetector:
                 "rfdetr is required for person detection and pose estimation"
             ) from exc
         self._model = RFDETRKeypointPreview(device=self.device)
+        if (
+            self.device == "mps"
+            and os.getenv("BADMINTON_RFDETR_MPS_FP16", "0") == "1"
+        ):
+            # Match the production TensorRT engine's FP16 precision while
+            # avoiding a second full-precision model copy on unified memory.
+            # Compilation is deliberately disabled because audit batches have
+            # a variable-size final chunk.
+            self._model.inference(
+                compile=False,
+                dtype=torch.float16,
+                inplace=True,
+            )
 
     def _load_or_build_batched_engine(self) -> None:
         """Load the cached fixed-batch TensorRT engine, building it once per
@@ -360,7 +397,7 @@ class PoseDetector:
 
         body_coords: CoordinateDict = {}
         for i in range(len(keypoints)):
-            if scores[i] <= self.min_detection_confidence:
+            if scores[i] <= self.keypoint_detection_threshold(i):
                 continue
             body_coords[COCOKeypoints(i)] = keypoints[i]
         return body_coords or None
@@ -374,7 +411,7 @@ class PoseDetector:
 
         coords: WholeBodyCoordinateDict = {}
         for i in range(len(keypoints)):
-            if scores[i] <= self.min_detection_confidence:
+            if scores[i] <= self.keypoint_detection_threshold(i):
                 continue
             coords[i] = keypoints[i]
         return coords or None

@@ -84,11 +84,19 @@ class TrackingData(TypedDict):
     frames: list[NDArray[np.uint8]]
     original_landmarks: list[CoordinateDict]
     body_landmarks_2d: NotRequired[list[Coordinate2DDict]]
+    # Dense RF-DETR body output aligned with ``body_landmarks_2d``.  The
+    # dictionary representation is retained for the legacy renderer/API, but
+    # it can only encode present/absent and therefore must not be used as the
+    # confidence source for model inference or scoring.
+    body_keypoints_2d: NotRequired[list[NDArray[np.float64]]]
+    body_confidence_2d: NotRequired[list[NDArray[np.float64]]]
     hand_positions: list[Coordinate2D]
     elbow_positions: list[Coordinate2D]
     time_intervals: list[float]
     source_frame_indices: NotRequired[list[int]]
     wholebody_landmarks: NotRequired[list[WholeBodyCoordinateDict]]
+    wholebody_keypoints_2d: NotRequired[list[NDArray[np.float64]]]
+    wholebody_confidence: NotRequired[list[NDArray[np.float64]]]
 
 
 StepSequence: TypeAlias = list[Literal["L", "R"]]

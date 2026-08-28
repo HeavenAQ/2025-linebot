@@ -37,8 +37,13 @@ type SecretManagerConfig struct {
 }
 
 type FirestoreConfig struct {
-	DataDB    string `env:"FIREBASE_DATA_DB"`
-	SessionDB string `env:"FIREBASE_SESSION_DB"`
+	// DatabaseID names the Firestore database. It is what keeps this
+	// deployment's data apart from the original's, which lives in the same
+	// project: collection names cannot do it on their own, because
+	// weekly_reflections is not configurable. Blank means "(default)".
+	DatabaseID string `env:"FIREBASE_DATABASE_ID"`
+	DataDB     string `env:"FIREBASE_DATA_DB"`
+	SessionDB  string `env:"FIREBASE_SESSION_DB"`
 }
 
 type AnalysisServerConfig struct {

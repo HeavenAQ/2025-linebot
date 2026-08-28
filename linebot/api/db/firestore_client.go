@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"cloud.google.com/go/firestore"
-	firebase "firebase.google.com/go"
 )
 
 type FirestoreClient struct {
@@ -16,17 +15,26 @@ type FirestoreClient struct {
 	WeeklyReflections *firestore.CollectionRef
 }
 
-func NewFirestoreClient(projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
-	// initialize firebase app
+// DefaultDatabase is the database a project gets without asking for one. An
+// empty FIREBASE_DATABASE_ID means it, so a deployment that predates the
+// setting keeps talking to the same data.
+const DefaultDatabase = "(default)"
+
+// NewFirestoreClient connects to one named database and takes its collections
+// from there.
+//
+// The database, not the collection names, is what separates deployments that
+// share a GCP project. Collection names alone cannot do it: WeeklyReflections
+// is fixed below, so two deployments pointed at the same database would write
+// every learner's reflection into one collection however their other
+// collections were named.
+func NewFirestoreClient(projectID string, databaseID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {
 	ctx := context.Background()
-	conf := &firebase.Config{ProjectID: projectID}
-	app, err := firebase.NewApp(ctx, conf)
-	if err != nil {
-		return nil, err
+	if databaseID == "" {
+		databaseID = DefaultDatabase
 	}
 
-	// instantiate firestore client
-	client, err := app.Firestore(ctx)
+	client, err := firestore.NewClientWithDatabase(ctx, projectID, databaseID)
 	if err != nil {
 		return nil, err
 	}

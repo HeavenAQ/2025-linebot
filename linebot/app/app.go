@@ -63,6 +63,7 @@ func NewApp(configPath string) *App {
 	// Set up firestore client
 	firestoreClient, err := db.NewFirestoreClient(
 		cfg.GCP.ProjectID,
+		cfg.GCP.Database.DatabaseID,
 		cfg.GCP.Database.DataDB,
 		cfg.GCP.Database.SessionDB,
 	)

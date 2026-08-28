@@ -129,10 +129,13 @@ jobs:
             echo "GCP_ENV_SECRET_NAME is production's secret" >&2
             exit 1
           fi
-          # And the bucket and databases inside that secret must be the
+          # And the bucket and database inside that secret must be the
           # variant's too -- that is where the data plane is actually chosen.
+          # FIREBASE_DATABASE_ID is the one that matters for Firestore: the
+          # collection names below cannot separate the deployments on their own,
+          # because weekly_reflections is not configurable.
           env_body="$(gcloud secrets versions access latest --secret "${secret_name}")"
-          for pair in "GCS_BUCKET_NAME=nstc-2025-storage"; do
+          for pair in "GCS_BUCKET_NAME=nstc-2025-storage" "FIREBASE_DATABASE_ID=(default)"; do
             key="${pair%%=*}"; forbidden="${pair#*=}"
             value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
             test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }
@@ -142,6 +145,8 @@ jobs:
             fi
             echo "${key} is ${value}"
           done
+          # Reported for the record; they are collection names within the
+          # database asserted above, so they may match production's safely.
           for key in FIREBASE_DATA_DB FIREBASE_SESSION_DB; do
             value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
             test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,19 +51,25 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 		}
 	}
 
-	// 2. Note updating action
+	// 2. Weekly preview request from the review card
+	if _, ok := app.isWeeklyPreviewAction(rawData); ok {
+		app.handleWeeklyPreviewRequest(user, replyToken)
+		return
+	}
+
+	// 3. Note updating action
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
 		app.forceStateToWritingNotes(user, session, data, replyToken)
 		return
 	}
 
-	// 3. Video watching action
+	// 4. Video watching action
 	if data, ok := app.isWatchVideoAction(rawData); ok {
 		app.handleWatchPortfolioVideo(user, data, replyToken)
 		return
 	}
 
-	// 4. Route by user state
+	// 5. Route by user state
 	switch session.UserState {
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
@@ -315,6 +322,45 @@ func (app *App) forceStateToWritingNotes(user *db.UserData, _ *db.UserSession, d
 	}
 }
 
+// handleWeeklyPreviewRequest answers the 產生課前預習 button. The note is written
+// on the spot rather than read back from the week's push, so a learner who has
+// not been pushed one yet -- or who has practised since -- gets a current one.
+// The two cases the scheduled run distinguishes are answered in words here,
+// since a learner who taps the button is owed a reason, not silence.
+func (app *App) handleWeeklyPreviewRequest(user *db.UserData, replyToken string) {
+	outcome := app.WeeklyPreviewOnDemand(*user)
+	app.Logger.Info.Printf(
+		"[preview.ondemand] user_id=%s status=%s skill=%s", user.ID, outcome.Status, outcome.Skill,
+	)
+
+	switch outcome.Status {
+	case PreviewPrepared:
+		err := app.LineBot.ReplyWeeklyPreview(replyToken, db.SkillStrToEnum(outcome.Skill), outcome.Note)
+		handleLineMessageResponseError(err)
+	case PreviewNoHistory:
+		_, err := app.LineBot.SendReply(
+			replyToken,
+			"目前還沒有動作分析紀錄，先從選單的【動作分析】上傳一段練習影片，之後就能為你準備課前預習。",
+		)
+		handleLineMessageResponseError(err)
+	case PreviewNoSupportedSkill:
+		_, err := app.LineBot.SendReply(
+			replyToken,
+			fmt.Sprintf(
+				"你目前的紀錄都是本學期未開放的動作，先練習 %v 並上傳影片，之後就能為你準備課前預習。",
+				db.SupportedSkillsChnString(),
+			),
+		)
+		handleLineMessageResponseError(err)
+	default:
+		app.Logger.Error.Printf(
+			"[preview.ondemand] user_id=%s failed error=%s", user.ID, outcome.Error,
+		)
+		_, err := app.LineBot.SendDefaultErrorReply(replyToken)
+		handleLineMessageResponseError(err)
+	}
+}
+
 // handleSelectingPortfolio is invoked when selecting which portfolio entry to update.
 func (app *App) handleSelectingPortfolio(rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
@@ -510,6 +556,14 @@ func (app *App) isStopChattingWithGPTAction(rawData string) (*line.StopGPTPostba
 
 func (app *App) isUpdateNoteAction(rawData string) (*line.WritingNotePostback, bool) {
 	data, err := app.LineBot.HandleWritingNotePostbackData(rawData)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func (app *App) isWeeklyPreviewAction(rawData string) (*line.WeeklyPreviewPostback, bool) {
+	data, err := app.LineBot.HandleWeeklyPreviewPostbackData(rawData)
 	if err != nil {
 		return nil, false
 	}

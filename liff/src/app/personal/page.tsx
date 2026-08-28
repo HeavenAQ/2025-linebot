@@ -22,7 +22,12 @@ import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import { useSkillSummary } from '@/lib/useSkillSummary'
-import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
+import {
+  resolveReviewSection,
+  resolveWorkFocus,
+  type ReviewSection,
+  type WorkFocus
+} from '@/lib/workLink'
 import SkillSummary from '@/components/SkillSummary'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
@@ -115,6 +120,7 @@ export default function PersonalPage() {
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const [focusWork, setFocusWork] = useState<WorkFocus | null>(null)
+  const [focusSection, setFocusSection] = useState<ReviewSection | null>(null)
   const { liff, profile, liffError, sessionExpired } = useLiff()
   const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
 
@@ -130,6 +136,9 @@ export default function PersonalPage() {
     if (TAB_OPTIONS.some(option => option.value === requested)) {
       setActiveTab(requested as TabValue)
     }
+    // The review tab's own sub-tab, so a link can land a learner on 預習
+    // rather than on the reflection they have not written yet.
+    setFocusSection(resolveReviewSection(search))
     if (!userData) return
     const focus = resolveWorkFocus(search, userData.portfolio)
     if (!focus) return
@@ -395,7 +404,12 @@ export default function PersonalPage() {
 
         {activeTab === 'review' && profile?.userId && (
           <div role="tabpanel">
-            <WeeklyReview userId={profile.userId} userData={userData} focusWork={focusWork} />
+            <WeeklyReview
+              userId={profile.userId}
+              userData={userData}
+              focusWork={focusWork}
+              focusSection={focusSection}
+            />
           </div>
         )}
       </main>

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -33,4 +34,21 @@ func TestWeeklyReflectionDocIDIsScopedToTheLearner(t *testing.T) {
 		client.weeklyReflectionDocID("U123", "2026-W34"),
 		client.weeklyReflectionDocID("U124", "2026-W34"),
 	)
+}
+
+// A save merges by field name, so a WeeklyNoteField that does not match the
+// stored tag would quietly write a stray field nothing ever reads back.
+func TestWeeklyNoteFieldsMatchTheStoredTags(t *testing.T) {
+	t.Parallel()
+
+	record := reflect.TypeOf(WeeklyReflection{})
+	for name, note := range map[string]WeeklyNoteField{
+		"Note":    ReflectionNote,
+		"Preview": PreviewNote,
+	} {
+		field, ok := record.FieldByName(name)
+		require.True(t, ok, name)
+		require.Equal(t, string(note), field.Tag.Get("firestore"), name)
+		require.Equal(t, string(note), field.Tag.Get("json"), name)
+	}
 }

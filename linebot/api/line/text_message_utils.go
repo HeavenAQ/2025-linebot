@@ -59,8 +59,28 @@ func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string)
 // written per week in the web app now, where the learner can watch the video
 // and their expert comparison while writing, so the bot's job is to hand them
 // the right link rather than collect a note over chat.
+//
+// The second button covers the other half of 預習及反思: the coach's own 課前預習
+// note is otherwise only pushed on a schedule, so a learner who wants it before
+// then -- or who joined mid-week -- can ask for it here.
 func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
-	bubble := &linebot.BubbleContainer{
+	bubble, err := weeklyReviewBubble(reviewURL)
+	if err != nil {
+		return nil, err
+	}
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("每週回顧與反思", bubble))
+}
+
+// weeklyReviewBubble is split out from the send so the buttons can be read back
+// in a test: the postback one has to survive the round trip through LINE and
+// come back as a preview request rather than as some other card's payload.
+func weeklyReviewBubble(reviewURL string) (*linebot.BubbleContainer, error) {
+	previewData, err := json.Marshal(WeeklyPreviewPostback{Preview: true})
+	if err != nil {
+		return nil, err
+	}
+
+	return &linebot.BubbleContainer{
 		Type: linebot.FlexContainerTypeBubble,
 		Body: &linebot.BoxComponent{
 			Type:       "box",
@@ -86,6 +106,7 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 		Footer: &linebot.BoxComponent{
 			Type:       "box",
 			Layout:     "vertical",
+			Spacing:    "sm",
 			PaddingAll: "12px",
 			Contents: []linebot.FlexComponent{
 				&linebot.ButtonComponent{
@@ -94,10 +115,21 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 					Color:  "#1F6F4A",
 					Action: linebot.NewURIAction("前往每週回顧", reviewURL),
 				},
+				&linebot.ButtonComponent{
+					Type:  "button",
+					Style: linebot.FlexButtonStyleTypeSecondary,
+					Action: linebot.NewPostbackAction(
+						"產生課前預習",
+						string(previewData),
+						"",
+						"",
+						"",
+						"",
+					),
+				},
 			},
 		},
-	}
-	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("每週回顧與反思", bubble))
+	}, nil
 }
 
 func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {

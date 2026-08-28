@@ -83,24 +83,20 @@ func averageGrade(skill commons.SkillHistory) float64 {
 	return total / float64(len(skill.Scores))
 }
 
-// WeeklyPreviewForUser writes one learner's 課前預習 note and pushes it.
-//
-// A learner is messaged at most once per ISO week: the run is expected to be
-// retried and rescheduled, and a duplicate push reads as a bug to a student.
-// With dryRun set the note is written but not delivered or recorded, so a run
-// can be reviewed before any student sees it.
-func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool) PreviewOutcome {
-	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
-
+// previewFocus reads a learner's history and picks the skill a preview should
+// be about. It reports false when there is nothing to preview, having recorded
+// the reason on the outcome, so the scheduled run and the on-demand button
+// choose the same skill and report the same statuses.
+func (app *App) previewFocus(user db.UserData, outcome *PreviewOutcome) (db.BadmintonSkill, []commons.SkillHistory, bool) {
 	history, err := app.FirestoreClient.LearningHistory(user.ID, weeklyPreviewScoreLimit)
 	if err != nil {
 		outcome.Status = PreviewFailed
 		outcome.Error = fmt.Sprintf("read learning history: %v", err)
-		return outcome
+		return 0, nil, false
 	}
 	if len(history) == 0 {
 		outcome.Status = PreviewNoHistory
-		return outcome
+		return 0, nil, false
 	}
 
 	// Narrowed before the focus is chosen and before the note is written, so
@@ -109,7 +105,7 @@ func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool)
 	history = supportedSkillHistory(history)
 	if len(history) == 0 {
 		outcome.Status = PreviewNoSupportedSkill
-		return outcome
+		return 0, nil, false
 	}
 
 	focus := focusSkill(history)
@@ -120,6 +116,45 @@ func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool)
 	if !skill.Supported() {
 		outcome.Status = PreviewFailed
 		outcome.Error = fmt.Sprintf("unsupported skill: %s", focus.Skill)
+		return 0, nil, false
+	}
+	return skill, history, true
+}
+
+// WeeklyPreviewOnDemand writes the note behind the 產生課前預習 button. It shares
+// the scheduled run's skill choice and history depth, but deliberately neither
+// dedupes nor records: the learner asked for this one, so a second tap is a
+// second answer, and it must not consume that week's scheduled push.
+func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
+	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
+
+	skill, history, ok := app.previewFocus(user, &outcome)
+	if !ok {
+		return outcome
+	}
+
+	note, err := app.GPTClient.WeeklyPreview(user.Name, skill.ChnString(), history)
+	if err != nil {
+		outcome.Status = PreviewFailed
+		outcome.Error = fmt.Sprintf("generate preview: %v", err)
+		return outcome
+	}
+	outcome.Note = strings.TrimSpace(note)
+	outcome.Status = PreviewPrepared
+	return outcome
+}
+
+// WeeklyPreviewForUser writes one learner's 課前預習 note and pushes it.
+//
+// A learner is messaged at most once per ISO week: the run is expected to be
+// retried and rescheduled, and a duplicate push reads as a bug to a student.
+// With dryRun set the note is written but not delivered or recorded, so a run
+// can be reviewed before any student sees it.
+func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool) PreviewOutcome {
+	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
+
+	skill, history, ok := app.previewFocus(user, &outcome)
+	if !ok {
 		return outcome
 	}
 
@@ -158,7 +193,7 @@ func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool)
 	}
 	// Recorded only after delivery, so a failed push is retried next run rather
 	// than silently marked done.
-	if err := app.FirestoreClient.SetWeeklyPreview(user.ID, week, focus.Skill, outcome.Note); err != nil {
+	if err := app.FirestoreClient.SetWeeklyPreview(user.ID, week, outcome.Skill, outcome.Note); err != nil {
 		app.Logger.Warn.Printf("[preview.weekly] user_id=%s record_failed err=%v", user.ID, err)
 	}
 	outcome.Status = PreviewPushed

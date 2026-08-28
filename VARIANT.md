@@ -54,6 +54,26 @@ timeline, the expert comparison with checkpoint alignment and segmental warping,
 weekly reflections, stats, the portfolio carousel, and both `student_video` and
 `skeleton_overlay_video` fields on the response.
 
+The rich menu differs too. `main` keeps one **預習及反思** entry whose card offers
+both the review page and a GPT-written 課前預習 note on demand. This variant has
+no such note, so the entry is split in two: **課前預習** opens the review tab's
+預習 sub-tab and **學習反思** its 反思 sub-tab. Both products let a student write
+their own 課前檢視要點 in 預習 — that note is theirs, not a model's.
+
+The rich menu is not defined in code. The two tappable areas are created in the
+LINE console and must send exactly these texts, which are what
+`UserStateChnStrToEnum` matches:
+
+| Menu area | Text it sends | Where the card's button goes |
+|---|---|---|
+| 課前預習 | `課前預習` | `${LIFF_REVIEW_URL}` + `section=preview` |
+| 學習反思 | `學習反思` | `${LIFF_REVIEW_URL}` + `section=reflection` |
+
+With `LIFF_REVIEW_URL=https://liff-nstc-2025-noai.netlify.app/personal?tab=review`
+those resolve to
+`https://liff-nstc-2025-noai.netlify.app/personal?section=preview&tab=review` and
+`https://liff-nstc-2025-noai.netlify.app/personal?section=reflection&tab=review`.
+
 `coaching_cues` and `overall_feedback` remain in the protobuf contract and come
 back empty for this deployment because the service skips the stage that fills
 them. The Go client and the web app no longer read either field.

@@ -65,3 +65,44 @@ func TestSkillOrderStillCoversWithdrawnSkills(t *testing.T) {
 		require.Len(t, portfolio.GetSkillPortfolio(skill), 1, skill)
 	}
 }
+
+// String, ChnString and UserStateChnStrToEnum are three parallel lists indexed
+// by the value itself. A state added to one but not the others silently renames
+// every state after it -- a bug this file has already seen once -- so every
+// state is round-tripped through all three.
+func TestUserStateNamesStayInStep(t *testing.T) {
+	t.Parallel()
+
+	for state := WritingPreviewNote; state <= None; state++ {
+		require.NotEmpty(t, state.String(), state)
+		chinese := state.ChnString()
+		require.NotEmpty(t, chinese, state)
+
+		parsed, err := UserStateChnStrToEnum(chinese)
+		require.NoError(t, err, chinese)
+		require.Equal(t, state, parsed, chinese)
+	}
+}
+
+// The rich menu sends its label as plain text, so these are the strings the
+// menu areas have to carry. The two halves of a week are separate entries and
+// must not collapse into one state.
+func TestWeeklyMenuEntriesAreTheirOwnStates(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "課前預習", WritingPreviewNote.ChnString())
+	require.Equal(t, "學習反思", WritingReflectionNote.ChnString())
+	require.NotEqual(t, WritingPreviewNote, WritingReflectionNote)
+
+	preview, err := UserStateChnStrToEnum("課前預習")
+	require.NoError(t, err)
+	require.Equal(t, WritingPreviewNote, preview)
+
+	reflection, err := UserStateChnStrToEnum("學習反思")
+	require.NoError(t, err)
+	require.Equal(t, WritingReflectionNote, reflection)
+
+	// The entry these two replaced is gone rather than kept as a fallback.
+	_, err = UserStateChnStrToEnum("預習及反思")
+	require.Error(t, err)
+}

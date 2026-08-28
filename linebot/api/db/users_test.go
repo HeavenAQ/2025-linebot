@@ -135,7 +135,7 @@ func TestCreateUserPortfolioVideo(t *testing.T) {
 		Path: "thumbnail/serve.jpg",
 	}
 	session := &db.UserSession{
-		UserState: db.WritingNotes,
+		UserState: db.WritingReflectionNote,
 	}
 	analysis := commons.AnalysisOutcome{
 		AnalysisID: "analysis-live-test",

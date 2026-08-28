@@ -38,7 +38,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 
 	// 1. Note updating action
 	if data, ok := app.isUpdateNoteAction(rawData); ok {
-		app.forceStateToWritingNotes(user, session, data, replyToken)
+		app.redirectNotePostbackToReview(user, session, data, replyToken)
 		return
 	}
 
@@ -50,7 +50,7 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 
 	// 3. Route by user state
 	switch session.UserState {
-	case db.WritingNotes:
+	case db.WritingReflectionNote:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
 	case db.ViewingExpertVideos:
 		app.handleViewingExpertVideos(event, rawData, user, session, replyToken)
@@ -67,7 +67,10 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 // 2. State Machine Sub-Handlers
 // ============================================================================
 
-// handleWritingNotes handles logic for the “WritingNotes” state.
+// handleWritingNotes is the old over-chat reflection conversation. Nothing puts
+// a session into WritingReflectionNote any more -- 學習反思 hands over a link and
+// resets -- so this is unreachable, and kept only because the postback data it
+// reads still exists.
 func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
@@ -190,17 +193,17 @@ func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string
 // 3. Individual Action Handlers
 // ============================================================================
 
-// forceStateToWritingNotes used to put the session into note-writing mode. The
-// 預習及反思 buttons on portfolio cards still sitting in learners' chat history
-// lead here, so rather than starting a conversation that no longer exists it
-// sends them to the web app, where the note now lives.
-func (app *App) forceStateToWritingNotes(user *db.UserData, _ *db.UserSession, data *line.WritingNotePostback, replyToken string) {
+// redirectNotePostbackToReview answers a portfolio card's old note button. It
+// used to put the session into note-writing mode; rather than start a
+// conversation that no longer exists it sends the learner to the web app, where
+// the reflection now lives.
+func (app *App) redirectNotePostbackToReview(user *db.UserData, _ *db.UserSession, data *line.WritingNotePostback, replyToken string) {
 	app.Logger.Info.Printf(
 		"[notes] deprecated note postback user_id=%s skill=%s work_date=%s",
 		user.ID, data.Skill, data.WorkDate,
 	)
 	app.FirestoreClient.ResetSession(user.ID)
-	if _, err := app.LineBot.SendWeeklyReviewLink(replyToken, app.Config.ReviewURL()); err != nil {
+	if _, err := app.LineBot.SendWeeklyReflectionLink(replyToken, app.Config.ReviewURL()); err != nil {
 		app.handleSendingReplyMessageError(err, replyToken)
 	}
 }

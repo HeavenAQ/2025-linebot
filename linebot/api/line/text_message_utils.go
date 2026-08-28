@@ -54,12 +54,13 @@ func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string)
 	))
 }
 
-// SendWeeklyReviewLink replaces the old 預習及反思 conversation. Reflections are
-// written per week in the web app now, where the learner can watch the video
-// and their expert comparison while writing, so the bot's job is to hand them
-// the right link rather than collect a note over chat.
-func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
-	bubble := &linebot.BubbleContainer{
+// reviewSectionBubble is the card behind both weekly menu entries. Neither
+// collects a note over chat any more: previews and reflections are written per
+// week in the web app, where the learner can watch their own action against the
+// expert comparison while writing, so the bot's job is to hand over the right
+// link rather than run a conversation.
+func reviewSectionBubble(title, body, buttonLabel, sectionURL string) *linebot.BubbleContainer {
+	return &linebot.BubbleContainer{
 		Type: linebot.FlexContainerTypeBubble,
 		Body: &linebot.BoxComponent{
 			Type:       "box",
@@ -68,13 +69,13 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 			Contents: []linebot.FlexComponent{
 				&linebot.TextComponent{
 					Type:   "text",
-					Text:   "每週回顧與反思",
+					Text:   title,
 					Size:   "lg",
 					Weight: linebot.FlexTextWeightTypeBold,
 				},
 				&linebot.TextComponent{
 					Type:   "text",
-					Text:   "課前檢視與學習反思已移至學習網頁。在網頁上可以一邊看自己的動作與專家對照影片、回顧當週的評分紀錄，一邊寫下這一週的反思。",
+					Text:   body,
 					Size:   "sm",
 					Wrap:   true,
 					Color:  "#666666",
@@ -91,12 +92,37 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 					Type:   "button",
 					Style:  linebot.FlexButtonStyleTypePrimary,
 					Color:  "#1F6F4A",
-					Action: linebot.NewURIAction("前往每週回顧", reviewURL),
+					Action: linebot.NewURIAction(buttonLabel, sectionURL),
 				},
 			},
 		},
 	}
-	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("每週回顧與反思", bubble))
+}
+
+// SendWeeklyPreviewLink answers the 課前預習 menu entry. Both entries are derived
+// from the one configured review URL by merging the sub-tab into the query it
+// already carries, so there is still only a single address to keep current.
+func (client *Client) SendWeeklyPreviewLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
+	const title = "課前預習"
+	bubble := reviewSectionBubble(
+		title,
+		"上課前先想好這次要盯住哪幾個動作重點，寫在學習網頁的「預習」裡。下課後回到同一頁寫反思，就能對照當初打算練什麼。",
+		"前往課前預習",
+		reviewSectionURL(reviewURL, previewSection),
+	)
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage(title, bubble))
+}
+
+// SendWeeklyReflectionLink answers the 學習反思 menu entry.
+func (client *Client) SendWeeklyReflectionLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
+	const title = "學習反思"
+	bubble := reviewSectionBubble(
+		title,
+		"這一週練下來如何？在學習網頁的「反思」裡寫下來。可以一邊看自己的動作與專家對照影片、回顧當週的評分紀錄，一邊整理心得。",
+		"前往學習反思",
+		reviewSectionURL(reviewURL, reflectionSection),
+	)
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage(title, bubble))
 }
 
 func (client *Client) SendNoPortfolioReply(replyToken string, skill db.BadmintonSkill) error {
@@ -136,13 +162,14 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
-	const addReflection = "➡️ 預習及反思：開啟學習網頁的「每週回顧」，一邊看影片一邊寫每週學習反思\n\n"
+	const addPreview = "➡️ 課前預習：開啟學習網頁「每週回顧」的預習，寫下這次上課想盯住的動作重點\n\n"
+	const addReflection = "➡️ 學習反思：開啟「每週回顧」的反思，一邊看影片一邊寫下這一週的心得\n\n"
 	const analyzeRecording = "➡️ 動作分析：上傳個人動作錄影，系統將自動產生分析結果\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
 	const learningDashboard = "➡️ 學習儀表板：查看學習進度及成就\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
 	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + portfolio + addReflection + analyzeRecording + expertVideo + learningDashboard + note1 + note2
+	const msg = welcome + instruction + portfolio + addPreview + addReflection + analyzeRecording + expertVideo + learningDashboard + note1 + note2
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 

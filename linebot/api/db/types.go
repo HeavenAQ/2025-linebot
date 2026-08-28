@@ -9,7 +9,11 @@ type UserState int8
 
 // UserState represents the action that a user is currently taking
 const (
-	WritingNotes UserState = iota
+	// The two halves of a week are separate menu entries: what the learner
+	// means to work on before the lesson, and how it went afterwards. They open
+	// the same review page on different sub-tabs.
+	WritingPreviewNote UserState = iota
+	WritingReflectionNote
 	ViewingExpertVideos
 	ViewingPortfoilo
 	AnalyzingVideo
@@ -17,18 +21,23 @@ const (
 	None
 )
 
+// The three lists below are indexed by the value itself, so a state added to
+// one has to be added to all three, in this same order.
+
 func (s UserState) String() string {
-	return [...]string{"writing_notes", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
+	return [...]string{"writing_preview_note", "writing_reflection_note", "viewing_expert_videos", "viewing_portfolio", "analyzing_video", "reading_instruction", "none"}[s]
 }
 
 func (s UserState) ChnString() string {
-	return [...]string{"預習及反思", "專家影片", "學習歷程", "動作分析", "使用說明", "無"}[s]
+	return [...]string{"課前預習", "學習反思", "專家影片", "學習歷程", "動作分析", "使用說明", "無"}[s]
 }
 
 func UserStateChnStrToEnum(str string) (UserState, error) {
 	switch str {
-	case "預習及反思":
-		return WritingNotes, nil
+	case "課前預習":
+		return WritingPreviewNote, nil
+	case "學習反思":
+		return WritingReflectionNote, nil
 	case "專家影片":
 		return ViewingExpertVideos, nil
 	case "學習歷程":

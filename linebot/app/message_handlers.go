@@ -54,8 +54,10 @@ func (app *App) handleRichMenuMessage(
 		app.processViewingExpertVideos(user, userState, replyToken)
 	case db.AnalyzingVideo:
 		app.processAnalyzingVideo(user, userState, replyToken)
-	case db.WritingNotes:
-		app.processWritingNotes(user, userState, replyToken)
+	case db.WritingPreviewNote:
+		app.processWritingPreviewNote(user, replyToken)
+	case db.WritingReflectionNote:
+		app.processWritingReflectionNote(user, replyToken)
 	default:
 		app.handleUnsupportedMessage(replyToken)
 	}

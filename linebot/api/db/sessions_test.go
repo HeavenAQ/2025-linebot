@@ -12,7 +12,7 @@ func TestGetUserSession(t *testing.T) {
 	requireLive(t)
 	// Create a test user session
 	testUserID := "test-user-id"
-	expectedSession := db.UserSession{UserState: db.WritingNotes, Skill: "Writing", Handedness: "right"}
+	expectedSession := db.UserSession{UserState: db.WritingReflectionNote, Skill: "Writing", Handedness: "right"}
 	_, err := firestoreClient.Sessions.Doc(testUserID).Set(*firestoreClient.Ctx, expectedSession)
 	require.NoError(t, err)
 

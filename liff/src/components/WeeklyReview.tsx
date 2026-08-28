@@ -6,18 +6,20 @@ import { Play } from 'lucide-react'
 import type { PlaybackResponse, UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Segmented } from '@/components/ui/segmented'
 import Spinner from '@/components/ui/spinner'
 import Toast from '@/components/ui/toast'
 import VideoComparison from '@/components/VideoComparison'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import {
   fetchWeeklyReflections,
-  saveWeeklyReflection,
+  saveWeeklyNote,
+  type WeeklyNoteField,
   type WeeklyReflection
 } from '@/lib/api/weeklyReflections'
 import { SkillNameMap, type Skill } from '@/lib/types'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
-import type { WorkFocus } from '@/lib/workLink'
+import { REVIEW_SECTIONS, type ReviewSection, type WorkFocus } from '@/lib/workLink'
 
 interface WeeklyReviewProps {
   userId: string
@@ -28,6 +30,11 @@ interface WeeklyReviewProps {
    * component that shows what it is given.
    */
   focusWork?: WorkFocus | null
+  /**
+   * The sub-tab to open on arrival, named by the same link. Null leaves the
+   * student on 反思, which is where most of them are heading.
+   */
+  focusSection?: ReviewSection | null
 }
 
 interface WeekEntry {
@@ -38,6 +45,42 @@ interface WeekEntry {
 }
 
 const SKILLS = Object.keys(SkillNameMap) as Skill[]
+
+/**
+ * The two notes a week holds, and how each one is presented. They are the same
+ * week from either end -- what the student meant to work on, and how it went --
+ * so they share a week picker and a save path and differ only in wording.
+ */
+const SECTIONS: Record<
+  ReviewSection,
+  {
+    field: WeeklyNoteField
+    label: string
+    heading: string
+    placeholder: string
+    saveLabel: string
+    savedToast: string
+  }
+> = {
+  reflection: {
+    field: 'note',
+    label: '反思',
+    heading: '本週反思',
+    placeholder: '這週練習下來，哪裡進步了？哪裡還要加強？下週想先做什麼？',
+    saveLabel: '儲存反思',
+    savedToast: '本週反思已儲存'
+  },
+  preview: {
+    field: 'preview',
+    label: '預習',
+    heading: '課前檢視要點',
+    placeholder: '下次上課前想先盯住哪些重點？例如：引拍高度、擊球點、重心轉移。',
+    saveLabel: '儲存預習',
+    savedToast: '課前檢視要點已儲存'
+  }
+}
+
+const SECTION_OPTIONS = REVIEW_SECTIONS.map(value => ({ value, label: SECTIONS[value].label }))
 
 const formatDay = (date: Date) => `${date.getMonth() + 1}/${date.getDate()}`
 
@@ -62,7 +105,12 @@ function entriesByWeek(userData: UserData): Map<string, WeekEntry[]> {
   return weeks
 }
 
-export default function WeeklyReview({ userId, userData, focusWork }: WeeklyReviewProps) {
+export default function WeeklyReview({
+  userId,
+  userData,
+  focusWork,
+  focusSection
+}: WeeklyReviewProps) {
   const weeks = useMemo(() => entriesByWeek(userData), [userData])
 
   // Every week the learner recorded something in, newest first.
@@ -74,12 +122,20 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [reflections, setReflections] = useState<Record<string, WeeklyReflection>>({})
-  const [note, setNote] = useState('')
+  const [section, setSection] = useState<ReviewSection>('reflection')
+  // What the student has typed but not saved, per note, for the week on screen.
+  // Held as overrides on top of the stored record rather than as copies of it,
+  // so saving one note leaves an edit in progress on the other one alone.
+  const [drafts, setDrafts] = useState<Partial<Record<WeeklyNoteField, string>>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [toast, setToast] = useState('')
 
   const week = selectedWeek || weekLabels[0] || ''
+  const copy = SECTIONS[section]
+  const stored = reflections[week]?.[copy.field] ?? ''
+  const draft = drafts[copy.field] ?? stored
+  const dirty = draft !== stored
 
   useEffect(() => {
     let cancelled = false
@@ -93,12 +149,18 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
     }
   }, [userId])
 
-  // The textarea follows the selected week, but must not stomp on what the
-  // student is part-way through typing for that same week.
+  // Both editors start again from what is stored whenever the week changes.
   useEffect(() => {
-    setNote(reflections[week]?.note ?? '')
+    setDrafts({})
     setSaveError('')
-  }, [reflections, week])
+  }, [week])
+
+  // A link can name the sub-tab as well as the week, so a learner sent here to
+  // plan the next lesson lands on 預習. Only its arrival moves them; from then
+  // on they switch freely.
+  useEffect(() => {
+    if (focusSection) setSection(focusSection)
+  }, [focusSection])
 
   // The week a deep link opened, so the reset below can tell that week's video
   // being opened for the student apart from the student leaving the week.
@@ -162,15 +224,18 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
     setSaving(true)
     setSaveError('')
     try {
-      const saved = await saveWeeklyReflection(userId, week, note)
+      // The answer carries the whole week back, including the note this save
+      // did not touch, so the other editor keeps showing what is stored.
+      const saved = await saveWeeklyNote(userId, week, copy.field, draft)
       setReflections(current => ({ ...current, [week]: saved }))
-      setToast('本週反思已儲存')
+      setDrafts(current => ({ ...current, [copy.field]: undefined }))
+      setToast(copy.savedToast)
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '儲存失敗')
     } finally {
       setSaving(false)
     }
-  }, [note, userId, week])
+  }, [copy, draft, userId, week])
 
   if (weekLabels.length === 0) {
     return (
@@ -179,9 +244,6 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
   }
 
   const entries = weeks.get(week) ?? []
-  const saved = reflections[week]
-  const dirty = note !== (saved?.note ?? '')
-
   return (
     <div className="space-y-5">
       {/* Weeks scroll sideways so a whole semester stays reachable with a thumb
@@ -202,7 +264,7 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
               }`}
             >
               {formatWeekRange(label)}
-              {reflections[label]?.note ? (
+              {reflections[label]?.note || reflections[label]?.preview ? (
                 <span className={isActive ? 'ml-1.5' : 'ml-1.5 text-primary'}>·</span>
               ) : null}
             </button>
@@ -255,28 +317,42 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
         )}
       </section>
 
-      <section>
-        <h3 className="eyebrow mb-2">本週反思</h3>
-        <textarea
-          value={note}
-          onChange={event => setNote(event.target.value)}
-          rows={5}
-          maxLength={4000}
-          placeholder="這週練習下來，哪裡進步了？哪裡還要加強？下週想先做什麼？"
-          className="w-full rounded-lg border border-border bg-background p-3 text-[15px] leading-7 outline-none focus:border-primary"
+      <section className="space-y-3">
+        <Segmented
+          role="tablist"
+          label="本週筆記"
+          size="sm"
+          options={SECTION_OPTIONS}
+          value={section}
+          onChange={setSection}
         />
-        <div className="mt-2 flex items-center gap-3">
-          <Button onClick={onSave} disabled={saving || !dirty}>
-            {saving ? '儲存中…' : '儲存反思'}
-          </Button>
-          {dirty && !saving && <span className="text-[13px] text-muted-foreground">尚未儲存</span>}
-          <span className="ml-auto text-[11px] text-muted-foreground">{note.length} / 4000</span>
+        <div role="tabpanel">
+          <h3 className="eyebrow mb-2">{copy.heading}</h3>
+          <textarea
+            value={draft}
+            onChange={event =>
+              setDrafts(current => ({ ...current, [copy.field]: event.target.value }))
+            }
+            rows={5}
+            maxLength={4000}
+            placeholder={copy.placeholder}
+            className="w-full rounded-lg border border-border bg-background p-3 text-[15px] leading-7 outline-none focus:border-primary"
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <Button onClick={onSave} disabled={saving || !dirty}>
+              {saving ? '儲存中…' : copy.saveLabel}
+            </Button>
+            {dirty && !saving && (
+              <span className="text-[13px] text-muted-foreground">尚未儲存</span>
+            )}
+            <span className="ml-auto text-[11px] text-muted-foreground">{draft.length} / 4000</span>
+          </div>
+          {saveError && (
+            <p className="mt-2 text-[13px] text-destructive" role="alert">
+              {saveError}
+            </p>
+          )}
         </div>
-        {saveError && (
-          <p className="mt-2 text-[13px] text-destructive" role="alert">
-            {saveError}
-          </p>
-        )}
       </section>
 
       <Toast message={toast} onDismiss={() => setToast('')} />

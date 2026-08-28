@@ -77,3 +77,17 @@ func TestWorkReviewURLMergesIntoTheConfiguredQuery(t *testing.T) {
 		merged,
 	)
 }
+
+// Neither weekly menu entry has configuration of its own: each link is the
+// review URL with its sub-tab merged into the query it already carries.
+func TestReviewSectionURLMergesIntoTheConfiguredQuery(t *testing.T) {
+	const configured = "https://liff.example/personal?tab=review"
+
+	preview := reviewSectionURL(configured, previewSection)
+	require.Equal(t, 1, strings.Count(preview, "?"))
+	require.Equal(t, "https://liff.example/personal?section=preview&tab=review", preview)
+
+	reflection := reviewSectionURL(configured, reflectionSection)
+	require.Equal(t, 1, strings.Count(reflection, "?"))
+	require.Equal(t, "https://liff.example/personal?section=reflection&tab=review", reflection)
+}

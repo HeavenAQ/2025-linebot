@@ -1,5 +1,6 @@
 /**
- * Links from the bot's portfolio cards into the review tab.
+ * Links from the bot into the review tab: the attempt a portfolio card names,
+ * and the sub-tab a rich-menu card opens.
  *
  * A card names the attempt it shows (?tab=review&skill=…&date=…), but it stays
  * in the chat history for the rest of the semester — long enough to outlive the
@@ -35,4 +36,20 @@ export function resolveWorkFocus(search: string, portfolio: Portfolios): WorkFoc
   const works = portfolio[skill as Skill]
   if (!works || !owns(works, date)) return null
   return { skill: skill as Skill, date }
+}
+
+/** The 每週回顧 sub-tabs, in the order they are shown. */
+export const REVIEW_SECTIONS = ['reflection', 'preview'] as const
+
+export type ReviewSection = (typeof REVIEW_SECTIONS)[number]
+
+/**
+ * The 每週回顧 sub-tab a link asks for, or null when it names none. The bot's
+ * 課前檢視 card sends learners straight to 預習 with ?tab=review&section=preview;
+ * a link naming anything else leaves the page on its own default, for the same
+ * reason a stale attempt does.
+ */
+export function resolveReviewSection(search: string): ReviewSection | null {
+  const section = new URLSearchParams(search).get('section')
+  return REVIEW_SECTIONS.includes(section as ReviewSection) ? (section as ReviewSection) : null
 }

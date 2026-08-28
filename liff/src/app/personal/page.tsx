@@ -21,7 +21,12 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
-import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
+import {
+  resolveReviewSection,
+  resolveWorkFocus,
+  type ReviewSection,
+  type WorkFocus
+} from '@/lib/workLink'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
 
@@ -113,6 +118,7 @@ export default function PersonalPage() {
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const [focusWork, setFocusWork] = useState<WorkFocus | null>(null)
+  const [focusSection, setFocusSection] = useState<ReviewSection | null>(null)
   const { liff, profile, liffError, sessionExpired } = useLiff()
 
   // The bot links straight to a tab (?tab=review from 每週回顧), and a portfolio
@@ -127,6 +133,9 @@ export default function PersonalPage() {
     if (TAB_OPTIONS.some(option => option.value === requested)) {
       setActiveTab(requested as TabValue)
     }
+    // The review tab's own sub-tab, so the bot's 課前檢視 card can land a
+    // learner on 預習 rather than on the reflection they have not written yet.
+    setFocusSection(resolveReviewSection(search))
     if (!userData) return
     const focus = resolveWorkFocus(search, userData.portfolio)
     if (!focus) return
@@ -385,7 +394,12 @@ export default function PersonalPage() {
 
         {activeTab === 'review' && profile?.userId && (
           <div role="tabpanel">
-            <WeeklyReview userId={profile.userId} userData={userData} focusWork={focusWork} />
+            <WeeklyReview
+              userId={profile.userId}
+              userData={userData}
+              focusWork={focusWork}
+              focusSection={focusSection}
+            />
           </div>
         )}
       </main>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { resolveWorkFocus } from './workLink.ts'
+import { resolveReviewSection, resolveWorkFocus } from './workLink.ts'
 import type { Portfolios, Work } from '@/schemas/userData.schema.ts'
 
 const work = { date: '2026-08-19-14-30' } as Work
@@ -40,4 +40,18 @@ test('rejects a skill that is not a skill', () => {
 
 test('rejects an inherited property posing as a work date', () => {
   assert.equal(resolveWorkFocus('?skill=serve&date=constructor', portfolio), null)
+})
+
+test('opens the review sub-tab the link names', () => {
+  assert.equal(resolveReviewSection('?tab=review&section=preview'), 'preview')
+  assert.equal(resolveReviewSection('?tab=review&section=reflection'), 'reflection')
+})
+
+// Same reasoning as a stale attempt: an unknown sub-tab leaves the page on its
+// own default rather than showing nothing.
+test('ignores a link that names no usable sub-tab', () => {
+  assert.equal(resolveReviewSection('?tab=review'), null)
+  assert.equal(resolveReviewSection('?section='), null)
+  assert.equal(resolveReviewSection('?section=Preview'), null)
+  assert.equal(resolveReviewSection('?section=constructor'), null)
 })

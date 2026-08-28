@@ -57,12 +57,22 @@ func (app *App) processAnalyzingVideo(user *db.UserData, userState db.UserState,
 	})()
 }
 
-// processWritingNotes no longer collects a note over chat. Reflections moved to
-// the web app's weekly review tab, so this hands the learner the link and
-// clears any half-finished note session they were left in.
-func (app *App) processWritingNotes(user *db.UserData, _ db.UserState, replyToken string) {
+// The two menu entries below are the two halves of a week. Neither collects a
+// note over chat any more -- both live in the web app's weekly review tab,
+// where the learner can see their video and grades while writing -- so each
+// hands over a link straight to its own sub-tab and clears whatever session the
+// learner was left in.
+
+// processWritingPreviewNote is the 課前預習 menu entry.
+func (app *App) processWritingPreviewNote(user *db.UserData, replyToken string) {
 	processWrapper(app, user, replyToken, func(replyToken string) (*linebot.BasicResponse, error) {
-		app.FirestoreClient.ResetSession(user.ID)
-		return app.LineBot.SendWeeklyReviewLink(replyToken, app.Config.ReviewURL())
+		return app.LineBot.SendWeeklyPreviewLink(replyToken, app.Config.ReviewURL())
+	})()
+}
+
+// processWritingReflectionNote is the 學習反思 menu entry.
+func (app *App) processWritingReflectionNote(user *db.UserData, replyToken string) {
+	processWrapper(app, user, replyToken, func(replyToken string) (*linebot.BasicResponse, error) {
+		return app.LineBot.SendWeeklyReflectionLink(replyToken, app.Config.ReviewURL())
 	})()
 }

@@ -45,21 +45,39 @@ func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
 	}
 }
 
-// workReviewURL points the review tab at one recorded attempt. The configured
-// URL already carries a query of its own (?tab=review), so the work is merged
-// into it rather than appended behind a second "?".
-func workReviewURL(reviewURL string, skill string, workDate string) string {
+// The 每週回顧 sub-tabs, one per weekly menu entry. These are the values the web
+// app matches on, so both ends have to spell them the same way.
+const (
+	previewSection    = "preview"
+	reflectionSection = "reflection"
+)
+
+// withReviewQuery adds parameters to the configured review URL. That URL
+// already carries a query of its own (?tab=review), so they are merged into it
+// rather than appended behind a second "?".
+func withReviewQuery(reviewURL string, params map[string]string) string {
 	parsed, err := url.Parse(reviewURL)
 	if err != nil {
 		// Nothing to build on, but the plain review tab still gets the learner
-		// to their reflections -- they just have to pick the video themselves.
+		// to their notes -- they just have to find their way from there.
 		return reviewURL
 	}
 	query := parsed.Query()
-	query.Set("skill", skill)
-	query.Set("date", workDate)
+	for key, value := range params {
+		query.Set(key, value)
+	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+// workReviewURL points the review tab at one recorded attempt.
+func workReviewURL(reviewURL string, skill string, workDate string) string {
+	return withReviewQuery(reviewURL, map[string]string{"skill": skill, "date": workDate})
+}
+
+// reviewSectionURL points the review tab at one of its sub-tabs.
+func reviewSectionURL(reviewURL string, section string) string {
+	return withReviewQuery(reviewURL, map[string]string{"section": section})
 }
 
 // createButtonActions generates the buttons for reflection and video actions

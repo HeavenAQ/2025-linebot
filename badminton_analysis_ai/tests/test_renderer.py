@@ -15,6 +15,7 @@ from service.renderer import (
     _apply_fixed_hierarchical_placement,
     _apply_smash_contact_leg_constraints,
     _retarget_corrected_pose,
+    _constant_frame_rate_flag,
     _transcode_preserving_frame_rate,
     _normalized_to_source_frame,
     _ground_corrected_pose,
@@ -469,3 +470,47 @@ def test_full_body_correction_is_grounded_on_detected_support_ankle() -> None:
     np.testing.assert_allclose(
         grounded[15] - grounded[16], corrected[15] - corrected[16]
     )
+
+
+def test_constant_frame_rate_flag_falls_back_when_fps_mode_is_unknown(
+    tmp_path, monkeypatch
+):
+    """An ffmpeg predating 5.0 must still get a constant frame rate.
+
+    The container installs ffmpeg from its base image's distribution packages,
+    which is older than the -fps_mode option; passing it there aborts the whole
+    encode with "Option not found", which took down every analysis until the
+    flag was chosen by asking the binary.
+    """
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "ffmpeg"
+    stub.write_text(
+        "#!/bin/sh\n"
+        'for arg in "$@"; do\n'
+        '  if [ "$arg" = "-fps_mode" ]; then\n'
+        "    echo 'Unrecognized option '\\''fps_mode'\\''.' >&2\n"
+        "    echo 'Error splitting the argument list: Option not found' >&2\n"
+        "    exit 1\n"
+        "  fi\n"
+        "done\n"
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", str(stub_dir))
+
+    _constant_frame_rate_flag.cache_clear()
+    try:
+        assert _constant_frame_rate_flag() == "-vsync"
+    finally:
+        _constant_frame_rate_flag.cache_clear()
+
+
+def test_constant_frame_rate_flag_prefers_fps_mode_when_supported(monkeypatch):
+    _constant_frame_rate_flag.cache_clear()
+    try:
+        if shutil.which("ffmpeg") is None:
+            pytest.skip("ffmpeg is not installed")
+        assert _constant_frame_rate_flag() in {"-fps_mode", "-vsync"}
+    finally:
+        _constant_frame_rate_flag.cache_clear()

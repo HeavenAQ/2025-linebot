@@ -45,7 +45,11 @@ jobs:
           # module scope, so every test that touches the services package needs
           # it present even though none of them run a model.
           pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 torchvision==0.20.1
-          pip install google-auth==2.40.3 google-cloud-firestore==2.21.0 google-cloud-storage==3.4.0 grpcio==1.75.1 protobuf==6.32.1 numpy==1.26.4 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
+          # openai is needed to import the service at all: service/coaching.py
+          # imports the SDK at module scope and server.py reaches it through
+          # pipeline.py. This deployment never calls it -- ANALYSIS_SKIP_COACHING
+          # branches before the request -- but the module still has to load.
+          pip install google-auth==2.40.3 google-cloud-firestore==2.21.0 google-cloud-storage==3.4.0 grpcio==1.75.1 protobuf==6.32.1 numpy==1.26.4 openai==2.14.0 opencv-python-headless==4.10.0.84 pandas==2.2.3 pillow==10.4.0 pydantic==2.12.5 pytest==8.3.5 scikit-learn==1.7.2 shapely==2.1.2
       - name: Test correction and skill contracts
         working-directory: badminton_analysis_ai
         run: PYTHONPATH=.:generated pytest -q tests
@@ -81,7 +85,7 @@ jobs:
         run: |
           if grep -rniE 'openai|gpt' \
             --include='*.go' --include='*.py' --include='*.ts' --include='*.tsx' \
-            --exclude-dir=v1 linebot/ liff/; then
+            --exclude-dir=v1 --exclude-dir=node_modules linebot/ liff/; then
             echo "variant-owned code must contain no OpenAI or GPT references" >&2
             exit 1
           fi

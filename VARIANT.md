@@ -306,7 +306,7 @@ cd liff && npm test && npm run build
 # Variant-owned code carries no LLM reference. badminton_analysis_ai/ and the
 # generated stubs under api/analysis/v1 are the shared contract and do, correctly.
 grep -rniE "openai|gpt" --include='*.go' --include='*.py' --include='*.ts' \
-  --include='*.tsx' --exclude-dir=v1 linebot/ liff/
+  --include='*.tsx' --exclude-dir=v1 --exclude-dir=node_modules linebot/ liff/
 
 # badminton_analysis_ai/ and proto/ must not drift from main.
 git diff --stat main -- badminton_analysis_ai/ proto/ linebot/api/analysis/v1/

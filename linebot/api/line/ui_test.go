@@ -1,6 +1,7 @@
 package line
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
@@ -76,4 +77,45 @@ func TestWorkReviewURLMergesIntoTheConfiguredQuery(t *testing.T) {
 		"https://liff.example/personal?date=2026-08-01-20-30&skill=smash&tab=review",
 		merged,
 	)
+}
+
+// The review card carries the link and a request for the coach's 課前預習 note.
+// Postback payloads are told apart by their exact field set alone, so the
+// second button has to come back as a preview request and as nothing else.
+func TestWeeklyReviewCardOffersTheLinkAndAPreviewRequest(t *testing.T) {
+	client := &Client{}
+	bubble, err := weeklyReviewBubble("https://liff.example/personal?tab=review")
+	require.NoError(t, err)
+	require.Len(t, bubble.Footer.Contents, 2)
+
+	link, ok := bubble.Footer.Contents[0].(*linebotsdk.ButtonComponent)
+	require.True(t, ok)
+	linkAction, ok := link.Action.(*linebotsdk.URIAction)
+	require.True(t, ok)
+	require.Equal(t, "前往每週回顧", linkAction.Label)
+	require.Equal(t, "https://liff.example/personal?tab=review", linkAction.URI)
+
+	button, ok := bubble.Footer.Contents[1].(*linebotsdk.ButtonComponent)
+	require.True(t, ok)
+	action, ok := button.Action.(*linebotsdk.PostbackAction)
+	require.True(t, ok)
+	require.Equal(t, "產生課前預習", action.Label)
+
+	preview, err := client.HandleWeeklyPreviewPostbackData(action.Data)
+	require.NoError(t, err)
+	require.True(t, preview.Preview)
+
+	// Every other postback the router tries before this one must refuse it.
+	_, err = client.HandleStopGPTPostbackData(action.Data)
+	require.Error(t, err)
+	_, err = client.HandleWritingNotePostbackData(action.Data)
+	require.Error(t, err)
+	_, err = client.HandleVideoPostbackData(action.Data)
+	require.Error(t, err)
+
+	// And it must not claim theirs: 結束對話 is a single-field payload too.
+	stop, err := json.Marshal(StopGPTPostback{Stop: true})
+	require.NoError(t, err)
+	_, err = client.HandleWeeklyPreviewPostbackData(string(stop))
+	require.Error(t, err)
 }

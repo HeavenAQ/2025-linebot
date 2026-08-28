@@ -18,3 +18,15 @@ badminton_analysis_ai/models/trt-engines/
 badminton_analysis_ai/models/tensorrt-cache/
 linebot/tmp*/
 generated_videos/
+
+# Installed dependencies. Never tracked; `npm ci` restores them from the
+# lockfile, and a stray `git add -A` in liff/ otherwise sweeps in tens of
+# thousands of files.
+node_modules/
+
+# The web app's static export, its Next.js cache and the TypeScript build
+# cache. Netlify builds from source on every deploy, so a committed copy is
+# only ever a stale one.
+liff/out/
+liff/.next/
+liff/tsconfig.tsbuildinfo

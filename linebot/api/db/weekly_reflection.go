@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,11 +30,25 @@ func ValidWeek(week string) bool {
 // students review the week as a whole, and one considered note beats several
 // half-filled ones.
 type WeeklyReflection struct {
-	UserID    string    `json:"user_id" firestore:"user_id"`
-	Week      string    `json:"week" firestore:"week"`
-	Note      string    `json:"note" firestore:"note"`
+	UserID string `json:"user_id" firestore:"user_id"`
+	Week   string `json:"week" firestore:"week"`
+	Note   string `json:"note" firestore:"note"`
+	// Preview is the same week seen from the other end: the learner's own
+	// 課前檢視要點, what they mean to watch for next lesson. It shares the
+	// document because it belongs to the same week, and a record written before
+	// this field existed simply reads back with it empty.
+	Preview   string    `json:"preview" firestore:"preview"`
 	UpdatedAt time.Time `json:"updated_at" firestore:"updated_at"`
 }
+
+// WeeklyNoteField names one of the two notes a week's record holds. The value
+// is the Firestore field itself, so it is also what a save is scoped to.
+type WeeklyNoteField string
+
+const (
+	ReflectionNote WeeklyNoteField = "note"
+	PreviewNote    WeeklyNoteField = "preview"
+)
 
 func (client *FirestoreClient) weeklyReflectionDocID(userID, week string) string {
 	return fmt.Sprintf("%s_%s", userID, week)
@@ -79,17 +94,43 @@ func (client *FirestoreClient) ListWeeklyReflections(userID string) (map[string]
 	return reflections, nil
 }
 
-// SetWeeklyReflection writes one week's note, replacing whatever was there.
-func (client *FirestoreClient) SetWeeklyReflection(userID, week, note string) (*WeeklyReflection, error) {
-	reflection := WeeklyReflection{
-		UserID:    userID,
-		Week:      week,
-		Note:      note,
-		UpdatedAt: time.Now().UTC(),
+// SetWeeklyReflectionNotes writes the notes it is given and leaves the rest of
+// the week's record as it was. The two notes are written from separate editors,
+// often days apart, so this merges the named fields instead of replacing the
+// document: saving a reflection must never blank a preview, or the other way
+// round.
+func (client *FirestoreClient) SetWeeklyReflectionNotes(
+	userID, week string,
+	notes map[WeeklyNoteField]string,
+) (*WeeklyReflection, error) {
+	// user_id and week are written every time, so a document created by
+	// whichever note came first is still a complete record for
+	// ListWeeklyReflections to read back.
+	fields := map[string]interface{}{
+		"user_id":    userID,
+		"week":       week,
+		"updated_at": time.Now().UTC(),
 	}
-	_, err := client.WeeklyReflections.Doc(client.weeklyReflectionDocID(userID, week)).Set(*client.Ctx, reflection)
-	if err != nil {
+	paths := []firestore.FieldPath{{"user_id"}, {"week"}, {"updated_at"}}
+	for field, text := range notes {
+		fields[string(field)] = text
+		paths = append(paths, firestore.FieldPath{string(field)})
+	}
+
+	doc := client.WeeklyReflections.Doc(client.weeklyReflectionDocID(userID, week))
+	if _, err := doc.Set(*client.Ctx, fields, firestore.Merge(paths...)); err != nil {
 		return nil, fmt.Errorf("write weekly reflection: %w", err)
 	}
-	return &reflection, nil
+
+	// Read back rather than assemble the answer here: the caller hands it to
+	// the browser as the whole week, so the note this save did not touch has to
+	// come with it.
+	saved, err := client.GetWeeklyReflection(userID, week)
+	if err != nil {
+		return nil, fmt.Errorf("read back weekly reflection: %w", err)
+	}
+	if saved == nil {
+		return nil, fmt.Errorf("weekly reflection %s is missing right after being written", week)
+	}
+	return saved, nil
 }

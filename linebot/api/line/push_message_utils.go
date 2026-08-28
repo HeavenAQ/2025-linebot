@@ -67,6 +67,28 @@ func weeklyPreviewBubble(skill db.BadmintonSkill, note string) *linebot.BubbleCo
 	}
 }
 
+// ReplyWeeklyPreview answers the 產生課前預習 button with the same card the
+// scheduled run pushes, so a note the learner asked for and one they were sent
+// read identically.
+func (client *Client) ReplyWeeklyPreview(
+	replyToken string,
+	skill db.BadmintonSkill,
+	note string,
+) error {
+	trimmed := strings.TrimSpace(note)
+	if trimmed == "" {
+		return fmt.Errorf("weekly preview note is empty")
+	}
+	_, err := client.ReplyMessage(
+		replyToken,
+		linebot.NewFlexMessage(
+			"本週課前預習："+skill.ChnString(),
+			weeklyPreviewBubble(skill, trimmed),
+		),
+	)
+	return err
+}
+
 // PushWeeklyPreview delivers a learner's 課前預習 note.
 func (client *Client) PushWeeklyPreview(
 	userID string,

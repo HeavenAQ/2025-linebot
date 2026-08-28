@@ -252,10 +252,15 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"data": reflections})
 	})
 
+	// A week's record holds two notes -- the reflection and the learner's own
+	// 課前檢視要點 -- written from separate editors in the review tab. Both are
+	// optional here and only the ones actually sent are written, so a save from
+	// one editor cannot blank what the other holds.
 	type weeklyReflectionReq struct {
-		UserID string `json:"user_id"`
-		Week   string `json:"week"`
-		Note   string `json:"note"`
+		UserID  string  `json:"user_id"`
+		Week    string  `json:"week"`
+		Note    *string `json:"note"`
+		Preview *string `json:"preview"`
 	}
 	r.PUT("/api/db/weekly-reflection", requireLearner, func(c *gin.Context) {
 		start := time.Now()
@@ -273,21 +278,34 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing user_id or malformed week"})
 			return
 		}
-		// The note is stored as written, including blank to clear it, but a
-		// runaway paste is refused rather than silently truncated.
-		if len(req.Note) > db.MaxReflectionLength {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "reflection is too long"})
+		notes := map[db.WeeklyNoteField]string{}
+		if req.Note != nil {
+			notes[db.ReflectionNote] = *req.Note
+		}
+		if req.Preview != nil {
+			notes[db.PreviewNote] = *req.Preview
+		}
+		if len(notes) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no note to save"})
 			return
 		}
-		reflection, err := application.FirestoreClient.SetWeeklyReflection(userID, week, req.Note)
+		// A note is stored as written, including blank to clear it, but a
+		// runaway paste is refused rather than silently truncated.
+		for _, text := range notes {
+			if len(text) > db.MaxReflectionLength {
+				c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "note is too long"})
+				return
+			}
+		}
+		reflection, err := application.FirestoreClient.SetWeeklyReflectionNotes(userID, week, notes)
 		if err != nil {
 			application.Logger.Error.Printf("[db.reflection] user_id=%s week=%s err=%v", userID, week, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save reflection"})
 			return
 		}
 		application.Logger.Info.Printf(
-			"[db.reflection] saved user_id=%s week=%s length=%d took=%s",
-			userID, week, len(req.Note), time.Since(start),
+			"[db.reflection] saved user_id=%s week=%s note_length=%d preview_length=%d took=%s",
+			userID, week, len(reflection.Note), len(reflection.Preview), time.Since(start),
 		)
 		c.JSON(http.StatusOK, reflection)
 	})

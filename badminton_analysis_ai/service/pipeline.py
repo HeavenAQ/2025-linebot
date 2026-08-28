@@ -17,7 +17,6 @@ from badminton_analysis.ml.expert_motion_backend import (
     ExpertMotionGeneratorBackend,
 )
 from badminton_analysis.ml.skeleton_normalization import (
-    landmark_dicts_to_array,
     tracking_body_arrays,
 )
 from badminton_analysis.ml.skill_specs import SkillCorrectionSpec

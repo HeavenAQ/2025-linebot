@@ -79,3 +79,7 @@ func (client *Client) HandleVideoPostbackData(rawData string) (*VideoPostback, e
 func (client *Client) HandleStopGPTPostbackData(rawData string) (*StopGPTPostback, error) {
 	return handlePostbackData[StopGPTPostback](rawData)
 }
+
+func (client *Client) HandleWeeklyPreviewPostbackData(rawData string) (*WeeklyPreviewPostback, error) {
+	return handlePostbackData[WeeklyPreviewPostback](rawData)
+}

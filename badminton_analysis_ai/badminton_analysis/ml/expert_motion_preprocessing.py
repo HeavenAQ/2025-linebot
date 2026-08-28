@@ -10,7 +10,6 @@ from badminton_analysis.ml.expert_phase_baseline import MotionSample
 from badminton_analysis.ml.skeleton_normalization import (
     estimate_foot_contacts,
     interpolate_pose_sequence,
-    landmark_dicts_to_array,
     tracking_body_arrays,
     normalize_skeleton_motion,
     refine_delayed_overhead_contact_phase_indices,

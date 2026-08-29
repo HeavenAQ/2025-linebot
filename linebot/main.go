@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -26,12 +27,23 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	// Middleware for routing
+	// The browser calls this API from the deployment's own web app, so the
+	// allowed origin is derived from the review URL rather than written out.
+	// A hard-coded origin silently belongs to whichever deployment was built
+	// first: this variant serves a different site, and every learner request
+	// from it was refused with 403 while the LINE webhook, which sends no
+	// Origin header, kept working and hid the fault.
+	allowedOrigins := []string{"http://localhost:3000"}
+	if reviewURL, err := url.Parse(application.Config.ReviewURL()); err == nil &&
+		reviewURL.Scheme != "" && reviewURL.Host != "" {
+		allowedOrigins = append(allowedOrigins, reviewURL.Scheme+"://"+reviewURL.Host)
+	} else {
+		application.Logger.Warn.Println(
+			"[cors] LIFF_REVIEW_URL is unusable; the web app will be refused",
+		)
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins: []string{
-			"https://linebot-liff-nstc-2025.heavian.work",
-			"http://localhost:3000",
-		},
+		AllowOrigins: allowedOrigins,
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 	}))

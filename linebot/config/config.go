@@ -59,6 +59,12 @@ type AnalysisServerConfig struct {
 	// A deployment without consent for that sets it, and no image of a learner
 	// is sent anywhere. Grading is unaffected -- it is entirely local.
 	SkipCoaching bool `env:"ANALYSIS_SKIP_COACHING"`
+	// StoragePrefix names this deployment inside the analysis service's
+	// bucket. Deployments that share that service share its bucket, and they
+	// share a LINE login channel too, so learner ids are identical in both and
+	// cannot tell their recordings apart. Empty keeps the original unprefixed
+	// layout, which is what the first deployment already has stored.
+	StoragePrefix string `env:"ANALYSIS_STORAGE_PREFIX"`
 }
 
 // PreviewConfig guards the weekly 課前預習 push. The token is required: the

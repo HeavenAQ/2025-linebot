@@ -303,3 +303,20 @@ def test_skip_coaching_reaches_the_pipeline(monkeypatch) -> None:
         grpc_server.stop(None)
 
     assert pipeline.skip_coaching_seen is True
+
+
+def test_analysis_root_separates_deployments_sharing_the_bucket() -> None:
+    """Two deployments share this service, its bucket, and their learner ids.
+
+    The login channel is shared, so the same learner is the same string in
+    both, and only the caller's own prefix can say which product a recording
+    belongs to. An empty prefix must keep the original layout, because the
+    first deployment's objects are already stored that way.
+    """
+    from service.server import _analysis_root
+
+    assert _analysis_root("", "U1", "req9") == "analyses/v1/U1/req9"
+    assert _analysis_root("noai", "U1", "req9") == "noai/analyses/v1/U1/req9"
+    # A prefix arrives over the wire, so it may not escape its own directory.
+    assert _analysis_root("../../etc", "U1", "req9").startswith("etc/")
+    assert ".." not in _analysis_root("../../etc", "U1", "req9")

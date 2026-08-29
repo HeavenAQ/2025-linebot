@@ -38,6 +38,13 @@ message AnalyzeVideoHeader {
   // unaffected -- pose, correction, grading and expert matching are local --
   // so the response is the same minus coaching_cues and overall_feedback.
   bool skip_coaching = 6;
+  // Top-level prefix for everything this analysis writes to storage. Several
+  // deployments share this service and therefore share the bucket it writes
+  // to, and they also share a LINE login channel, so learner ids do not tell
+  // their recordings apart. The caller names itself here instead. Empty keeps
+  // the historic unprefixed layout, which is what the original deployment
+  // already has in the bucket.
+  string storage_prefix = 7;
 }
 
 message AnalyzeVideoChunk {

@@ -49,6 +49,7 @@ func main() {
 	)
 	outputPath := flag.String("output", "analysis-latency.csv", "CSV result path")
 	insecure := flag.Bool("insecure", false, "use plaintext gRPC")
+	storagePrefix := flag.String("storage-prefix", "", "top-level prefix for analysis output objects")
 	skipCoaching := flag.Bool(
 		"skip-coaching", false, "skip the coaching pass, so no frames leave the service",
 	)
@@ -64,7 +65,7 @@ func main() {
 	if err != nil {
 		fatalf("parse cases: %v", err)
 	}
-	client, err := analysis.NewClient(*target, *apiKey, *insecure, *skipCoaching)
+	client, err := analysis.NewClient(*target, *apiKey, *insecure, *skipCoaching, *storagePrefix)
 	if err != nil {
 		fatalf("create client: %v", err)
 	}

@@ -141,7 +141,14 @@ type AnalyzeVideoHeader struct {
 	// then no image of the learner goes anywhere. The analysis itself is
 	// unaffected -- pose, correction, grading and expert matching are local --
 	// so the response is the same minus coaching_cues and overall_feedback.
-	SkipCoaching  bool `protobuf:"varint,6,opt,name=skip_coaching,json=skipCoaching,proto3" json:"skip_coaching,omitempty"`
+	SkipCoaching bool `protobuf:"varint,6,opt,name=skip_coaching,json=skipCoaching,proto3" json:"skip_coaching,omitempty"`
+	// Top-level prefix for everything this analysis writes to storage. Several
+	// deployments share this service and therefore share the bucket it writes
+	// to, and they also share a LINE login channel, so learner ids do not tell
+	// their recordings apart. The caller names itself here instead. Empty keeps
+	// the historic unprefixed layout, which is what the original deployment
+	// already has in the bucket.
+	StoragePrefix string `protobuf:"bytes,7,opt,name=storage_prefix,json=storagePrefix,proto3" json:"storage_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -216,6 +223,13 @@ func (x *AnalyzeVideoHeader) GetSkipCoaching() bool {
 		return x.SkipCoaching
 	}
 	return false
+}
+
+func (x *AnalyzeVideoHeader) GetStoragePrefix() string {
+	if x != nil {
+		return x.StoragePrefix
+	}
+	return ""
 }
 
 type AnalyzeVideoChunk struct {
@@ -1231,7 +1245,7 @@ var File_badminton_analysis_v1_analysis_proto protoreflect.FileDescriptor
 
 const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\n" +
-	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\x84\x02\n" +
+	"$badminton/analysis/v1/analysis.proto\x12\x15badminton.analysis.v1\"\xab\x02\n" +
 	"\x12AnalyzeVideoHeader\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -1241,7 +1255,8 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\n" +
 	"handedness\x18\x05 \x01(\x0e2!.badminton.analysis.v1.HandednessR\n" +
 	"handedness\x12#\n" +
-	"\rskip_coaching\x18\x06 \x01(\bR\fskipCoaching\"y\n" +
+	"\rskip_coaching\x18\x06 \x01(\bR\fskipCoaching\x12%\n" +
+	"\x0estorage_prefix\x18\a \x01(\tR\rstoragePrefix\"y\n" +
 	"\x11AnalyzeVideoChunk\x12C\n" +
 	"\x06header\x18\x01 \x01(\v2).badminton.analysis.v1.AnalyzeVideoHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\t\n" +

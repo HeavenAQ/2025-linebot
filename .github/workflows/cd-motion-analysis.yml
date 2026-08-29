@@ -185,7 +185,7 @@ jobs:
         run: |
           mkdir -p /tmp/analysis-e2e
           gcloud storage cp \
-            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/張宸愷6.mp4' \
+            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/戚佑仁7.mp4' \
             /tmp/analysis-e2e/smash-expert.mp4
           gcloud storage cp \
             gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/serve/videos/expert-4-1_left.mov \
@@ -239,6 +239,12 @@ jobs:
             done
             return 1
           }
+          # The smash fixture is 戚佑仁7 rather than 張宸愷6 because the endpoint
+          # detector is not stable on that clip: its wrist-relative acceleration
+          # peak has two near-equal candidates, and a pose difference of 0.3% of
+          # torso length moves the peak 12 frames, the analysis window end from
+          # 121 to 107, and the grade from 99 to 65. A gate whose verdict turns
+          # on that reports the extractor's coin flip rather than a regression.
           # Both fixtures are demonstrations that are themselves in the expert
           # reference bank, so each must grade at the top of the rubric, draw no
           # coaching cues, and come back paired with a real expert clip. The

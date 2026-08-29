@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -125,15 +126,50 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.Equal(t, skill, result.Skill)
 	require.Equal(t, handedness, result.Handedness)
 	require.InDelta(t, 50, result.Grade.TotalGrade, 50)
+	if rawExpected := os.Getenv("LIVE_ANALYSIS_EXPECT_GRADE"); rawExpected != "" {
+		expected, parseErr := strconv.ParseFloat(rawExpected, 64)
+		require.NoError(t, parseErr)
+		tolerance := 0.05
+		if rawTolerance := os.Getenv("LIVE_ANALYSIS_GRADE_TOLERANCE"); rawTolerance != "" {
+			tolerance, parseErr = strconv.ParseFloat(rawTolerance, 64)
+			require.NoError(t, parseErr)
+		}
+		require.InDelta(t, expected, result.Grade.TotalGrade, tolerance)
+	}
 	if rawMinimum := os.Getenv("LIVE_ANALYSIS_MIN_GRADE"); rawMinimum != "" {
 		minimum, parseErr := strconv.ParseFloat(rawMinimum, 64)
 		require.NoError(t, parseErr)
 		require.GreaterOrEqual(t, result.Grade.TotalGrade, minimum)
 	}
 	require.NotEmpty(t, result.Grade.GradingDetails)
+	if rawDetails := os.Getenv("LIVE_ANALYSIS_EXPECT_DETAILS_JSON"); rawDetails != "" {
+		expected := map[string]float64{}
+		require.NoError(t, json.Unmarshal([]byte(rawDetails), &expected))
+		actual := make(map[string]float64, len(result.Grade.GradingDetails))
+		for _, detail := range result.Grade.GradingDetails {
+			actual[detail.CriterionID] = detail.Grade
+		}
+		require.Equal(t, len(expected), len(actual))
+		for criterionID, expectedGrade := range expected {
+			require.Contains(t, actual, criterionID)
+			require.InDelta(t, expectedGrade, actual[criterionID], 0.05)
+		}
+	}
 	require.NotEmpty(t, result.StudentVideo.ObjectPath)
 	require.Equal(t, result.StudentVideo.ObjectPath, result.FeedbackVideo.ObjectPath)
 	require.NotEmpty(t, result.SkeletonOverlayVideo.ObjectPath)
+	if rawFPS := os.Getenv("LIVE_ANALYSIS_EXPECT_FPS"); rawFPS != "" {
+		expectedFPS, parseErr := strconv.ParseFloat(rawFPS, 64)
+		require.NoError(t, parseErr)
+		require.InDelta(t, expectedFPS, result.StudentVideo.FPS, 0.01)
+		require.InDelta(t, expectedFPS, result.SkeletonOverlayVideo.FPS, 0.01)
+	}
+	if rawDuration := os.Getenv("LIVE_ANALYSIS_EXPECT_DURATION"); rawDuration != "" {
+		expectedDuration, parseErr := strconv.ParseFloat(rawDuration, 64)
+		require.NoError(t, parseErr)
+		require.InDelta(t, expectedDuration, result.StudentVideo.DurationSeconds, 0.035)
+		require.InDelta(t, expectedDuration, result.SkeletonOverlayVideo.DurationSeconds, 0.035)
+	}
 	require.NotEmpty(t, result.Expert.ExpertID)
 	if prefix := os.Getenv("LIVE_ANALYSIS_EXPERT_PREFIX"); prefix != "" {
 		require.True(t, len(result.Expert.ExpertID) >= len(prefix))

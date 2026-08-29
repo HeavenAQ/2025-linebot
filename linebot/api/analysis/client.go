@@ -25,6 +25,7 @@ import (
 const chunkSize = 1024 * 1024
 
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
+var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
 
 type Client struct {
 	connection   *grpc.ClientConn
@@ -181,6 +182,10 @@ func (c *Client) AnalyzeVideo(
 		if status.Code(err) == codes.FailedPrecondition &&
 			strings.Contains(status.Convert(err).Message(), "expert reference") {
 			return nil, fmt.Errorf("%w: %s", ErrNoMatchingExpert, status.Convert(err).Message())
+		}
+		if status.Code(err) == codes.InvalidArgument &&
+			strings.Contains(status.Convert(err).Message(), "conflicts with") {
+			return nil, fmt.Errorf("%w: %s", ErrSkillMismatch, status.Convert(err).Message())
 		}
 		return nil, fmt.Errorf("receive analysis: %w", err)
 	}

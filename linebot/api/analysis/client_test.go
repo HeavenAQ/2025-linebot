@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -10,12 +11,36 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
 type analysisContractServer struct {
 	analysisv1.UnimplementedBadmintonAnalysisServer
 	testing *testing.T
+}
+
+type skillMismatchServer struct {
+	analysisv1.UnimplementedBadmintonAnalysisServer
+}
+
+func (*skillMismatchServer) AnalyzeVideo(
+	stream grpc.ClientStreamingServer[analysisv1.AnalyzeVideoChunk, analysisv1.AnalyzeVideoResponse],
+) error {
+	for {
+		_, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return status.Error(
+		codes.InvalidArgument,
+		"requested serve conflicts with smash expert support",
+	)
 }
 
 func (server *analysisContractServer) AnalyzeVideo(
@@ -125,6 +150,42 @@ func TestAnalyzeVideoStreamsAndMapsBothRenderedVideos(t *testing.T) {
 	require.Equal(t, "analyses/test/student_skeleton_overlay.mp4", result.SkeletonOverlayVideo.ObjectPath)
 	require.Equal(t, "https://media.test/overlay", result.SkeletonOverlayVideo.SignedURL)
 	require.Equal(t, "generated-prior-1", result.Expert.ExpertID)
+}
+
+func TestAnalyzeVideoMapsSkillMismatch(t *testing.T) {
+	listener := bufconn.Listen(1024 * 1024)
+	grpcServer := grpc.NewServer()
+	analysisv1.RegisterBadmintonAnalysisServer(grpcServer, &skillMismatchServer{})
+	go func() {
+		require.NoError(t, grpcServer.Serve(listener))
+	}()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		require.NoError(t, listener.Close())
+	})
+
+	connection, err := grpc.NewClient(
+		"passthrough:///bufnet",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithInsecure(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	client := &Client{
+		connection: connection,
+		service:    analysisv1.NewBadmintonAnalysisClient(connection),
+		apiKey:     "test-key",
+	}
+
+	result, err := client.AnalyzeVideo(
+		context.Background(), "request-1", "user-1", "video.mp4",
+		"serve", "right", []byte("video-bytes"),
+	)
+	require.Nil(t, result)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrSkillMismatch), err)
 }
 
 // Playback needs the alignment in the same shape it will be written to

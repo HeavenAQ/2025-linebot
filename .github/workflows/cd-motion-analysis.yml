@@ -107,17 +107,16 @@ jobs:
       - name: Deploy gRPC analysis service
         run: |
           candidate_tag="candidate-${GITHUB_RUN_ID}"
-          # The candidate pattern needs a service to add a revision to. On the
-          # very first deploy — or after the service has been deleted — there
-          # is nothing to hold traffic back from, and Cloud Run rejects
-          # --no-traffic outright, so bootstrap the service instead.
-          if gcloud run services describe badminton-analysis-ai \
-            --region asia-southeast1 >/dev/null 2>&1; then
-            candidate_args=(--no-traffic --tag "${candidate_tag}")
-          else
-            echo "badminton-analysis-ai does not exist yet; creating it"
-            candidate_args=()
-          fi
+          # A release verification must never bootstrap a missing service:
+          # that would make an unverified first revision live. Provisioning is
+          # a separate, explicit operation; CD only creates no-traffic
+          # candidates behind an already-serving revision.
+          gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 >/dev/null 2>&1 || {
+              echo "badminton-analysis-ai is absent; refusing an unverified bootstrap" >&2
+              exit 1
+            }
+          candidate_args=(--no-traffic --tag "${candidate_tag}")
           gcloud run deploy badminton-analysis-ai \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
@@ -143,13 +142,6 @@ jobs:
           candidate_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format=json | jq -r \
             --arg tag "${candidate_tag}" '.status.traffic[] | select(.tag == $tag) | .url')"
-          if [ -z "${candidate_url}" ]; then
-            # Bootstrapped: the revision is already serving, so verify it on the
-            # service URL rather than a candidate tag.
-            candidate_url="$(gcloud run services describe badminton-analysis-ai \
-              --region asia-southeast1 --format='value(status.url)')"
-            candidate_tag=""
-          fi
           test -n "${candidate_revision}"
           test -n "${candidate_url}"
           echo "ANALYSIS_CANDIDATE_TAG=${candidate_tag}" >> "${GITHUB_ENV}"
@@ -203,23 +195,26 @@ jobs:
           # a bare 401 -- which is why this passed while the service was being
           # bootstrapped, when the two URLs were the same, and failed as soon as
           # a candidate revision got its own tag.
-          export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
-            --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
-            --audiences "${ANALYSIS_SERVICE_URL}")"
-          test -n "${ANALYSIS_IDENTITY_TOKEN}"
-          # Check the claims here, with a reason, rather than letting a video
-          # analysis fail on a bare 401 twenty minutes into the job.
-          claims="$(echo "${ANALYSIS_IDENTITY_TOKEN}" | cut -d. -f2)"
-          while [ $(( ${#claims} % 4 )) -ne 0 ]; do claims="${claims}="; done
-          payload="$(echo "${claims}" | tr '_-' '/+' | base64 -d 2>/dev/null)"
-          token_aud="$(echo "${payload}" | jq -r '.aud // empty')"
-          if [ "${token_aud}" != "${ANALYSIS_SERVICE_URL}" ]; then
-            echo "identity token audience ${token_aud} is not ${ANALYSIS_SERVICE_URL}" >&2
-            exit 1
-          fi
-          echo "identity token audience: ${token_aud}"
           export RUN_LIVE_ANALYSIS=1
           cd linebot
+          refresh_identity_token() {
+            # A cold L4 plus two 30-minute analyses can outlive one token. Mint
+            # a fresh token for every attempt and keep its audience bound to
+            # the stable service URL even though requests use the candidate
+            # tag host.
+            export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
+              --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
+              --audiences "${ANALYSIS_SERVICE_URL}")"
+            test -n "${ANALYSIS_IDENTITY_TOKEN}"
+            claims="$(echo "${ANALYSIS_IDENTITY_TOKEN}" | cut -d. -f2)"
+            while [ $(( ${#claims} % 4 )) -ne 0 ]; do claims="${claims}="; done
+            payload="$(echo "${claims}" | tr '_-' '/+' | base64 -d 2>/dev/null)"
+            token_aud="$(echo "${payload}" | jq -r '.aud // empty')"
+            if [ "${token_aud}" != "${ANALYSIS_SERVICE_URL}" ]; then
+              echo "identity token audience ${token_aud} is not ${ANALYSIS_SERVICE_URL}" >&2
+              return 1
+            fi
+          }
           run_fixture() {
             export LIVE_ANALYSIS_VIDEO="$1"
             export LIVE_ANALYSIS_SKILL="$2"
@@ -229,7 +224,9 @@ jobs:
             export LIVE_ANALYSIS_EXPECT_NO_CUES="${6:-}"
             export LIVE_ANALYSIS_EXPECT_EXPERT_VIDEO="${7:-}"
             for attempt in 1 2 3; do
-              if go test -count=1 -v ./api/analysis -run TestLiveAnalysisService; then
+              refresh_identity_token
+              if go test -timeout 40m -count=1 -v ./api/analysis \
+                -run '^TestLiveAnalysisService$'; then
                 return 0
               fi
               if [[ "$attempt" != "3" ]]; then
@@ -237,6 +234,26 @@ jobs:
                 sleep 180
               fi
             done
+            return 1
+          }
+          run_wrong_skill_fixture() {
+            export LIVE_ANALYSIS_VIDEO="$1"
+            export LIVE_ANALYSIS_SKILL="$2"
+            export LIVE_ANALYSIS_HANDEDNESS="$3"
+            export RUN_LIVE_ANALYSIS_SKILL_MISMATCH=1
+            for attempt in 1 2 3; do
+              refresh_identity_token
+              if go test -timeout 40m -count=1 -v ./api/analysis \
+                -run '^TestLiveAnalysisRejectsSkillMismatch$'; then
+                unset RUN_LIVE_ANALYSIS_SKILL_MISMATCH
+                return 0
+              fi
+              if [[ "$attempt" != "3" ]]; then
+                echo "GPU service was not ready; retrying after the current request drains"
+                sleep 180
+              fi
+            done
+            unset RUN_LIVE_ANALYSIS_SKILL_MISMATCH
             return 1
           }
           # The smash fixture is 戚佑仁7 rather than 張宸愷6 because the endpoint
@@ -256,6 +273,11 @@ jobs:
             smash right 99 '' 1 1
           run_fixture /tmp/analysis-e2e/serve-expert-left.mov \
             serve left 99 '' 1 1
+          # These are deliberately submitted under the opposite requested
+          # skill. The pose-derived support gate must reject them rather than
+          # grading or silently relabelling them.
+          run_wrong_skill_fixture /tmp/analysis-e2e/smash-expert.mp4 serve right
+          run_wrong_skill_fixture /tmp/analysis-e2e/serve-expert-left.mov smash left
 
       - name: Promote verified GPU revision
         # Only the candidate pattern needs promoting. A bootstrapped service is

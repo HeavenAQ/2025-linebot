@@ -72,6 +72,8 @@ const coachInstruction = "你是一位羽球教練，正在指導大學體育課
 	"而不是「多多練習」。\n" +
 	"- 只根據提供的分數與對話內容說話，不要杜撰沒有出現過的數字。" +
 	"真的沒有任何資料時，問一個具體的問題把資料問出來，不要空泛地拒絕。\n" +
+	"- 訊息開頭會標明本次討論的動作，只針對那個動作回答；" +
+	"不要改談其他動作，也不要用其他動作的技術要點來解釋。\n" +
 	"- 這是 LINE 訊息，控制在 200 字以內。逐項回饋時每項一行、以數字開頭。"
 
 type HistoryMessage struct {
@@ -142,9 +144,17 @@ func (client *Client) RetrieveConversation(conversationID string) (*conversation
 // practising, which is a poor answer to "how am I doing" when the scores are
 // sitting in Firestore.
 func (client *Client) AddMessageToConversation(
-	conversationID, message string, scores []commons.SkillScore,
+	conversationID, message, skillChn string, scores []commons.SkillScore,
 ) (string, error) {
 	var input strings.Builder
+	// Name the stroke. Each skill has its own conversation, but a fresh one
+	// carries no prior turns, and the grades below are only criterion names
+	// and numbers -- nothing in them says which stroke they belong to. Asked
+	// "what went wrong this time" with no stroke named, the model has to guess,
+	// and it has answered about the wrong one.
+	if strings.TrimSpace(skillChn) != "" {
+		input.WriteString(fmt.Sprintf("[本次討論的動作] %s\n", skillChn))
+	}
 	writeScores(&input, scores)
 	if input.Len() > 0 {
 		input.WriteString("\n\n")

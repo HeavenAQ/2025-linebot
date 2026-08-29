@@ -30,7 +30,7 @@ func TestAddMessageToConversation(t *testing.T) {
 	require.NoError(t, err, "Expected no error when creating conversation")
 
 	// Add a message to the conversation and get assistant's reply
-	reply, err := gptClient.AddMessageToConversation(conv.ID, "Hello, this is a test message.", nil)
+	reply, err := gptClient.AddMessageToConversation(conv.ID, "Hello, this is a test message.", "發球", nil)
 	require.NoError(t, err, "Expected no error when adding message to conversation")
 	require.NotEmpty(t, reply, "Expected assistant to reply with text")
 }
@@ -46,7 +46,7 @@ func TestGetAssistantResponse(t *testing.T) {
 	require.NoError(t, err, "Expected no error when creating conversation")
 
 	// Add a message to the conversation and verify assistant's response directly from Responses API
-	response, err := gptClient.AddMessageToConversation(conv.ID, "What can you do?", nil)
+	response, err := gptClient.AddMessageToConversation(conv.ID, "What can you do?", "發球", nil)
 	require.NoError(t, err, "Expected no error when retrieving assistant response")
 	require.NotEmpty(t, response, "Expected a non-empty response from the assistant")
 	t.Log("Assistant's response:", response)

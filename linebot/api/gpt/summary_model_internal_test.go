@@ -89,7 +89,7 @@ func TestCoachingCarriesTheLearnersScores(t *testing.T) {
 	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
 	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
 
-	reply, err := client.AddMessageToConversation("conv_1", "目前學習進程如何", []commons.SkillScore{
+	reply, err := client.AddMessageToConversation("conv_1", "目前學習進程如何", "發球", []commons.SkillScore{
 		{Date: "2026-08-03", TotalGrade: 33.7, Details: []commons.GradingDetail{
 			{Description: "雙手平舉", Grade: 2.4, Maximum: 20},
 		}},
@@ -124,8 +124,14 @@ func TestCoachingWithoutScoresSendsOnlyTheQuestion(t *testing.T) {
 	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
 	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
 
-	_, err := client.AddMessageToConversation("conv_1", "怎麼練發球", nil)
+	_, err := client.AddMessageToConversation("conv_1", "怎麼練發球", "發球", nil)
 
 	require.NoError(t, err)
-	require.Equal(t, "怎麼練發球", body["input"])
+	// The stroke has to be named even with no scores to carry it: each skill
+	// has its own conversation, but a fresh one has no earlier turn saying
+	// which stroke it is, and the coach answered about the wrong one.
+	input, ok := body["input"].(string)
+	require.True(t, ok)
+	require.Contains(t, input, "發球")
+	require.Contains(t, input, "怎麼練發球")
 }

@@ -204,7 +204,10 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 
 		// Send the standalone query through the skill conversation.
 		conversationID := app.getUserGPTConversation(user, session.Skill)
-		response, err := app.GPTClient.AddMessageToConversation(conversationID, rewritten, scores)
+		response, err := app.GPTClient.AddMessageToConversation(
+			conversationID, rewritten,
+			db.SkillStrToEnum(session.Skill).ChnString(), scores,
+		)
 		if err != nil {
 			app.handleAddMessageToGPTConversationError(err, replyToken)
 			return

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Literal, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -10,6 +10,7 @@ from badminton_analysis.ml.expert_phase_baseline import MotionSample
 from badminton_analysis.ml.skeleton_normalization import (
     estimate_foot_contacts,
     interpolate_pose_sequence,
+    landmark_dicts_to_array,
     tracking_body_arrays,
     normalize_skeleton_motion,
     refine_delayed_overhead_contact_phase_indices,
@@ -21,6 +22,10 @@ from badminton_analysis.ml.skeleton_scoring import (
     project_stable_bone_lengths,
 )
 from badminton_analysis.models.types import Handedness, Skill, TrackingData
+from badminton_analysis.models.constants import (
+    IMPACT_FRAME_SEARCH_WINDOW_AFTER,
+    IMPACT_FRAME_SEARCH_WINDOW_BEFORE,
+)
 from badminton_analysis.services.video_analyzer import VideoAnalyzer
 
 
@@ -334,6 +339,100 @@ def _serve_shoulder_completion_phases(
     return start, preparation, acceleration, follow_through, completion
 
 
+def _serve_eimd_v3_phases(
+    detected_phases: Sequence[int],
+    skeleton_2d: NDArray[np.floating],
+    handedness: Handedness,
+) -> tuple[int, int, int, int, int]:
+    """Reproduce the phase contract used to train the EIMD-v3 serve model."""
+    phases = tuple(int(value) for value in detected_phases)
+    if len(phases) != 5 or any(b <= a for a, b in zip(phases, phases[1:])):
+        raise ValueError("serve phases must contain five increasing frames")
+    coordinates = np.asarray(skeleton_2d, dtype=np.float64)
+    if coordinates.ndim != 3 or coordinates.shape[1:] != (17, 2):
+        raise ValueError("skeleton_2d must have shape (T, 17, 2)")
+    start, preparation, _, detected_follow_through, detected_end = phases
+    if handedness == Handedness.LEFT:
+        hip, shoulder, elbow, wrist = 11, 5, 7, 9
+    else:
+        hip, shoulder, elbow, wrist = 12, 6, 8, 10
+    kernel = np.ones(5, dtype=np.float64) / 5.0
+    relative_wrist = coordinates[:, wrist] - coordinates[:, shoulder]
+    smoothed_wrist = np.column_stack(
+        [
+            np.convolve(
+                np.pad(relative_wrist[:, axis], (2, 2), mode="edge"),
+                kernel,
+                mode="valid",
+            )
+            for axis in range(2)
+        ]
+    )
+    acceleration_magnitude = np.linalg.norm(
+        np.diff(smoothed_wrist, n=2, axis=0), axis=-1
+    )
+    acceleration_start = max(start + 2, preparation)
+    acceleration_stop = min(detected_follow_through, detected_end - 2)
+    if acceleration_stop < acceleration_start:
+        raise ValueError("serve acceleration range is too short")
+    acceleration = acceleration_start + int(
+        np.nanargmax(
+            acceleration_magnitude[acceleration_start - 1 : acceleration_stop]
+        )
+    )
+    incoming = coordinates[:, hip] - coordinates[:, shoulder]
+    outgoing = coordinates[:, elbow] - coordinates[:, shoulder]
+    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(
+        outgoing, axis=-1
+    )
+    cosine = np.divide(
+        np.sum(incoming * outgoing, axis=-1),
+        denominator,
+        out=np.ones_like(denominator),
+        where=denominator > 1e-8,
+    )
+    shoulder_angle = np.arccos(np.clip(cosine, -1.0, 1.0))
+    shoulder_angle = np.convolve(
+        np.pad(shoulder_angle, (2, 2), mode="edge"), kernel, mode="valid"
+    )
+    completion_start = acceleration + 2
+    if completion_start > detected_end:
+        raise ValueError("serve shoulder-completion range is too short")
+    completion = completion_start + int(
+        np.nanargmax(shoulder_angle[completion_start : detected_end + 1])
+    )
+    preparation = max(start + 1, min(preparation, acceleration - 1))
+    follow_through = (acceleration + completion) // 2
+    return start, preparation, acceleration, follow_through, completion
+
+
+def _smash_eimd_v3_phases(
+    hand_positions: Sequence[Sequence[float]],
+    elbow_positions: Sequence[Sequence[float]],
+) -> tuple[int, int, int, int, int]:
+    """Reproduce the broad learner ending range used by EIMD-v3 smash."""
+    start, _, acceleration_end = VideoAnalyzer.find_acc_analysis_window(
+        list(hand_positions), list(elbow_positions)
+    )
+    hand = np.asarray(hand_positions, dtype=np.float64)
+    elbow = np.asarray(elbow_positions, dtype=np.float64)
+    contact = start + int(
+        np.argmin(hand[start : acceleration_end + 1, 1])
+    )
+    start = max(0, contact - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
+    end = contact + int(np.argmax(elbow[contact:, 1]))
+    minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
+    end = min(
+        len(hand) - 1,
+        max(end, acceleration_end, contact + minimum_follow_through),
+    )
+    preparation = (start + contact) // 2
+    follow_through = (contact + end) // 2
+    if not start < preparation < contact < follow_through < end:
+        raise ValueError("smash EIMD-v3 phases are not strictly increasing")
+    return start, preparation, contact, follow_through, end
+
+
 def prepare_expert_motion_sample(
     tracking: TrackingData,
     handedness: Handedness,
@@ -341,6 +440,7 @@ def prepare_expert_motion_sample(
     filename: str,
     *,
     target_frames: int = 64,
+    phase_contract: Literal["current", "eimd_v3"] = "current",
 ) -> tuple[MotionSample, tuple[int, int, int], NDArray[np.int64]]:
     """Apply the same 2D extraction contract used by the frozen generator."""
     if skill not in {Skill.SERVE, Skill.SMASH}:
@@ -358,14 +458,28 @@ def prepare_expert_motion_sample(
         elbow_positions=tracking.get("elbow_positions"),
     )
     phase_source = "acceleration_wrist_velocity_stop_v6"
-    if skill == Skill.SERVE:
-        phases = _serve_shoulder_completion_phases(
-            phases,
-            full_skeleton,
-            handedness,
-            motion_skeleton_2d=motion_skeleton,
-        )
-        phase_source = "across_body_directional_wrist_acceleration_v14"
+    if phase_contract == "eimd_v3":
+        if skill == Skill.SERVE:
+            phases = _serve_eimd_v3_phases(phases, full_skeleton, handedness)
+            phase_source = "max_acceleration_shoulder_angle_v1"
+        else:
+            hand_positions = tracking.get("hand_positions")
+            elbow_positions = tracking.get("elbow_positions")
+            if not hand_positions or not elbow_positions:
+                raise ValueError("smash EIMD-v3 phases require wrist and elbow tracks")
+            phases = _smash_eimd_v3_phases(hand_positions, elbow_positions)
+            phase_source = "acceleration_ending_range_v4"
+    elif phase_contract == "current":
+        if skill == Skill.SERVE:
+            phases = _serve_shoulder_completion_phases(
+                phases,
+                full_skeleton,
+                handedness,
+                motion_skeleton_2d=motion_skeleton,
+            )
+            phase_source = "across_body_directional_wrist_acceleration_v14"
+    else:
+        raise ValueError(f"unsupported phase contract: {phase_contract}")
     if any(second <= first for first, second in zip(phases, phases[1:])):
         raise ValueError("analysis phases must be strictly increasing")
     start, peak, end = int(phases[0]), int(phases[2]), int(phases[-1])
@@ -414,9 +528,17 @@ def prepare_expert_motion_sample(
         subject_id="inference",
         phase_source=phase_source,
         alignment_contract=(
-            "serve_across_body_directional_wrist_acceleration_v14"
+            (
+                "serve_max_acceleration_shoulder_angle_v1"
+                if phase_contract == "eimd_v3"
+                else "serve_across_body_directional_wrist_acceleration_v14"
+            )
             if skill == Skill.SERVE
-            else "overhead_wrist_velocity_stop_v6"
+            else (
+                "overhead_acceleration_ending_range_v4"
+                if phase_contract == "eimd_v3"
+                else "overhead_wrist_velocity_stop_v6"
+            )
         ),
         identity_level="inference_only",
     )

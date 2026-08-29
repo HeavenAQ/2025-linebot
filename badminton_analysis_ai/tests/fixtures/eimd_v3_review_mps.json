@@ -1,0 +1,77 @@
+{
+  "contract": {
+    "device": "mps",
+    "phase_contract": "eimd_v3",
+    "candidates": 8,
+    "seed": 19,
+    "fps": "30/1"
+  },
+  "cases": [
+    {
+      "skill": "serve",
+      "name": "CG02-較佳",
+      "generation_sample": "artifact:error-isolated-motion-v3-scoring-data/serve/beginners/CG02-較佳.npz",
+      "scoring_sample": "validation:audit_30fps_labelled/samples/serve/student/CG02-較佳.npz",
+      "score": 60.576559249494906,
+      "aligned_corrected_sha256": "ab3af2d9d8b77e4f6edefa7a7ec0d57b035f5fbbdf66ae7464e803011cf85f6a",
+      "corrected_sha256": "2270ae6968fd6c7f2eaf2bcc5f021afd0f411e6aa3b6e560f068dbcecd7aec9a",
+      "criteria": {"arms_raised": 5.0, "racket_foot_weight": 5.0, "weight_transfer": 9.952052136135228, "hip_rotation": 3.989805689269531, "wrist_flick": 30.0, "shoulder_rotation": 6.634701424090151}
+    },
+    {
+      "skill": "serve",
+      "name": "CG30",
+      "generation_sample": "artifact:error-isolated-motion-v3-scoring-data/serve/beginners/CG30.npz",
+      "scoring_sample": "validation:audit_30fps_labelled/samples/serve/student/CG30.npz",
+      "score": 8.321987857124599,
+      "aligned_corrected_sha256": "247b86efbf99d3dc32a627fed3c5fd41e81f7c198f6c818f3c0262b07474f3b8",
+      "corrected_sha256": "3a8a1cdf9ade5eb74cfc9a5c69659abde4d6eb9fde79f98f7f9989696c071bf8",
+      "criteria": {"arms_raised": 0.40802979214775387, "racket_foot_weight": 5.0, "weight_transfer": 0.23398582183464312, "hip_rotation": 2.4600232314825567, "wrist_flick": 0.10965376175594872, "shoulder_rotation": 0.11029524990369655}
+    },
+    {
+      "skill": "serve",
+      "name": "expert-4-1_left",
+      "generation_sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/serve/expert/expert-4-1_left.npz",
+      "scoring_sample": "validation:rfdetr_expert_bank_v14/serve/expert-4-1_left.npz",
+      "score": 100.0,
+      "aligned_corrected_sha256": "fc1411903f3db9c48c9740b0cca8962826d2a19286fd7ff87827b729d6d2a595",
+      "corrected_sha256": "07b70b9edf4ad9c829fbbb489d0b1f4ae50e69918c71fefadf00085fcdb8f603",
+      "criteria": {"arms_raised": 5.0, "racket_foot_weight": 5.0, "weight_transfer": 30.0, "hip_rotation": 10.0, "wrist_flick": 30.0, "shoulder_rotation": 20.0}
+    },
+    {
+      "skill": "smash",
+      "name": "CG51",
+      "generation_sample": "artifact:error-isolated-motion-v3-scoring-data/smash/beginners/CG51.npz",
+      "score": 22.02278161481804,
+      "aligned_corrected_sha256": "fad1858032861d5065c62b01c87403c8758629c63af82e8b7c991dda09e385ec",
+      "corrected_sha256": "e0f23277f297b7b2eda6006ffa7e5f4cd5b451686afc7229cf9f0208f30447de",
+      "criteria": {"preparation": 0.5693658861654595, "body_rotation": 6.291468539229835, "arm_balance": 2.0328989470580616, "elbow_forward": 7.539447700063116, "wrist_flick": 5.462143630151905, "follow_through": 0.12745691214966337}
+    },
+    {
+      "skill": "smash",
+      "name": "戚佑仁7",
+      "generation_sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/smash/expert/戚佑仁7.npz",
+      "score": 99.32420873604624,
+      "aligned_corrected_sha256": "ce408d162d9bd599eaaeb507fb9165fef02a35e0d6b9c5f4d01c0c890c38d106",
+      "corrected_sha256": "5406f253baf41bfff473093157effab1350251975c701de7ab26dce6bfafaed3",
+      "criteria": {"preparation": 10.0, "body_rotation": 10.0, "arm_balance": 20.0, "elbow_forward": 19.824794634708752, "wrist_flick": 19.499414101337493, "follow_through": 20.0}
+    },
+    {
+      "skill": "smash",
+      "name": "林國欽10",
+      "generation_sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/smash/expert/林國欽10.npz",
+      "score": 67.24207625816207,
+      "aligned_corrected_sha256": "be3d3f2543da08d7e8783e3904f8edbcea477782c663e8c6196b063e60da8205",
+      "corrected_sha256": "40647acb3d6fdf9119ba71500e23e7c0eec8fcb0f43ba998b923a1c74ab6258e",
+      "criteria": {"preparation": 0.7103100694923508, "body_rotation": 7.444113699431577, "arm_balance": 14.888227398863155, "elbow_forward": 14.888227398863155, "wrist_flick": 14.42297029264868, "follow_through": 14.888227398863155}
+    },
+    {
+      "skill": "smash",
+      "name": "王鶴勳6",
+      "generation_sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/smash/expert/王鶴勳6.npz",
+      "score": 67.6289304447049,
+      "aligned_corrected_sha256": "511e3e25c1370f3c485e7514aae237696b52fa1a12ba91c152870cfb5b267ef0",
+      "corrected_sha256": "04bb03a2fe3e055ef79450ee93a43da72584d19266288adc0b564d1c66da334f",
+      "criteria": {"preparation": 4.500477510926929, "body_rotation": 2.690254202951324, "arm_balance": 9.933949794903032, "elbow_forward": 16.982164379122857, "wrist_flick": 16.539920177677907, "follow_through": 16.982164379122857}
+    }
+  ]
+}

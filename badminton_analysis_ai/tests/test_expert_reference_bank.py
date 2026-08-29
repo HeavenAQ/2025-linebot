@@ -5,7 +5,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.expert_reference_bank import ExpertReferenceBank
+from badminton_analysis.ml.expert_reference_bank import (
+    ExpertReferenceBank,
+    skill_temporal_descriptor,
+)
 
 BANK = Path("models/expert_reference_bank.npz")
 pytestmark = pytest.mark.skipif(not BANK.exists(), reason="expert bank is not built")
@@ -76,6 +79,34 @@ def test_falls_back_across_handedness_rather_than_showing_nothing(
 
 def test_unknown_skill_yields_no_reference(bank: ExpertReferenceBank) -> None:
     assert bank.select(bank.skeletons[0], skill="clear", handedness="right") is None
+
+
+def test_temporal_gate_artifact_is_expert_only_identity_held_out(
+    bank: ExpertReferenceBank,
+) -> None:
+    assert bank.skill_support_fit_policy == "expert_only_leave_one_identity_out"
+    assert bank.skill_support_expert_count == 103
+    assert not bank.skill_support_student_data_used
+    assert len(bank.skill_support_features) == 103
+    assert int((bank.skill_support_skill == "serve").sum()) == 53
+    assert int((bank.skill_support_skill == "smash").sum()) == 50
+    assert bank.skill_rejection_margin > 0.0
+
+
+def test_temporal_descriptor_is_invariant_to_translation_scale_and_rotation(
+    bank: ExpertReferenceBank,
+) -> None:
+    pose = bank.skeletons[0].astype(np.float64)
+    expected = skill_temporal_descriptor(pose)
+    transformed = pose * 2.7 + np.asarray((42.0, -17.0))
+    angle = np.deg2rad(31.0)
+    rotation = np.asarray(
+        ((np.cos(angle), -np.sin(angle)), (np.sin(angle), np.cos(angle)))
+    )
+    transformed = transformed @ rotation.T
+    assert skill_temporal_descriptor(transformed) == pytest.approx(
+        expected, abs=2e-5
+    )
 
 
 def test_playback_window_comes_from_the_source_video(bank: ExpertReferenceBank) -> None:

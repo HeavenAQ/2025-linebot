@@ -12,12 +12,13 @@ from badminton_analysis.ml.error_isolated_motion import (
     correct_student_motion_error_isolated,
     load_error_isolated_bundle,
 )
-from badminton_analysis.ml.expert_motion_generator import ExpertCorrection
 from badminton_analysis.ml.expert_motion_preprocessing import (
     prepare_expert_motion_sample,
 )
 from badminton_analysis.ml.expert_phase_baseline import (
+    ExpertCorrection,
     ExpertPhaseModel,
+    MotionSample,
     align_expert_correction_to_ankle_spine_view,
     load_expert_phase_model,
     score_expert_correction,
@@ -53,6 +54,218 @@ from badminton_analysis.models.types import (
 # The bundle validates that the checkpoint declares this method on load, but
 # does not keep it as a field, so the diagnostic names it directly.
 EIMD_METHOD = "expert_only_error_isolated_motion_diffusion"
+
+
+def _clip_level_rigid_target_alignment(
+    generation_student: NDArray[np.floating],
+    scoring_student: NDArray[np.floating],
+    generated_target: NDArray[np.floating],
+    *,
+    start: int,
+    end: int,
+) -> NDArray[np.float32]:
+    """Map an EIMD target into the grading view with one rigid transform.
+
+    This deliberately cannot follow the learner per frame.  It estimates one
+    rotation and translation from preparation torso/leg joints, then applies
+    that same transform to the complete generated motion.
+    """
+    source = np.asarray(generation_student, dtype=np.float64)
+    target = np.asarray(scoring_student, dtype=np.float64)
+    corrected = np.asarray(generated_target, dtype=np.float64)
+    if source.shape != target.shape or source.shape != corrected.shape:
+        raise ValueError("dual-window poses must have matching shapes")
+    if source.ndim != 3 or source.shape[1:] != (17, 2):
+        raise ValueError("dual-window poses must have shape (T, 17, 2)")
+    if not 0 <= start < end <= len(source):
+        raise ValueError("invalid dual-window preparation interval")
+    joints = np.asarray((5, 6, 11, 12, 13, 14, 15, 16), dtype=np.int64)
+    source_points = source[start:end, joints].reshape(-1, 2)
+    target_points = target[start:end, joints].reshape(-1, 2)
+    source_center = np.mean(source_points, axis=0)
+    target_center = np.mean(target_points, axis=0)
+    left, _, right = np.linalg.svd(
+        (source_points - source_center).T
+        @ (target_points - target_center)
+    )
+    rotation = left @ right
+    if float(np.linalg.det(rotation)) < 0.0:
+        left[:, -1] *= -1.0
+        rotation = left @ right
+    return ((corrected - source_center) @ rotation + target_center).astype(
+        np.float32
+    )
+
+
+def _dual_window_scoring_correction(
+    generation: ExpertCorrection,
+    scoring_scaffold: ExpertCorrection,
+    *,
+    start: int,
+    end: int,
+) -> ExpertCorrection:
+    """Pair the robust grading window with the EIMD-v3 generated target."""
+    mapped_target = _clip_level_rigid_target_alignment(
+        generation.aligned_student_pose,
+        scoring_scaffold.aligned_student_pose,
+        generation.aligned_corrected_pose,
+        start=start,
+        end=end,
+    )
+    return replace(
+        scoring_scaffold,
+        aligned_corrected_pose=mapped_target,
+        corrected_pose=mapped_target,
+    )
+
+
+def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
+    """Expose the validated six-item checklist on the original rubric scale."""
+    total = float(score["checklist_total_score"])
+    criteria = [dict(item) for item in score["criteria"]]
+    by_id = {str(item["rule_reference"]): item for item in criteria}
+    preserved = ("racket_foot_weight", "weight_transfer", "shoulder_rotation")
+    flexible = ("arms_raised", "hip_rotation", "wrist_flick")
+    attributed: dict[str, float] = {
+        criterion: min(
+            float(by_id[criterion]["maximum"]),
+            max(0.0, float(by_id[criterion]["score"])),
+        )
+        for criterion in preserved
+    }
+    preserved_sum = float(sum(attributed.values()))
+    if preserved_sum > total:
+        scale = total / max(preserved_sum, 1e-8)
+        attributed = {key: value * scale for key, value in attributed.items()}
+        attributed.update({key: 0.0 for key in flexible})
+    else:
+        remaining = min(
+            total - preserved_sum,
+            sum(float(by_id[key]["maximum"]) for key in flexible),
+        )
+        active = list(flexible)
+        weights = {
+            key: max(float(by_id[key]["score"]), 1e-12) for key in flexible
+        }
+        while active and remaining > 1e-12:
+            weight_sum = sum(weights[key] for key in active)
+            capped = []
+            for key in active:
+                proposal = remaining * weights[key] / weight_sum
+                maximum = float(by_id[key]["maximum"])
+                if proposal >= maximum - 1e-12:
+                    attributed[key] = maximum
+                    remaining -= maximum
+                    capped.append(key)
+            if not capped:
+                for key in active:
+                    attributed[key] = remaining * weights[key] / weight_sum
+                remaining = 0.0
+                break
+            active = [key for key in active if key not in capped]
+        attributed.update({key: attributed.get(key, 0.0) for key in flexible})
+    raw_weighted_total = float(sum(float(item["score"]) for item in criteria))
+    for item in criteria:
+        item["raw_weighted_score"] = float(item["score"])
+        item["score"] = float(attributed[str(item["rule_reference"])])
+        item["aggregate_attributed_score"] = float(item["score"])
+    attributed_total = float(sum(float(item["score"]) for item in criteria))
+    return {
+        **score,
+        "criteria": criteria,
+        "raw_weighted_total_score": raw_weighted_total,
+        "weighted_total_score": attributed_total,
+        "total_score": attributed_total,
+        "single_head_attribution_policy": (
+            "preserve_loading_transfer_shoulder_then_bounded_allocate"
+        ),
+    }
+
+
+def _score_smash_correction(
+    base_score: dict[str, Any],
+    sample: Any,
+    correction: ExpertCorrection,
+    *,
+    distribution: SmashDistribution,
+    variant: SmashVariant,
+    trajectory_scorer: SmashTrajectoryScorer | None,
+    spec: SkillCorrectionSpec,
+) -> dict[str, Any]:
+    """Apply the frozen smash scorer to the correction shown by the renderer.
+
+    Keeping this as one runtime function lets the service and the cohort parity
+    verifier share criterion attribution as well as the aggregate score.
+    """
+    evidence, reliability = aligned_smash_evidence(
+        sample.pose,
+        sample.confidence,
+        sample.phase_indices,
+    )
+    semantic_score = score_smash_evidence(
+        evidence,
+        reliability,
+        distribution,
+        variant,
+    )
+    if trajectory_scorer is not None:
+        semantic_score = apply_smash_trajectory_score(
+            semantic_score,
+            correction.aligned_student_pose,
+            correction.aligned_corrected_pose,
+            trajectory_scorer,
+        )
+    rules = {rule.id: rule for rule in spec.rules}
+    semantic_criteria = []
+    for item in semantic_score["criteria"]:
+        rule = rules[str(item["rule_reference"])]
+        semantic_criteria.append(
+            {
+                **item,
+                "name_zh_tw": rule.name_zh_tw,
+                "raw_checkpoint_ratio": float(item["ratio"]),
+                "raw_weighted_score": (
+                    float(rule.maximum) * float(item["ratio"])
+                ),
+                "maximum": float(rule.maximum),
+                "euclidean_distance": float(item["semantic_distance"]),
+                "target_angle_distance": 0.0,
+                "combined_distance": float(item["semantic_distance"]),
+            }
+        )
+    semantic_total = float(semantic_score["total_score"])
+    attributed_scores = allocate_smash_total_to_weighted_criteria(
+        np.asarray(
+            [item["raw_checkpoint_ratio"] for item in semantic_criteria],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [item["maximum"] for item in semantic_criteria],
+            dtype=np.float64,
+        ),
+        semantic_total,
+    )
+    for item, attributed in zip(
+        semantic_criteria, attributed_scores, strict=True
+    ):
+        item["score"] = float(attributed)
+        item["aggregate_attributed_score"] = float(attributed)
+    attributed_total = float(sum(item["score"] for item in semantic_criteria))
+    return {
+        **base_score,
+        **semantic_score,
+        "criteria": semantic_criteria,
+        "checklist_total_score": semantic_total,
+        "raw_weighted_total_score": float(
+            sum(item["raw_weighted_score"] for item in semantic_criteria)
+        ),
+        "weighted_total_score": attributed_total,
+        "total_score": attributed_total,
+        "score_reference_policy": (
+            "expert_only_identity_distribution_frozen_inference"
+        ),
+        "post_hoc_human_score_scale_calibration": False,
+    }
 
 
 _SERVE_CORRECTION_CHAINS: dict[str, tuple[int, ...]] = {
@@ -228,10 +441,11 @@ class ExpertMotionGeneratorBackend:
         skill: Skill,
         *,
         device: str = "auto",
-        candidates: int = 16,
+        candidates: int = 8,
         seed: int = 19,
         align_ankle_spine_view: bool = False,
         hierarchical_placement_mode: Literal["fixed", "constrained"] = "fixed",
+        generation_phase_contract: Literal["current", "eimd_v3"] = "eimd_v3",
     ) -> None:
         if skill not in {Skill.SERVE, Skill.SMASH}:
             raise ValueError("generated expert motion supports serve and smash")
@@ -283,20 +497,50 @@ class ExpertMotionGeneratorBackend:
                 f"unsupported hierarchical placement mode: {hierarchical_placement_mode}"
             )
         self.hierarchical_placement_mode = hierarchical_placement_mode
+        self.generation_phase_contract = generation_phase_contract
+
+    def prepare(
+        self,
+        tracking: TrackingData,
+        handedness: Handedness,
+        filename: str,
+    ) -> tuple[MotionSample, tuple[int, int, int], NDArray[np.int64]]:
+        """Build the exact generation sample used by both gate and inference."""
+        return prepare_expert_motion_sample(
+            tracking,
+            handedness,
+            self.skill,
+            filename,
+            target_frames=self.target_frames,
+            phase_contract=self.generation_phase_contract,
+        )
 
     def infer(
         self,
         tracking: TrackingData,
         handedness: Handedness,
         filename: str,
+        *,
+        prepared: tuple[
+            MotionSample, tuple[int, int, int], NDArray[np.int64]
+        ]
+        | None = None,
     ) -> GeneratedMotionInference:
-        sample, window, source_indices = prepare_expert_motion_sample(
-            tracking,
-            handedness,
-            self.skill,
-            filename,
-            target_frames=self.target_frames,
+        sample, window, source_indices = (
+            prepared
+            if prepared is not None
+            else self.prepare(tracking, handedness, filename)
         )
+        scoring_sample = sample
+        if self.skill == Skill.SERVE and self.generation_phase_contract == "eimd_v3":
+            scoring_sample, _, _ = prepare_expert_motion_sample(
+                tracking,
+                handedness,
+                self.skill,
+                filename,
+                target_frames=self.target_frames,
+                phase_contract="current",
+            )
         correction = correct_student_motion_error_isolated(
             self.bundle,
             sample,
@@ -318,94 +562,67 @@ class ExpertMotionGeneratorBackend:
                 end=view_end,
                 placement_mode=self.hierarchical_placement_mode,
             )
+        scoring_correction = correction
+        if scoring_sample is not sample:
+            scoring_correction = correct_student_motion_error_isolated(
+                self.bundle,
+                scoring_sample,
+                candidates=self.candidates,
+                seed=self.seed,
+            )
+            preparation = next(
+                phase for phase in self.spec.phase_windows
+                if phase.name == "preparation"
+            )
+            scoring_start, scoring_end = preparation.bounds(
+                len(correction.aligned_student_pose)
+            )
+            if self.align_ankle_spine_view:
+                scoring_correction, _ = align_expert_correction_to_ankle_spine_view(
+                    scoring_correction,
+                    start=scoring_start,
+                    end=scoring_end,
+                    placement_mode=self.hierarchical_placement_mode,
+                )
+            scoring_correction = _dual_window_scoring_correction(
+                correction,
+                scoring_correction,
+                start=scoring_start,
+                end=scoring_end,
+            )
         # Scored against the expert phase model with the checkpoint's own
         # canonical phases, the same way the reference grader does.
         score = score_expert_correction(
             self.score_model,
-            correction,
-            canonical_phase_indices=self.bundle.canonical_phase_indices,
+            scoring_correction,
         )
+        if self.skill == Skill.SERVE:
+            score = _serve_single_head_score(score)
         if (
             self.smash_semantic_distribution is not None
             and self.smash_semantic_variant is not None
         ):
-            evidence, reliability = aligned_smash_evidence(
-                sample.pose,
-                sample.confidence,
-                sample.phase_indices,
+            score = _score_smash_correction(
+                score,
+                sample,
+                correction,
+                distribution=self.smash_semantic_distribution,
+                variant=self.smash_semantic_variant,
+                trajectory_scorer=self.smash_trajectory_scorer,
+                spec=self.spec,
             )
-            semantic_score = score_smash_evidence(
-                evidence,
-                reliability,
-                self.smash_semantic_distribution,
-                self.smash_semantic_variant,
+        # EIMD-v3 is the approved visible motion.  The older score-conditioned
+        # blend was a presentation policy that could pull a valid generated
+        # follow-through back toward the learner (notably removing the serve
+        # forward lean).  Keep it only for the legacy/current generation
+        # contract; scoring itself has already completed above.
+        if self.generation_phase_contract == "current":
+            correction = apply_score_conditioned_correction(
+                correction,
+                score,
+                self.spec,
+                canonical_phase_indices=self.bundle.canonical_phase_indices,
             )
-            if self.smash_trajectory_scorer is not None:
-                semantic_score = apply_smash_trajectory_score(
-                    semantic_score,
-                    correction.aligned_student_pose,
-                    correction.aligned_corrected_pose,
-                    self.smash_trajectory_scorer,
-                )
-            rules = {rule.id: rule for rule in self.spec.rules}
-            semantic_criteria = []
-            for item in semantic_score["criteria"]:
-                rule = rules[str(item["rule_reference"])]
-                semantic_criteria.append(
-                    {
-                        **item,
-                        "name_zh_tw": rule.name_zh_tw,
-                        "raw_checkpoint_ratio": float(item["ratio"]),
-                        "raw_weighted_score": (
-                            float(rule.maximum) * float(item["ratio"])
-                        ),
-                        "maximum": float(rule.maximum),
-                        "euclidean_distance": float(item["semantic_distance"]),
-                        "target_angle_distance": 0.0,
-                        "combined_distance": float(item["semantic_distance"]),
-                    }
-                )
-            semantic_total = float(semantic_score["total_score"])
-            attributed_scores = allocate_smash_total_to_weighted_criteria(
-                np.asarray(
-                    [item["raw_checkpoint_ratio"] for item in semantic_criteria],
-                    dtype=np.float64,
-                ),
-                np.asarray(
-                    [item["maximum"] for item in semantic_criteria],
-                    dtype=np.float64,
-                ),
-                semantic_total,
-            )
-            for item, attributed in zip(
-                semantic_criteria, attributed_scores, strict=True
-            ):
-                item["score"] = float(attributed)
-                item["aggregate_attributed_score"] = float(attributed)
-            attributed_total = float(
-                sum(item["score"] for item in semantic_criteria)
-            )
-            score = {
-                **score,
-                **semantic_score,
-                "criteria": semantic_criteria,
-                "checklist_total_score": semantic_total,
-                "raw_weighted_total_score": float(
-                    sum(item["raw_weighted_score"] for item in semantic_criteria)
-                ),
-                "weighted_total_score": attributed_total,
-                "total_score": attributed_total,
-                "score_reference_policy": (
-                    "expert_only_identity_distribution_frozen_inference"
-                ),
-                "post_hoc_human_score_scale_calibration": False,
-            }
-        correction = apply_score_conditioned_correction(
-            correction,
-            score,
-            self.spec,
-            canonical_phase_indices=self.bundle.canonical_phase_indices,
-        )
         criteria = score["criteria"]
         grade = GradingOutcome(
             total_grade=float(score["total_score"]),
@@ -438,8 +655,13 @@ class ExpertMotionGeneratorBackend:
             "model_path": str(self.model_path),
             "scorer": str(score["score_method"]),
             "generator_method": EIMD_METHOD,
+            "generation_candidates": float(self.candidates),
+            "generation_seed": float(self.seed),
             "phase_source": sample.phase_source,
             "phase_alignment_contract": sample.alignment_contract,
+            "grading_phase_source": scoring_sample.phase_source,
+            "grading_phase_alignment_contract": scoring_sample.alignment_contract,
+            "dual_window_scoring_active": float(scoring_sample is not sample),
             "student_data_used_for_training": False,
             "raw_expert_motion_score": float(score["total_score"]),
             "post_hoc_score_calibration_active": 0.0,

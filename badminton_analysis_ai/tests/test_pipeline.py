@@ -1,7 +1,10 @@
 import pytest
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import service.pipeline as pipeline_module
+from badminton_analysis.ml.expert_reference_bank import SkillSupport
 from service.pipeline import (
     SkeletonAnalysisPipeline,
     _correction_grade_context,
@@ -10,13 +13,13 @@ from service.pipeline import (
     expert_phase_results,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
-from badminton_analysis.models.types import Skill
+from badminton_analysis.models.types import Handedness, Skill
 
 
 def test_serve_and_smash_backends_enable_ankle_spine_projection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    created: list[tuple[Skill, bool]] = []
+    created: list[tuple[Skill, dict[str, object]]] = []
 
     class Backend:
         def __init__(
@@ -26,19 +29,133 @@ def test_serve_and_smash_backends_enable_ankle_spine_projection(
             **kwargs: object,
         ) -> None:
             del model_root
-            created.append((skill, bool(kwargs["align_ankle_spine_view"])))
+            created.append((skill, kwargs))
 
     monkeypatch.setattr(pipeline_module, "PoseDetector", lambda: object())
     monkeypatch.setattr(pipeline_module, "CoachingGenerator", lambda model: object())
     monkeypatch.setattr(pipeline_module, "ExpertMotionGeneratorBackend", Backend)
+    reference_bank = tmp_path / "expert-reference-bank.npz"
+    reference_bank.touch()
+    sentinel_bank = object()
+    monkeypatch.setattr(
+        pipeline_module, "ExpertReferenceBank", lambda path: sentinel_bank
+    )
 
     pipeline = SkeletonAnalysisPipeline(
         tmp_path / "models",
-        expert_reference_bank=tmp_path / "missing-reference-bank.npz",
+        expert_reference_bank=reference_bank,
     )
 
+    assert pipeline.expert_bank is sentinel_bank
     assert set(pipeline.loaded_skills) == {Skill.SERVE, Skill.SMASH}
-    assert created == [(Skill.SERVE, True), (Skill.SMASH, True)]
+    assert [skill for skill, _ in created] == [Skill.SERVE, Skill.SMASH]
+    for _, contract in created:
+        assert contract == {
+            "device": "auto",
+            "candidates": 8,
+            "seed": 19,
+            "generation_phase_contract": "eimd_v3",
+            "align_ankle_spine_view": True,
+        }
+
+
+def test_pipeline_refuses_to_start_without_temporal_skill_support_bank(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(pipeline_module, "PoseDetector", lambda: object())
+    monkeypatch.setattr(pipeline_module, "CoachingGenerator", lambda model: object())
+
+    with pytest.raises(FileNotFoundError, match="temporal skill validation"):
+        SkeletonAnalysisPipeline(
+            tmp_path / "models",
+            expert_reference_bank=tmp_path / "missing.npz",
+        )
+
+
+def test_skill_mismatch_stops_before_generation_and_rendering(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tracking: dict[str, object] = {}
+
+    class Processor:
+        def process_frames_batched(self, _):
+            return tracking
+
+    class Backend:
+        def __init__(self, skill: Skill, pose: object) -> None:
+            self.spec = get_skill_spec(skill)
+            self.pose = pose
+            self.infer_called = False
+
+        def prepare(self, *_):
+            return SimpleNamespace(pose=self.pose), (0, 1, 2), object()
+
+        def infer(self, *_args, **_kwargs):
+            self.infer_called = True
+            raise AssertionError("mismatched motion reached diffusion inference")
+
+    class Bank:
+        def temporal_skill_support(
+            self, requested_pose, alternative_pose, *, requested_skill
+        ):
+            assert requested_pose is prepared_serve_pose
+            assert alternative_pose is prepared_smash_pose
+            assert requested_skill == "serve"
+            return SkillSupport(
+                requested_skill="serve",
+                alternative_skill="smash",
+                requested_distance=0.4,
+                alternative_distance=0.2,
+                alternative_advantage=0.2,
+                rejection_margin=0.0675,
+            )
+
+    prepared_serve_pose = object()
+    prepared_smash_pose = object()
+    serve_backend = Backend(Skill.SERVE, prepared_serve_pose)
+    smash_backend = Backend(Skill.SMASH, prepared_smash_pose)
+    pipeline = SkeletonAnalysisPipeline.__new__(SkeletonAnalysisPipeline)
+    pipeline.backends = {
+        Skill.SERVE: serve_backend,
+        Skill.SMASH: smash_backend,
+    }
+    pipeline.expert_bank = Bank()
+    pipeline.pose_detector = object()
+    pipeline.lock = threading.Lock()
+    pipeline.coaching = SimpleNamespace(
+        generate=lambda **_: (_ for _ in ()).throw(
+            AssertionError("mismatched motion reached coaching")
+        )
+    )
+
+    monkeypatch.setattr(pipeline_module, "VideoProcessor", lambda *_: Processor())
+    monkeypatch.setattr(
+        pipeline_module, "_resolve_handedness", lambda *_: Handedness.RIGHT
+    )
+    monkeypatch.setattr(pipeline_module, "_populate_dominant_motion", lambda *_: None)
+    monkeypatch.setattr(
+        pipeline_module,
+        "render_correction_video",
+        lambda **_: (_ for _ in ()).throw(
+            AssertionError("mismatched motion reached rendering")
+        ),
+    )
+
+    with pytest.raises(
+        pipeline_module.SkillMismatchError,
+        match="requested serve conflicts with smash",
+    ):
+        pipeline.analyze(
+            video_path=tmp_path / "wrong.mp4",
+            output_path=tmp_path / "feedback.mp4",
+            skeleton_overlay_path=tmp_path / "overlay.mp4",
+            filename="not-used-for-gating.mp4",
+            skill=Skill.SERVE,
+            requested_handedness="right",
+        )
+
+    assert not serve_backend.infer_called
+    assert not smash_backend.infer_called
 
 
 def test_serve_gpt_context_includes_full_body_transition_evidence() -> None:

@@ -1,0 +1,48 @@
+{
+  "fit_policy": "expert_only_leave_one_identity_out_temporal_support",
+  "forbidden_inputs": ["filename", "cohort", "learner_rating"],
+  "cases": [
+    {
+      "name": "smash_expert_submitted_as_serve",
+      "sample": "artifact:smash-v6-rebuild-inputs/smash_uniform_v17_audit/samples/smash/expert/戚佑仁7.npz",
+      "actual_skill": "smash",
+      "requested_skill": "serve",
+      "expected": "reject_before_generation"
+    },
+    {
+      "name": "serve_expert_submitted_as_smash",
+      "sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/serve/expert/expert-4-1_left.npz",
+      "actual_skill": "serve",
+      "requested_skill": "smash",
+      "expected": "reject_before_generation"
+    },
+    {
+      "name": "left_serve_requested_correctly",
+      "sample": "artifact:expert_score_stability/full_cohort_body_frame_v4/samples/serve/expert/expert-4-1_left.npz",
+      "actual_skill": "serve",
+      "requested_skill": "serve",
+      "expected": "accept"
+    },
+    {
+      "name": "smash_gate_expert_requested_correctly",
+      "sample": "artifact:smash-v6-rebuild-inputs/smash_uniform_v17_audit/samples/smash/expert/戚佑仁7.npz",
+      "actual_skill": "smash",
+      "requested_skill": "smash",
+      "expected": "accept"
+    },
+    {
+      "name": "low_score_smash_expert_linguoqin10_is_not_ood",
+      "sample": "artifact:smash-v6-rebuild-inputs/smash_uniform_v17_audit/samples/smash/expert/林國欽10.npz",
+      "actual_skill": "smash",
+      "requested_skill": "smash",
+      "expected": "accept"
+    },
+    {
+      "name": "low_score_smash_expert_wanghexun6_is_not_ood",
+      "sample": "artifact:smash-v6-rebuild-inputs/smash_uniform_v17_audit/samples/smash/expert/王鶴勳6.npz",
+      "actual_skill": "smash",
+      "requested_skill": "smash",
+      "expected": "accept"
+    }
+  ]
+}

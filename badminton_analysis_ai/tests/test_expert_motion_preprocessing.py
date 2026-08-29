@@ -4,11 +4,36 @@ import numpy as np
 
 from badminton_analysis.ml.expert_motion_preprocessing import (
     _serve_hip_minimum_start,
+    _serve_eimd_v3_phases,
     _serve_motion_onset_interval,
     _serve_preparation_was_truncated,
     _serve_shoulder_completion_phases,
 )
 from badminton_analysis.models.types import Handedness
+
+
+def test_serve_eimd_v3_contract_ends_at_post_acceleration_shoulder_maximum() -> None:
+    frames = 48
+    skeleton = np.zeros((frames, 17, 2), dtype=np.float32)
+    skeleton[:, 12] = (0.0, 2.0)
+    skeleton[:, 6] = (0.0, 0.0)
+    skeleton[:, 8] = (0.0, 1.0)
+    skeleton[:, 10, 0] = np.concatenate(
+        (np.zeros(16), np.linspace(0.0, 12.0, 8), np.full(24, 12.0))
+    )
+    # The elbow opens furthest after wrist acceleration.
+    skeleton[:, 8, 0] = np.concatenate(
+        (np.zeros(25), np.linspace(0.0, 8.0, 10), np.full(13, 8.0))
+    )
+
+    phases = _serve_eimd_v3_phases(
+        (4, 12, 20, 30, 42), skeleton, Handedness.RIGHT
+    )
+
+    assert phases[0] == 4
+    assert phases[2] < phases[-1]
+    assert phases[-1] >= 25
+    assert all(a < b for a, b in zip(phases, phases[1:]))
 
 
 def test_serve_start_uses_minimum_smoothed_pelvis_x_before_acceleration() -> None:

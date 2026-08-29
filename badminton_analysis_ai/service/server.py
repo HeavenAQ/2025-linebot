@@ -20,6 +20,7 @@ from service.config import Settings
 from service.pipeline import (
     expert_phase_results,
     AnalysisResult,
+    SkillMismatchError,
     SkeletonAnalysisPipeline,
 )
 from service.renderer import probe_video
@@ -194,6 +195,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     probe_video(output_path),
                     probe_video(skeleton_overlay_path),
                 )
+            except SkillMismatchError as exc:
+                LOGGER.warning("analysis skill mismatch id=%s error=%s", analysis_id, exc)
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             except (ValueError, KeyError) as exc:
                 LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
                 context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))

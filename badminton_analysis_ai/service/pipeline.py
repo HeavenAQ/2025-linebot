@@ -39,6 +39,10 @@ from service.coaching import CoachingGenerator
 LOGGER = logging.getLogger("badminton-analysis")
 
 
+class SkillMismatchError(ValueError):
+    """The requested stroke contradicts the detected temporal motion support."""
+
+
 @dataclass(frozen=True)
 class PhaseResult:
     id: str
@@ -373,14 +377,23 @@ class SkeletonAnalysisPipeline:
         # The prior generates an idealised movement rather than copying an
         # expert, so the clip shown beside it is chosen by similarity instead.
         bank_path = expert_reference_bank or Path("models/expert_reference_bank.npz")
-        self.expert_bank = ExpertReferenceBank(bank_path) if bank_path.exists() else None
-        if self.expert_bank is None:
-            LOGGER.warning("no expert reference bank at %s; comparison will have no video", bank_path)
+        if not bank_path.exists():
+            raise FileNotFoundError(
+                "expert reference bank is required for temporal skill validation: "
+                f"{bank_path}"
+            )
+        self.expert_bank = ExpertReferenceBank(bank_path)
         for skill in (Skill.SERVE, Skill.SMASH):
             self.backends[skill] = ExpertMotionGeneratorBackend(
                 expert_motion_model_root,
                 skill,
                 device=device,
+                # This is part of the frozen EIMD-v3 inference contract.  Keep
+                # it explicit here so a helper's default cannot silently make
+                # serving diverge from calibration or the review cohort.
+                candidates=8,
+                seed=19,
+                generation_phase_contract="eimd_v3",
                 # Serve and smash share the same camera-frame contract. Apply
                 # the ankle–spine projection before both scoring and rendering;
                 # the renderer then rigidly grounds the generated full body on
@@ -424,7 +437,53 @@ class SkeletonAnalysisPipeline:
             handedness = _resolve_handedness(tracking, requested_handedness)
             _populate_dominant_motion(tracking, handedness)
             backend = self.backends[skill]
-            generated = backend.infer(tracking, handedness, filename)
+            # The request label is untrusted.  Validate it against expert-only
+            # temporal support after pose/handedness extraction and before the
+            # requested generator can steer itself from an out-of-distribution
+            # phase sequence.  Reuse this exact prepared sample for inference;
+            # the guard and generator must never see different windows.
+            prepared = backend.prepare(tracking, handedness, filename)
+            alternative_skill = (
+                Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+            )
+            try:
+                alternative_prepared = self.backends[alternative_skill].prepare(
+                    tracking, handedness, filename
+                )
+            except ValueError as exc:
+                # This is a conservative rejection-only guard. If the other
+                # stroke cannot form a valid five-phase hypothesis, it has not
+                # won temporal support and the requested analysis continues.
+                alternative_prepared = None
+                LOGGER.info(
+                    "alternative skill hypothesis unavailable requested=%s "
+                    "alternative=%s error=%s",
+                    skill,
+                    alternative_skill,
+                    exc,
+                )
+            skill_support = (
+                self.expert_bank.temporal_skill_support(
+                    prepared[0].pose,
+                    alternative_prepared[0].pose,
+                    requested_skill=str(skill),
+                )
+                if alternative_prepared is not None
+                else None
+            )
+            if skill_support is not None and skill_support.mismatch:
+                raise SkillMismatchError(
+                    f"requested {skill_support.requested_skill} conflicts with "
+                    f"{skill_support.alternative_skill} temporal motion support "
+                    f"(advantage={skill_support.alternative_advantage:.6f}, "
+                    f"margin={skill_support.rejection_margin:.6f})"
+                )
+            generated = backend.infer(
+                tracking,
+                handedness,
+                filename,
+                prepared=prepared,
+            )
             correction = generated.correction
             skeleton = correction.student.pose
             confidence = correction.student.confidence
@@ -439,6 +498,31 @@ class SkeletonAnalysisPipeline:
             preprocessing_finished = time.perf_counter()
             grade = generated.grade
             diagnostics = generated.diagnostics
+            diagnostics.update(
+                {
+                    "skill_consistency_gate_active": 1.0,
+                    "alternative_skill_phase_hypothesis_available": float(
+                        alternative_prepared is not None
+                    ),
+                }
+            )
+            if skill_support is not None:
+                diagnostics.update(
+                    {
+                        "requested_skill_support_distance": (
+                            skill_support.requested_distance
+                        ),
+                        "alternative_skill_support_distance": (
+                            skill_support.alternative_distance
+                        ),
+                        "alternative_skill_support_advantage": (
+                            skill_support.alternative_advantage
+                        ),
+                        "skill_consistency_rejection_margin": (
+                            skill_support.rejection_margin
+                        ),
+                    }
+                )
             criterion_values = [
                 (
                     str(item["name_zh_tw"]),
@@ -600,18 +684,17 @@ class SkeletonAnalysisPipeline:
         # was built in, so no renormalization is needed.
         expert_reference = None
         expert_alignment: tuple[tuple[float, float], ...] = ()
-        if self.expert_bank is not None:
-            expert_reference = self.expert_bank.select(
-                correction.aligned_corrected_pose,
-                skill=str(skill),
-                handedness=str(handedness),
+        expert_reference = self.expert_bank.select(
+            correction.aligned_corrected_pose,
+            skill=str(skill),
+            handedness=str(handedness),
+        )
+        if expert_reference is not None:
+            diagnostics["expert_reference_similarity"] = expert_reference.similarity
+            diagnostics["expert_reference_pose_distance"] = expert_reference.distance
+            expert_alignment = _expert_alignment(
+                expert_reference, correction.aligned_corrected_pose
             )
-            if expert_reference is not None:
-                diagnostics["expert_reference_similarity"] = expert_reference.similarity
-                diagnostics["expert_reference_pose_distance"] = expert_reference.distance
-                expert_alignment = _expert_alignment(
-                    expert_reference, correction.aligned_corrected_pose
-                )
 
         return AnalysisResult(
             skill=skill,

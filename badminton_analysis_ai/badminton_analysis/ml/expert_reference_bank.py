@@ -24,8 +24,93 @@ from badminton_analysis.ml.skeleton_normalization import (
     _dtw_segment_positions,
     resample_detected_phase_indices,
 )
+from badminton_analysis.ml.trajectory_distance import constrained_dtw_cost
 
 Metric = Literal["cosine", "euclidean"]
+
+_SKILL_SUPPORT_ANGLE_TRIPLETS = (
+    (9, 7, 5),
+    (10, 8, 6),
+    (7, 5, 11),
+    (8, 6, 12),
+    (5, 11, 13),
+    (6, 12, 14),
+    (11, 13, 15),
+    (12, 14, 16),
+    (5, 11, 12),
+    (6, 12, 11),
+)
+_SKILL_SUPPORT_SEGMENTS = (
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+    (5, 6),
+    (11, 12),
+)
+_SKILL_SUPPORT_CONTRACT = "local_angles_torso_relative_directions_derivative_shape_dtw_v1"
+
+
+def skill_temporal_descriptor(
+    pose: NDArray[np.floating],
+) -> NDArray[np.float32]:
+    """Translation/scale/view-invariant local motion descriptor.
+
+    Joint angles and each segment's signed direction relative to the local
+    pelvis-to-shoulder spine are invariant to image translation, uniform
+    scale, and in-plane camera rotation.  The sample preprocessing already
+    mirrors left-handed motion into the same anatomical convention.  First
+    derivatives retain stroke direction and ordering without using filenames
+    or learner labels.
+    """
+    values = np.asarray(pose, dtype=np.float64)
+    if values.shape != (64, 17, 2):
+        raise ValueError("skill support pose must have shape (64, 17, 2)")
+    pelvis = 0.5 * (values[:, 11] + values[:, 12])
+    shoulders = 0.5 * (values[:, 5] + values[:, 6])
+    spine = shoulders - pelvis
+    spine /= np.maximum(np.linalg.norm(spine, axis=-1, keepdims=True), 1e-8)
+
+    features: list[NDArray[np.float64]] = []
+    for first, centre, last in _SKILL_SUPPORT_ANGLE_TRIPLETS:
+        incoming = values[:, first] - values[:, centre]
+        outgoing = values[:, last] - values[:, centre]
+        denominator = np.maximum(
+            np.linalg.norm(incoming, axis=-1)
+            * np.linalg.norm(outgoing, axis=-1),
+            1e-8,
+        )
+        cosine = np.sum(incoming * outgoing, axis=-1) / denominator
+        features.append(np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi)
+    for first, last in _SKILL_SUPPORT_SEGMENTS:
+        segment = values[:, last] - values[:, first]
+        segment /= np.maximum(
+            np.linalg.norm(segment, axis=-1, keepdims=True), 1e-8
+        )
+        features.extend(
+            (
+                np.sum(segment * spine, axis=-1),
+                segment[:, 0] * spine[:, 1] - segment[:, 1] * spine[:, 0],
+            )
+        )
+    local = np.stack(features, axis=-1)
+    derivative = np.vstack((np.zeros((1, local.shape[1])), np.diff(local, axis=0)))
+    return np.concatenate((local, 3.0 * derivative), axis=-1).astype(np.float32)
+
+
+def skill_temporal_distance(
+    left: NDArray[np.floating], right: NDArray[np.floating]
+) -> float:
+    """Constrained shape-DTW cost between two local descriptors."""
+    source = np.asarray(left, dtype=np.float64)
+    target = np.asarray(right, dtype=np.float64)
+    if source.shape != target.shape or source.ndim != 2 or len(source) != 64:
+        raise ValueError("skill support descriptors must have matching (64, D) shapes")
+    return constrained_dtw_cost(source, target, radius=6)
 
 
 @dataclass(frozen=True)
@@ -63,6 +148,22 @@ class ExpertReference:
         return tuple(float(frame) / self.fps for frame in self.source_phase_indices)
 
 
+@dataclass(frozen=True)
+class SkillSupport:
+    """Requested-vs-alternative expert temporal support for one motion."""
+
+    requested_skill: str
+    alternative_skill: str
+    requested_distance: float
+    alternative_distance: float
+    alternative_advantage: float
+    rejection_margin: float
+
+    @property
+    def mismatch(self) -> bool:
+        return self.alternative_advantage > self.rejection_margin
+
+
 class ExpertReferenceBank:
     """The expert clips the current checkpoints were trained on."""
 
@@ -88,11 +189,118 @@ class ExpertReferenceBank:
             self.height = (
                 bank["height"].astype(np.int64) if "height" in bank else np.zeros(count, dtype=np.int64)
             )
+            required_support = {
+                "skill_support_features",
+                "skill_support_skill",
+                "skill_support_subject_id",
+                "skill_rejection_margin",
+                "skill_support_feature_contract",
+                "skill_support_fit_policy",
+                "skill_support_expert_count",
+                "skill_support_student_data_used",
+            }
+            missing = required_support.difference(bank.files)
+            if missing:
+                raise ValueError(
+                    "expert reference bank lacks temporal skill support: "
+                    + ", ".join(sorted(missing))
+                )
+            self.skill_support_features = bank[
+                "skill_support_features"
+            ].astype(np.float32)
+            self.skill_support_skill = bank["skill_support_skill"].astype(str)
+            self.skill_support_subject_id = bank[
+                "skill_support_subject_id"
+            ].astype(str)
+            self.skill_rejection_margin = float(
+                bank["skill_rejection_margin"].item()
+            )
+            self.skill_support_feature_contract = str(
+                bank["skill_support_feature_contract"].item()
+            )
+            self.skill_support_fit_policy = str(
+                bank["skill_support_fit_policy"].item()
+            )
+            self.skill_support_expert_count = int(
+                bank["skill_support_expert_count"].item()
+            )
+            self.skill_support_student_data_used = bool(
+                bank["skill_support_student_data_used"].item()
+            )
         if self.skeletons.ndim != 4 or self.skeletons.shape[1:] != (64, 17, 2):
             raise ValueError(f"unexpected expert bank shape: {self.skeletons.shape}")
+        if (
+            self.skill_support_features.ndim != 3
+            or self.skill_support_features.shape[1] != 64
+            or len(self.skill_support_features) != len(self.skill_support_skill)
+            or len(self.skill_support_features) != len(self.skill_support_subject_id)
+        ):
+            raise ValueError("invalid temporal skill support arrays")
+        if set(self.skill_support_skill) != {"serve", "smash"}:
+            raise ValueError("temporal skill support must contain serve and smash")
+        if self.skill_support_feature_contract != _SKILL_SUPPORT_CONTRACT:
+            raise ValueError(
+                "unsupported temporal skill feature contract: "
+                f"{self.skill_support_feature_contract}"
+            )
+        if self.skill_support_fit_policy != "expert_only_leave_one_identity_out":
+            raise ValueError("temporal skill margin was not fit identity-held-out")
+        if self.skill_support_expert_count != len(self.skill_support_features):
+            raise ValueError("temporal skill expert count does not match support")
+        if self.skill_support_student_data_used:
+            raise ValueError("temporal skill support must not use student data")
+        if not np.isfinite(self.skill_rejection_margin) or self.skill_rejection_margin <= 0:
+            raise ValueError("temporal skill rejection margin must be positive")
 
     def __len__(self) -> int:
         return len(self.skeletons)
+
+    def _nearest_skill_distance(
+        self,
+        descriptor: NDArray[np.floating],
+        skill: str,
+        *,
+        exclude_subject: str | None = None,
+    ) -> float:
+        candidates = np.flatnonzero(self.skill_support_skill == skill)
+        if exclude_subject is not None:
+            candidates = candidates[
+                self.skill_support_subject_id[candidates] != exclude_subject
+            ]
+        if not len(candidates):
+            raise ValueError(f"expert bank has no independent {skill} support")
+        return min(
+            skill_temporal_distance(
+                descriptor, self.skill_support_features[int(index)]
+            )
+            for index in candidates
+        )
+
+    def temporal_skill_support(
+        self,
+        requested_pose: NDArray[np.floating],
+        alternative_pose: NDArray[np.floating],
+        *,
+        requested_skill: str,
+    ) -> SkillSupport:
+        """Compare each skill hypothesis in its own frozen phase contract."""
+        if requested_skill not in {"serve", "smash"}:
+            raise ValueError(f"unsupported requested skill {requested_skill!r}")
+        alternative = "smash" if requested_skill == "serve" else "serve"
+        requested_distance = self._nearest_skill_distance(
+            skill_temporal_descriptor(requested_pose), requested_skill
+        )
+        alternative_distance = self._nearest_skill_distance(
+            skill_temporal_descriptor(alternative_pose), alternative
+        )
+        return SkillSupport(
+            requested_skill=requested_skill,
+            alternative_skill=alternative,
+            requested_distance=requested_distance,
+            alternative_distance=alternative_distance,
+            alternative_advantage=requested_distance - alternative_distance,
+            rejection_margin=self.skill_rejection_margin,
+        )
 
     def select(
         self,

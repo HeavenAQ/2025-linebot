@@ -7,12 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import grpc
+import pytest
 
 from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.ml.expert_reference_bank import ExpertReference
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
-from service.pipeline import AnalysisResult, PhaseResult
+from service.pipeline import AnalysisResult, PhaseResult, SkillMismatchError
 from service.server import BadmintonAnalysisService, _PROTO_TO_SKILL
 from service.storage import SignedObject
 
@@ -111,6 +112,54 @@ def test_api_exposes_only_serve_and_smash_analysis() -> None:
         analysis_pb2.SKILL_SERVE,
         analysis_pb2.SKILL_SMASH,
     }
+
+
+def test_skill_mismatch_is_reported_as_invalid_argument() -> None:
+    class MismatchPipeline(_Pipeline):
+        def analyze(self, **kwargs):
+            del kwargs
+            raise SkillMismatchError("requested serve conflicts with smash support")
+
+    class NoUploadStorage(_Storage):
+        def upload_file(self, *args, **kwargs):
+            del args, kwargs
+            raise AssertionError("mismatched motion reached object upload")
+
+    service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
+    service.settings = SimpleNamespace(grpc_api_key="test-key", max_video_bytes=1024)
+    service.pipeline = MismatchPipeline()
+    service.storage = NoUploadStorage()
+    service.catalog = _Catalog()
+
+    grpc_server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    analysis_pb2_grpc.add_BadmintonAnalysisServicer_to_server(service, grpc_server)
+    port = grpc_server.add_insecure_port("127.0.0.1:0")
+    grpc_server.start()
+    try:
+        with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+            stub = analysis_pb2_grpc.BadmintonAnalysisStub(channel)
+            with pytest.raises(grpc.RpcError) as failure:
+                stub.AnalyzeVideo(
+                    iter(
+                        (
+                            analysis_pb2.AnalyzeVideoChunk(
+                                header=analysis_pb2.AnalyzeVideoHeader(
+                                    request_id="mismatch",
+                                    user_id="user",
+                                    filename="unknown.mp4",
+                                    skill=analysis_pb2.SKILL_SERVE,
+                                    handedness=analysis_pb2.HANDEDNESS_RIGHT,
+                                )
+                            ),
+                            analysis_pb2.AnalyzeVideoChunk(data=b"video-bytes"),
+                        )
+                    ),
+                    metadata=(("x-api-key", "test-key"),),
+                )
+    finally:
+        grpc_server.stop(None)
+
+    assert failure.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
 def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> None:

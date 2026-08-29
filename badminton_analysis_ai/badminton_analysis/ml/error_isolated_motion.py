@@ -493,7 +493,7 @@ def correct_student_motion_error_isolated(
     bundle: ErrorIsolatedMotionBundle,
     sample: MotionSample,
     *,
-    candidates: int = 16,
+    candidates: int = 8,
     seed: int = 19,
     condition_sample: MotionSample | None = None,
     project_to_manifold: bool = True,
@@ -654,5 +654,4 @@ def correct_student_motion_error_isolated(
             output_phase_indices=output_phase_indices,
         )
     return correction
-
 

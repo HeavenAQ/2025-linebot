@@ -78,3 +78,24 @@ func TestSignPlaybackURLOmitsAnEmptyServiceAccount(t *testing.T) {
 	require.Contains(t, media.SignedURL, "as=")
 	require.NotContains(t, media.SignedURL, "as=  ")
 }
+
+// An analysis written by a shared analysis service lives in that service's
+// bucket, not the calling deployment's. Signing against the wrong bucket
+// produces a URL that 404s in the browser rather than an error here, so the
+// bucket recorded with the object is what must be used.
+func TestBucketFromGCSURI(t *testing.T) {
+	for _, testCase := range []struct {
+		uri  string
+		want string
+	}{
+		{"gs://nstc-2025-storage/analyses/v1/U1/req/student_corrected.mp4", "nstc-2025-storage"},
+		{"gs://bucket-only", "bucket-only"},
+		{"  gs://spaced/object.mp4  ", "spaced"},
+		{"https://example.com/not-gcs.mp4", ""},
+		{"", ""},
+	} {
+		if got := BucketFromGCSURI(testCase.uri); got != testCase.want {
+			t.Errorf("BucketFromGCSURI(%q) = %q, want %q", testCase.uri, got, testCase.want)
+		}
+	}
+}

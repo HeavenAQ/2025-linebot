@@ -9,6 +9,7 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/auth"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/gin-contrib/cors"
@@ -203,8 +204,14 @@ func main() {
 			if media.ObjectPath == "" {
 				return nil
 			}
-			signed, err := application.StorageClient.SignPlaybackURL(
-				media.ObjectPath, application.Config.GCP.ServiceAccountEmail,
+			// Sign in the bucket that actually holds the object. Sharing the
+			// analysis service means sharing the bucket it writes to, which is
+			// not this deployment's own, and signing against the wrong bucket
+			// yields a URL that 404s rather than an error here.
+			signed, err := application.StorageClient.SignPlaybackURLIn(
+				storage.BucketFromGCSURI(media.GCSURI),
+				media.ObjectPath,
+				application.Config.GCP.ServiceAccountEmail,
 			)
 			if err != nil {
 				return err

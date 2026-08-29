@@ -185,7 +185,7 @@ jobs:
         run: |
           mkdir -p /tmp/analysis-e2e
           gcloud storage cp \
-            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/戚佑仁7.mp4' \
+            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/張宸愷6.mp4' \
             /tmp/analysis-e2e/smash-expert.mp4
           gcloud storage cp \
             gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/serve/videos/expert-4-1_left.mov \

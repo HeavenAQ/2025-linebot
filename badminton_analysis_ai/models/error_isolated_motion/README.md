@@ -36,5 +36,5 @@ Active SHA-256 manifest:
 | Serve | `expert_score_model.npz` | `1a0e3c7e5dc32ee019d071e35255d9337a25c38f5c7210d1ec62104058c9095c` |
 | Smash | `error_isolated_motion.pt` | `956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977` |
 | Smash | `expert_score_model.npz` | `806961f62184cdce2202500d90bcb0ee239b7df89d0ae1fb0a71f0ebaa0d422e` |
-| Smash | `expert_semantic_score_model.npz` | `be6b704bd580ff362bb6718eefa4596b51c3edc8368b08d40626140ebc1b16a5` |
+| Smash | `expert_semantic_score_model.npz` | `aabf63e43eb0b846ddf9ce346c607926e2d326bb7143e45a9fefcec827806d42` |
 | Smash | `expert_trajectory_score_model.npz` | `1ed6ee9aa4218f05fdd60e8e0ccdd833ce7163ac2cb75666532ac83f653af027` |

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -285,6 +287,74 @@ def _populate_dominant_motion(
     tracking["elbow_positions"] = list(interpolated_keypoint(skeleton, confidence, elbow))
 
 
+def _dump_pose_arrays(
+    prefix: str,
+    filename: str,
+    skill: Skill,
+    handedness: Handedness,
+    tracking: TrackingData,
+    skeleton: Any,
+    confidence: Any,
+    root: Any,
+    window: Any,
+    phase_indices: Any,
+    source_frame_indices: Any,
+) -> None:
+    """Write this run's pose arrays to GCS for an offline joint-by-joint diff.
+
+    A grade is reproducible from the pose, but the pose never leaves the
+    container, so a deployed run and an offline one can only be compared
+    through the single number they both end at -- which cannot say which joint
+    moved. The keys here match the offline extraction cache so the two load
+    side by side without translation.
+
+    Off unless ANALYSIS_POSE_DUMP_PREFIX is set, and never allowed to fail a
+    request: this exists to explain a bad grade, not to cause one.
+    """
+    try:
+        import numpy as _np
+
+        from service.storage import ObjectStorage
+
+        with tempfile.TemporaryDirectory() as raw_directory:
+            local = Path(raw_directory) / "pose.npz"
+            payload: dict[str, Any] = {
+                "skeleton": _np.asarray(skeleton, dtype=_np.float32),
+                "confidence": _np.asarray(confidence, dtype=_np.float32),
+                "root_trajectory": _np.asarray(root, dtype=_np.float32),
+                "phase_indices": _np.asarray(phase_indices, dtype=_np.int64),
+                "analysis_window": _np.asarray(window, dtype=_np.int64),
+                "source_frame_indices": _np.asarray(
+                    source_frame_indices, dtype=_np.int64
+                ),
+                "skill": str(getattr(skill, "value", skill)),
+                "handedness": str(getattr(handedness, "value", handedness)),
+                "video_name": filename,
+                "pose_backend": "tensorrt",
+            }
+            keypoints = tracking.get("body_keypoints_2d")
+            if keypoints is not None:
+                payload["source_skeleton_2d"] = _np.asarray(
+                    keypoints, dtype=_np.float32
+                )
+            scores = tracking.get("body_confidence_2d")
+            if scores is not None:
+                payload["source_confidence"] = _np.asarray(scores, dtype=_np.float32)
+            _np.savez_compressed(local, **payload)
+
+            bucket = os.getenv("GCS_BUCKET_NAME", "")
+            storage = ObjectStorage(os.getenv("GCP_PROJECT_ID", ""), bucket)
+            stem = Path(filename).stem
+            stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            object_path = f"{prefix.strip('/')}/{stamp}-{stem}.npz"
+            storage.upload_file(
+                local, object_path, content_type="application/octet-stream"
+            )
+            LOGGER.info("pose dump written to gs://%s/%s", bucket, object_path)
+    except Exception:  # noqa: BLE001 - diagnostics must never fail a request
+        LOGGER.exception("pose dump failed; the analysis itself is unaffected")
+
+
 class SkeletonAnalysisPipeline:
     def __init__(
         self,
@@ -377,6 +447,33 @@ class SkeletonAnalysisPipeline:
                 )
                 for item in generated.score["criteria"]
             ]
+            # A grade that disagrees with the offline run is invisible in the
+            # response, which carries only the total and the Chinese criterion
+            # names. Log the scorer identity, every criterion, and the gate
+            # state so a divergence can be located from the deploy log alone.
+            LOGGER.info(
+                "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+                skill,
+                diagnostics.get("scorer", "unknown"),
+                self.pose_detector.execution_provider,
+                float(grade["total_grade"]),
+                [
+                    (name, round(distance, 6), round(score, 4))
+                    for name, distance, score in criterion_values
+                ],
+                {
+                    key: round(float(value), 6)
+                    for key, value in sorted(diagnostics.items())
+                    if isinstance(value, (int, float))
+                },
+            )
+            dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
+            if dump_prefix:
+                _dump_pose_arrays(
+                    dump_prefix, filename, skill, handedness,
+                    tracking, skeleton, confidence, original_root, window,
+                    phases, generated.source_frame_indices,
+                )
             scoring_finished = time.perf_counter()
             frame_rate = source_frame_rate(video_path)
             fps = source_fps(video_path)

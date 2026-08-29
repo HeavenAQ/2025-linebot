@@ -113,6 +113,11 @@ jobs:
           # after the deploy, because a silent loss of it would send learner
           # imagery to a third party with nothing else failing.
           env_vars="${env_vars},ANALYSIS_SKIP_COACHING=true"
+          # The analysis service is shared, so its bucket is too, and the login
+          # channel is shared as well -- learner ids are identical in both
+          # products. This is the only thing that says which one a stored
+          # recording belongs to.
+          env_vars="${env_vars},ANALYSIS_STORAGE_PREFIX=noai"
           if analysis_url="$(gcloud run services describe "${ANALYSIS_SERVICE_NAME}" \
             --region "${ANALYSIS_REGION}" --format='value(status.url)' 2>/dev/null)"; then
             env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"

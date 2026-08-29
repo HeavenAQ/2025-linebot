@@ -22,6 +22,30 @@ PosePrediction = dict[str, Any]
 # RF-DETR's COCO class id for "person" (COCO_CLASSES[1] == "person").
 _PERSON_CLASS_ID = 1
 
+
+def _largest_person_index(
+    class_ids: NDArray[np.integer],
+    boxes: NDArray[np.floating],
+    scores: NDArray[np.floating] | None = None,
+    threshold: float = 0.0,
+) -> int | None:
+    """Index of the biggest detected person, or None when there is no person.
+
+    Both pose paths must agree on who they are looking at. They read different
+    result shapes -- one a supervision Detections, the other raw postprocess
+    tensors -- so the rule lived twice and drifted: the batched path dropped
+    the class test and could pick the largest detection of any class. That
+    surfaces as a silently different grade for the same video rather than as
+    an error, so the rule is written once here and both paths call it.
+    """
+    keep = class_ids == _PERSON_CLASS_ID
+    if scores is not None:
+        keep = keep & (scores > threshold)
+    if not np.any(keep):
+        return None
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    return int(np.argmax(np.where(keep, areas, -np.inf)))
+
 # COCO-WholeBody-133 total column count that `wrist_flick.py` and
 # `WholeBodyCoordinateDict` expect. RFDETRKeypointPreview only predicts the
 # 17 COCO body joints (no hands/face/feet), so only slots 0-16 are ever
@@ -266,16 +290,14 @@ class PoseDetector:
 
     def _largest_person_prediction(self, result: Any) -> list[PosePrediction]:
         """Convert one RF-DETR result into this repository's selected person."""
-        is_person = result.class_id == _PERSON_CLASS_ID
-        if not np.any(is_person):
+        boxes = np.asarray(result.data["xyxy"], dtype=np.float64)
+        # postprocess already dropped anything below the score threshold on
+        # this path, so class and size are all that is left to decide.
+        best = _largest_person_index(np.asarray(result.class_id), boxes)
+        if best is None:
             return []
 
-        boxes = result.data["xyxy"][is_person]
-        areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-        local_best = int(np.argmax(areas))
-        best = np.where(is_person)[0][local_best]
-
-        x1, y1, x2, y2 = (float(value) for value in boxes[local_best])
+        x1, y1, x2, y2 = (float(value) for value in boxes[best])
         coco17_keypoints = np.asarray(result.xy[best], dtype=np.float64)
         coco17_scores = np.asarray(result.keypoint_confidence[best], dtype=np.float64)
 
@@ -291,8 +313,8 @@ class PoseDetector:
 
         Uses the cached fixed-batch TensorRT engine (`BATCH_SIZE` frames per
         call, ~4ms/frame) instead of the single-frame PyTorch path `get_pose`
-        uses (~50ms/frame): only the offline extraction pipeline calls this,
-        since it can buffer frames ahead of time, unlike live grading. Does
+        uses (~50ms/frame). Live grading buffers its frames and calls this too,
+        so it must select the same person the single-frame path would. Does
         not touch `_last_predictions`/`_target_bbox_center`, since those exist
         for the single-frame streaming API's own state tracking.
 
@@ -366,15 +388,18 @@ class PoseDetector:
         for index in range(len(images)):
             result = results[index]
             scores = result["scores"].detach().cpu().numpy()
-            is_valid = scores > self.person_detection_threshold
-            if not np.any(is_valid):
+            boxes = result["boxes"].detach().cpu().numpy()
+            keypoints = result["keypoints"].detach().cpu().numpy()
+            best = _largest_person_index(
+                result["labels"].detach().cpu().numpy(),
+                boxes,
+                scores,
+                self.person_detection_threshold,
+            )
+            if best is None:
                 batch_predictions.append([])
                 continue
 
-            boxes = result["boxes"].detach().cpu().numpy()[is_valid]
-            keypoints = result["keypoints"].detach().cpu().numpy()[is_valid]
-            areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-            best = int(np.argmax(areas))
             x1, y1, x2, y2 = (float(value) for value in boxes[best])
             coco17_keypoints = keypoints[best, :, :2].astype(np.float64)
             coco17_scores = keypoints[best, :, 2].astype(np.float64)

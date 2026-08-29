@@ -34,7 +34,7 @@ func TestLiveAnalysisRejectsOppositeHandFallback(t *testing.T) {
 
 	video, err := os.ReadFile(videoPath)
 	require.NoError(t, err)
-	client, err := analysis.NewClient(target, apiKey, false, false)
+	client, err := analysis.NewClient(target, apiKey, false, false, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -73,7 +73,7 @@ func TestLiveAnalysisService(t *testing.T) {
 
 	video, err := os.ReadFile(videoPath)
 	require.NoError(t, err)
-	client, err := analysis.NewClient(target, apiKey, os.Getenv("ANALYSIS_GRPC_INSECURE") == "true", false)
+	client, err := analysis.NewClient(target, apiKey, os.Getenv("ANALYSIS_GRPC_INSECURE") == "true", false, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 

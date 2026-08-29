@@ -49,6 +49,19 @@ def _safe_segment(value: str, fallback: str) -> str:
     return cleaned[:96] or fallback
 
 
+def _analysis_root(storage_prefix: str, user_segment: str, request_segment: str) -> str:
+    """Where one analysis's files live, under the caller's own prefix.
+
+    Deployments that share this service share the bucket it writes to, and
+    they share a LINE login channel too, so a learner id is the same string in
+    both and cannot separate their recordings. An empty prefix keeps the
+    original unprefixed layout so existing objects stay where they are.
+    """
+    root = f"analyses/v1/{user_segment}/{request_segment}"
+    prefix = _safe_segment(storage_prefix, "") if storage_prefix else ""
+    return f"{prefix}/{root}" if prefix else root
+
+
 class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -150,16 +163,15 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 storage_started = time.perf_counter()
                 user_segment = _safe_segment(header.user_id, "anonymous")
                 request_segment = _safe_segment(header.request_id, analysis_id)
-                object_path = (
-                    f"analyses/v1/{user_segment}/{request_segment}/"
-                    "student_corrected.mp4"
+                analysis_root = _analysis_root(
+                    header.storage_prefix, user_segment, request_segment
                 )
+                object_path = f"{analysis_root}/student_corrected.mp4"
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
                 overlay_object_path = (
-                    f"analyses/v1/{user_segment}/{request_segment}/"
-                    "student_skeleton_overlay.mp4"
+                    f"{analysis_root}/student_skeleton_overlay.mp4"
                 )
                 overlay_signed = self.storage.upload_file(
                     skeleton_overlay_path,

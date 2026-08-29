@@ -106,7 +106,7 @@ func TestLiveLINEVideoAnalysis(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, len(video), 1024)
 
-	analysisClient, err := analysis.NewClient(target, apiKey, false, false)
+	analysisClient, err := analysis.NewClient(target, apiKey, false, false, "")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, analysisClient.Close()) })
 	result, err := analysisClient.AnalyzeVideo(

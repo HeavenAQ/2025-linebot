@@ -84,6 +84,7 @@ func NewApp(configPath string) *App {
 		cfg.AnalysisServer.APIKey,
 		cfg.AnalysisServer.Insecure,
 		cfg.AnalysisServer.SkipCoaching,
+		cfg.AnalysisServer.StoragePrefix,
 	)
 	if err != nil {
 		panic(err)

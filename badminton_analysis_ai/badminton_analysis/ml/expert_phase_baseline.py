@@ -2022,13 +2022,12 @@ def _serve_expert_envelope_components(
         aggregation = "either_impulse_or_directional_acceleration"
     elif rule_id == "weight_transfer":
         # The dominant shoulder-hip-knee and hip-knee-ankle chain is the
-        # camera-robust primary evidence.  A pelvis-over-ankle displacement is
-        # only one 2D projection of loading: a transfer with depth can leave
-        # that value small even while the articulated chain and whole-body
-        # root move correctly.  Require both chain summaries, plus either the
-        # pelvis loading proxy, root transfer, or hip-rotation/chain coupling.
-        # No supporting cue can pass the checkpoint by itself because the
-        # chain distance remains mandatory.
+        # camera-robust primary evidence. Pelvis, root, and coordinated hip
+        # motion are alternative supporting views because any one can become
+        # unreliable under occlusion or a different camera azimuth. Keep the
+        # stricter all-cues distance in the diagnostics; the runtime rubric
+        # attribution uses it to avoid assigning the full 30 points when the
+        # aggregate model passes on root translation alone.
         chain_weights = weights[:2]
         chain_distance = float(
             np.sqrt(
@@ -3288,5 +3287,3 @@ def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
                 else None
             ),
         )
-
-

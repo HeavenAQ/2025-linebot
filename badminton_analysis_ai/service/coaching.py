@@ -26,6 +26,18 @@ from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
 LOGGER = logging.getLogger("badminton-analysis.coaching")
 
 
+def _criterion_priority(item: dict[str, Any]) -> tuple[float, float]:
+    """Rank rubric evidence by missing weighted points, then by ratio.
+
+    The rubric maxima encode the relative importance of each checkpoint. A
+    zero on a five-point preparation detail must not hide a 25-point deficit
+    in weight transfer merely because its normalized ratio is slightly lower.
+    """
+    score = float(item.get("score", 0.0))
+    maximum = max(float(item.get("maximum", 1.0)), 1e-6)
+    return (score - maximum, score / maximum)
+
+
 def _normalized_to_output_frame_indices(
     normalized_frame_count: int,
     output_frame_count: int,
@@ -109,7 +121,7 @@ class CoachingGenerator:
     ) -> dict[str, Any]:
         criteria = sorted(
             correction_grade["criteria"],
-            key=lambda item: float(item["score"]) / max(float(item["maximum"]), 1e-6),
+            key=_criterion_priority,
         )[:problem_count]
         rules = [spec.rule(str(item["rule_reference"])) for item in criteria]
         return {

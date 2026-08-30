@@ -133,6 +133,22 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         )
         for criterion in preserved
     }
+    transfer = by_id["weight_transfer"]
+    strict_distance = float(
+        transfer.get(
+            "strict_required_cue_distance",
+            transfer.get("combined_distance", 0.0),
+        )
+    )
+    tolerance = float(transfer.get("expert_tolerance", strict_distance))
+    robust_scale = max(float(transfer.get("expert_robust_scale", 1.0)), 1e-8)
+    transfer_support_ratio = float(
+        np.exp(-max(0.0, strict_distance - tolerance) / robust_scale)
+    )
+    transfer_cap = float(transfer["maximum"]) * transfer_support_ratio
+    attributed["weight_transfer"] = min(
+        attributed["weight_transfer"], transfer_cap
+    )
     preserved_sum = float(sum(attributed.values()))
     if preserved_sum > total:
         scale = total / max(preserved_sum, 1e-8)
@@ -169,6 +185,9 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         item["raw_weighted_score"] = float(item["score"])
         item["score"] = float(attributed[str(item["rule_reference"])])
         item["aggregate_attributed_score"] = float(item["score"])
+        if item["rule_reference"] == "weight_transfer":
+            item["strict_transfer_support_ratio"] = transfer_support_ratio
+            item["strict_transfer_attribution_cap"] = transfer_cap
     attributed_total = float(sum(float(item["score"]) for item in criteria))
     return {
         **score,
@@ -177,7 +196,7 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         "weighted_total_score": attributed_total,
         "total_score": attributed_total,
         "single_head_attribution_policy": (
-            "preserve_loading_transfer_shoulder_then_bounded_allocate"
+            "strict_transfer_cap_then_bounded_semantic_allocate"
         ),
     }
 

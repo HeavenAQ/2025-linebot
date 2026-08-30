@@ -439,6 +439,8 @@ def prompt_context(
         correction_grade.get("criteria", []),
         key=lambda item: (
             float(item.get("score", 0.0))
+            - max(float(item.get("maximum", 1.0)), 1e-6),
+            float(item.get("score", 0.0))
             / max(float(item.get("maximum", 1.0)), 1e-6),
             -float(item.get("correction_distance", 0.0)),
         ),

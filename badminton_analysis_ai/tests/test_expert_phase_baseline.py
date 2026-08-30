@@ -458,7 +458,9 @@ def test_serve_weight_transfer_accepts_root_as_camera_robust_support() -> None:
         "weight_transfer", pose, root, confidence
     )
     # Both dominant-chain cues and root transfer meet expert support, while
-    # the 2D pelvis-over-ankle cue alone appears one scale short.
+    # the pelvis-over-ankle support transition is one scale short. Root motion
+    # remains an alternate support cue for camera robustness; the stricter
+    # all-cues distance is retained separately for rubric attribution.
     lower = evidence.copy()
     lower[2] += 1.0
     envelope = {

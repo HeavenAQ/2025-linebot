@@ -66,7 +66,7 @@ def _correction_grade(spec, scores: tuple[float, ...]) -> dict:
     }
 
 
-def test_fallback_coaching_uses_lowest_normalized_criterion() -> None:
+def test_fallback_coaching_uses_largest_weighted_point_deficit() -> None:
     spec = get_skill_spec(Skill.LIFT)
     correction_grade = _correction_grade(spec, (12.0, 24.0, 7.0, 16.0))
 
@@ -94,7 +94,7 @@ def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
     references = [problem["rule_reference"] for problem in analysis["problems"]]
     assert len(references) == 3
     assert len(set(references)) == 3
-    assert references == ["weight_transfer", "arms_raised", "racket_foot_weight"]
+    assert references == ["weight_transfer", "wrist_flick", "arms_raised"]
 
 
 def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> None:

@@ -80,6 +80,75 @@ def test_serve_single_head_preserves_original_rubric_and_total() -> None:
     )
 
 
+def test_serve_single_head_caps_transfer_when_required_cues_disagree() -> None:
+    ids = (
+        "arms_raised",
+        "racket_foot_weight",
+        "weight_transfer",
+        "hip_rotation",
+        "wrist_flick",
+        "shoulder_rotation",
+    )
+    maxima = (5.0, 5.0, 30.0, 10.0, 30.0, 20.0)
+    criteria = [
+        {"rule_reference": rule, "score": maximum, "maximum": maximum}
+        for rule, maximum in zip(ids, maxima, strict=True)
+    ]
+    transfer = criteria[2]
+    transfer.update(
+        {
+            "strict_required_cue_distance": 0.4,
+            "expert_tolerance": 0.2,
+            "expert_robust_scale": 0.1,
+        }
+    )
+
+    result = _serve_single_head_score(
+        {"criteria": criteria, "checklist_total_score": 70.0}
+    )
+    by_id = {item["rule_reference"]: item for item in result["criteria"]}
+
+    assert np.isclose(result["total_score"], 70.0)
+    assert np.isclose(sum(item["score"] for item in result["criteria"]), 70.0)
+    assert by_id["weight_transfer"]["score"] == pytest.approx(
+        30.0 * np.exp(-2.0)
+    )
+    assert by_id["weight_transfer"]["strict_transfer_support_ratio"] == (
+        pytest.approx(np.exp(-2.0))
+    )
+
+
+def test_serve_single_head_keeps_transfer_inside_expert_support() -> None:
+    ids = (
+        "arms_raised",
+        "racket_foot_weight",
+        "weight_transfer",
+        "hip_rotation",
+        "wrist_flick",
+        "shoulder_rotation",
+    )
+    maxima = (5.0, 5.0, 30.0, 10.0, 30.0, 20.0)
+    criteria = [
+        {"rule_reference": rule, "score": maximum, "maximum": maximum}
+        for rule, maximum in zip(ids, maxima, strict=True)
+    ]
+    criteria[2].update(
+        {
+            "strict_required_cue_distance": 0.1,
+            "expert_tolerance": 0.2,
+            "expert_robust_scale": 0.1,
+        }
+    )
+
+    result = _serve_single_head_score(
+        {"criteria": criteria, "checklist_total_score": 100.0}
+    )
+    by_id = {item["rule_reference"]: item for item in result["criteria"]}
+
+    assert by_id["weight_transfer"]["score"] == pytest.approx(30.0)
+    assert result["total_score"] == pytest.approx(100.0)
+
+
 def test_smash_runtime_score_preserves_total_and_rubric_caps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

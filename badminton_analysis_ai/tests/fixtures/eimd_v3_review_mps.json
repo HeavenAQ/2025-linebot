@@ -25,7 +25,7 @@
       "score": 8.321987857124599,
       "aligned_corrected_sha256": "247b86efbf99d3dc32a627fed3c5fd41e81f7c198f6c818f3c0262b07474f3b8",
       "corrected_sha256": "3a8a1cdf9ade5eb74cfc9a5c69659abde4d6eb9fde79f98f7f9989696c071bf8",
-      "criteria": {"arms_raised": 0.40802979214775387, "racket_foot_weight": 5.0, "weight_transfer": 0.23398582183464312, "hip_rotation": 2.4600232314825567, "wrist_flick": 0.10965376175594872, "shoulder_rotation": 0.11029524990369655}
+      "criteria": {"arms_raised": 0.4398348796307222, "racket_foot_weight": 5.0, "weight_transfer": 0.0018796701996560922, "hip_rotation": 2.651777009253531, "wrist_flick": 0.11820104813699225, "shoulder_rotation": 0.11029524990369655}
     },
     {
       "skill": "serve",

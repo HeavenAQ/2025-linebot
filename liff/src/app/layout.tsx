@@ -7,7 +7,7 @@ import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
 import Hero from '@/components/Hero'
 
 export const metadata: Metadata = {
-  title: 'NSTC LINE BOT PROJECT (115)',
+  title: 'NSTC LINE BOT PROJECT (114)',
   description: 'Student learning dashboard'
 }
 

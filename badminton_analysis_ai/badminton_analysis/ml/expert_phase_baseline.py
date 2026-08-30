@@ -1374,6 +1374,59 @@ def _serve_expert_qualitative_envelope(
     return output
 
 
+def _serve_arms_at_corrected_shoulder_evidence(
+    source_pose: NDArray[np.floating],
+    corrected_pose: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+) -> dict[str, float | bool]:
+    """Check whether both hands reach the corrected shoulder level.
+
+    Serve preparation is a threshold skill, not an exact imitation of the
+    expert's lateral hand spacing.  The wrist supplies the hand height when it
+    is observed and the elbow is an occlusion fallback.  A 20%-of-torso margin
+    implements "about level" while keeping waist-height hands below standard.
+    """
+    source = np.asarray(source_pose, dtype=np.float64)
+    corrected = np.asarray(corrected_pose, dtype=np.float64)
+    observed = np.asarray(confidence, dtype=np.float64)
+    if source.shape != corrected.shape or source.ndim != 3:
+        raise ValueError("serve arm evidence requires matching (T, J, 2) poses")
+    start, end = motion_completion_bounds(len(source), 0.125, 0.34375)
+    corrected_shoulders = 0.5 * (corrected[:, 5] + corrected[:, 6])
+    corrected_hips = 0.5 * (corrected[:, 11] + corrected[:, 12])
+    torso = np.maximum(
+        np.linalg.norm(corrected_shoulders - corrected_hips, axis=-1), _EPS
+    )
+    margins: list[float] = []
+    for shoulder, elbow, wrist in ((5, 7, 9), (6, 8, 10)):
+        # Normalized pose y points from the pelvis toward the shoulders, so a
+        # larger y is visually higher.
+        distal_y = np.where(
+            observed[:, wrist] > 0.05,
+            source[:, wrist, 1],
+            source[:, elbow, 1],
+        )
+        distal_confidence = np.maximum(observed[:, wrist], observed[:, elbow])
+        relative_height = (distal_y - corrected[:, shoulder, 1]) / torso
+        margins.append(
+            _robust_window_value(
+                relative_height,
+                distal_confidence,
+                start=start,
+                end=end,
+            )
+        )
+    weaker_margin = float(min(margins))
+    tolerance = 0.20
+    return {
+        "left_hand_corrected_shoulder_margin": float(margins[0]),
+        "right_hand_corrected_shoulder_margin": float(margins[1]),
+        "weaker_hand_corrected_shoulder_margin": weaker_margin,
+        "corrected_shoulder_level_tolerance": tolerance,
+        "passes_corrected_shoulder_height": weaker_margin >= -tolerance,
+    }
+
+
 def _serve_qualitative_factor(
     value: float, calibration: dict[str, float]
 ) -> float:
@@ -2946,6 +2999,24 @@ def score_expert_correction(
                 **qualitative_diagnostics,
             }
         )
+    if model.criterion_metric_version == "serve_expert_distribution_v6":
+        arm_evidence = _serve_arms_at_corrected_shoulder_evidence(
+            correction.aligned_student_pose,
+            correction.aligned_corrected_pose,
+            confidence,
+        )
+        arms_item = next(
+            item for item in criteria if item["rule_reference"] == "arms_raised"
+        )
+        arms_item.update(arm_evidence)
+        if bool(arm_evidence["passes_corrected_shoulder_height"]):
+            arms_item["score_before_corrected_shoulder_height_pass"] = float(
+                arms_item["score"]
+            )
+            arms_item["score"] = float(arms_item["maximum"])
+            arms_item["arms_raised_policy"] = (
+                "both_hands_at_or_near_corrected_shoulder_height"
+            )
     if model.criterion_metric_version == "serve_expert_distribution_v6":
         by_rule = {item["rule_reference"]: item for item in criteria}
         dynamic_completion_gate = min(

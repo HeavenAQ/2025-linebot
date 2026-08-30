@@ -16,6 +16,7 @@ from badminton_analysis.ml.expert_phase_baseline import (
     _retarget_root_with_contacts,
     _aligned,
     _serve_checklist_aggregation,
+    _serve_arms_at_corrected_shoulder_evidence,
     _serve_semantic_evidence,
     _serve_expert_envelope_components,
     _serve_hip_rotation_components,
@@ -431,6 +432,40 @@ def test_serve_qualitative_evidence_requires_two_raised_arms_and_real_stance() -
     assert weak_evidence["preparation_stance_width"] < (
         expert_evidence["preparation_stance_width"] * 0.25
     )
+
+
+def test_serve_arms_pass_at_corrected_shoulder_height_with_small_tolerance() -> None:
+    corrected = np.zeros((64, 17, 2), dtype=np.float32)
+    corrected[:, (5, 6), 1] = 1.0
+    corrected[:, (11, 12), 1] = 0.0
+    source = corrected.copy()
+    source[:, (7, 8), 1] = 0.75
+    source[:, (9, 10), 1] = 0.82
+    confidence = np.ones((64, 17), dtype=np.float32)
+
+    evidence = _serve_arms_at_corrected_shoulder_evidence(
+        source, corrected, confidence
+    )
+
+    assert evidence["passes_corrected_shoulder_height"] is True
+    assert evidence["weaker_hand_corrected_shoulder_margin"] == pytest.approx(
+        -0.18
+    )
+
+
+def test_serve_arms_fail_when_either_hand_stays_below_shoulder_level() -> None:
+    corrected = np.zeros((64, 17, 2), dtype=np.float32)
+    corrected[:, (5, 6), 1] = 1.0
+    source = corrected.copy()
+    source[:, (9, 10), 1] = 0.85
+    source[:, 10, 1] = 0.55
+    confidence = np.ones((64, 17), dtype=np.float32)
+
+    evidence = _serve_arms_at_corrected_shoulder_evidence(
+        source, corrected, confidence
+    )
+
+    assert evidence["passes_corrected_shoulder_height"] is False
 
 
 def test_serve_weight_transfer_rejects_uncoupled_pelvis_translation() -> None:

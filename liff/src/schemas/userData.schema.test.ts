@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { ExpertMatchSchema, WorkSchema } from './userData.schema.ts'
+import { ExpertMatchSchema, PlaybackResponseSchema, WorkSchema } from './userData.schema.ts'
 
 const work = {
   date: '2026-08-02-02-15',
@@ -40,4 +40,21 @@ test('keeps a recorded alignment', () => {
   const alignment = [{ normalized_position: 0.5, expert_seconds: 1.25 }]
 
   assert.deepEqual(ExpertMatchSchema.parse({ ...expert, alignment }).alignment, alignment)
+})
+
+const playback = {
+  analysis_id: 'analysis-1',
+  student_video: {},
+  expert,
+  timeline: [],
+  overall_feedback: '動作表現良好。',
+  grade: { grading_details: [], total_grade: 100 }
+}
+
+test('loads comparison playback when an analysis has no coaching cues', () => {
+  assert.deepEqual(PlaybackResponseSchema.parse(playback).coaching_cues, [])
+  assert.deepEqual(
+    PlaybackResponseSchema.parse({ ...playback, coaching_cues: null }).coaching_cues,
+    []
+  )
 })

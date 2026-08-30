@@ -22,12 +22,7 @@ import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import { useSkillSummary } from '@/lib/useSkillSummary'
-import {
-  resolveReviewSection,
-  resolveWorkFocus,
-  type ReviewSection,
-  type WorkFocus
-} from '@/lib/workLink'
+import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
 import SkillSummary from '@/components/SkillSummary'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
@@ -68,6 +63,10 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
   // would say the opposite.
   const share = (d: GradingDetail) => d.grade / (d.maximum > 0 ? d.maximum : 20)
   const weakest = details.reduce((low, d) => (share(d) < share(low) ? d : low), details[0])
+  // "Weakest" is only useful coaching language when the criterion actually
+  // needs work.  Without this gate an all-perfect attempt still painted one
+  // row red and called it 最需改進 merely because it was first in the list.
+  const weakestNeedsImprovement = share(weakest) < 0.8
 
   return (
     <ul className="space-y-4">
@@ -77,7 +76,7 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
         // impossible scores like 30.0/20.
         const maximum = detail.maximum > 0 ? detail.maximum : 20
         const ratio = Math.max(0, Math.min(1, detail.grade / maximum))
-        const isWeakest = details.length > 1 && detail === weakest
+        const isWeakest = details.length > 1 && detail === weakest && weakestNeedsImprovement
         return (
           <li key={`${detail.description}-${i}`}>
             <div className="flex items-baseline justify-between gap-3">
@@ -120,7 +119,6 @@ export default function PersonalPage() {
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabValue>('scores')
   const [focusWork, setFocusWork] = useState<WorkFocus | null>(null)
-  const [focusSection, setFocusSection] = useState<ReviewSection | null>(null)
   const { liff, profile, liffError, sessionExpired } = useLiff()
   const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
 
@@ -136,9 +134,6 @@ export default function PersonalPage() {
     if (TAB_OPTIONS.some(option => option.value === requested)) {
       setActiveTab(requested as TabValue)
     }
-    // The review tab's own sub-tab, so a link can land a learner on 預習
-    // rather than on the reflection they have not written yet.
-    setFocusSection(resolveReviewSection(search))
     if (!userData) return
     const focus = resolveWorkFocus(search, userData.portfolio)
     if (!focus) return
@@ -404,12 +399,7 @@ export default function PersonalPage() {
 
         {activeTab === 'review' && profile?.userId && (
           <div role="tabpanel">
-            <WeeklyReview
-              userId={profile.userId}
-              userData={userData}
-              focusWork={focusWork}
-              focusSection={focusSection}
-            />
+            <WeeklyReview userId={profile.userId} userData={userData} focusWork={focusWork} />
           </div>
         )}
       </main>

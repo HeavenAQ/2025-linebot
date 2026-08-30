@@ -120,11 +120,26 @@ class CoachingGenerator:
         correction_grade: dict[str, Any],
         problem_count: int = 1,
     ) -> dict[str, Any]:
-        criteria = sorted(
-            correction_grade["criteria"],
-            key=_criterion_priority,
-        )[:problem_count]
+        criteria = [
+            item
+            for item in sorted(
+                correction_grade["criteria"],
+                key=_criterion_priority,
+            )
+            if float(item["score"])
+            / max(float(item["maximum"]), 1e-6)
+            < 0.8
+        ][:problem_count]
         rules = [spec.rule(str(item["rule_reference"])) for item in criteria]
+        if not criteria:
+            return {
+                "skill": spec.slug,
+                "language": "zh-TW",
+                "overall_feedback": (
+                    f"本次{spec.name_zh_tw}各項動作皆已達標，未發現需要修正的技術問題。"
+                ),
+                "problems": [],
+            }
         return {
             "skill": spec.slug,
             "language": "zh-TW",
@@ -225,23 +240,24 @@ class CoachingGenerator:
                 "feedback must not coach criteria that already passed: "
                 + ", ".join(invalid_passed)
             )
-        priority_criteria = sorted(
-            correction_grade["criteria"], key=_criterion_priority
-        )
-        required_reference = None
-        if priority_criteria:
-            top = priority_criteria[0]
-            deficit = float(top["maximum"]) - float(top["score"])
-            if deficit >= 10.0:
-                required_reference = str(top["rule_reference"])
-        if (
-            references
-            and required_reference is not None
-            and required_reference not in references
-        ):
+        priority_criteria = [
+            item
+            for item in sorted(
+                correction_grade["criteria"], key=_criterion_priority
+            )
+            if float(item["score"])
+            / max(float(item["maximum"]), 1e-6)
+            < 0.8
+        ]
+        required_references = {
+            str(item["rule_reference"])
+            for item in priority_criteria[:maximum_problem_count]
+        }
+        missing_required = sorted(required_references - set(references))
+        if references and missing_required:
             raise ValueError(
-                "feedback must cover the largest substantial weighted deficit: "
-                f"{required_reference}"
+                "feedback must cover all low-scoring priority criteria that fit: "
+                + ", ".join(missing_required)
             )
         validated = SkillFeedbackAnalysis.model_validate(analysis)
         validate_analysis_frames(validated, samples, anchors, spec)
@@ -339,10 +355,15 @@ class CoachingGenerator:
                 self._fallback_analysis(
                     spec,
                     correction_grade,
-                    problem_count=max(
-                        1,
-                        minimum_feedback_problem_count(
+                    problem_count=min(
+                        maximum_feedback_problem_count(
                             float(correction_grade["total_score"])
+                        ),
+                        sum(
+                            float(item["score"])
+                            / max(float(item["maximum"]), 1e-6)
+                            < 0.8
+                            for item in correction_grade["criteria"]
                         ),
                     ),
                 ),

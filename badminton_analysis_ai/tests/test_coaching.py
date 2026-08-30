@@ -134,7 +134,7 @@ def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit()
         )
 
 
-def test_low_score_feedback_must_cover_largest_weighted_deficit() -> None:
+def test_low_score_feedback_must_cover_every_priority_that_fits() -> None:
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(
         spec, (0.0, 5.0, 0.0, 10.0, 0.0, 20.0)
@@ -171,6 +171,42 @@ def test_low_score_feedback_must_cover_largest_weighted_deficit() -> None:
             correction_grade=correction_grade,
             phase_indices=PHASES,
             samples=samples,
+        )
+
+
+def test_mid_score_feedback_cannot_stop_after_only_one_low_criterion() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(
+        spec, (5.0, 5.0, 15.0, 10.0, 15.0, 20.0)
+    )
+    rule = spec.rule("weight_transfer")
+    frame = PHASES[rule.allowed_anchor_indices[-1]]
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心轉移與手腕發力都需要依照關鍵畫面進一步修正。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生重心轉移與修正骨架有明顯差距。",
+                "frame_index": frame,
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="wrist_flick"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[_sample(frame, spec)],
         )
 
 

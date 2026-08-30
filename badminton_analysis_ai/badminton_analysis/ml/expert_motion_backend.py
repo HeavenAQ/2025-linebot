@@ -180,6 +180,30 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
                 break
             active = [key for key in active if key not in capped]
         attributed.update({key: attributed.get(key, 0.0) for key in flexible})
+    arms = by_id["arms_raised"]
+    if bool(arms.get("passes_corrected_shoulder_height", False)):
+        # The semantic shoulder-height rule is authoritative for this one
+        # preparation checkpoint.  Reattribute existing total points rather
+        # than inflating the aggregate: the score distribution stays on the
+        # validated single head while the UI cannot call a passed arm position
+        # a failure merely because another criterion consumed the allocation.
+        target = float(arms["maximum"])
+        needed = max(0.0, target - attributed.get("arms_raised", 0.0))
+        for donor in (
+            "hip_rotation",
+            "wrist_flick",
+            "shoulder_rotation",
+            "racket_foot_weight",
+            "weight_transfer",
+        ):
+            transfer_points = min(needed, attributed.get(donor, 0.0))
+            attributed[donor] = attributed.get(donor, 0.0) - transfer_points
+            attributed["arms_raised"] = (
+                attributed.get("arms_raised", 0.0) + transfer_points
+            )
+            needed -= transfer_points
+            if needed <= 1e-12:
+                break
     raw_weighted_total = float(sum(float(item["score"]) for item in criteria))
     for item in criteria:
         item["raw_weighted_score"] = float(item["score"])
@@ -188,6 +212,12 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         if item["rule_reference"] == "weight_transfer":
             item["strict_transfer_support_ratio"] = transfer_support_ratio
             item["strict_transfer_attribution_cap"] = transfer_cap
+        if item["rule_reference"] == "arms_raised" and bool(
+            item.get("passes_corrected_shoulder_height", False)
+        ):
+            item["single_head_attribution_override"] = (
+                "corrected_shoulder_height_semantic_pass"
+            )
     attributed_total = float(sum(float(item["score"]) for item in criteria))
     return {
         **score,

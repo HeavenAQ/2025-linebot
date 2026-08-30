@@ -37,19 +37,3 @@ export function resolveWorkFocus(search: string, portfolio: Portfolios): WorkFoc
   if (!works || !owns(works, date)) return null
   return { skill: skill as Skill, date }
 }
-
-/** The 每週回顧 sub-tabs, in the order they are shown. */
-export const REVIEW_SECTIONS = ['reflection', 'preview'] as const
-
-export type ReviewSection = (typeof REVIEW_SECTIONS)[number]
-
-/**
- * The 每週回顧 sub-tab a link asks for, or null when it names none. A link can
- * send a learner straight to their preview note with ?tab=review&section=preview;
- * one naming anything else leaves the page on its own default, for the same
- * reason a stale attempt does.
- */
-export function resolveReviewSection(search: string): ReviewSection | null {
-  const section = new URLSearchParams(search).get('section')
-  return REVIEW_SECTIONS.includes(section as ReviewSection) ? (section as ReviewSection) : null
-}

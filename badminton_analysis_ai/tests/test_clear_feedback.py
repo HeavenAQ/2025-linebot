@@ -261,6 +261,7 @@ def test_serve_prompt_compares_first_and_last_full_body_frames() -> None:
     assert "最多回報3項不同標準" in prompt
     assert "problems必須為空陣列" in prompt
     assert "不得只檢查其中一項" in prompt
+    assert "不可只回報最低分的一項" in prompt
     assert "下肢支撐轉換" in prompt
     assert "雙肩相對雙髖是否向前傾" in prompt
 

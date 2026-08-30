@@ -128,7 +128,10 @@ export const PlaybackResponseSchema = z.object({
   skeleton_overlay_video: OptionalMediaRefSchema,
   expert: ExpertMatchSchema,
   timeline: z.array(PhaseMarkerSchema),
-  coaching_cues: z.array(CoachingCueSchema),
+  // Firestore omits empty repeated fields and Go serializes an absent slice as
+  // null.  No coaching cue is a valid successful analysis and must not prevent
+  // the student/expert videos from loading.
+  coaching_cues: z.preprocess(value => value ?? [], z.array(CoachingCueSchema)),
   overall_feedback: z.string(),
   grade: GradingOutcomeSchema
 })

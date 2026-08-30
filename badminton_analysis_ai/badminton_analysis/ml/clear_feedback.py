@@ -463,18 +463,19 @@ def prompt_context(
     total_grade = float(correction_grade.get("total_score", 0.0))
     maximum_problem_count = maximum_feedback_problem_count(total_grade)
     minimum_problem_count = minimum_feedback_problem_count(total_grade)
-    required_priority_criteria = [
-        str(item["rule_reference"])
-        for item in priority_criteria[:1]
-        if float(item.get("maximum", 0.0)) - float(item.get("score", 0.0))
-        >= 10.0
-    ]
     feedback_candidate_criteria = [
         str(item["rule_reference"])
         for item in priority_criteria
         if float(item.get("score", 0.0))
         / max(float(item.get("maximum", 1.0)), 1e-6)
         < 0.8
+    ]
+    # Use every available feedback slot for distinct low-scoring criteria.
+    # The visual model may still return no problem when the frames contradict
+    # the diagnostics; once it reports any issue, it may not stop at only the
+    # single lowest criterion.
+    required_priority_criteria = feedback_candidate_criteria[
+        :maximum_problem_count
     ]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
@@ -558,7 +559,8 @@ def build_response_input(
                 f"skill欄位必須填寫{resolved_spec.slug}。最多回報"
                 f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
                 f"若確認至少一項問題，必須回報至少{minimum_problem_count}項不同標準；"
-                f"並且必須包含重大加權缺失{required_priority_criteria}，逐項由影像驗證。"
+                f"並且必須逐項檢查並涵蓋低分優先項目{required_priority_criteria}，"
+                "不可只回報最低分的一項；每項仍須由影像驗證。"
                 f"只能從未達標準的{feedback_candidate_criteria}選擇問題；"
                 "已達八成的標準不得列為問題。"
                 "只有影像清楚支持時才可列為問題；若動作符合全部標準，problems必須為空陣列，"

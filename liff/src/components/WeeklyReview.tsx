@@ -6,7 +6,6 @@ import { MessageCircleQuestion, Play } from 'lucide-react'
 import type { PlaybackResponse, UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Segmented } from '@/components/ui/segmented'
 import Spinner from '@/components/ui/spinner'
 import Toast from '@/components/ui/toast'
 import VideoComparison from '@/components/VideoComparison'
@@ -21,7 +20,7 @@ import { SkillNameMap, type Skill } from '@/lib/types'
 import { authorizedFetch } from '@/lib/api/client'
 import { SCORE_RECORD_LABEL, type ChatMessage } from '@/lib/useSkillSummary'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
-import { REVIEW_SECTIONS, type ReviewSection, type WorkFocus } from '@/lib/workLink'
+import type { WorkFocus } from '@/lib/workLink'
 
 interface WeeklyReviewProps {
   userId: string
@@ -32,11 +31,6 @@ interface WeeklyReviewProps {
    * component that shows what it is given.
    */
   focusWork?: WorkFocus | null
-  /**
-   * The sub-tab to open on arrival, named by the same link. Null leaves the
-   * student on 反思, which is where most of them are heading.
-   */
-  focusSection?: ReviewSection | null
 }
 
 interface WeekEntry {
@@ -55,41 +49,14 @@ interface QuestionPair {
 
 const SKILLS = Object.keys(SkillNameMap) as Skill[]
 
-/**
- * The two notes a week holds, and how each one is presented. They are the same
- * week from either end -- what the student meant to work on, and how it went --
- * so they share a week picker and a save path and differ only in wording.
- */
-const SECTIONS: Record<
-  ReviewSection,
-  {
-    field: WeeklyNoteField
-    label: string
-    heading: string
-    placeholder: string
-    saveLabel: string
-    savedToast: string
-  }
-> = {
-  reflection: {
-    field: 'note',
-    label: '反思',
-    heading: '本週反思',
-    placeholder: '這週練習下來，哪裡進步了？哪裡還要加強？下週想先做什麼？',
-    saveLabel: '儲存反思',
-    savedToast: '本週反思已儲存'
-  },
-  preview: {
-    field: 'preview',
-    label: '預習',
-    heading: '課前檢視要點',
-    placeholder: '下次上課前想先盯住哪些重點？例如：引拍高度、擊球點、重心轉移。',
-    saveLabel: '儲存預習',
-    savedToast: '課前檢視要點已儲存'
-  }
+/** The only learner-authored weekly field shown in the product. */
+const REFLECTION = {
+  field: 'note' as const satisfies WeeklyNoteField,
+  heading: '本週反思',
+  placeholder: '這週練習下來，哪裡進步了？哪裡還要加強？下週想先做什麼？',
+  saveLabel: '儲存反思',
+  savedToast: '本週反思已儲存'
 }
-
-const SECTION_OPTIONS = REVIEW_SECTIONS.map(value => ({ value, label: SECTIONS[value].label }))
 
 const formatDay = (date: Date) => `${date.getMonth() + 1}/${date.getDate()}`
 
@@ -142,12 +109,7 @@ function questionsByWeek(messages: readonly ChatMessage[]): Map<string, Question
   return weeks
 }
 
-export default function WeeklyReview({
-  userId,
-  userData,
-  focusWork,
-  focusSection
-}: WeeklyReviewProps) {
+export default function WeeklyReview({ userId, userData, focusWork }: WeeklyReviewProps) {
   // Every skill's questions, not just the one selected on the page above: a
   // week's review covers whatever the student practised that week.
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -181,17 +143,14 @@ export default function WeeklyReview({
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
   const [reflections, setReflections] = useState<Record<string, WeeklyReflection>>({})
-  const [section, setSection] = useState<ReviewSection>('reflection')
-  // What the student has typed but not saved, per note, for the week on screen.
-  // Held as overrides on top of the stored record rather than as copies of it,
-  // so saving one note leaves an edit in progress on the other one alone.
+  // What the student has typed but not saved for the week on screen.
   const [drafts, setDrafts] = useState<Partial<Record<WeeklyNoteField, string>>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [toast, setToast] = useState('')
 
   const week = selectedWeek || weekLabels[0] || ''
-  const copy = SECTIONS[section]
+  const copy = REFLECTION
   const stored = reflections[week]?.[copy.field] ?? ''
   const draft = drafts[copy.field] ?? stored
   const dirty = draft !== stored
@@ -208,18 +167,11 @@ export default function WeeklyReview({
     }
   }, [userId])
 
-  // Both editors start again from what is stored whenever the week changes.
+  // The editor starts again from what is stored whenever the week changes.
   useEffect(() => {
     setDrafts({})
     setSaveError('')
   }, [week])
-
-  // A link can name the sub-tab as well as the week, so a learner sent here to
-  // plan the next lesson lands on 預習. Only its arrival moves them; from then
-  // on they switch freely.
-  useEffect(() => {
-    if (focusSection) setSection(focusSection)
-  }, [focusSection])
 
   // The week a deep link opened, so the reset below can tell that week's video
   // being opened for the student apart from the student leaving the week.
@@ -326,7 +278,7 @@ export default function WeeklyReview({
               }`}
             >
               {formatWeekRange(label)}
-              {reflections[label]?.note || reflections[label]?.preview ? (
+              {reflections[label]?.note ? (
                 <span className={isActive ? 'ml-1.5' : 'ml-1.5 text-primary'}>·</span>
               ) : null}
             </button>
@@ -412,15 +364,7 @@ export default function WeeklyReview({
       </section>
 
       <section className="space-y-3">
-        <Segmented
-          role="tablist"
-          label="本週筆記"
-          size="sm"
-          options={SECTION_OPTIONS}
-          value={section}
-          onChange={setSection}
-        />
-        <div role="tabpanel">
+        <div>
           <h3 className="eyebrow mb-2">{copy.heading}</h3>
           <textarea
             value={draft}

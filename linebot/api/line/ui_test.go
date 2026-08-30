@@ -2,6 +2,7 @@ package line
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -118,4 +119,38 @@ func TestWeeklyReviewCardOffersTheLinkAndAPreviewRequest(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.HandleWeeklyPreviewPostbackData(string(stop))
 	require.Error(t, err)
+}
+
+func TestPortfolioCardIncludesLiffReflectionAndPreview(t *testing.T) {
+	client := &Client{}
+	work := portfolioWork()
+	work.Reflection = "This week's reflection"
+	work.Preview = "Next lesson's preview"
+
+	item := client.getCarouselItem(work, "serve", false)
+	require.NotNil(t, item)
+	require.Len(t, item.Body.Contents, 5)
+
+	preview, ok := item.Body.Contents[3].(*linebotsdk.BoxComponent)
+	require.True(t, ok)
+	reflection, ok := item.Body.Contents[4].(*linebotsdk.BoxComponent)
+	require.True(t, ok)
+	require.Equal(t, "課前檢視要點：", preview.Contents[0].(*linebotsdk.TextComponent).Text)
+	require.Equal(t, work.Preview, preview.Contents[1].(*linebotsdk.TextComponent).Text)
+	require.Equal(t, "學習反思：", reflection.Contents[0].(*linebotsdk.TextComponent).Text)
+	require.Equal(t, work.Reflection, reflection.Contents[1].(*linebotsdk.TextComponent).Text)
+}
+
+func TestPortfolioReturnsOnlyTheLatestTenWorks(t *testing.T) {
+	client := &Client{}
+	works := make(map[string]db.Work)
+	for day := 1; day <= 12; day++ {
+		date := fmt.Sprintf("2026-08-%02d-12-00", day)
+		works[date] = db.Work{DateTime: date}
+	}
+
+	latest := client.latestPortfolioWorks(works)
+	require.Len(t, latest, latestPortfolioWorkLimit)
+	require.Equal(t, "2026-08-12-12-00", latest[0].DateTime)
+	require.Equal(t, "2026-08-03-12-00", latest[len(latest)-1].DateTime)
 }

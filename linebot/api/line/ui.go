@@ -163,6 +163,7 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 				},
 				rating,
 				createNotesSection("需調整細節：", work.AINote),
+				createNotesSection("課前檢視要點：", work.Preview),
 				createNotesSection("學習反思：", work.Reflection),
 			},
 		},
@@ -213,10 +214,23 @@ func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
+// latestPortfolioWorks keeps LINE replies compact and useful. A Flex carousel
+// accepts ten bubbles, and returning the complete history can also push the
+// surrounding reply past LINE's five-message limit.
+const latestPortfolioWorkLimit = 10
+
+func (client *Client) latestPortfolioWorks(works map[string]db.Work) []db.Work {
+	sortedWorks := client.sortWorks(works)
+	if len(sortedWorks) > latestPortfolioWorkLimit {
+		sortedWorks = sortedWorks[:latestPortfolioWorkLimit]
+	}
+	return sortedWorks
+}
+
 func (client *Client) getCarousels(works map[string]db.Work, skill string, showBtns bool) ([]*linebot.FlexMessage, error) {
 	items := []*linebot.BubbleContainer{}
 	carouselItems := []*linebot.FlexMessage{}
-	sortedWorks := client.sortWorks(works)
+	sortedWorks := client.latestPortfolioWorks(works)
 	for _, work := range sortedWorks {
 		items = append(items, client.getCarouselItem(work, skill, showBtns))
 

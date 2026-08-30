@@ -113,7 +113,7 @@ func (app *App) handleWritingNotes(event *linebot.Event, rawData string, user *d
 		}
 
 		// Prompt user to select which portfolio entry to update
-		if err := app.LineBot.SendPortfolio(
+		if err := app.sendPortfolio(
 			event,
 			user,
 			db.SkillStrToEnum(data.Skill),
@@ -266,7 +266,7 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 		return
 	}
 
-	if err := app.LineBot.SendPortfolio(
+	if err := app.sendPortfolio(
 		event,
 		user,
 		db.SkillStrToEnum(data.Skill),
@@ -410,7 +410,7 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 		note.Text,
 	)
 
-	app.LineBot.SendPortfolio(
+	app.sendPortfolio(
 		event,
 		user,
 		db.SkillStrToEnum(session.Skill),

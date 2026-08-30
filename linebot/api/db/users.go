@@ -59,6 +59,7 @@ type Work struct {
 	Handedness           string                 `json:"handedness" firestore:"handedness"`
 	Thumbnail            string                 `json:"thumbnail" firestore:"thumbnail"`
 	Reflection           string                 `json:"reflection" firestore:"reflection"`
+	Preview              string                 `json:"preview" firestore:"preview"`
 	AINote               string                 `json:"ai_note" firestore:"ai_note"`
 	GradingOutcome       commons.GradingOutcome `json:"grading_outcome" firestore:"grading_outcome"`
 	AnalysisID           string                 `json:"analysis_id" firestore:"analysis_id"`

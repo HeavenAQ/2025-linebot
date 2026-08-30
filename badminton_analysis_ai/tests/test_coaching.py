@@ -158,6 +158,53 @@ def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
     assert normalized["problems"] == []
 
 
+def test_weight_transfer_allows_contact_display_anchor() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    phases = (0, 23, 55, 58, 63)
+    rule = spec.rule("weight_transfer")
+    display_frame = phases[rule.allowed_anchor_indices[-1]]
+    sample = SampledFrame(
+        frame_index=display_frame,
+        source_frame_index=36,
+        timestamp_seconds=1.2,
+        phase=phase_for_frame(display_frame, phases, spec),
+        checkpoint_role_zh_tw="重心轉移檢查",
+        image_path=Path("frame-55.jpg"),
+        data_url="data:image/jpeg;base64,test",
+    )
+    assert sample.phase == "contact"
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心沒有由持拍腳轉移至非持拍腳。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "最後畫面仍維持原本的下肢支撐。",
+                "frame_index": display_frame,
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    normalized = CoachingGenerator._normalize_analysis(
+        analysis,
+        spec=spec,
+        correction_grade=_correction_grade(
+            spec, (1.0, 5.0, 3.0, 5.0, 16.0, 20.0)
+        ),
+        phase_indices=phases,
+        samples=[sample],
+    )
+
+    assert normalized["problems"][0]["phase"] == "weight_transfer"
+
+
 def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
     monkeypatch, tmp_path: Path
 ) -> None:

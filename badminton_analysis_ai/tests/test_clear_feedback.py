@@ -288,3 +288,13 @@ def test_serve_weight_transfer_accepts_upper_and_lower_body_circle_targets() -> 
     analysis = SkillFeedbackAnalysis.model_validate(payload)
 
     assert analysis.problems[0].joint_ids == [5, 6, 11, 12, 15, 16]
+
+
+def test_smash_display_anchors_match_semantic_phases() -> None:
+    spec = get_skill_spec(Skill.SMASH)
+    phases = (0, 16, 32, 48, 63)
+
+    for rule in spec.rules:
+        for anchor_index in rule.allowed_anchor_indices:
+            frame = phases[anchor_index]
+            assert phase_for_frame(frame, phases, spec) == rule.phase

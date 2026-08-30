@@ -578,11 +578,12 @@ def validate_analysis_frames(
             raise ValueError(
                 f"feedback frame {problem.frame_index} was not supplied to the model"
             )
-        if problem.phase != sample.phase:
-            raise ValueError(
-                f"feedback phase {problem.phase} does not match frame "
-                f"{problem.frame_index} phase {sample.phase}"
-            )
+        # The problem phase names the semantic criterion, while the sampled
+        # frame names the visual segment. They usually agree, but serve weight
+        # transfer is evaluated across preparation/follow-through and shown at
+        # the contact anchor. Frame membership below is the authoritative
+        # re-indexing contract; requiring identical labels rejects that valid
+        # cross-frame criterion after GPT selects it.
         if problem.frame_index not in allowed_by_rule[problem.rule_reference]:
             raise ValueError(
                 f"feedback frame {problem.frame_index} is not an original grading "

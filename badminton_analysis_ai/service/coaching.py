@@ -26,6 +26,29 @@ from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
 LOGGER = logging.getLogger("badminton-analysis.coaching")
 
 
+def _normalized_to_output_frame_indices(
+    normalized_frame_count: int,
+    output_frame_count: int,
+) -> tuple[int, ...]:
+    """Map canonical motion indices onto the rendered analysis-only clip.
+
+    The correction model always reasons in a normalized timeline while the
+    coaching video contains only the inclusive source analysis range.  Keep
+    the canonical indices as the feedback identities, but read their images
+    from the corresponding output-local frames.
+    """
+    if normalized_frame_count < 2:
+        raise ValueError("normalized motion must contain at least two frames")
+    if output_frame_count < 1:
+        raise ValueError("coaching output must contain at least one frame")
+    denominator = normalized_frame_count - 1
+    last_output = output_frame_count - 1
+    return tuple(
+        int(round(index * last_output / denominator))
+        for index in range(normalized_frame_count)
+    )
+
+
 class CoachingGenerator:
     def __init__(self, model: str = "gpt-5.6-terra") -> None:
         self.client = OpenAI()
@@ -184,6 +207,8 @@ class CoachingGenerator:
         filename: str,
         handedness: str,
         phase_indices: tuple[int, ...],
+        normalized_sequence_length: int,
+        output_frame_count: int,
         spec: SkillCorrectionSpec,
         correction_grade: dict[str, Any],
     ) -> dict[str, Any]:
@@ -198,7 +223,10 @@ class CoachingGenerator:
             video_path,
             working_dir / "coaching_frames",
             phase_indices=phase_indices,
-            source_frame_indices=tuple(range(64)),
+            source_frame_indices=_normalized_to_output_frame_indices(
+                normalized_sequence_length,
+                output_frame_count,
+            ),
             spec=spec,
         )
         advice = {

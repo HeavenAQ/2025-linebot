@@ -601,6 +601,8 @@ class SkeletonAnalysisPipeline:
                     filename=filename,
                     handedness=str(handedness),
                     phase_indices=tuple(int(value) for value in phases),
+                    normalized_sequence_length=len(skeleton),
+                    output_frame_count=int(window[2] - window[0] + 1),
                     spec=spec,
                     correction_grade=correction_grade,
                 )

@@ -14,10 +14,29 @@ from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Skill
 
 import service.coaching as coaching_module
-from service.coaching import CoachingGenerator
+from service.coaching import (
+    CoachingGenerator,
+    _normalized_to_output_frame_indices,
+)
 
 
 PHASES = (0, 20, 39, 51, 63)
+
+
+@pytest.mark.parametrize(
+    ("skill", "output_frames"),
+    ((Skill.SERVE, 42), (Skill.SMASH, 37)),
+)
+def test_coaching_maps_canonical_phases_to_analysis_local_frames(
+    skill: Skill, output_frames: int
+) -> None:
+    mapping = _normalized_to_output_frame_indices(64, output_frames)
+
+    assert len(mapping) == 64
+    assert mapping[0] == 0
+    assert mapping[-1] == output_frames - 1
+    assert mapping[52] < output_frames
+    assert all(first <= second for first, second in zip(mapping, mapping[1:]))
 
 
 def _sample(frame_index: int, spec) -> SampledFrame:
@@ -166,6 +185,8 @@ def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
         filename="expert.mp4",
         handedness="right",
         phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
         spec=spec,
         correction_grade=correction_grade,
     )
@@ -263,6 +284,8 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
         filename="student.mp4",
         handedness="right",
         phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
         spec=spec,
         correction_grade=correction_grade,
     )

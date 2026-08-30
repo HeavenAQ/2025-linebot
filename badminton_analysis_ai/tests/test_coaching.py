@@ -250,7 +250,7 @@ def test_feedback_rejects_a_criterion_that_already_passed() -> None:
         )
 
 
-def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
+def test_normalization_rejects_empty_response_when_rubric_requires_feedback() -> None:
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     analysis = {
@@ -260,15 +260,96 @@ def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
         "problems": [],
     }
 
-    normalized = CoachingGenerator._normalize_analysis(
-        analysis,
+    with pytest.raises(ValueError, match="weight_transfer"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[],
+        )
+
+
+def test_generate_reasks_gpt_with_validator_error_and_previous_answer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    failed_rule = spec.rules[0]
+    scores = (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
+    correction_grade = _correction_grade(spec, scores)
+    frame = PHASES[failed_rule.allowed_anchor_indices[-1]]
+    empty = RawSkillFeedbackAnalysis.model_validate(
+        {
+            "skill": spec.slug,
+            "language": "zh-TW",
+            "overall_feedback": "本次動作不需要修正。",
+            "problems": [],
+        }
+    )
+    corrected = RawSkillFeedbackAnalysis.model_validate(
+        {
+            "skill": spec.slug,
+            "language": "zh-TW",
+            "overall_feedback": "請先修正準備階段的雙手位置。",
+            "problems": [
+                {
+                    "priority": "高",
+                    "title": failed_rule.name_zh_tw,
+                    "feedback": failed_rule.calculation_zh_tw,
+                    "evidence": "準備畫面顯示雙手高度低於修正骨架。",
+                    "frame_index": frame,
+                    "phase": failed_rule.phase,
+                    "joint_ids": list(failed_rule.coaching_joints),
+                    "rule_reference": failed_rule.id,
+                    "confidence": 0.9,
+                }
+            ],
+        }
+    )
+    calls: list[dict] = []
+
+    def parse(**kwargs):
+        calls.append(kwargs)
+        parsed = empty if len(calls) == 1 else corrected
+        return SimpleNamespace(output_parsed=parsed, id=f"response-{len(calls)}")
+
+    monkeypatch.setattr(
+        coaching_module, "sample_video_frames", lambda *_, **__: [_sample(frame, spec)]
+    )
+    monkeypatch.setattr(coaching_module, "prompt_context", lambda *_, **__: {})
+    monkeypatch.setattr(
+        coaching_module,
+        "build_response_input",
+        lambda *_, **__: [{"role": "user", "content": "original request"}],
+    )
+    generator = CoachingGenerator.__new__(CoachingGenerator)
+    generator.client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    generator.model = "test-model"
+    generator.max_attempts = 2
+
+    payload = generator.generate(
+        video_path=tmp_path / "input.mp4",
+        working_dir=tmp_path,
+        filename="student.mp4",
+        handedness="right",
+        phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
         spec=spec,
         correction_grade=correction_grade,
-        phase_indices=PHASES,
-        samples=[],
     )
 
-    assert normalized["problems"] == []
+    assert len(calls) == 2
+    assert len(calls[0]["input"]) == 1
+    assert len(calls[1]["input"]) == 3
+    assert calls[1]["input"][1]["role"] == "assistant"
+    retry_text = calls[1]["input"][2]["content"][0]["text"]
+    assert "驗證錯誤" in retry_text
+    assert failed_rule.id in retry_text
+    assert payload["source"] == "openai"
+    assert payload["attempts"] == 2
+    assert payload["response_id"] == "response-2"
+    assert payload["analysis"]["problems"][0]["rule_reference"] == failed_rule.id
 
 
 def test_weight_transfer_allows_contact_display_anchor() -> None:

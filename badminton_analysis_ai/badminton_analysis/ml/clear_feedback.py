@@ -55,12 +55,11 @@ def maximum_feedback_problem_count(total_score: float) -> int:
 
 
 def minimum_feedback_problem_count(total_score: float) -> int:
-    """Require useful breadth once the visual review finds a problem.
+    """Require useful breadth when the rubric contains coaching deficits.
 
     A low total can contain several large weighted deficits.  Accepting a
     single, low-value preparation cue in that case hides the movement fault
-    that matters most.  An empty problem list remains valid when the images
-    genuinely contradict the diagnostic score.
+    that matters most.
     """
     if total_score < 60.0:
         return 2
@@ -471,9 +470,9 @@ def prompt_context(
         < 0.8
     ]
     # Use every available feedback slot for distinct low-scoring criteria.
-    # The visual model may still return no problem when the frames contradict
-    # the diagnostics; once it reports any issue, it may not stop at only the
-    # single lowest criterion.
+    # Every available slot is assigned by the rubric. The vision model explains
+    # the scored deficit from the evidence frames; it does not silently discard
+    # a criterion that the scoring system says requires coaching.
     required_priority_criteria = feedback_candidate_criteria[
         :maximum_problem_count
     ]
@@ -489,7 +488,7 @@ def prompt_context(
         },
         "score_warning_zh_tw": (
             "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
-            "目前只是群組校準的診斷分數，並非人工驗證的事實。每一項回饋仍須先由影像確認。"
+            "分數決定哪些技術標準需要回饋；影像用來具體說明該項動作差距。"
         ),
         "overlay_legend_zh_tw": {
             "cyan": "偵測到的學生骨架",
@@ -558,13 +557,14 @@ def build_response_input(
                 "逐項分析這組依時間排序的動作畫面，不得只檢查其中一項。"
                 f"skill欄位必須填寫{resolved_spec.slug}。最多回報"
                 f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
-                f"若確認至少一項問題，必須回報至少{minimum_problem_count}項不同標準；"
-                f"並且必須逐項檢查並涵蓋低分優先項目{required_priority_criteria}，"
+                f"只要低分優先項目非空，就必須回報至少{minimum_problem_count}項不同標準；"
+                f"必須逐項檢查並完整涵蓋低分優先項目{required_priority_criteria}，"
                 "不可只回報最低分的一項；每項仍須由影像驗證。"
                 f"只能從未達標準的{feedback_candidate_criteria}選擇問題；"
                 "已達八成的標準不得列為問題。"
-                "只有影像清楚支持時才可列為問題；若動作符合全部標準，problems必須為空陣列，"
-                "不得為了配合診斷分數而勉強產生建議。"
+                "評分系統決定需要回饋的標準；影像的用途是解釋該低分標準在動作上如何改善，"
+                "不得因單一畫面看似正常而省略required_priority_criteria。"
+                "只有feedback_candidate_criteria為空時，problems才可為空陣列。"
                 "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"
                 "而且每項標準只能選criterion_allowed_frames指定的原始評分關鍵幀。"
                 "判斷發球的重心轉移時，必須同時比較criterion_comparison_frames的"
@@ -641,7 +641,7 @@ def validate_analysis_frames(
 def system_instructions(spec: SkillCorrectionSpec) -> str:
     return f"""你是專業羽球教練，正在分析{spec.description_zh_tw}。
 你必須嚴格依照提供的{len(spec.rules)}項{spec.name_zh_tw}技術標準，不得新增、改寫或混用其他技術標準。
-影像是主要證據；青色與綠色骨架差異及其分數只能作為輔助假設。診斷分數可能低估正確動作，只回報影像清楚支持的問題；若沒有問題就回傳空的problems。
+評分系統提供的低分標準是必須處理的回饋契約；影像用來解釋青色學生骨架與綠色修正骨架在該標準的具體差異。不得漏掉required_priority_criteria，也不得只回報最低分的一項。只有沒有低分候選標準時才回傳空的problems。
 所有給使用者看的文字必須使用臺灣繁體中文（zh-TW），不得使用英文句子或簡體中文。
 每項建議必須簡短明確，能在兩秒的影片暫停畫面中閱讀。關節編號必須使用提供的慣用側正規化對照。"""
 

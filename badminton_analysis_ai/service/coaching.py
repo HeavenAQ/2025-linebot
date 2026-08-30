@@ -62,6 +62,49 @@ def _normalized_to_output_frame_indices(
     )
 
 
+def _response_retry_input(
+    base_input: list[dict[str, Any]],
+    *,
+    previous_analysis: dict[str, Any] | None,
+    validation_error: Exception,
+) -> list[dict[str, Any]]:
+    """Ask the model to correct a rubric-invalid structured response.
+
+    The original multimodal request stays intact so the retry sees the same
+    evidence. Appending the rejected JSON and the exact validator error turns a
+    blind repeat into a targeted re-answer while preserving structured parsing.
+    """
+    if previous_analysis is None:
+        return base_input
+    return [
+        *base_input,
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": json.dumps(previous_analysis, ensure_ascii=False),
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        "上一個結構化答案未通過評分規則驗證。請重新回答完整問題，"
+                        "不要只補充說明，也不要重複原本的錯誤。"
+                        f"\n驗證錯誤：{validation_error}"
+                        "\n請以原始影像與分析資料重新產生完整JSON，並完整涵蓋"
+                        "required_priority_criteria_when_nonempty中的每一項。"
+                    ),
+                }
+            ],
+        },
+    ]
+
+
 class CoachingGenerator:
     def __init__(self, model: str = "gpt-5.6-terra") -> None:
         self.client = OpenAI()
@@ -254,7 +297,7 @@ class CoachingGenerator:
             for item in priority_criteria[:maximum_problem_count]
         }
         missing_required = sorted(required_references - set(references))
-        if references and missing_required:
+        if missing_required:
             raise ValueError(
                 "feedback must cover all low-scoring priority criteria that fit: "
                 + ", ".join(missing_required)
@@ -314,16 +357,18 @@ class CoachingGenerator:
             spec=spec,
         )
         request_input = build_response_input(context, samples, spec)
+        attempt_input = request_input
         response = None
         analysis = None
         last_error: Exception | None = None
         llm_started = time.perf_counter()
         for attempt in range(1, self.max_attempts + 1):
+            parsed = None
             try:
                 response = self.client.responses.parse(
                     model=self.model,
                     instructions=system_instructions(spec),
-                    input=request_input,  # type: ignore[arg-type]
+                    input=attempt_input,  # type: ignore[arg-type]
                     text_format=RawSkillFeedbackAnalysis,
                     reasoning={"effort": "medium"},
                     max_output_tokens=2200,
@@ -342,6 +387,12 @@ class CoachingGenerator:
                 break
             except Exception as exc:  # OpenAI and schema errors share this boundary.
                 last_error = exc
+                previous_analysis = parsed.model_dump() if parsed is not None else None
+                attempt_input = _response_retry_input(
+                    request_input,
+                    previous_analysis=previous_analysis,
+                    validation_error=exc,
+                )
                 LOGGER.warning(
                     "coaching attempt failed skill=%s attempt=%d/%d error=%s",
                     spec.slug,

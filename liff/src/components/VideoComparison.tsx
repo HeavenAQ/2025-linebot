@@ -89,6 +89,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const expertRef = useRef<HTMLVideoElement>(null)
   const playingRef = useRef(false)
   const lastProgressAtRef = useRef(0)
+  const previousViewModeRef = useRef<ViewMode>('both')
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
@@ -473,6 +474,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   )
 
   useEffect(() => {
+    // Metadata changes (especially the expert's exact duration arriving after
+    // Play) also rebuild the alignment anchors. They must not be treated as a
+    // tab switch: doing so paused both videos immediately after playback began.
+    if (previousViewModeRef.current === viewMode) return
+    previousViewModeRef.current = viewMode
     const student = studentRef.current
     const expert = expertRef.current
     student?.pause()
@@ -489,7 +495,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       setProgress(progressAtExpertTime(alignmentAnchors, seconds))
       updateExpertCaption(seconds)
     }
-  }, [alignmentAnchors, expertMotionEnd, expertMotionStart, expertOnly, updateExpertCaption])
+  }, [
+    alignmentAnchors,
+    expertMotionEnd,
+    expertMotionStart,
+    expertOnly,
+    updateExpertCaption,
+    viewMode
+  ])
 
   // Criteria can share an instant -- serve marks both 髖關節前旋 and 肩膀旋轉朝前
   // at the end of the motion -- so the nearest position can belong to more than

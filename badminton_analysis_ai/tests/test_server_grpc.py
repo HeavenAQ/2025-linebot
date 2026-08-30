@@ -305,6 +305,56 @@ def test_an_expert_without_an_alignment_still_returns() -> None:
     assert len(response.expert.timeline) == len(response.timeline)
 
 
+def test_coaching_cue_uses_analysis_clip_clock_not_source_upload_clock() -> None:
+    service = _matched_service()
+    metadata = {
+        "duration_seconds": 3.4,
+        "fps": 30.0,
+        "width": 720,
+        "height": 1280,
+    }
+    signed = SignedObject(
+        object_path="student_corrected.mp4",
+        gcs_uri="gs://test/student_corrected.mp4",
+        signed_url="https://media.test/student_corrected.mp4",
+        expires_at_unix=2_000_000_000,
+    )
+    result = service.pipeline.analyze(
+        video_path=_video(),
+        output_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
+        skeleton_overlay_path=Path(tempfile.mkstemp(suffix=".mp4")[1]),
+        filename="serve.mp4",
+        skill=Skill.SERVE,
+        requested_handedness="right",
+    )
+    result = replace(
+        result,
+        diagnostics={
+            **result.diagnostics,
+            "analysis_window_start_frame": 30,
+            "analysis_window_end_frame": 71,
+            "normalized_sequence_length": 64,
+            "source_frame_count": 100,
+        },
+        coaching_problems=(
+            {
+                "frame_index": 63,
+                "title": "重心轉移至非持拍腳",
+                "feedback": "完成擊球時將重心轉移到非持拍腳。",
+                "joint_ids": [5, 6, 11, 12, 13, 14, 15, 16],
+            },
+        ),
+    )
+
+    response = service._response(
+        "analysis-1", result, signed, signed, metadata, metadata
+    )
+
+    cue = response.coaching_cues[0]
+    assert cue.normalized_position == pytest.approx(1.0)
+    assert cue.student_timestamp_seconds == pytest.approx(41 / 30)
+
+
 def test_skip_coaching_reaches_the_pipeline(monkeypatch) -> None:
     """The header's skip_coaching must survive the wire.
 

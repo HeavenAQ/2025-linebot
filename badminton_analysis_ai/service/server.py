@@ -284,14 +284,19 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 progress = min(max(frame, 0), normalized_length - 1) / (
                     normalized_length - 1
                 )
-                source_frame = round(
-                    window_start + progress * (window_end - window_start)
+                local_frame = round(progress * (window_end - window_start))
+                normalized_position = local_frame / max(
+                    1, window_end - window_start
                 )
-                normalized_position = source_frame / max(1, source_frame_count - 1)
             else:
-                source_frame = frame
+                local_frame = frame
                 normalized_position = frame / 63.0
-            start_time = (source_frame + pauses_before) / fps
+            # Both returned student videos contain only the inclusive analysis
+            # window.  Their clock starts at zero, not at the source upload's
+            # window_start frame.  Include earlier inserted coaching pauses in
+            # the feedback-video timestamp while keeping normalized_position
+            # on the pause-free motion axis used by the frontend.
+            start_time = (local_frame + pauses_before) / fps
             for problem in problems_by_frame[frame]:
                 cues.append(
                     analysis_pb2.CoachingCue(

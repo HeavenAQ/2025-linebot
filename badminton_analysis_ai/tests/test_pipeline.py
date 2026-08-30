@@ -225,7 +225,7 @@ def test_playback_timeline_uses_ordered_qualitative_skill_rules() -> None:
     )
 
 
-def test_source_playback_timeline_uses_original_video_clock() -> None:
+def test_source_playback_timeline_uses_analysis_clip_clock() -> None:
     spec = get_skill_spec("serve")
     source_phases = [12, 18, 24, 31, 43]
 
@@ -235,12 +235,14 @@ def test_source_playback_timeline_uses_original_video_clock() -> None:
         source_phase_frames=source_phases,
         normalized_sequence_length=64,
         source_sequence_length=58,
+        analysis_window_start_frame=12,
+        analysis_window_end_frame=43,
         fps=30.0,
     )
 
-    assert timeline[0].timestamp_seconds == pytest.approx(12 / 30)
-    assert timeline[-1].timestamp_seconds == pytest.approx(43 / 30)
-    assert timeline[-1].normalized_position == pytest.approx(43 / 57)
+    assert timeline[0].timestamp_seconds == pytest.approx(0.0)
+    assert timeline[-1].timestamp_seconds == pytest.approx(31 / 30)
+    assert timeline[-1].normalized_position == pytest.approx(1.0)
     assert timeline[-1].normalized_frame == 63
 
 

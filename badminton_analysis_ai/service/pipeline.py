@@ -235,6 +235,8 @@ def _source_qualitative_phase_results(
     source_phase_frames: list[int],
     normalized_sequence_length: int,
     source_sequence_length: int,
+    analysis_window_start_frame: int,
+    analysis_window_end_frame: int,
     fps: float,
 ) -> tuple[PhaseResult, ...]:
     if source_sequence_length <= 0 or normalized_sequence_length <= 0 or fps <= 0:
@@ -244,14 +246,30 @@ def _source_qualitative_phase_results(
     normalized_frames = _rule_anchor_frames(
         spec, phase_indices, normalized_sequence_length - 1
     )
-    last_source_frame = source_sequence_length - 1
+    if not 0 <= analysis_window_start_frame <= analysis_window_end_frame:
+        raise ValueError("analysis window must be an ordered inclusive range")
+    if analysis_window_end_frame >= source_sequence_length:
+        raise ValueError("analysis window exceeds the source sequence")
+    last_local_frame = analysis_window_end_frame - analysis_window_start_frame
     return tuple(
         PhaseResult(
             id=rule.id,
             label=rule.name_zh_tw,
             normalized_frame=normalized_frame,
-            normalized_position=float(source_frame) / max(1, last_source_frame),
-            timestamp_seconds=float(source_frame) / fps,
+            normalized_position=float(
+                min(
+                    max(source_frame - analysis_window_start_frame, 0),
+                    last_local_frame,
+                )
+            )
+            / max(1, last_local_frame),
+            timestamp_seconds=float(
+                min(
+                    max(source_frame - analysis_window_start_frame, 0),
+                    last_local_frame,
+                )
+            )
+            / fps,
         )
         for rule, normalized_frame, source_frame in zip(
             spec.rules,
@@ -678,6 +696,8 @@ class SkeletonAnalysisPipeline:
             source_phase_frames=source_phase_frames,
             normalized_sequence_length=len(skeleton),
             source_sequence_length=len(tracking["frames"]),
+            analysis_window_start_frame=int(window[0]),
+            analysis_window_end_frame=int(window[2]),
             fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:

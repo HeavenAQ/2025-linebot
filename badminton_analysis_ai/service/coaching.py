@@ -16,6 +16,7 @@ from badminton_analysis.ml.clear_feedback import (
     build_response_input,
     coaching_target_joint_ids,
     maximum_feedback_problem_count,
+    minimum_feedback_problem_count,
     prompt_context,
     sample_video_frames,
     system_instructions,
@@ -202,8 +203,34 @@ class CoachingGenerator:
             raise ValueError(
                 f"feedback must contain at most {maximum_problem_count} problems"
             )
+        minimum_problem_count = minimum_feedback_problem_count(
+            float(correction_grade["total_score"])
+        )
+        if references and len(references) < minimum_problem_count:
+            raise ValueError(
+                f"feedback must contain at least {minimum_problem_count} problems "
+                "when visual review identifies any problem"
+            )
         if len(set(references)) != len(references):
             raise ValueError("feedback problems must use distinct criteria")
+        priority_criteria = sorted(
+            correction_grade["criteria"], key=_criterion_priority
+        )
+        required_reference = None
+        if priority_criteria:
+            top = priority_criteria[0]
+            deficit = float(top["maximum"]) - float(top["score"])
+            if deficit >= 10.0:
+                required_reference = str(top["rule_reference"])
+        if (
+            references
+            and required_reference is not None
+            and required_reference not in references
+        ):
+            raise ValueError(
+                "feedback must cover the largest substantial weighted deficit: "
+                f"{required_reference}"
+            )
         validated = SkillFeedbackAnalysis.model_validate(analysis)
         validate_analysis_frames(validated, samples, anchors, spec)
         timestamps = {sample.frame_index: sample.timestamp_seconds for sample in samples}
@@ -300,7 +327,12 @@ class CoachingGenerator:
                 self._fallback_analysis(
                     spec,
                     correction_grade,
-                    problem_count=1,
+                    problem_count=max(
+                        1,
+                        minimum_feedback_problem_count(
+                            float(correction_grade["total_score"])
+                        ),
+                    ),
                 ),
                 spec=spec,
                 correction_grade=correction_grade,

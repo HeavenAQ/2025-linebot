@@ -54,6 +54,21 @@ def maximum_feedback_problem_count(total_score: float) -> int:
     return 1
 
 
+def minimum_feedback_problem_count(total_score: float) -> int:
+    """Require useful breadth once the visual review finds a problem.
+
+    A low total can contain several large weighted deficits.  Accepting a
+    single, low-value preparation cue in that case hides the movement fault
+    that matters most.  An empty problem list remains valid when the images
+    genuinely contradict the diagnostic score.
+    """
+    if total_score < 60.0:
+        return 2
+    if total_score < 90.0:
+        return 1
+    return 0
+
+
 def _contains_chinese(value: str) -> str:
     if not any("\u4e00" <= character <= "\u9fff" for character in value):
         raise ValueError("feedback must be written in Traditional Chinese")
@@ -447,6 +462,13 @@ def prompt_context(
     )
     total_grade = float(correction_grade.get("total_score", 0.0))
     maximum_problem_count = maximum_feedback_problem_count(total_grade)
+    minimum_problem_count = minimum_feedback_problem_count(total_grade)
+    required_priority_criteria = [
+        str(item["rule_reference"])
+        for item in priority_criteria[:1]
+        if float(item.get("maximum", 0.0)) - float(item.get("score", 0.0))
+        >= 10.0
+    ]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
         "skill": resolved_spec.slug,
@@ -473,6 +495,8 @@ def prompt_context(
             rule.as_prompt_dict() for rule in resolved_spec.rules
         ],
         "maximum_problem_count": maximum_problem_count,
+        "minimum_problem_count_when_nonempty": minimum_problem_count,
+        "required_priority_criteria_when_nonempty": required_priority_criteria,
         "criterion_priority_supporting_only": priority_criteria,
         "correction_distance_grade": correction_grade,
         "criterion_allowed_frames": {
@@ -508,6 +532,12 @@ def build_response_input(
     resolved_spec = spec or get_skill_spec(str(context.get("skill", "clear")))
     criterion_count = len(resolved_spec.rules)
     maximum_problem_count = int(context.get("maximum_problem_count", 1))
+    minimum_problem_count = int(
+        context.get("minimum_problem_count_when_nonempty", 0)
+    )
+    required_priority_criteria = list(
+        context.get("required_priority_criteria_when_nonempty", [])
+    )
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
@@ -516,6 +546,8 @@ def build_response_input(
                 "逐項分析這組依時間排序的動作畫面，不得只檢查其中一項。"
                 f"skill欄位必須填寫{resolved_spec.slug}。最多回報"
                 f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
+                f"若確認至少一項問題，必須回報至少{minimum_problem_count}項不同標準；"
+                f"並且必須包含重大加權缺失{required_priority_criteria}，逐項由影像驗證。"
                 "只有影像清楚支持時才可列為問題；若動作符合全部標準，problems必須為空陣列，"
                 "不得為了配合診斷分數而勉強產生建議。"
                 "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"

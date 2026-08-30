@@ -97,7 +97,7 @@ def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
     assert references == ["weight_transfer", "wrist_flick", "arms_raised"]
 
 
-def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> None:
+def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit() -> None:
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     rule = spec.rules[0]
@@ -124,17 +124,54 @@ def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> N
         ],
     }
 
-    normalized = CoachingGenerator._normalize_analysis(
-        analysis,
-        spec=spec,
-        correction_grade=correction_grade,
-        phase_indices=PHASES,
-        samples=[_sample(rule_frame, spec)],
-    )
+    with pytest.raises(ValueError, match="at least 2 problems"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[_sample(rule_frame, spec)],
+        )
 
-    assert [problem["rule_reference"] for problem in normalized["problems"]] == [
-        rule.id
+
+def test_low_score_feedback_must_cover_largest_weighted_deficit() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(
+        spec, (0.0, 5.0, 0.0, 10.0, 0.0, 20.0)
+    )
+    chosen_rules = (spec.rule("arms_raised"), spec.rule("wrist_flick"))
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "準備動作與手腕發力仍需改善，請依照關鍵畫面調整。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生動作與修正骨架有明顯差距。",
+                "frame_index": PHASES[rule.allowed_anchor_indices[-1]],
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+            for rule in chosen_rules
+        ],
+    }
+    samples = [
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec)
+        for rule in chosen_rules
     ]
+
+    with pytest.raises(ValueError, match="weight_transfer"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=samples,
+        )
 
 
 def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
@@ -196,7 +233,7 @@ def test_weight_transfer_allows_contact_display_anchor() -> None:
         analysis,
         spec=spec,
         correction_grade=_correction_grade(
-            spec, (1.0, 5.0, 3.0, 5.0, 16.0, 20.0)
+            spec, (5.0, 5.0, 3.0, 10.0, 30.0, 20.0)
         ),
         phase_indices=phases,
         samples=[sample],

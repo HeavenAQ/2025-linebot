@@ -89,6 +89,12 @@ jobs:
           env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
           env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
           env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          # The primary learner deployment must request the GPT feedback
+          # render. Set this explicitly because --update-env-vars preserves an
+          # old value, and a stale true would make LIFF receive the no-coaching
+          # video despite using the AI product. The separate no-AI deployment
+          # owns its own configuration.
+          env_vars="${env_vars},ANALYSIS_SKIP_COACHING=false"
           if analysis_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.url)' 2>/dev/null)"; then
             env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"

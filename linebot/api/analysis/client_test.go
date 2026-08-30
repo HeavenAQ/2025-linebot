@@ -62,6 +62,9 @@ func (server *analysisContractServer) AnalyzeVideo(
 	}
 	require.NotNil(server.testing, header)
 	require.Equal(server.testing, "serve.mp4", header.Filename)
+	// The primary client defaults to the GPT feedback render consumed by LIFF.
+	// Consent-disabled deployments opt out explicitly through configuration.
+	require.False(server.testing, header.SkipCoaching)
 	require.Equal(server.testing, []byte("video-bytes"), video)
 	feedback := &analysisv1.StoredVideo{
 		ObjectPath: "analyses/test/student_corrected.mp4",

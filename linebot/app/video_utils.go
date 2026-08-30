@@ -14,6 +14,11 @@ import (
 )
 
 const tmpFolder = "/tmp/"
+const thumbnailStorageRoot = "no-ai/analyses/thumbnail"
+
+func thumbnailObjectPath(userID, timestamp string) string {
+	return fmt.Sprintf("%s/%s/%s.jpeg", thumbnailStorageRoot, userID, timestamp)
+}
 
 func (app *App) analyzeVideo(
 	video []byte,
@@ -54,7 +59,7 @@ func (app *App) uploadThumbnail(
 	user *db.UserData, thumbnailPath, timestamp string,
 ) (*storage.UploadedFile, error) {
 	fileInfo := storage.FileInfo{}
-	fileInfo.Bucket.ThumbnailPath = fmt.Sprintf("%s/%s.jpeg", user.FolderPaths.Thumbnail, timestamp)
+	fileInfo.Bucket.ThumbnailPath = thumbnailObjectPath(user.ID, timestamp)
 	fileInfo.Local.ThumbnailPath = thumbnailPath
 	return app.StorageClient.UploadThumbnail(&fileInfo)
 }

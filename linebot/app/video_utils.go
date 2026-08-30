@@ -86,7 +86,7 @@ func (app *App) updateUserPortfolioVideo(
 func (app *App) sendVideoUploadedReply(
 	event *linebotsdk.Event, session *db.UserSession, user *db.UserData,
 ) error {
-	return app.LineBot.SendPortfolio(
+	return app.sendPortfolio(
 		event,
 		user,
 		db.SkillStrToEnum(session.Skill),

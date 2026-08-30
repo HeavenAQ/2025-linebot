@@ -1454,7 +1454,12 @@ def render_correction_video(
                 int(issue["frame_index"]), target_frames, start, end
             )
             feedback_by_frame.setdefault(source_issue_frame, []).append(issue)
-        for frame_index in range(source_frame_count):
+        # The API returns the same reviewable clip that was scored, not the
+        # unanalysed lead-in/tail of the upload.  The localhost EIMD-v3 oracle
+        # slices tracking to this inclusive range before calling the renderer;
+        # iterating the range directly is equivalent while retaining the full
+        # source indices needed for detected-pose and feedback lookup.
+        for frame_index in range(start, end + 1):
             frame = tracking["frames"][frame_index].copy()
             detected_pixels = raw_2d[frame_index]
             _draw_skeleton(

@@ -229,6 +229,12 @@ func TestLiveAnalysisService(t *testing.T) {
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
 	t.Logf("grade=%.2f expert=%q distance=%.4f cues=%d",
 		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance, len(result.CoachingCues))
+	t.Logf("criteria=%v", result.Grade.GradingDetails)
+	t.Logf(
+		"media input(fps=%.3f duration=%.6f) overlay(fps=%.3f duration=%.6f)",
+		result.StudentVideo.FPS, result.StudentVideo.DurationSeconds,
+		result.SkeletonOverlayVideo.FPS, result.SkeletonOverlayVideo.DurationSeconds,
+	)
 
 	playbackPaths := []string{
 		result.FeedbackVideo.ObjectPath,

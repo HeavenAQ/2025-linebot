@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   buildAlignmentAnchors,
+  buildWristAccelerationAnchors,
   expertRateAt,
   expertMotionWindow,
   expertTimeAt,
@@ -35,6 +36,32 @@ test('anchors the expert clock on matching checkpoints', () => {
     { position: 0, seconds: 1 },
     { position: 0.2, seconds: 1.5 },
     { position: 0.6, seconds: 2 },
+    { position: 1, seconds: 3 }
+  ])
+})
+
+test('fits comparison timing on the maximum wrist acceleration point only', () => {
+  const student = [
+    marker('ready', 0.2, 0),
+    marker('wrist_flick', 0.6, 0),
+    marker('follow_through', 0.9, 0)
+  ]
+  const expert = [
+    marker('ready', 0.1, 1.2),
+    marker('wrist_flick', 0.4, 1.8),
+    marker('follow_through', 0.8, 2.4)
+  ]
+
+  assert.deepEqual(buildWristAccelerationAnchors(student, expert, 1, 3), [
+    { position: 0, seconds: 1 },
+    { position: 0.6, seconds: 1.8 },
+    { position: 1, seconds: 3 }
+  ])
+})
+
+test('falls back to a whole-window fit without a wrist acceleration pair', () => {
+  assert.deepEqual(buildWristAccelerationAnchors(studentTimeline, expertTimeline, 1, 3), [
+    { position: 0, seconds: 1 },
     { position: 1, seconds: 3 }
   ])
 })

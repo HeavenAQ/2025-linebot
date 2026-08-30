@@ -30,6 +30,20 @@ func TestSignPlaybackURLReturnsATimeLimitedLink(t *testing.T) {
 	require.Equal(t, "gs://nstc-2025-storage/analyses/v1/U123/req/student_corrected.mp4", media.GCSURI)
 	require.Positive(t, media.SignedURLExpires)
 	require.Equal(t, []string{"analyses/v1/U123/req/student_corrected.mp4"}, bucket.signed)
+	require.Equal(t, "video/mp4", bucket.signedOptions[0].QueryParameters.Get("response-content-type"))
+}
+
+func TestSignPlaybackURLMarksMovExpertAsQuickTimeVideo(t *testing.T) {
+	t.Parallel()
+
+	client, bucket := playbackClient(t)
+	_, err := client.SignPlaybackURL(
+		"experts/v3/serve/videos/expert.mov",
+		"svc@project.iam.gserviceaccount.com",
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "video/quicktime", bucket.signedOptions[0].QueryParameters.Get("response-content-type"))
 }
 
 // Signing is a capability: only the trees that hold playable output may be

@@ -7,7 +7,7 @@ import AutoHeight from '@/components/ui/auto-height'
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import {
-  buildAlignmentAnchors,
+  buildWristAccelerationAnchors,
   expertMotionWindow,
   expertRateAt,
   expertTimeAt,
@@ -103,6 +103,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     metadataRatio(playback.expert.video.width, playback.expert.video.height)
   )
   const [activeCue, setActiveCue] = useState<CoachingCue | null>(playback.coaching_cues[0] ?? null)
+  const expertOnly = viewMode === 'expert'
 
   const pauses = useMemo<PauseInterval[]>(() => {
     const unique = new Map<number, CoachingCue>()
@@ -133,25 +134,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     playback.expert.motion_start_seconds,
     playback.expert.motion_end_seconds
   )
-  // Map from the student's progress to the expert's clock: the analysis's
-  // warped samples where it has them, the checkpoints alone where it does not,
-  // and the plain window stretch when it carries neither.
+  // Comparison uses exactly one semantic anchor: the maximum dominant-wrist
+  // acceleration point (`wrist_flick`).  The expert motion before and after
+  // contact is fitted independently to the learner, without a dense pose warp.
   const alignmentAnchors = useMemo(
     () =>
-      buildAlignmentAnchors(
+      buildWristAccelerationAnchors(
         playback.timeline,
         playback.expert.timeline,
         expertMotionStart,
-        expertMotionEnd,
-        playback.expert.alignment
+        expertMotionEnd
       ),
-    [
-      playback.timeline,
-      playback.expert.timeline,
-      playback.expert.alignment,
-      expertMotionStart,
-      expertMotionEnd
-    ]
+    [playback.timeline, playback.expert.timeline, expertMotionStart, expertMotionEnd]
   )
 
   const expertTimeFromMotionProgress = useCallback(
@@ -193,6 +187,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       setCaption(reached ? { title: reached.label, body: '', live: false } : null)
     },
     [pauseAtTime, playback.timeline]
+  )
+
+  const updateExpertCaption = useCallback(
+    (seconds: number) => {
+      let reached: PhaseMarker | null = null
+      for (const marker of playback.expert.timeline) {
+        if (marker.timestamp_seconds > seconds + 1 / 120) continue
+        if (!reached || marker.timestamp_seconds >= reached.timestamp_seconds) reached = marker
+      }
+      setCaption(reached ? { title: reached.label, body: '', live: false } : null)
+    },
+    [playback.expert.timeline]
   )
 
   const motionProgressFromStudentTime = useCallback(
@@ -288,14 +294,32 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     (shouldPlay: boolean) => {
       const student = studentRef.current
       const expert = expertRef.current
-      if (!student || !expert) return
+      if (!expert || (!expertOnly && !student)) return
       playingRef.current = shouldPlay
       setPlaying(shouldPlay)
       if (!shouldPlay) {
-        student.pause()
+        student?.pause()
         expert.pause()
         return
       }
+      if (expertOnly) {
+        student?.pause()
+        expert.playbackRate = 1
+        if (
+          expert.currentTime < expertMotionStart ||
+          expert.currentTime >= expertMotionEnd - 1 / 120
+        ) {
+          expert.currentTime = expertMotionStart
+          setProgress(0)
+          updateExpertCaption(expertMotionStart)
+        }
+        void expert.play().catch(() => {
+          playingRef.current = false
+          setPlaying(false)
+        })
+        return
+      }
+      if (!student) return
       if (student.ended || progress >= 0.999) seek(0)
       void student.play().catch(() => {
         playingRef.current = false
@@ -303,7 +327,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       })
       if (!pauseAtTime(student.currentTime)) void expert.play().catch(() => undefined)
     },
-    [pauseAtTime, progress, seek]
+    [
+      expertMotionEnd,
+      expertMotionStart,
+      expertOnly,
+      pauseAtTime,
+      progress,
+      seek,
+      updateExpertCaption
+    ]
   )
 
   // Following the playhead on `timeupdate` alone is too coarse to hold two
@@ -313,6 +345,26 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   // throttled separately so re-rendering does not ride at 60fps.
   const followPlayhead = useCallback(
     (force: boolean) => {
+      if (expertOnly) {
+        const expert = expertRef.current
+        if (!expert || expertMotionEnd <= expertMotionStart) return
+        const seconds = Math.min(expertMotionEnd, Math.max(expertMotionStart, expert.currentTime))
+        const next = progressAtExpertTime(alignmentAnchors, seconds)
+        const now = performance.now()
+        if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
+          lastProgressAtRef.current = now
+          setProgress(next)
+        }
+        updateExpertCaption(seconds)
+        if (expert.currentTime >= expertMotionEnd - 1 / 120) {
+          expert.pause()
+          expert.currentTime = expertMotionEnd
+          playingRef.current = false
+          setPlaying(false)
+          setProgress(1)
+        }
+        return
+      }
       const student = studentRef.current
       if (!student) return
       const next = motionProgressFromStudentTime(student.currentTime)
@@ -324,7 +376,16 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       syncExpert(next, student.currentTime)
       updateCaption(student.currentTime, next)
     },
-    [motionProgressFromStudentTime, syncExpert, updateCaption]
+    [
+      alignmentAnchors,
+      expertMotionEnd,
+      expertMotionStart,
+      expertOnly,
+      motionProgressFromStudentTime,
+      syncExpert,
+      updateCaption,
+      updateExpertCaption
+    ]
   )
 
   useEffect(() => {
@@ -395,10 +456,40 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         return
       }
       const seconds = expertMotionStart + clamp(position) * expertMotionSpan
-      seek(progressAtExpertTime(alignmentAnchors, seconds))
+      const expert = expertRef.current
+      const student = studentRef.current
+      student?.pause()
+      if (expert) {
+        expert.pause()
+        expert.playbackRate = 1
+        expert.currentTime = seconds
+      }
+      playingRef.current = false
+      setPlaying(false)
+      setProgress(progressAtExpertTime(alignmentAnchors, seconds))
+      updateExpertCaption(seconds)
     },
-    [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek]
+    [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek, updateExpertCaption]
   )
+
+  useEffect(() => {
+    const student = studentRef.current
+    const expert = expertRef.current
+    student?.pause()
+    expert?.pause()
+    playingRef.current = false
+    setPlaying(false)
+    if (expertOnly && expert) {
+      const seconds = Math.min(
+        expertMotionEnd,
+        Math.max(expertMotionStart, expert.currentTime || expertMotionStart)
+      )
+      expert.playbackRate = 1
+      expert.currentTime = seconds
+      setProgress(progressAtExpertTime(alignmentAnchors, seconds))
+      updateExpertCaption(seconds)
+    }
+  }, [alignmentAnchors, expertMotionEnd, expertMotionStart, expertOnly, updateExpertCaption])
 
   // Criteria can share an instant -- serve marks both 髖關節前旋 and 肩膀旋轉朝前
   // at the end of the motion -- so the nearest position can belong to more than
@@ -465,7 +556,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 setStudentDuration(event.currentTarget.duration)
                 setStudentRatio(videoRatio(event.currentTarget, studentRatio))
               }}
-              onTimeUpdate={() => followPlayhead(true)}
+              onTimeUpdate={() => {
+                if (!expertOnly) followPlayhead(true)
+              }}
               onEnded={() => setPlayback(false)}
               onClick={() => setPlayback(!playingRef.current)}
             />
@@ -489,6 +582,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                   event.currentTarget.duration,
                   Math.max(0, playback.expert.motion_start_seconds)
                 )
+              }}
+              onTimeUpdate={() => {
+                if (expertOnly) followPlayhead(true)
+              }}
+              onEnded={() => {
+                if (expertOnly) setPlayback(false)
               }}
               onClick={() => setPlayback(!playingRef.current)}
             />
@@ -514,9 +613,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               </>
             ) : (
               <p className="text-[13px] leading-6 text-white/55">
-                {playback.coaching_cues.length > 0
-                  ? '播放後會在這裡顯示 AI 提醒'
-                  : '這次分析沒有需要修正的地方'}
+                {expertOnly
+                  ? '播放後會在這裡顯示專家技術檢核點'
+                  : playback.coaching_cues.length > 0
+                    ? '播放後會在這裡顯示 AI 提醒'
+                    : '這次分析沒有需要修正的地方'}
               </p>
             )}
           </div>
@@ -534,30 +635,31 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
             className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
           />
-          {playback.coaching_cues.map((cue, index) => (
-            <button
-              key={`${cue.normalized_frame}-${index}`}
-              type="button"
-              title={cue.title}
-              aria-label={`前往問題：${cue.title}`}
-              onClick={() => seek(cue.normalized_position, cue)}
-              className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive transition-[left] duration-200"
-              style={{
-                left: `${
-                  (onExpertAxis
-                    ? expertAxisPosition(expertTimeFromMotionProgress(cue.normalized_position))
-                    : clamp(cue.normalized_position)) * 100
-                }%`
-              }}
-            />
-          ))}
+          {!onExpertAxis &&
+            playback.coaching_cues.map((cue, index) => (
+              <button
+                key={`${cue.normalized_frame}-${index}`}
+                type="button"
+                title={cue.title}
+                aria-label={`前往問題：${cue.title}`}
+                onClick={() => seek(cue.normalized_position, cue)}
+                className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive transition-[left] duration-200"
+                style={{
+                  left: `${
+                    (onExpertAxis
+                      ? expertAxisPosition(expertTimeFromMotionProgress(cue.normalized_position))
+                      : clamp(cue.normalized_position)) * 100
+                  }%`
+                }}
+              />
+            ))}
           {checkpoints.map((marker, index) => (
             <button
               key={marker.id}
               type="button"
               title={marker.label}
               aria-label={`前往${marker.label}`}
-              onClick={() => seek(marker.seekTo)}
+              onClick={() => seekOnAxis(marker.position)}
               className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
               style={{ left: `${marker.position * 100}%` }}
             >
@@ -581,7 +683,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             size="icon"
             title="重新播放"
             aria-label="重新播放"
-            onClick={() => seek(0)}
+            onClick={() => seekOnAxis(0)}
           >
             <RotateCcw size={17} />
           </Button>
@@ -604,9 +706,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           <Button
             variant="outline"
             size="icon"
-            title="全螢幕查看學員影片"
-            aria-label="全螢幕查看學員影片"
-            onClick={() => void studentRef.current?.requestFullscreen?.()}
+            title={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看學員影片'}
+            aria-label={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看學員影片'}
+            onClick={() =>
+              void (expertOnly ? expertRef.current : studentRef.current)?.requestFullscreen?.()
+            }
           >
             <Maximize2 size={17} />
           </Button>
@@ -621,7 +725,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               <button
                 key={marker.id}
                 type="button"
-                onClick={() => seek(marker.seekTo)}
+                onClick={() => seekOnAxis(marker.position)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
                   isCurrentCheckpoint(marker.position)
                     ? 'border-primary text-foreground'
@@ -635,7 +739,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               </button>
             ))}
           </div>
-          {pauses.length > 0 && (
+          {!onExpertAxis && pauses.length > 0 && (
             <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <span className="h-2 w-2 rounded-full bg-destructive" /> GPT 暫停點
             </span>
@@ -645,7 +749,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         {/* Every correction as a full, tappable entry. The caption shows one at
             a time while playing; this is where a student reads them all without
             scrubbing the timeline to find each one. */}
-        {playback.coaching_cues.length > 0 && (
+        {!onExpertAxis && playback.coaching_cues.length > 0 && (
           <div className="mt-4 border-t border-border pt-4">
             <p className="eyebrow mb-2">AI 修正建議</p>
             <ul className="space-y-2">

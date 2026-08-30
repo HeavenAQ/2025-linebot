@@ -107,6 +107,46 @@ export function buildAlignmentAnchors(
   )
 }
 
+/**
+ * Builds the comparison player's deliberately simple phase map.
+ *
+ * Both supported skills expose the dominant-wrist acceleration event as the
+ * `wrist_flick` checkpoint.  Matching that instant and independently fitting
+ * the motion before and after it avoids a dense pose warp changing the visible
+ * tempo in ways that are hard for a learner to interpret:
+ *
+ *   student start -> student contact -> student end
+ *   expert start  -> expert contact  -> expert end
+ *
+ * Old analyses without a usable contact pair degrade to one uniform stretch.
+ */
+export function buildWristAccelerationAnchors(
+  studentTimeline: readonly PhaseMarker[],
+  expertTimeline: readonly PhaseMarker[],
+  motionStart: number,
+  motionEnd: number
+): AlignmentAnchor[] {
+  const studentContact = studentTimeline.find(marker => marker.id === 'wrist_flick')
+  const expertContact = expertTimeline.find(marker => marker.id === 'wrist_flick')
+  if (!studentContact || !expertContact) {
+    return accumulateAnchors([], motionStart, motionEnd)
+  }
+
+  const position = clamp01(studentContact.normalized_position)
+  const seconds = expertContact.timestamp_seconds
+  if (
+    !isFiniteNumber(position) ||
+    !isFiniteNumber(seconds) ||
+    position <= 0 ||
+    position >= 1 ||
+    seconds <= motionStart ||
+    seconds >= motionEnd
+  ) {
+    return accumulateAnchors([], motionStart, motionEnd)
+  }
+  return accumulateAnchors([{ position, seconds }], motionStart, motionEnd)
+}
+
 const segmentAt = (anchors: readonly AlignmentAnchor[], position: number) => {
   for (let index = 1; index < anchors.length; index += 1) {
     if (position <= anchors[index].position) {

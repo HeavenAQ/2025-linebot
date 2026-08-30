@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,6 +19,13 @@ const PlaybackURLTTL = 60 * time.Minute
 // fencing: a bug elsewhere must not be able to hand out a link to the bucket's
 // private corners.
 var playablePrefixes = []string{"analyses/", "experts/"}
+
+func playbackContentType(objectPath string) string {
+	if strings.HasSuffix(strings.ToLower(objectPath), ".mov") {
+		return "video/quicktime"
+	}
+	return "video/mp4"
+}
 
 // PlayableObject reports whether a path may be signed for playback.
 func PlayableObject(objectPath string) bool {
@@ -51,6 +59,12 @@ func (c *BucketClient) SignPlaybackURL(objectPath string, serviceAccountEmail st
 		Method:  "GET",
 		Expires: expires,
 		Scheme:  gcs.SigningSchemeV4,
+		// Older expert objects have no GCS Content-Type. LIFF's embedded browser
+		// does not consistently sniff an octet-stream as video, so make the
+		// signed response explicitly playable.
+		QueryParameters: url.Values{
+			"response-content-type": []string{playbackContentType(objectPath)},
+		},
 	}
 	if trimmed := strings.TrimSpace(serviceAccountEmail); trimmed != "" {
 		opts.GoogleAccessID = trimmed

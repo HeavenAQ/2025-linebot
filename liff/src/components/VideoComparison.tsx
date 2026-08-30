@@ -13,7 +13,7 @@ type ViewMode = 'both' | 'student' | 'expert'
 
 const VIEW_OPTIONS = [
   { value: 'both', label: '雙畫面' },
-  { value: 'student', label: '學員' },
+  { value: 'student', label: '同學' },
   { value: 'expert', label: '專家' }
 ] as const satisfies readonly { value: ViewMode; label: string }[]
 
@@ -36,10 +36,20 @@ interface PauseInterval {
   cue: CoachingCue
 }
 
+interface SyncBarrier {
+  studentSeconds: number
+  expertSeconds: number
+  checkpointId: string | null
+  terminal: boolean
+}
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 /** How often the scrubber's React state follows the playhead, in ms. */
 const PROGRESS_STATE_INTERVAL = 66
+
+/** Roughly one rendered frame at 30 fps. */
+const SYNC_BARRIER_EPSILON_SECONDS = 1 / 30
 
 /**
  * Slack for deciding a checkpoint has been reached, in normalized position.
@@ -69,6 +79,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const studentRef = useRef<HTMLVideoElement>(null)
   const expertRef = useRef<HTMLVideoElement>(null)
   const playingRef = useRef(false)
+  const barriersRef = useRef<SyncBarrier[]>([])
+  const barrierIndexRef = useRef(0)
   const lastProgressAtRef = useRef(0)
   const previousViewModeRef = useRef<ViewMode>('both')
   const [playing, setPlaying] = useState(false)
@@ -79,6 +91,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [captionsOn, setCaptionsOn] = useState(true)
   const [caption, setCaption] = useState<Caption | null>(null)
+  const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null)
   const [studentRatio, setStudentRatio] = useState(() =>
     metadataRatio(playback.student_video.width, playback.student_video.height)
   )
@@ -129,6 +142,22 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [pauses]
   )
 
+  const resetBarrierCursor = useCallback((studentSeconds: number, expertSeconds: number) => {
+    const barriers = barriersRef.current
+    let next = 0
+    let checkpointId: string | null = barriers[0]?.checkpointId ?? null
+    while (next < barriers.length) {
+      const barrier = barriers[next]
+      const studentReached = studentSeconds >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS
+      const expertReached = expertSeconds >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+      if (!studentReached || !expertReached) break
+      if (barrier.checkpointId) checkpointId = barrier.checkpointId
+      next += 1
+    }
+    barrierIndexRef.current = next
+    setActiveCheckpointId(checkpointId)
+  }, [])
+
   // The caption always says where the stroke is. A correction takes it over for
   // the two-second pause it occupies, and outside those the checkpoint the
   // playhead has reached holds the line — so it reads as a commentary that runs
@@ -167,6 +196,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         if (marker.timestamp_seconds > seconds + 1 / 120) continue
         if (!reached || marker.timestamp_seconds >= reached.timestamp_seconds) reached = marker
       }
+      if (reached) setActiveCheckpointId(reached.id)
       setCaption(reached ? { title: reached.label, body: '', live: false } : null)
     },
     [playback.expert.timeline]
@@ -196,16 +226,66 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [motionDuration, pauses, studentDuration]
   )
 
-  const syncExpert = useCallback(
-    (_position: number, studentTime: number) => {
+  const coordinatePlayback = useCallback(
+    (studentTime: number) => {
+      const student = studentRef.current
       const expert = expertRef.current
-      if (!expert || expertMotionEnd <= expertMotionStart) return
+      if (!student || !expert || expertMotionEnd <= expertMotionStart || !playingRef.current) return
+      student.playbackRate = 1
       expert.playbackRate = 1
-      if (pauseAtTime(studentTime)) {
-        expert.pause()
-      } else if (playingRef.current && expert.paused) {
-        void expert.play().catch(() => undefined)
+
+      const barriers = barriersRef.current
+      let next = barrierIndexRef.current
+      while (next < barriers.length) {
+        const barrier = barriers[next]
+        const studentReached =
+          student.currentTime >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS ||
+          student.ended
+        const expertReached =
+          expert.currentTime >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+        if (!studentReached || !expertReached) break
+        if (barrier.checkpointId) setActiveCheckpointId(barrier.checkpointId)
+        next += 1
       }
+      barrierIndexRef.current = next
+
+      if (next >= barriers.length) {
+        student.pause()
+        expert.pause()
+        playingRef.current = false
+        setPlaying(false)
+        setProgress(1)
+        setExpertProgress(1)
+        return
+      }
+
+      const barrier = barriers[next]
+      const studentReached =
+        student.currentTime >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS ||
+        student.ended
+      const expertReached =
+        expert.currentTime >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+
+      if (studentReached && !expertReached) {
+        if (!barrier.terminal && Math.abs(student.currentTime - barrier.studentSeconds) > 0.001) {
+          student.currentTime = barrier.studentSeconds
+        }
+        student.pause()
+        if (expert.paused) void expert.play().catch(() => undefined)
+        return
+      }
+      if (expertReached && !studentReached) {
+        if (Math.abs(expert.currentTime - barrier.expertSeconds) > 0.001) {
+          expert.currentTime = barrier.expertSeconds
+        }
+        expert.pause()
+        if (student.paused && !student.ended) void student.play().catch(() => undefined)
+        return
+      }
+
+      if (student.paused && !student.ended) void student.play().catch(() => undefined)
+      if (pauseAtTime(studentTime)) expert.pause()
+      else if (expert.paused) void expert.play().catch(() => undefined)
     },
     [expertMotionEnd, expertMotionStart, pauseAtTime]
   )
@@ -216,12 +296,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       const student = studentRef.current
       const expert = expertRef.current
       const studentTime = cue?.student_timestamp_seconds ?? studentTimeFromMotionProgress(next)
+      const expertTime = expertTimeFromMotionProgress(next)
       if (student) student.currentTime = studentTime
       if (expert && expertMotionEnd > expertMotionStart) {
-        expert.currentTime = expertTimeFromMotionProgress(next)
+        expert.currentTime = expertTime
       }
       setProgress(next)
       setExpertProgress(next)
+      resetBarrierCursor(studentTime, expertTime)
       if (cue) {
         setActiveCue(cue)
         setCaption({ title: cue.title, body: cue.feedback, live: true })
@@ -233,6 +315,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertMotionEnd,
       expertMotionStart,
       expertTimeFromMotionProgress,
+      resetBarrierCursor,
       studentTimeFromMotionProgress,
       updateCaption
     ]
@@ -269,7 +352,15 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         return
       }
       if (!student) return
-      if (student.ended || progress >= 0.999) seek(0)
+      if (
+        student.ended ||
+        progress >= 0.999 ||
+        expert.currentTime >= expertMotionEnd - SYNC_BARRIER_EPSILON_SECONDS
+      ) {
+        seek(0)
+      } else {
+        resetBarrierCursor(student.currentTime, expert.currentTime)
+      }
       student.playbackRate = 1
       expert.playbackRate = 1
       if (expert.currentTime >= expertMotionEnd - 1 / 120) {
@@ -287,6 +378,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertOnly,
       pauseAtTime,
       progress,
+      resetBarrierCursor,
       seek,
       updateExpertCaption
     ]
@@ -333,7 +425,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         setProgress(next)
         setExpertProgress(nextExpert)
       }
-      syncExpert(next, student.currentTime)
+      coordinatePlayback(student.currentTime)
       updateCaption(student.currentTime, next)
     },
     [
@@ -343,7 +435,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertOnly,
       expertProgress,
       motionProgressFromStudentTime,
-      syncExpert,
+      coordinatePlayback,
       updateCaption,
       updateExpertCaption
     ]
@@ -363,6 +455,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     setPlaying(false)
     setProgress(0)
     setExpertProgress(0)
+    barrierIndexRef.current = 0
+    setActiveCheckpointId(null)
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
     setActiveCue(playback.coaching_cues[0] ?? null)
@@ -402,7 +496,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           label: marker.label,
           position: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
           studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
-          studentSeconds: studentMarker?.timestamp_seconds,
+          // The feedback video inserts GPT freeze frames. Phase timestamps are
+          // deliberately pause-free, so map through the same clock conversion
+          // as the student scrubber before seeking or synchronizing.
+          studentSeconds: studentMarker
+            ? studentTimeFromMotionProgress(studentMarker.normalized_position)
+            : undefined,
           expertSeconds: expertMarker?.timestamp_seconds,
           expertPosition: expertMarker
             ? expertAxisPosition(expertMarker.timestamp_seconds)
@@ -411,7 +510,49 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         }
       })
       .sort((left, right) => left.expertOrderSeconds - right.expertOrderSeconds)
-  }, [expertAxisPosition, expertTimeline, playback.expert.timeline, playback.timeline])
+  }, [
+    expertAxisPosition,
+    expertTimeline,
+    playback.expert.timeline,
+    playback.timeline,
+    studentTimeFromMotionProgress
+  ])
+
+  const syncBarriers = useMemo<SyncBarrier[]>(() => {
+    let previousStudent = 0
+    let previousExpert = expertMotionStart
+    const barriers: SyncBarrier[] = []
+    for (const marker of checkpoints) {
+      if (marker.studentSeconds === undefined || marker.expertSeconds === undefined) continue
+      const barrier: SyncBarrier = {
+        // Student checkpoints can be detected out of canonical order. The UI
+        // follows expert order, while cumulative maxima keep playback moving
+        // forward without ever seeking either video backwards.
+        studentSeconds: Math.max(previousStudent, marker.studentSeconds),
+        expertSeconds: Math.max(previousExpert, marker.expertSeconds),
+        checkpointId: marker.id,
+        terminal: false
+      }
+      previousStudent = barrier.studentSeconds
+      previousExpert = barrier.expertSeconds
+      barriers.push(barrier)
+    }
+    barriers.push({
+      studentSeconds: studentDuration,
+      expertSeconds: expertMotionEnd,
+      checkpointId: checkpoints.at(-1)?.id ?? null,
+      terminal: true
+    })
+    return barriers
+  }, [checkpoints, expertMotionEnd, expertMotionStart, studentDuration])
+
+  useEffect(() => {
+    barriersRef.current = syncBarriers
+    resetBarrierCursor(
+      studentRef.current?.currentTime ?? 0,
+      expertRef.current?.currentTime ?? expertMotionStart
+    )
+  }, [expertMotionStart, resetBarrierCursor, syncBarriers])
 
   const seekCheckpoint = useCallback(
     (marker: (typeof checkpoints)[number]) => {
@@ -428,9 +569,14 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       }
       setProgress(marker.studentPosition)
       setExpertProgress(marker.expertPosition)
+      resetBarrierCursor(
+        marker.studentSeconds ?? student?.currentTime ?? 0,
+        marker.expertSeconds ?? expert?.currentTime ?? expertMotionStart
+      )
+      setActiveCheckpointId(marker.id)
       setCaption({ title: marker.label, body: '', live: false })
     },
-    [checkpoints, expertMotionEnd, expertMotionStart, studentDuration]
+    [checkpoints, expertMotionEnd, expertMotionStart, resetBarrierCursor, studentDuration]
   )
 
   const seekExpertTrack = useCallback(
@@ -479,33 +625,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     viewMode
   ])
 
-  const reachedCheckpointPosition = (
-    current: number,
-    positionOf: (marker: (typeof checkpoints)[number]) => number
-  ) => {
-    const reached = checkpoints.reduce((latest, marker) => {
-      const position = positionOf(marker)
-      return position <= current + CHECKPOINT_REACHED_EPSILON ? Math.max(latest, position) : latest
-    }, Number.NEGATIVE_INFINITY)
-    return Number.isFinite(reached) ? reached : checkpoints[0] ? positionOf(checkpoints[0]) : 0
-  }
-  const studentCheckpointPosition = reachedCheckpointPosition(
-    progress,
-    marker => marker.studentPosition
-  )
-  const expertCheckpointPosition = reachedCheckpointPosition(
-    expertProgress,
-    marker => marker.expertPosition
-  )
-  const isCurrentCheckpoint = (marker: (typeof checkpoints)[number]) => {
-    const position = expertOnly ? marker.expertPosition : marker.studentPosition
-    const current = expertOnly ? expertCheckpointPosition : studentCheckpointPosition
-    return Math.abs(position - current) <= CHECKPOINT_REACHED_EPSILON
-  }
+  const isCurrentCheckpoint = (marker: (typeof checkpoints)[number]) =>
+    marker.id === (activeCheckpointId ?? checkpoints[0]?.id)
   const checkpointDifferenceLabel = (marker: (typeof checkpoints)[number]) => {
     const difference = marker.studentPosition - marker.expertPosition
     if (Math.abs(difference) < 0.015) return '時機接近專家'
-    return `學員${difference > 0 ? '較晚' : '較早'} ${Math.round(Math.abs(difference) * 100)}%`
+    return `同學${difference > 0 ? '較晚' : '較早'} ${Math.round(Math.abs(difference) * 100)}%`
   }
 
   return (
@@ -548,7 +673,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         >
           <div className={showStudent ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
             <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-              學員
+              同學
             </span>
             <video
               ref={studentRef}
@@ -565,7 +690,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               onTimeUpdate={() => {
                 if (!expertOnly) followPlayhead(true)
               }}
-              onEnded={() => setPlayback(false)}
+              onEnded={() => {
+                // In comparison mode the student may finish first. Keep the
+                // controller alive so the expert can reach the same endpoint.
+                if (expertOnly) setPlayback(false)
+                else followPlayhead(true)
+              }}
               onClick={() => setPlayback(!playingRef.current)}
             />
           </div>
@@ -657,10 +787,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
           {showStudent && (
             <div className="relative z-10 flex h-9 items-center gap-2">
-              <span className="w-12 shrink-0 text-xs font-semibold text-primary">學員</span>
+              <span className="w-12 shrink-0 text-xs font-semibold text-primary">同學</span>
               <div className="relative h-8 flex-1">
                 <input
-                  aria-label="學員動作時間軸"
+                  aria-label="同學動作時間軸"
                   type="range"
                   min="0"
                   max="1000"
@@ -683,8 +813,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                   <button
                     key={marker.id}
                     type="button"
-                    title={`學員：${marker.label}`}
-                    aria-label={`前往學員與專家的${marker.label}`}
+                    title={`同學：${marker.label}`}
+                    aria-label={`前往同學與專家的${marker.label}`}
                     onClick={() => seekCheckpoint(marker)}
                     className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm"
                     style={{ left: `${marker.studentPosition * 100}%` }}
@@ -714,7 +844,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                     key={marker.id}
                     type="button"
                     title={`專家：${marker.label}`}
-                    aria-label={`前往學員與專家的${marker.label}`}
+                    aria-label={`前往同學與專家的${marker.label}`}
                     onClick={() => seekCheckpoint(marker)}
                     className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm"
                     style={{ left: `${marker.expertPosition * 100}%` }}
@@ -765,8 +895,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           <Button
             variant="outline"
             size="icon"
-            title={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看學員影片'}
-            aria-label={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看學員影片'}
+            title={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看同學影片'}
+            aria-label={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看同學影片'}
             onClick={() =>
               void (expertOnly ? expertRef.current : studentRef.current)?.requestFullscreen?.()
             }

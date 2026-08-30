@@ -6,20 +6,14 @@ import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 import AutoHeight from '@/components/ui/auto-height'
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
-import {
-  buildAlignmentAnchors,
-  expertMotionWindow,
-  expertRateAt,
-  expertTimeAt,
-  progressAtExpertTime
-} from '@/lib/expertAlignment'
+import { expertMotionWindow } from '@/lib/expertAlignment'
 import type { PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
 
 const VIEW_OPTIONS = [
   { value: 'both', label: '雙畫面' },
-  { value: 'student', label: '學員' },
+  { value: 'student', label: '同學' },
   { value: 'expert', label: '專家' }
 ] as const satisfies readonly { value: ViewMode; label: string }[]
 
@@ -27,28 +21,25 @@ interface VideoComparisonProps {
   playback: PlaybackResponse
 }
 
-/** What the caption is saying right now: the checkpoint the playhead reached. */
+/** What the caption is saying right now. */
 interface Caption {
   title: string
 }
 
+interface SyncBarrier {
+  studentSeconds: number
+  expertSeconds: number
+  checkpointId: string | null
+  terminal: boolean
+}
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
-
-/**
- * Drift, in expert-video seconds, past which the expert is seeked outright
- * rather than eased back. A visible jump beats a long, obviously-out-of-step
- * convergence; below it, trimming the rate is invisible where a seek stutters.
- */
-const HARD_SEEK_DRIFT = 0.25
-
-/** Wall-clock seconds the rate trim aims to close a small drift over. */
-const DRIFT_CORRECTION_WINDOW = 0.5
-
-/** Slowest and fastest playback a browser will honour smoothly. */
-const clampRate = (rate: number) => Math.min(4, Math.max(0.25, rate))
 
 /** How often the scrubber's React state follows the playhead, in ms. */
 const PROGRESS_STATE_INTERVAL = 66
+
+/** Roughly one rendered frame at 30 fps. */
+const SYNC_BARRIER_EPSILON_SECONDS = 1 / 30
 
 /**
  * Slack for deciding a checkpoint has been reached, in normalized position.
@@ -78,60 +69,58 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const studentRef = useRef<HTMLVideoElement>(null)
   const expertRef = useRef<HTMLVideoElement>(null)
   const playingRef = useRef(false)
+  const barriersRef = useRef<SyncBarrier[]>([])
+  const barrierIndexRef = useRef(0)
   const lastProgressAtRef = useRef(0)
+  const previousViewModeRef = useRef<ViewMode>('both')
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [expertProgress, setExpertProgress] = useState(0)
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
   const [captionsOn, setCaptionsOn] = useState(true)
   const [caption, setCaption] = useState<Caption | null>(null)
+  const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null)
   const [studentRatio, setStudentRatio] = useState(() =>
     metadataRatio(playback.student_video.width, playback.student_video.height)
   )
   const [expertRatio, setExpertRatio] = useState(() =>
     metadataRatio(playback.expert.video.width, playback.expert.video.height)
   )
-  // The render runs straight through, so a position maps onto the student clip
-  // by proportion alone. The floor only keeps a clip whose metadata has not
-  // loaded yet from dividing by zero.
+  const expertOnly = viewMode === 'expert'
   const motionDuration = Math.max(0.01, studentDuration)
   const { start: expertMotionStart, end: expertMotionEnd } = expertMotionWindow(
     expertDuration,
     playback.expert.motion_start_seconds,
     playback.expert.motion_end_seconds
   )
-  // Map from the student's progress to the expert's clock: the analysis's
-  // warped samples where it has them, the checkpoints alone where it does not,
-  // and the plain window stretch when it carries neither.
-  const alignmentAnchors = useMemo(
-    () =>
-      buildAlignmentAnchors(
-        playback.timeline,
-        playback.expert.timeline,
-        expertMotionStart,
-        expertMotionEnd,
-        playback.expert.alignment
-      ),
-    [
-      playback.timeline,
-      playback.expert.timeline,
-      playback.expert.alignment,
-      expertMotionStart,
-      expertMotionEnd
-    ]
-  )
+  const expertMotionSpan = Math.max(0.01, expertMotionEnd - expertMotionStart)
 
   const expertTimeFromMotionProgress = useCallback(
-    (position: number) => expertTimeAt(alignmentAnchors, position),
-    [alignmentAnchors]
+    (position: number) => expertMotionStart + clamp(position) * expertMotionSpan,
+    [expertMotionSpan, expertMotionStart]
   )
 
-  // The caption says where in the stroke the playhead is: the checkpoint it has
-  // most recently reached, so it reads as a commentary that runs to the end of
-  // the motion.
+  const resetBarrierCursor = useCallback((studentSeconds: number, expertSeconds: number) => {
+    const barriers = barriersRef.current
+    let next = 0
+    let checkpointId: string | null = barriers[0]?.checkpointId ?? null
+    while (next < barriers.length) {
+      const barrier = barriers[next]
+      const studentReached = studentSeconds >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS
+      const expertReached = expertSeconds >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+      if (!studentReached || !expertReached) break
+      if (barrier.checkpointId) checkpointId = barrier.checkpointId
+      next += 1
+    }
+    barrierIndexRef.current = next
+    setActiveCheckpointId(checkpointId)
+  }, [])
+
+  // The caption follows the most recently reached technical checkpoint.
   const updateCaption = useCallback(
-    (position: number) => {
+    (_studentTime: number, position: number) => {
       // Checkpoints are listed in scoring order, not stroke order, so the one
       // reached most recently is the furthest along that the playhead has
       // passed — not the last one in the list.
@@ -151,6 +140,19 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [playback.timeline]
   )
 
+  const updateExpertCaption = useCallback(
+    (seconds: number) => {
+      let reached: PhaseMarker | null = null
+      for (const marker of playback.expert.timeline) {
+        if (marker.timestamp_seconds > seconds + 1 / 120) continue
+        if (!reached || marker.timestamp_seconds >= reached.timestamp_seconds) reached = marker
+      }
+      if (reached) setActiveCheckpointId(reached.id)
+      setCaption(reached ? { title: reached.label } : null)
+    },
+    [playback.expert.timeline]
+  )
+
   const motionProgressFromStudentTime = useCallback(
     (time: number) => clamp(time / motionDuration),
     [motionDuration]
@@ -161,57 +163,85 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     [motionDuration, studentDuration]
   )
 
-  const syncExpert = useCallback(
-    (position: number) => {
-      const expert = expertRef.current
-      // Gated on the motion window rather than the duration: the window is what
-      // playback actually needs, and it is known before the clip has loaded.
-      if (!expert || expertMotionEnd <= expertMotionStart) return
-      const target = expertTimeFromMotionProgress(position)
-      // Each segment has its own tempo relative to the student -- the two
-      // performances reach the same checkpoint at different points in their own
-      // clips -- so the expert runs at that segment's rate rather than 1x.
-      const base = expertRateAt(alignmentAnchors, position, motionDuration)
-      const drift = expert.currentTime - target
-      if (Math.abs(drift) > HARD_SEEK_DRIFT) {
-        expert.currentTime = target
-        if (Math.abs(expert.playbackRate - base) > 0.01) expert.playbackRate = base
-      } else {
-        // Residual drift is absorbed into the rate instead of a seek: running
-        // fractionally slow or fast for half a second closes it without the
-        // frame-skip a currentTime write causes mid-play.
-        const trimmed = clampRate(base - drift / DRIFT_CORRECTION_WINDOW)
-        if (Math.abs(expert.playbackRate - trimmed) > 0.01) expert.playbackRate = trimmed
+  const coordinatePlayback = useCallback(() => {
+    const student = studentRef.current
+    const expert = expertRef.current
+    if (!student || !expert || expertMotionEnd <= expertMotionStart || !playingRef.current) return
+    student.playbackRate = 1
+    expert.playbackRate = 1
+
+    const barriers = barriersRef.current
+    let next = barrierIndexRef.current
+    while (next < barriers.length) {
+      const barrier = barriers[next]
+      const studentReached =
+        student.currentTime >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS ||
+        student.ended
+      const expertReached =
+        expert.currentTime >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+      if (!studentReached || !expertReached) break
+      if (barrier.checkpointId) setActiveCheckpointId(barrier.checkpointId)
+      next += 1
+    }
+    barrierIndexRef.current = next
+
+    if (next >= barriers.length) {
+      student.pause()
+      expert.pause()
+      playingRef.current = false
+      setPlaying(false)
+      setProgress(1)
+      setExpertProgress(1)
+      return
+    }
+
+    const barrier = barriers[next]
+    const studentReached =
+      student.currentTime >= barrier.studentSeconds - SYNC_BARRIER_EPSILON_SECONDS || student.ended
+    const expertReached = expert.currentTime >= barrier.expertSeconds - SYNC_BARRIER_EPSILON_SECONDS
+
+    if (studentReached && !expertReached) {
+      if (!barrier.terminal && Math.abs(student.currentTime - barrier.studentSeconds) > 0.001) {
+        student.currentTime = barrier.studentSeconds
       }
-      if (playingRef.current && expert.paused) {
-        void expert.play().catch(() => undefined)
+      student.pause()
+      if (expert.paused) void expert.play().catch(() => undefined)
+      return
+    }
+    if (expertReached && !studentReached) {
+      if (Math.abs(expert.currentTime - barrier.expertSeconds) > 0.001) {
+        expert.currentTime = barrier.expertSeconds
       }
-    },
-    [
-      alignmentAnchors,
-      expertMotionEnd,
-      expertMotionStart,
-      expertTimeFromMotionProgress,
-      motionDuration
-    ]
-  )
+      expert.pause()
+      if (student.paused && !student.ended) void student.play().catch(() => undefined)
+      return
+    }
+
+    if (student.paused && !student.ended) void student.play().catch(() => undefined)
+    if (expert.paused) void expert.play().catch(() => undefined)
+  }, [expertMotionEnd, expertMotionStart])
 
   const seek = useCallback(
     (position: number) => {
       const next = clamp(position)
       const student = studentRef.current
       const expert = expertRef.current
-      if (student) student.currentTime = studentTimeFromMotionProgress(next)
+      const studentTime = studentTimeFromMotionProgress(next)
+      const expertTime = expertTimeFromMotionProgress(next)
+      if (student) student.currentTime = studentTime
       if (expert && expertMotionEnd > expertMotionStart) {
-        expert.currentTime = expertTimeFromMotionProgress(next)
+        expert.currentTime = expertTime
       }
       setProgress(next)
-      updateCaption(next)
+      setExpertProgress(next)
+      resetBarrierCursor(studentTime, expertTime)
+      updateCaption(studentTime, next)
     },
     [
       expertMotionEnd,
       expertMotionStart,
       expertTimeFromMotionProgress,
+      resetBarrierCursor,
       studentTimeFromMotionProgress,
       updateCaption
     ]
@@ -221,22 +251,54 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     (shouldPlay: boolean) => {
       const student = studentRef.current
       const expert = expertRef.current
-      if (!student || !expert) return
+      if (!expert || (!expertOnly && !student)) return
       playingRef.current = shouldPlay
       setPlaying(shouldPlay)
       if (!shouldPlay) {
-        student.pause()
+        student?.pause()
         expert.pause()
         return
       }
-      if (student.ended || progress >= 0.999) seek(0)
+      if (expertOnly) {
+        student?.pause()
+        expert.playbackRate = 1
+        if (
+          expert.currentTime < expertMotionStart ||
+          expert.currentTime >= expertMotionEnd - 1 / 120
+        ) {
+          expert.currentTime = expertMotionStart
+          setProgress(0)
+          setExpertProgress(0)
+          updateExpertCaption(expertMotionStart)
+        }
+        void expert.play().catch(() => {
+          playingRef.current = false
+          setPlaying(false)
+        })
+        return
+      }
+      if (!student) return
+      if (
+        student.ended ||
+        progress >= 0.999 ||
+        expert.currentTime >= expertMotionEnd - SYNC_BARRIER_EPSILON_SECONDS
+      ) {
+        seek(0)
+      } else {
+        resetBarrierCursor(student.currentTime, expert.currentTime)
+      }
+      student.playbackRate = 1
+      expert.playbackRate = 1
+      if (expert.currentTime >= expertMotionEnd - 1 / 120) {
+        expert.currentTime = expertMotionStart
+      }
       void student.play().catch(() => {
         playingRef.current = false
         setPlaying(false)
       })
       void expert.play().catch(() => undefined)
     },
-    [progress, seek]
+    [expertMotionEnd, expertOnly, progress, resetBarrierCursor, seek, updateExpertCaption]
   )
 
   // Following the playhead on `timeupdate` alone is too coarse to hold two
@@ -246,18 +308,54 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   // throttled separately so re-rendering does not ride at 60fps.
   const followPlayhead = useCallback(
     (force: boolean) => {
+      if (expertOnly) {
+        const expert = expertRef.current
+        if (!expert || expertMotionEnd <= expertMotionStart) return
+        const seconds = Math.min(expertMotionEnd, Math.max(expertMotionStart, expert.currentTime))
+        const next = clamp((seconds - expertMotionStart) / expertMotionSpan)
+        const now = performance.now()
+        if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
+          lastProgressAtRef.current = now
+          setExpertProgress(next)
+        }
+        updateExpertCaption(seconds)
+        if (expert.currentTime >= expertMotionEnd - 1 / 120) {
+          expert.pause()
+          expert.currentTime = expertMotionEnd
+          playingRef.current = false
+          setPlaying(false)
+          setProgress(1)
+          setExpertProgress(1)
+        }
+        return
+      }
       const student = studentRef.current
       if (!student) return
       const next = motionProgressFromStudentTime(student.currentTime)
+      const expert = expertRef.current
+      const nextExpert = expert
+        ? clamp((expert.currentTime - expertMotionStart) / expertMotionSpan)
+        : expertProgress
       const now = performance.now()
       if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
         lastProgressAtRef.current = now
         setProgress(next)
+        setExpertProgress(nextExpert)
       }
-      syncExpert(next)
-      updateCaption(next)
+      coordinatePlayback()
+      updateCaption(student.currentTime, next)
     },
-    [motionProgressFromStudentTime, syncExpert, updateCaption]
+    [
+      expertMotionEnd,
+      expertMotionSpan,
+      expertMotionStart,
+      expertOnly,
+      expertProgress,
+      motionProgressFromStudentTime,
+      coordinatePlayback,
+      updateCaption,
+      updateExpertCaption
+    ]
   )
 
   useEffect(() => {
@@ -273,6 +371,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     playingRef.current = false
     setPlaying(false)
     setProgress(0)
+    setExpertProgress(0)
+    barrierIndexRef.current = 0
+    setActiveCheckpointId(null)
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
     setCaption(null)
@@ -292,56 +393,155 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const expertTimeline =
     playback.expert.timeline.length === playback.timeline.length ? playback.expert.timeline : null
   const onExpertAxis = viewMode === 'expert' && expertTimeline !== null
-  const expertMotionSpan = Math.max(0.01, expertMotionEnd - expertMotionStart)
   const expertAxisPosition = useCallback(
     (seconds: number) => clamp((seconds - expertMotionStart) / expertMotionSpan),
     [expertMotionSpan, expertMotionStart]
   )
 
   const checkpoints = useMemo(() => {
-    const source = onExpertAxis && expertTimeline ? expertTimeline : playback.timeline
-    return source.map((marker, index) => ({
-      id: marker.id,
-      label: marker.label,
-      // Where this checkpoint sits on the axis currently drawn.
-      position:
-        onExpertAxis && expertTimeline
-          ? expertAxisPosition(marker.timestamp_seconds)
-          : clamp(marker.normalized_position),
-      // Seeking always speaks student progress: the student video drives
-      // playback, and its position for checkpoint i lands the expert on that
-      // very same checkpoint.
-      seekTo: clamp(playback.timeline[index].normalized_position)
-    }))
-  }, [expertAxisPosition, expertTimeline, onExpertAxis, playback.timeline])
+    // The expert defines the canonical phase sequence. A learner can perform
+    // checkpoints late, early, or out of order; the student timestamps below
+    // are seek targets only and must never reorder the UI.
+    const source = expertTimeline ?? playback.timeline
+    return source
+      .map(marker => {
+        const studentMarker = playback.timeline.find(candidate => candidate.id === marker.id)
+        const expertMarker = playback.expert.timeline.find(candidate => candidate.id === marker.id)
+        return {
+          id: marker.id,
+          label: marker.label,
+          position: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+          studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+          studentSeconds: studentMarker
+            ? studentTimeFromMotionProgress(studentMarker.normalized_position)
+            : undefined,
+          expertSeconds: expertMarker?.timestamp_seconds,
+          expertPosition: expertMarker
+            ? expertAxisPosition(expertMarker.timestamp_seconds)
+            : clamp(marker.normalized_position),
+          expertOrderSeconds: expertMarker?.timestamp_seconds ?? marker.timestamp_seconds
+        }
+      })
+      .sort((left, right) => left.expertOrderSeconds - right.expertOrderSeconds)
+  }, [
+    expertAxisPosition,
+    expertTimeline,
+    playback.expert.timeline,
+    playback.timeline,
+    studentTimeFromMotionProgress
+  ])
 
-  // The playhead, expressed on whichever axis is on screen.
-  const axisProgress = onExpertAxis
-    ? expertAxisPosition(expertTimeFromMotionProgress(progress))
-    : progress
-
-  const seekOnAxis = useCallback(
-    (position: number) => {
-      if (!onExpertAxis) {
-        seek(position)
-        return
+  const syncBarriers = useMemo<SyncBarrier[]>(() => {
+    let previousStudent = 0
+    let previousExpert = expertMotionStart
+    const barriers: SyncBarrier[] = []
+    for (const marker of checkpoints) {
+      if (marker.studentSeconds === undefined || marker.expertSeconds === undefined) continue
+      const barrier: SyncBarrier = {
+        studentSeconds: Math.max(previousStudent, marker.studentSeconds),
+        expertSeconds: Math.max(previousExpert, marker.expertSeconds),
+        checkpointId: marker.id,
+        terminal: false
       }
-      const seconds = expertMotionStart + clamp(position) * expertMotionSpan
-      seek(progressAtExpertTime(alignmentAnchors, seconds))
+      previousStudent = barrier.studentSeconds
+      previousExpert = barrier.expertSeconds
+      barriers.push(barrier)
+    }
+    barriers.push({
+      studentSeconds: studentDuration,
+      expertSeconds: expertMotionEnd,
+      checkpointId: checkpoints.at(-1)?.id ?? null,
+      terminal: true
+    })
+    return barriers
+  }, [checkpoints, expertMotionEnd, expertMotionStart, studentDuration])
+
+  useEffect(() => {
+    barriersRef.current = syncBarriers
+    resetBarrierCursor(
+      studentRef.current?.currentTime ?? 0,
+      expertRef.current?.currentTime ?? expertMotionStart
+    )
+  }, [expertMotionStart, resetBarrierCursor, syncBarriers])
+
+  const seekCheckpoint = useCallback(
+    (marker: (typeof checkpoints)[number]) => {
+      const student = studentRef.current
+      const expert = expertRef.current
+      if (student && marker.studentSeconds !== undefined) {
+        student.currentTime = Math.min(studentDuration, Math.max(0, marker.studentSeconds))
+      }
+      if (expert && marker.expertSeconds !== undefined) {
+        expert.currentTime = Math.min(
+          expertMotionEnd,
+          Math.max(expertMotionStart, marker.expertSeconds)
+        )
+      }
+      setProgress(marker.studentPosition)
+      setExpertProgress(marker.expertPosition)
+      resetBarrierCursor(
+        marker.studentSeconds ?? student?.currentTime ?? 0,
+        marker.expertSeconds ?? expert?.currentTime ?? expertMotionStart
+      )
+      setActiveCheckpointId(marker.id)
+      setCaption({ title: marker.label })
     },
-    [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek]
+    [checkpoints, expertMotionEnd, expertMotionStart, resetBarrierCursor, studentDuration]
   )
 
-  // Criteria can share an instant -- serve marks both 髖關節前旋 and 肩膀旋轉朝前
-  // at the end of the motion -- so the nearest position can belong to more than
-  // one checkpoint, and all of them are current. Singling one out meant the
-  // other could never light up no matter where the playhead was.
-  const nearestCheckpointDistance = checkpoints.reduce(
-    (nearest, marker) => Math.min(nearest, Math.abs(marker.position - axisProgress)),
-    Number.POSITIVE_INFINITY
+  const seekExpertTrack = useCallback(
+    (position: number) => {
+      const seconds = expertMotionStart + clamp(position) * expertMotionSpan
+      const expert = expertRef.current
+      if (expert) {
+        expert.playbackRate = 1
+        expert.currentTime = seconds
+      }
+      setExpertProgress(clamp(position))
+      if (expertOnly) updateExpertCaption(seconds)
+    },
+    [expertMotionSpan, expertMotionStart, expertOnly, updateExpertCaption]
   )
-  const isCurrentCheckpoint = (position: number) =>
-    Math.abs(position - axisProgress) === nearestCheckpointDistance
+
+  useEffect(() => {
+    // Metadata changes (especially the expert's exact duration arriving after
+    // Play) also rebuild the alignment anchors. They must not be treated as a
+    // tab switch: doing so paused both videos immediately after playback began.
+    if (previousViewModeRef.current === viewMode) return
+    previousViewModeRef.current = viewMode
+    const student = studentRef.current
+    const expert = expertRef.current
+    student?.pause()
+    expert?.pause()
+    playingRef.current = false
+    setPlaying(false)
+    if (expertOnly && expert) {
+      const seconds = Math.min(
+        expertMotionEnd,
+        Math.max(expertMotionStart, expert.currentTime || expertMotionStart)
+      )
+      expert.playbackRate = 1
+      expert.currentTime = seconds
+      setProgress(expertAxisPosition(seconds))
+      setExpertProgress(expertAxisPosition(seconds))
+      updateExpertCaption(seconds)
+    }
+  }, [
+    expertAxisPosition,
+    expertMotionEnd,
+    expertMotionStart,
+    expertOnly,
+    updateExpertCaption,
+    viewMode
+  ])
+
+  const isCurrentCheckpoint = (marker: (typeof checkpoints)[number]) =>
+    marker.id === (activeCheckpointId ?? checkpoints[0]?.id)
+  const checkpointDifferenceLabel = (marker: (typeof checkpoints)[number]) => {
+    const difference = marker.studentPosition - marker.expertPosition
+    if (Math.abs(difference) < 0.015) return '時機接近專家'
+    return `同學${difference > 0 ? '較晚' : '較早'} ${Math.round(Math.abs(difference) * 100)}%`
+  }
 
   return (
     // The player is a panel like any other: same surface, same border, same
@@ -383,7 +583,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         >
           <div className={showStudent ? 'relative overflow-hidden rounded-lg' : 'hidden'}>
             <span className="absolute left-1.5 top-1.5 z-10 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-              學員
+              同學
             </span>
             <video
               ref={studentRef}
@@ -397,8 +597,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 setStudentDuration(event.currentTarget.duration)
                 setStudentRatio(videoRatio(event.currentTarget, studentRatio))
               }}
-              onTimeUpdate={() => followPlayhead(true)}
-              onEnded={() => setPlayback(false)}
+              onTimeUpdate={() => {
+                if (!expertOnly) followPlayhead(true)
+              }}
+              onEnded={() => {
+                if (expertOnly) setPlayback(false)
+                else followPlayhead(true)
+              }}
               onClick={() => setPlayback(!playingRef.current)}
             />
           </div>
@@ -422,15 +627,19 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                   Math.max(0, playback.expert.motion_start_seconds)
                 )
               }}
+              onTimeUpdate={() => {
+                if (expertOnly) followPlayhead(true)
+              }}
+              onEnded={() => {
+                if (expertOnly) setPlayback(false)
+              }}
               onClick={() => setPlayback(!playingRef.current)}
             />
           </div>
         </div>
       </AutoHeight>
 
-      {/* The caption names the technical checkpoint on screen. It sits under
-          the frames rather than over them: at half a phone's width an overlay
-          would cover the very joints it is naming. */}
+      {/* Keep checkpoint names below the frames so they do not obscure joints. */}
       <AutoHeight className="mx-3">
         {captionsOn ? (
           <div className="mt-1.5 rounded-lg bg-neutral-900 px-3 py-2.5 text-white">
@@ -440,36 +649,98 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 {caption.title}
               </p>
             ) : (
-              <p className="text-[13px] leading-6 text-white/55">播放後會顯示目前的技術檢核點</p>
+              <p className="text-[13px] leading-6 text-white/55">
+                播放後會在這裡顯示目前的技術檢核點
+              </p>
             )}
           </div>
         ) : null}
       </AutoHeight>
 
       <div className="p-4">
-        <div className="relative h-9">
-          <input
-            aria-label={onExpertAxis ? '專家動作時間軸' : '動作時間軸'}
-            type="range"
-            min="0"
-            max="1000"
-            value={Math.round(axisProgress * 1000)}
-            onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
-            className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
-          />
-          {checkpoints.map((marker, index) => (
-            <button
-              key={marker.id}
-              type="button"
-              title={marker.label}
-              aria-label={`前往${marker.label}`}
-              onClick={() => seek(marker.seekTo)}
-              className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
-              style={{ left: `${marker.position * 100}%` }}
+        <div className="relative space-y-3">
+          {showStudent && showExpert && (
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 100 48"
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute left-14 right-0 top-4 z-0 h-12 w-[calc(100%-3.5rem)] overflow-visible"
             >
-              {index + 1}
-            </button>
-          ))}
+              {checkpoints.map(marker => (
+                <line
+                  key={marker.id}
+                  x1={marker.studentPosition * 100}
+                  y1="0"
+                  x2={marker.expertPosition * 100}
+                  y2="48"
+                  vectorEffect="non-scaling-stroke"
+                  className="stroke-primary/30"
+                  strokeWidth="1.5"
+                  strokeDasharray="3 3"
+                />
+              ))}
+            </svg>
+          )}
+
+          {showStudent && (
+            <div className="relative z-10 flex h-9 items-center gap-2">
+              <span className="w-12 shrink-0 text-xs font-semibold text-primary">同學</span>
+              <div className="relative h-8 flex-1">
+                <input
+                  aria-label="同學動作時間軸"
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value={Math.round(progress * 1000)}
+                  onChange={event => seek(Number(event.target.value) / 1000)}
+                  className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
+                />
+                {checkpoints.map((marker, index) => (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    title={`同學：${marker.label}`}
+                    aria-label={`前往同學與專家的${marker.label}`}
+                    onClick={() => seekCheckpoint(marker)}
+                    className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm"
+                    style={{ left: `${marker.studentPosition * 100}%` }}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showExpert && (
+            <div className="relative z-10 flex h-9 items-center gap-2">
+              <span className="w-12 shrink-0 text-xs font-semibold text-success">專家</span>
+              <div className="relative h-8 flex-1">
+                <input
+                  aria-label="專家動作時間軸"
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value={Math.round(expertProgress * 1000)}
+                  onChange={event => seekExpertTrack(Number(event.target.value) / 1000)}
+                  className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-success"
+                />
+                {checkpoints.map((marker, index) => (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    title={`專家：${marker.label}`}
+                    aria-label={`前往同學與專家的${marker.label}`}
+                    onClick={() => seekCheckpoint(marker)}
+                    className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm"
+                    style={{ left: `${marker.expertPosition * 100}%` }}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -493,7 +764,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           </Button>
           <span className="ml-1 text-xs tabular-nums text-muted-foreground">
             {onExpertAxis
-              ? `${formatTime(axisProgress * expertMotionSpan)} / ${formatTime(expertMotionSpan)}`
+              ? `${formatTime(expertProgress * expertMotionSpan)} / ${formatTime(expertMotionSpan)}`
               : `${formatTime(studentTimeFromMotionProgress(progress))} / ${formatTime(studentDuration)}`}
           </span>
           <Button
@@ -510,9 +781,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           <Button
             variant="outline"
             size="icon"
-            title="全螢幕查看學員影片"
-            aria-label="全螢幕查看學員影片"
-            onClick={() => void studentRef.current?.requestFullscreen?.()}
+            title={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看同學影片'}
+            aria-label={expertOnly ? '全螢幕查看專家影片' : '全螢幕查看同學影片'}
+            onClick={() =>
+              void (expertOnly ? expertRef.current : studentRef.current)?.requestFullscreen?.()
+            }
           >
             <Maximize2 size={17} />
           </Button>
@@ -527,9 +800,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               <button
                 key={marker.id}
                 type="button"
-                onClick={() => seek(marker.seekTo)}
+                onClick={() => seekCheckpoint(marker)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
-                  isCurrentCheckpoint(marker.position)
+                  isCurrentCheckpoint(marker)
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground'
                 }`}
@@ -537,12 +810,16 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success text-[10px] font-semibold text-white">
                   {index + 1}
                 </span>
-                <span className="leading-4">{marker.label}</span>
+                <span className="leading-4">
+                  <span className="block">{marker.label}</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    {checkpointDifferenceLabel(marker)}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
         </div>
-
       </div>
     </section>
   )

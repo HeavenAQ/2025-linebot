@@ -378,22 +378,28 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   )
 
   const checkpoints = useMemo(() => {
-    const source = onExpertAxis && expertTimeline ? expertTimeline : playback.timeline
-    return source.map(marker => {
-      const studentMarker = playback.timeline.find(candidate => candidate.id === marker.id)
-      const expertMarker = playback.expert.timeline.find(candidate => candidate.id === marker.id)
-      return {
-        id: marker.id,
-        label: marker.label,
-        position:
-          onExpertAxis && expertTimeline
-            ? expertAxisPosition(marker.timestamp_seconds)
-            : clamp(marker.normalized_position),
-        studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
-        studentSeconds: studentMarker?.timestamp_seconds,
-        expertSeconds: expertMarker?.timestamp_seconds
-      }
-    })
+    // The expert defines the canonical phase sequence. A learner can perform
+    // checkpoints late, early, or out of order; the student timestamps below
+    // are seek targets only and must never reorder the UI.
+    const source = expertTimeline ?? playback.timeline
+    return source
+      .map(marker => {
+        const studentMarker = playback.timeline.find(candidate => candidate.id === marker.id)
+        const expertMarker = playback.expert.timeline.find(candidate => candidate.id === marker.id)
+        return {
+          id: marker.id,
+          label: marker.label,
+          position:
+            onExpertAxis && expertTimeline
+              ? expertAxisPosition(marker.timestamp_seconds)
+              : clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+          studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+          studentSeconds: studentMarker?.timestamp_seconds,
+          expertSeconds: expertMarker?.timestamp_seconds,
+          expertOrderSeconds: expertMarker?.timestamp_seconds ?? marker.timestamp_seconds
+        }
+      })
+      .sort((left, right) => left.expertOrderSeconds - right.expertOrderSeconds)
   }, [
     expertAxisPosition,
     expertTimeline,
@@ -478,16 +484,22 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     viewMode
   ])
 
-  // Criteria can share an instant -- serve marks both 髖關節前旋 and 肩膀旋轉朝前
-  // at the end of the motion -- so the nearest position can belong to more than
-  // one checkpoint, and all of them are current. Singling one out meant the
-  // other could never light up no matter where the playhead was.
-  const nearestCheckpointDistance = checkpoints.reduce(
-    (nearest, marker) => Math.min(nearest, Math.abs(marker.position - axisProgress)),
-    Number.POSITIVE_INFINITY
+  // Hold the indicator on the last checkpoint actually reached. A nearest-
+  // point rule switches to the next criterion halfway through a phase, before
+  // the corresponding frame has appeared. Criteria sharing one frame remain
+  // active together.
+  const reachedCheckpointPosition = checkpoints.reduce(
+    (latest, marker) =>
+      marker.position <= axisProgress + CHECKPOINT_REACHED_EPSILON
+        ? Math.max(latest, marker.position)
+        : latest,
+    Number.NEGATIVE_INFINITY
   )
+  const currentCheckpointPosition = Number.isFinite(reachedCheckpointPosition)
+    ? reachedCheckpointPosition
+    : (checkpoints[0]?.position ?? 0)
   const isCurrentCheckpoint = (position: number) =>
-    Math.abs(position - axisProgress) === nearestCheckpointDistance
+    Math.abs(position - currentCheckpointPosition) <= CHECKPOINT_REACHED_EPSILON
 
   return (
     // The player is a panel like any other: same surface, same border, same

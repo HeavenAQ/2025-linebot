@@ -6,13 +6,7 @@ import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 import AutoHeight from '@/components/ui/auto-height'
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
-import {
-  buildWristAccelerationAnchors,
-  expertMotionWindow,
-  expertRateAt,
-  expertTimeAt,
-  progressAtExpertTime
-} from '@/lib/expertAlignment'
+import { expertMotionWindow } from '@/lib/expertAlignment'
 import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -43,19 +37,6 @@ interface PauseInterval {
 }
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
-
-/**
- * Drift, in expert-video seconds, past which the expert is seeked outright
- * rather than eased back. A visible jump beats a long, obviously-out-of-step
- * convergence; below it, trimming the rate is invisible where a seek stutters.
- */
-const HARD_SEEK_DRIFT = 0.25
-
-/** Wall-clock seconds the rate trim aims to close a small drift over. */
-const DRIFT_CORRECTION_WINDOW = 0.5
-
-/** Slowest and fastest playback a browser will honour smoothly. */
-const clampRate = (rate: number) => Math.min(4, Math.max(0.25, rate))
 
 /** How often the scrubber's React state follows the playhead, in ms. */
 const PROGRESS_STATE_INTERVAL = 66
@@ -135,23 +116,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     playback.expert.motion_start_seconds,
     playback.expert.motion_end_seconds
   )
-  // Comparison uses exactly one semantic anchor: the maximum dominant-wrist
-  // acceleration point (`wrist_flick`).  The expert motion before and after
-  // contact is fitted independently to the learner, without a dense pose warp.
-  const alignmentAnchors = useMemo(
-    () =>
-      buildWristAccelerationAnchors(
-        playback.timeline,
-        playback.expert.timeline,
-        expertMotionStart,
-        expertMotionEnd
-      ),
-    [playback.timeline, playback.expert.timeline, expertMotionStart, expertMotionEnd]
-  )
+  const expertMotionSpan = Math.max(0.01, expertMotionEnd - expertMotionStart)
 
   const expertTimeFromMotionProgress = useCallback(
-    (position: number) => expertTimeAt(alignmentAnchors, position),
-    [alignmentAnchors]
+    (position: number) => expertMotionStart + clamp(position) * expertMotionSpan,
+    [expertMotionSpan, expertMotionStart]
   )
 
   const pauseAtTime = useCallback(
@@ -227,41 +196,17 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   )
 
   const syncExpert = useCallback(
-    (position: number, studentTime: number) => {
+    (_position: number, studentTime: number) => {
       const expert = expertRef.current
-      // Gated on the motion window rather than the duration: the window is what
-      // playback actually needs, and it is known before the clip has loaded.
       if (!expert || expertMotionEnd <= expertMotionStart) return
-      const target = expertTimeFromMotionProgress(position)
-      // Each segment has its own tempo relative to the student -- the two
-      // performances reach the same checkpoint at different points in their own
-      // clips -- so the expert runs at that segment's rate rather than 1x.
-      const base = expertRateAt(alignmentAnchors, position, motionDuration)
-      const drift = expert.currentTime - target
-      if (Math.abs(drift) > HARD_SEEK_DRIFT) {
-        expert.currentTime = target
-        if (Math.abs(expert.playbackRate - base) > 0.01) expert.playbackRate = base
-      } else {
-        // Residual drift is absorbed into the rate instead of a seek: running
-        // fractionally slow or fast for half a second closes it without the
-        // frame-skip a currentTime write causes mid-play.
-        const trimmed = clampRate(base - drift / DRIFT_CORRECTION_WINDOW)
-        if (Math.abs(expert.playbackRate - trimmed) > 0.01) expert.playbackRate = trimmed
-      }
+      expert.playbackRate = 1
       if (pauseAtTime(studentTime)) {
         expert.pause()
       } else if (playingRef.current && expert.paused) {
         void expert.play().catch(() => undefined)
       }
     },
-    [
-      alignmentAnchors,
-      expertMotionEnd,
-      expertMotionStart,
-      expertTimeFromMotionProgress,
-      motionDuration,
-      pauseAtTime
-    ]
+    [expertMotionEnd, expertMotionStart, pauseAtTime]
   )
 
   const seek = useCallback(
@@ -322,6 +267,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       }
       if (!student) return
       if (student.ended || progress >= 0.999) seek(0)
+      student.playbackRate = 1
+      expert.playbackRate = 1
+      if (expert.currentTime >= expertMotionEnd - 1 / 120) {
+        expert.currentTime = expertMotionStart
+      }
       void student.play().catch(() => {
         playingRef.current = false
         setPlaying(false)
@@ -350,7 +300,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         const expert = expertRef.current
         if (!expert || expertMotionEnd <= expertMotionStart) return
         const seconds = Math.min(expertMotionEnd, Math.max(expertMotionStart, expert.currentTime))
-        const next = progressAtExpertTime(alignmentAnchors, seconds)
+        const next = clamp((seconds - expertMotionStart) / expertMotionSpan)
         const now = performance.now()
         if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
           lastProgressAtRef.current = now
@@ -378,8 +328,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       updateCaption(student.currentTime, next)
     },
     [
-      alignmentAnchors,
       expertMotionEnd,
+      expertMotionSpan,
       expertMotionStart,
       expertOnly,
       motionProgressFromStudentTime,
@@ -422,7 +372,6 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const expertTimeline =
     playback.expert.timeline.length === playback.timeline.length ? playback.expert.timeline : null
   const onExpertAxis = viewMode === 'expert' && expertTimeline !== null
-  const expertMotionSpan = Math.max(0.01, expertMotionEnd - expertMotionStart)
   const expertAxisPosition = useCallback(
     (seconds: number) => clamp((seconds - expertMotionStart) / expertMotionSpan),
     [expertMotionSpan, expertMotionStart]
@@ -430,25 +379,50 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   const checkpoints = useMemo(() => {
     const source = onExpertAxis && expertTimeline ? expertTimeline : playback.timeline
-    return source.map((marker, index) => ({
-      id: marker.id,
-      label: marker.label,
-      // Where this checkpoint sits on the axis currently drawn.
-      position:
-        onExpertAxis && expertTimeline
-          ? expertAxisPosition(marker.timestamp_seconds)
-          : clamp(marker.normalized_position),
-      // Seeking always speaks student progress: the student video drives
-      // playback, and its position for checkpoint i lands the expert on that
-      // very same checkpoint.
-      seekTo: clamp(playback.timeline[index].normalized_position)
-    }))
-  }, [expertAxisPosition, expertTimeline, onExpertAxis, playback.timeline])
+    return source.map(marker => {
+      const studentMarker = playback.timeline.find(candidate => candidate.id === marker.id)
+      const expertMarker = playback.expert.timeline.find(candidate => candidate.id === marker.id)
+      return {
+        id: marker.id,
+        label: marker.label,
+        position:
+          onExpertAxis && expertTimeline
+            ? expertAxisPosition(marker.timestamp_seconds)
+            : clamp(marker.normalized_position),
+        studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+        studentSeconds: studentMarker?.timestamp_seconds,
+        expertSeconds: expertMarker?.timestamp_seconds
+      }
+    })
+  }, [
+    expertAxisPosition,
+    expertTimeline,
+    onExpertAxis,
+    playback.expert.timeline,
+    playback.timeline
+  ])
+
+  const seekCheckpoint = useCallback(
+    (marker: (typeof checkpoints)[number]) => {
+      const student = studentRef.current
+      const expert = expertRef.current
+      if (student && marker.studentSeconds !== undefined) {
+        student.currentTime = Math.min(studentDuration, Math.max(0, marker.studentSeconds))
+      }
+      if (expert && marker.expertSeconds !== undefined) {
+        expert.currentTime = Math.min(
+          expertMotionEnd,
+          Math.max(expertMotionStart, marker.expertSeconds)
+        )
+      }
+      setProgress(onExpertAxis ? marker.position : marker.studentPosition)
+      setCaption({ title: marker.label, body: '', live: false })
+    },
+    [checkpoints, expertMotionEnd, expertMotionStart, onExpertAxis, studentDuration]
+  )
 
   // The playhead, expressed on whichever axis is on screen.
-  const axisProgress = onExpertAxis
-    ? expertAxisPosition(expertTimeFromMotionProgress(progress))
-    : progress
+  const axisProgress = progress
 
   const seekOnAxis = useCallback(
     (position: number) => {
@@ -467,10 +441,10 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       }
       playingRef.current = false
       setPlaying(false)
-      setProgress(progressAtExpertTime(alignmentAnchors, seconds))
+      setProgress(clamp(position))
       updateExpertCaption(seconds)
     },
-    [alignmentAnchors, expertMotionSpan, expertMotionStart, onExpertAxis, seek, updateExpertCaption]
+    [expertMotionSpan, expertMotionStart, onExpertAxis, seek, updateExpertCaption]
   )
 
   useEffect(() => {
@@ -492,11 +466,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       )
       expert.playbackRate = 1
       expert.currentTime = seconds
-      setProgress(progressAtExpertTime(alignmentAnchors, seconds))
+      setProgress(expertAxisPosition(seconds))
       updateExpertCaption(seconds)
     }
   }, [
-    alignmentAnchors,
+    expertAxisPosition,
     expertMotionEnd,
     expertMotionStart,
     expertOnly,
@@ -672,7 +646,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               type="button"
               title={marker.label}
               aria-label={`前往${marker.label}`}
-              onClick={() => seekOnAxis(marker.position)}
+              onClick={() => seekCheckpoint(marker)}
               className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
               style={{ left: `${marker.position * 100}%` }}
             >
@@ -738,7 +712,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               <button
                 key={marker.id}
                 type="button"
-                onClick={() => seekOnAxis(marker.position)}
+                onClick={() => seekCheckpoint(marker)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
                   isCurrentCheckpoint(marker.position)
                     ? 'border-primary text-foreground'

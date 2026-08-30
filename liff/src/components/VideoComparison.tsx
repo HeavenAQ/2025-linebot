@@ -73,6 +73,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const previousViewModeRef = useRef<ViewMode>('both')
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [expertProgress, setExpertProgress] = useState(0)
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
@@ -220,6 +221,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         expert.currentTime = expertTimeFromMotionProgress(next)
       }
       setProgress(next)
+      setExpertProgress(next)
       if (cue) {
         setActiveCue(cue)
         setCaption({ title: cue.title, body: cue.feedback, live: true })
@@ -257,6 +259,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         ) {
           expert.currentTime = expertMotionStart
           setProgress(0)
+          setExpertProgress(0)
           updateExpertCaption(expertMotionStart)
         }
         void expert.play().catch(() => {
@@ -304,7 +307,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         const now = performance.now()
         if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
           lastProgressAtRef.current = now
-          setProgress(next)
+          setExpertProgress(next)
         }
         updateExpertCaption(seconds)
         if (expert.currentTime >= expertMotionEnd - 1 / 120) {
@@ -313,16 +316,22 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           playingRef.current = false
           setPlaying(false)
           setProgress(1)
+          setExpertProgress(1)
         }
         return
       }
       const student = studentRef.current
       if (!student) return
       const next = motionProgressFromStudentTime(student.currentTime)
+      const expert = expertRef.current
+      const nextExpert = expert
+        ? clamp((expert.currentTime - expertMotionStart) / expertMotionSpan)
+        : expertProgress
       const now = performance.now()
       if (force || now - lastProgressAtRef.current >= PROGRESS_STATE_INTERVAL) {
         lastProgressAtRef.current = now
         setProgress(next)
+        setExpertProgress(nextExpert)
       }
       syncExpert(next, student.currentTime)
       updateCaption(student.currentTime, next)
@@ -332,6 +341,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertMotionSpan,
       expertMotionStart,
       expertOnly,
+      expertProgress,
       motionProgressFromStudentTime,
       syncExpert,
       updateCaption,
@@ -352,6 +362,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     playingRef.current = false
     setPlaying(false)
     setProgress(0)
+    setExpertProgress(0)
     setStudentDuration(playback.student_video.duration_seconds)
     setExpertDuration(playback.expert.video.duration_seconds)
     setActiveCue(playback.coaching_cues[0] ?? null)
@@ -389,24 +400,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         return {
           id: marker.id,
           label: marker.label,
-          position:
-            onExpertAxis && expertTimeline
-              ? expertAxisPosition(marker.timestamp_seconds)
-              : clamp(studentMarker?.normalized_position ?? marker.normalized_position),
+          position: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
           studentPosition: clamp(studentMarker?.normalized_position ?? marker.normalized_position),
           studentSeconds: studentMarker?.timestamp_seconds,
           expertSeconds: expertMarker?.timestamp_seconds,
+          expertPosition: expertMarker
+            ? expertAxisPosition(expertMarker.timestamp_seconds)
+            : clamp(marker.normalized_position),
           expertOrderSeconds: expertMarker?.timestamp_seconds ?? marker.timestamp_seconds
         }
       })
       .sort((left, right) => left.expertOrderSeconds - right.expertOrderSeconds)
-  }, [
-    expertAxisPosition,
-    expertTimeline,
-    onExpertAxis,
-    playback.expert.timeline,
-    playback.timeline
-  ])
+  }, [expertAxisPosition, expertTimeline, playback.expert.timeline, playback.timeline])
 
   const seekCheckpoint = useCallback(
     (marker: (typeof checkpoints)[number]) => {
@@ -421,36 +426,25 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           Math.max(expertMotionStart, marker.expertSeconds)
         )
       }
-      setProgress(onExpertAxis ? marker.position : marker.studentPosition)
+      setProgress(marker.studentPosition)
+      setExpertProgress(marker.expertPosition)
       setCaption({ title: marker.label, body: '', live: false })
     },
-    [checkpoints, expertMotionEnd, expertMotionStart, onExpertAxis, studentDuration]
+    [checkpoints, expertMotionEnd, expertMotionStart, studentDuration]
   )
 
-  // The playhead, expressed on whichever axis is on screen.
-  const axisProgress = progress
-
-  const seekOnAxis = useCallback(
+  const seekExpertTrack = useCallback(
     (position: number) => {
-      if (!onExpertAxis) {
-        seek(position)
-        return
-      }
       const seconds = expertMotionStart + clamp(position) * expertMotionSpan
       const expert = expertRef.current
-      const student = studentRef.current
-      student?.pause()
       if (expert) {
-        expert.pause()
         expert.playbackRate = 1
         expert.currentTime = seconds
       }
-      playingRef.current = false
-      setPlaying(false)
-      setProgress(clamp(position))
-      updateExpertCaption(seconds)
+      setExpertProgress(clamp(position))
+      if (expertOnly) updateExpertCaption(seconds)
     },
-    [expertMotionSpan, expertMotionStart, onExpertAxis, seek, updateExpertCaption]
+    [expertMotionSpan, expertMotionStart, expertOnly, updateExpertCaption]
   )
 
   useEffect(() => {
@@ -473,6 +467,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expert.playbackRate = 1
       expert.currentTime = seconds
       setProgress(expertAxisPosition(seconds))
+      setExpertProgress(expertAxisPosition(seconds))
       updateExpertCaption(seconds)
     }
   }, [
@@ -484,22 +479,34 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     viewMode
   ])
 
-  // Hold the indicator on the last checkpoint actually reached. A nearest-
-  // point rule switches to the next criterion halfway through a phase, before
-  // the corresponding frame has appeared. Criteria sharing one frame remain
-  // active together.
-  const reachedCheckpointPosition = checkpoints.reduce(
-    (latest, marker) =>
-      marker.position <= axisProgress + CHECKPOINT_REACHED_EPSILON
-        ? Math.max(latest, marker.position)
-        : latest,
-    Number.NEGATIVE_INFINITY
+  const reachedCheckpointPosition = (
+    current: number,
+    positionOf: (marker: (typeof checkpoints)[number]) => number
+  ) => {
+    const reached = checkpoints.reduce((latest, marker) => {
+      const position = positionOf(marker)
+      return position <= current + CHECKPOINT_REACHED_EPSILON ? Math.max(latest, position) : latest
+    }, Number.NEGATIVE_INFINITY)
+    return Number.isFinite(reached) ? reached : checkpoints[0] ? positionOf(checkpoints[0]) : 0
+  }
+  const studentCheckpointPosition = reachedCheckpointPosition(
+    progress,
+    marker => marker.studentPosition
   )
-  const currentCheckpointPosition = Number.isFinite(reachedCheckpointPosition)
-    ? reachedCheckpointPosition
-    : (checkpoints[0]?.position ?? 0)
-  const isCurrentCheckpoint = (position: number) =>
-    Math.abs(position - currentCheckpointPosition) <= CHECKPOINT_REACHED_EPSILON
+  const expertCheckpointPosition = reachedCheckpointPosition(
+    expertProgress,
+    marker => marker.expertPosition
+  )
+  const isCurrentCheckpoint = (marker: (typeof checkpoints)[number]) => {
+    const position = expertOnly ? marker.expertPosition : marker.studentPosition
+    const current = expertOnly ? expertCheckpointPosition : studentCheckpointPosition
+    return Math.abs(position - current) <= CHECKPOINT_REACHED_EPSILON
+  }
+  const checkpointDifferenceLabel = (marker: (typeof checkpoints)[number]) => {
+    const difference = marker.studentPosition - marker.expertPosition
+    if (Math.abs(difference) < 0.015) return '時機接近專家'
+    return `學員${difference > 0 ? '較晚' : '較早'} ${Math.round(Math.abs(difference) * 100)}%`
+  }
 
   return (
     // The player is a panel like any other: same surface, same border, same
@@ -624,47 +631,100 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       </AutoHeight>
 
       <div className="p-4">
-        <div className="relative h-9">
-          <input
-            aria-label={onExpertAxis ? '專家動作時間軸' : '動作時間軸'}
-            type="range"
-            min="0"
-            max="1000"
-            value={Math.round(axisProgress * 1000)}
-            onChange={event => seekOnAxis(Number(event.target.value) / 1000)}
-            className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
-          />
-          {!onExpertAxis &&
-            playback.coaching_cues.map((cue, index) => (
-              <button
-                key={`${cue.normalized_frame}-${index}`}
-                type="button"
-                title={cue.title}
-                aria-label={`前往問題：${cue.title}`}
-                onClick={() => seek(cue.normalized_position, cue)}
-                className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive transition-[left] duration-200"
-                style={{
-                  left: `${
-                    (onExpertAxis
-                      ? expertAxisPosition(expertTimeFromMotionProgress(cue.normalized_position))
-                      : clamp(cue.normalized_position)) * 100
-                  }%`
-                }}
-              />
-            ))}
-          {checkpoints.map((marker, index) => (
-            <button
-              key={marker.id}
-              type="button"
-              title={marker.label}
-              aria-label={`前往${marker.label}`}
-              onClick={() => seekCheckpoint(marker)}
-              className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm transition-[left] duration-200"
-              style={{ left: `${marker.position * 100}%` }}
+        <div className="relative space-y-3">
+          {showStudent && showExpert && (
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 100 48"
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute left-14 right-0 top-4 z-0 h-12 w-[calc(100%-3.5rem)] overflow-visible"
             >
-              {index + 1}
-            </button>
-          ))}
+              {checkpoints.map(marker => (
+                <line
+                  key={marker.id}
+                  x1={marker.studentPosition * 100}
+                  y1="0"
+                  x2={marker.expertPosition * 100}
+                  y2="48"
+                  vectorEffect="non-scaling-stroke"
+                  className="stroke-primary/30"
+                  strokeWidth="1.5"
+                  strokeDasharray="3 3"
+                />
+              ))}
+            </svg>
+          )}
+
+          {showStudent && (
+            <div className="relative z-10 flex h-9 items-center gap-2">
+              <span className="w-12 shrink-0 text-xs font-semibold text-primary">學員</span>
+              <div className="relative h-8 flex-1">
+                <input
+                  aria-label="學員動作時間軸"
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value={Math.round(progress * 1000)}
+                  onChange={event => seek(Number(event.target.value) / 1000)}
+                  className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-primary"
+                />
+                {playback.coaching_cues.map((cue, index) => (
+                  <button
+                    key={`${cue.normalized_frame}-${index}`}
+                    type="button"
+                    title={cue.title}
+                    aria-label={`前往問題：${cue.title}`}
+                    onClick={() => seek(cue.normalized_position, cue)}
+                    className="absolute top-0 h-4 w-4 -translate-x-2 rounded-full border-2 border-card bg-destructive"
+                    style={{ left: `${clamp(cue.normalized_position) * 100}%` }}
+                  />
+                ))}
+                {checkpoints.map((marker, index) => (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    title={`學員：${marker.label}`}
+                    aria-label={`前往學員與專家的${marker.label}`}
+                    onClick={() => seekCheckpoint(marker)}
+                    className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm"
+                    style={{ left: `${marker.studentPosition * 100}%` }}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {showExpert && (
+            <div className="relative z-10 flex h-9 items-center gap-2">
+              <span className="w-12 shrink-0 text-xs font-semibold text-success">專家</span>
+              <div className="relative h-8 flex-1">
+                <input
+                  aria-label="專家動作時間軸"
+                  type="range"
+                  min="0"
+                  max="1000"
+                  value={Math.round(expertProgress * 1000)}
+                  onChange={event => seekExpertTrack(Number(event.target.value) / 1000)}
+                  className="absolute inset-x-0 top-2 h-2 w-full cursor-pointer accent-success"
+                />
+                {checkpoints.map((marker, index) => (
+                  <button
+                    key={marker.id}
+                    type="button"
+                    title={`專家：${marker.label}`}
+                    aria-label={`前往學員與專家的${marker.label}`}
+                    onClick={() => seekCheckpoint(marker)}
+                    className="absolute top-0 z-10 flex h-5 w-5 -translate-x-1/2 items-center justify-center rounded-full border-2 border-card bg-success text-[10px] font-semibold text-white shadow-sm"
+                    style={{ left: `${marker.expertPosition * 100}%` }}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -682,13 +742,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             size="icon"
             title="重新播放"
             aria-label="重新播放"
-            onClick={() => seekOnAxis(0)}
+            onClick={() => seek(0)}
           >
             <RotateCcw size={17} />
           </Button>
           <span className="ml-1 text-xs tabular-nums text-muted-foreground">
             {onExpertAxis
-              ? `${formatTime(axisProgress * expertMotionSpan)} / ${formatTime(expertMotionSpan)}`
+              ? `${formatTime(expertProgress * expertMotionSpan)} / ${formatTime(expertMotionSpan)}`
               : `${formatTime(studentTimeFromMotionProgress(progress))} / ${formatTime(studentDuration)}`}
           </span>
           <Button
@@ -726,7 +786,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 type="button"
                 onClick={() => seekCheckpoint(marker)}
                 className={`flex min-w-[9.5rem] snap-start items-center gap-2 border-b-2 px-1 py-2 text-left text-xs transition-colors ${
-                  isCurrentCheckpoint(marker.position)
+                  isCurrentCheckpoint(marker)
                     ? 'border-primary text-foreground'
                     : 'border-transparent text-muted-foreground'
                 }`}
@@ -734,7 +794,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success text-[10px] font-semibold text-white">
                   {index + 1}
                 </span>
-                <span className="leading-4">{marker.label}</span>
+                <span className="leading-4">
+                  <span className="block">{marker.label}</span>
+                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                    {checkpointDifferenceLabel(marker)}
+                  </span>
+                </span>
               </button>
             ))}
           </div>

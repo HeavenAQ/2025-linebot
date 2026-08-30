@@ -55,32 +55,31 @@ func supportedSkillHistory(history []commons.SkillHistory) []commons.SkillHistor
 	return supported
 }
 
-// focusSkill picks the skill a learner should work on this week: the one whose
-// latest attempt scored lowest, since that is what they are carrying into the
-// next lesson. Ties go to the weaker recent average, then to SkillOrder so the
-// choice never depends on map ordering. Callers pass history already narrowed
-// by supportedSkillHistory.
+// focusSkill picks the skill a learner should work on this week: the one they
+// practised most recently. A preview arrives before the next lesson, so it is
+// most use when it follows on from the session they just had, rather than from
+// whichever skill is their weakest across the whole term -- a skill they have
+// not touched in weeks is not what they are carrying in.
+//
+// Scores arrive newest first, so each skill's latest attempt is Scores[0], and
+// the date format is zero-padded throughout, so it orders lexically. Ties --
+// two skills graded in the same minute -- go to the lower of the two, then to
+// SkillOrder, so the choice never depends on map ordering. Callers pass
+// history already narrowed by supportedSkillHistory.
 func focusSkill(history []commons.SkillHistory) commons.SkillHistory {
 	best := history[0]
 	for _, candidate := range history[1:] {
-		current, currentAverage := best.Scores[0].TotalGrade, averageGrade(best)
-		next, nextAverage := candidate.Scores[0].TotalGrade, averageGrade(candidate)
-		if next < current || (next == current && nextAverage < currentAverage) {
+		latest, candidateLatest := best.Scores[0], candidate.Scores[0]
+		if candidateLatest.Date > latest.Date {
+			best = candidate
+			continue
+		}
+		if candidateLatest.Date == latest.Date &&
+			candidateLatest.TotalGrade < latest.TotalGrade {
 			best = candidate
 		}
 	}
 	return best
-}
-
-func averageGrade(skill commons.SkillHistory) float64 {
-	if len(skill.Scores) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, score := range skill.Scores {
-		total += score.TotalGrade
-	}
-	return total / float64(len(skill.Scores))
 }
 
 // previewFocus reads a learner's history and picks the skill a preview should

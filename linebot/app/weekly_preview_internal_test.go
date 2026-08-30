@@ -10,43 +10,54 @@ import (
 )
 
 func history(skill string, grades ...float64) commons.SkillHistory {
+	return historyOn(skill, "2026-08-01-10-00", grades...)
+}
+
+// historyOn dates the latest attempt, which is what decides the focus.
+func historyOn(skill, latest string, grades ...float64) commons.SkillHistory {
 	scores := make([]commons.SkillScore, 0, len(grades))
-	for _, grade := range grades {
-		scores = append(scores, commons.SkillScore{Date: "2026-08-01-10-00", TotalGrade: grade})
+	for index, grade := range grades {
+		date := latest
+		if index > 0 {
+			date = "2026-07-01-10-00"
+		}
+		scores = append(scores, commons.SkillScore{Date: date, TotalGrade: grade})
 	}
 	return commons.SkillHistory{Skill: skill, Scores: scores}
 }
 
-func TestFocusSkillPicksTheWeakestLatestAttempt(t *testing.T) {
+// The preview lands before the next lesson, so it follows the session the
+// learner just had -- not whichever skill scores worst across the term.
+func TestFocusSkillPicksTheMostRecentlyPractisedSkill(t *testing.T) {
 	t.Parallel()
 
 	focus := focusSkill([]commons.SkillHistory{
-		history("serve", 88, 84),
-		history("smash", 61, 70),
+		historyOn("serve", "2026-08-28-09-00", 88, 84),
+		historyOn("smash", "2026-08-20-09-00", 61, 70),
 	})
 
-	require.Equal(t, "smash", focus.Skill)
+	require.Equal(t, "serve", focus.Skill)
 }
 
-// A learner may have scored well once and be struggling since; the latest
-// attempt is what they carry into the next lesson.
-func TestFocusSkillPrefersTheLatestOverTheBestAttempt(t *testing.T) {
+// A high score does not move the focus off the session they just did.
+func TestFocusSkillIgnoresGradeWhenOneSkillIsMoreRecent(t *testing.T) {
 	t.Parallel()
 
 	focus := focusSkill([]commons.SkillHistory{
-		history("serve", 95, 40),
-		history("smash", 66, 68),
+		historyOn("serve", "2026-08-28-09-00", 95, 40),
+		historyOn("smash", "2026-08-27-09-00", 12, 68),
 	})
 
-	require.Equal(t, "smash", focus.Skill)
+	require.Equal(t, "serve", focus.Skill)
 }
 
-func TestFocusSkillBreaksTiesOnRecentAverage(t *testing.T) {
+// Two skills graded in the same minute: the weaker one is the useful preview.
+func TestFocusSkillBreaksSameMinuteTiesOnTheLowerGrade(t *testing.T) {
 	t.Parallel()
 
 	focus := focusSkill([]commons.SkillHistory{
-		history("serve", 70, 90),
-		history("smash", 70, 60),
+		historyOn("serve", "2026-08-28-09-00", 70, 90),
+		historyOn("smash", "2026-08-28-09-00", 55, 60),
 	})
 
 	require.Equal(t, "smash", focus.Skill)
@@ -100,8 +111,6 @@ func TestSupportedSkillHistoryDropsEntriesItCannotReasonAbout(t *testing.T) {
 func TestAverageGradeIgnoresEmptyHistories(t *testing.T) {
 	t.Parallel()
 
-	require.Zero(t, averageGrade(commons.SkillHistory{Skill: "serve"}))
-	require.InDelta(t, 75.0, averageGrade(history("serve", 70, 80)), 1e-9)
 }
 
 // The dedupe key has to name the same week for every day of that week,

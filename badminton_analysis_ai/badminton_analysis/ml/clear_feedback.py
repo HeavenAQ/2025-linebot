@@ -469,6 +469,13 @@ def prompt_context(
         if float(item.get("maximum", 0.0)) - float(item.get("score", 0.0))
         >= 10.0
     ]
+    feedback_candidate_criteria = [
+        str(item["rule_reference"])
+        for item in priority_criteria
+        if float(item.get("score", 0.0))
+        / max(float(item.get("maximum", 1.0)), 1e-6)
+        < 0.8
+    ]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
         "skill": resolved_spec.slug,
@@ -497,6 +504,7 @@ def prompt_context(
         "maximum_problem_count": maximum_problem_count,
         "minimum_problem_count_when_nonempty": minimum_problem_count,
         "required_priority_criteria_when_nonempty": required_priority_criteria,
+        "feedback_candidate_criteria": feedback_candidate_criteria,
         "criterion_priority_supporting_only": priority_criteria,
         "correction_distance_grade": correction_grade,
         "criterion_allowed_frames": {
@@ -538,6 +546,9 @@ def build_response_input(
     required_priority_criteria = list(
         context.get("required_priority_criteria_when_nonempty", [])
     )
+    feedback_candidate_criteria = list(
+        context.get("feedback_candidate_criteria", [])
+    )
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
@@ -548,6 +559,8 @@ def build_response_input(
                 f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
                 f"若確認至少一項問題，必須回報至少{minimum_problem_count}項不同標準；"
                 f"並且必須包含重大加權缺失{required_priority_criteria}，逐項由影像驗證。"
+                f"只能從未達標準的{feedback_candidate_criteria}選擇問題；"
+                "已達八成的標準不得列為問題。"
                 "只有影像清楚支持時才可列為問題；若動作符合全部標準，problems必須為空陣列，"
                 "不得為了配合診斷分數而勉強產生建議。"
                 "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"

@@ -174,6 +174,46 @@ def test_low_score_feedback_must_cover_largest_weighted_deficit() -> None:
         )
 
 
+def test_feedback_rejects_a_criterion_that_already_passed() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(
+        spec, (0.0, 5.0, 5.0, 4.0, 12.0, 20.0)
+    )
+    chosen_rules = (spec.rule("weight_transfer"), spec.rule("shoulder_rotation"))
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心轉移與隨揮收拍動作仍需依照關鍵畫面改善。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生動作與修正骨架仍有明顯差距。",
+                "frame_index": PHASES[rule.allowed_anchor_indices[-1]],
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+            for rule in chosen_rules
+        ],
+    }
+    samples = [
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec)
+        for rule in chosen_rules
+    ]
+
+    with pytest.raises(ValueError, match="shoulder_rotation"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=samples,
+        )
+
+
 def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
@@ -286,7 +326,7 @@ def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
 def test_normalize_analysis_accepts_exact_criterion_title_as_rule_reference() -> None:
     spec = get_skill_spec(Skill.CLEAR)
     correction_grade = _correction_grade(
-        spec, tuple(rule.maximum for rule in spec.rules)
+        spec, (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
     )
     rule = spec.rules[0]
     analysis = {

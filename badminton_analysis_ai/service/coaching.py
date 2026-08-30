@@ -213,6 +213,18 @@ class CoachingGenerator:
             )
         if len(set(references)) != len(references):
             raise ValueError("feedback problems must use distinct criteria")
+        passed_references = {
+            str(item["rule_reference"])
+            for item in correction_grade["criteria"]
+            if float(item["score"]) / max(float(item["maximum"]), 1e-6)
+            >= 0.8
+        }
+        invalid_passed = sorted(set(references) & passed_references)
+        if invalid_passed:
+            raise ValueError(
+                "feedback must not coach criteria that already passed: "
+                + ", ".join(invalid_passed)
+            )
         priority_criteria = sorted(
             correction_grade["criteria"], key=_criterion_priority
         )

@@ -49,13 +49,14 @@ def test_serve_and_smash_backends_enable_ankle_spine_projection(
     assert pipeline.expert_bank is sentinel_bank
     assert set(pipeline.loaded_skills) == {Skill.SERVE, Skill.SMASH}
     assert [skill for skill, _ in created] == [Skill.SERVE, Skill.SMASH]
-    for _, contract in created:
+    for skill, contract in created:
         assert contract == {
             "device": "auto",
             "candidates": 8,
             "seed": 19,
             "generation_phase_contract": "eimd_v3",
             "align_ankle_spine_view": True,
+            "current_smash": skill == Skill.SMASH,
         }
 
 

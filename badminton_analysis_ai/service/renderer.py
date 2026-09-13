@@ -1330,6 +1330,8 @@ def render_correction_video(
     pause_seconds: float = 0.0,
     fixed_hierarchical_placement: bool = False,
     constrained_hierarchical_placement: bool = False,
+    projected_corrected_pixels: NDArray[np.float32] | None = None,
+    generated_source_window: tuple[int, int, int] | None = None,
 ) -> None:
     start, _, end = window
     target_frames = len(original)
@@ -1339,6 +1341,11 @@ def render_correction_video(
     if not 0 <= start <= end < source_frame_count:
         raise ValueError("analysis window falls outside the source video")
     window_frame_count = end - start + 1
+    if projected_corrected_pixels is not None:
+        projected_corrected_pixels = np.asarray(projected_corrected_pixels, dtype=np.float32)
+        if (projected_corrected_pixels.shape != (window_frame_count, 17, 2)
+                or not np.isfinite(projected_corrected_pixels).all()):
+            raise ValueError("Scored pixel overlay must exactly cover the render source window")
     raw_2d, raw_confidence = _prepare_detected_pose_for_render(tracking)
     if handedness == Handedness.LEFT:
         raw_2d, raw_confidence = _canonicalize_left(raw_2d, raw_confidence)
@@ -1376,7 +1383,7 @@ def render_correction_video(
         or corrected_root_values.shape != (window_frame_count, 2)
     ):
         raise ValueError("resampled root trajectories must have shape (T, 2)")
-    if skill == Skill.SMASH:
+    if skill == Skill.SMASH and projected_corrected_pixels is None:
         corrected_timeline, corrected_root_values, _ = _align_smash_contact_timeline(
             corrected_timeline,
             corrected_root_values,
@@ -1394,7 +1401,17 @@ def render_correction_video(
         raise RuntimeError(f"could not open output writer: {raw_path}")
     fixed_corrected_pixels: NDArray[np.float32] | None = None
     fixed_display_masks: NDArray[np.float32] | None = None
-    if fixed_hierarchical_placement or constrained_hierarchical_placement:
+    if projected_corrected_pixels is not None:
+        # Already phase-aligned, projected, smoothed, and transported by the
+        # scorer. Never fit or smooth again in this presentation-only path.
+        fixed_corrected_pixels = projected_corrected_pixels
+        fixed_display_masks = detected_display_confidence[start:end+1].copy()
+        if generated_source_window is not None:
+            # Show actual source evidence in the lead-in, not a fabricated
+            # generated pose. Tail continuation is explicitly display-only.
+            first_generated = generated_source_window[0] - start
+            fixed_display_masks[:max(0, first_generated)] = 0
+    elif fixed_hierarchical_placement or constrained_hierarchical_placement:
         mapped = []
         masks = []
         for window_index in range(window_frame_count):

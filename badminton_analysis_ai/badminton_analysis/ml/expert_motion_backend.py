@@ -472,6 +472,7 @@ class GeneratedMotionInference:
     window: tuple[int, int, int]
     source_frame_indices: NDArray[np.int64]
     diagnostics: dict[str, Any]
+    corrected_pixels: NDArray[np.float32] | None = None
 
 
 class ExpertMotionGeneratorBackend:
@@ -495,6 +496,7 @@ class ExpertMotionGeneratorBackend:
         align_ankle_spine_view: bool = False,
         hierarchical_placement_mode: Literal["fixed", "constrained"] = "fixed",
         generation_phase_contract: Literal["current", "eimd_v3"] = "eimd_v3",
+        current_smash: bool = False,
     ) -> None:
         if skill not in {Skill.SERVE, Skill.SMASH}:
             raise ValueError("generated expert motion supports serve and smash")
@@ -547,6 +549,15 @@ class ExpertMotionGeneratorBackend:
             )
         self.hierarchical_placement_mode = hierarchical_placement_mode
         self.generation_phase_contract = generation_phase_contract
+        self.current_smash_scorer = None
+        if current_smash and skill == Skill.SMASH:
+            from badminton_analysis.ml.smash_current_runtime import CurrentSmashScorer
+            self.current_smash_scorer = CurrentSmashScorer(
+                root / "checkpoint_scorer_v1", generator_path=self.model_path,
+                trajectory_path=trajectory_score_path,
+                device=next(self.bundle.network.parameters()).device,
+                candidates=candidates, seed=seed,
+            )
 
     def prepare(
         self,
@@ -561,7 +572,8 @@ class ExpertMotionGeneratorBackend:
             self.skill,
             filename,
             target_frames=self.target_frames,
-            phase_contract=self.generation_phase_contract,
+            phase_contract=("current" if self.current_smash_scorer is not None
+                            else self.generation_phase_contract),
         )
 
     def infer(
@@ -574,6 +586,7 @@ class ExpertMotionGeneratorBackend:
             MotionSample, tuple[int, int, int], NDArray[np.int64]
         ]
         | None = None,
+        fps: float = 30.0,
     ) -> GeneratedMotionInference:
         sample, window, source_indices = (
             prepared
@@ -596,8 +609,10 @@ class ExpertMotionGeneratorBackend:
             candidates=self.candidates,
             seed=self.seed,
         )
+        raw_correction = correction
+        corrected_pixels = None
         view_rotation = None
-        if self.align_ankle_spine_view:
+        if self.align_ankle_spine_view and self.current_smash_scorer is None:
             preparation = next(
                 window for window in self.spec.phase_windows
                 if window.name == "preparation"
@@ -650,6 +665,7 @@ class ExpertMotionGeneratorBackend:
         if (
             self.smash_semantic_distribution is not None
             and self.smash_semantic_variant is not None
+            and self.current_smash_scorer is None
         ):
             score = _score_smash_correction(
                 score,
@@ -660,12 +676,23 @@ class ExpertMotionGeneratorBackend:
                 trajectory_scorer=self.smash_trajectory_scorer,
                 spec=self.spec,
             )
+        if self.current_smash_scorer is not None:
+            from badminton_analysis.ml.skeleton_normalization import tracking_body_arrays
+            full, full_confidence = tracking_body_arrays(tracking)
+            score, corrected_pixels, window = self.current_smash_scorer.score(
+                sample=sample, correction=raw_correction,
+                source_phases=source_indices[sample.phase_indices],
+                native_phases=self.bundle.canonical_phase_indices, window=window,
+                poses=full, confidence=full_confidence, handedness=handedness,
+                spec=self.spec, trajectory_scorer=self.smash_trajectory_scorer,
+                score_baseline=_score_smash_correction, fps=fps,
+            )
         # EIMD-v3 is the approved visible motion.  The older score-conditioned
         # blend was a presentation policy that could pull a valid generated
         # follow-through back toward the learner (notably removing the serve
         # forward lean).  Keep it only for the legacy/current generation
         # contract; scoring itself has already completed above.
-        if self.generation_phase_contract == "current":
+        if self.generation_phase_contract == "current" and self.current_smash_scorer is None:
             correction = apply_score_conditioned_correction(
                 correction,
                 score,
@@ -718,7 +745,10 @@ class ExpertMotionGeneratorBackend:
                 next(self.bundle.network.parameters()).device
             ),
             "skeleton_tensorrt_active": 0.0,
-            "ankle_spine_view_alignment_active": float(view_rotation is not None),
+            "current_smash_checkpoint_scorer_active": float(self.current_smash_scorer is not None),
+            "ankle_spine_view_alignment_active": float(
+                view_rotation is not None or self.current_smash_scorer is not None
+            ),
             "expert_wrist_velocity_limit": float(
                 self.bundle.expert_wrist_velocity_limit
             ),
@@ -768,4 +798,14 @@ class ExpertMotionGeneratorBackend:
             window=window,
             source_frame_indices=source_indices,
             diagnostics=diagnostics,
+            corrected_pixels=corrected_pixels,
         )
+
+    def prepare_skill_support(self, tracking, handedness, filename):
+        """The unchanged skill-label bank was calibrated with EIMD-v3 windows.
+
+        Do not feed the new grading windows to that independently frozen gate.
+        This hypothesis never supplies score or rendering frame indices.
+        """
+        return prepare_expert_motion_sample(tracking, handedness, self.skill,
+            filename, target_frames=self.target_frames, phase_contract="eimd_v3")

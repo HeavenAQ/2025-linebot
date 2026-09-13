@@ -22,6 +22,7 @@ from badminton_analysis.ml.expert_phase_baseline import (
 )
 from badminton_analysis.ml.skeleton_scoring import BONES
 from badminton_analysis.models.types import Handedness, Skill, TrackingData
+from service.coaching_timeline import coaching_video_frame
 
 _LEFT_RIGHT_PAIRS = (
     (1, 2), (3, 4), (5, 6), (7, 8),
@@ -1450,9 +1451,7 @@ def render_correction_video(
     try:
         feedback_by_frame: dict[int, list[dict[str, Any]]] = {}
         for issue in feedback or []:
-            source_issue_frame = _normalized_to_source_frame(
-                int(issue["frame_index"]), target_frames, start, end
-            )
+            source_issue_frame = start + coaching_video_frame(issue, target_frames, end - start + 1)
             feedback_by_frame.setdefault(source_issue_frame, []).append(issue)
         # The API returns the same reviewable clip that was scored, not the
         # unanalysed lead-in/tail of the upload.  The localhost EIMD-v3 oracle

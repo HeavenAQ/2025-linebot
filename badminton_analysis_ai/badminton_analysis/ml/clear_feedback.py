@@ -100,6 +100,16 @@ class RawSkillFeedbackAnalysis(BaseModel):
     _overall_in_chinese = field_validator("overall_feedback")(_contains_chinese)
 
 
+class SmashEvidenceProblem(FeedbackProblem):
+    # Evidence IDs beyond 63 are private to the exact-frame smash request.
+    # The returned playback frame is converted back to the public 0..63 clock.
+    frame_index: int = Field(ge=0)
+
+
+class RawSmashEvidenceAnalysis(RawSkillFeedbackAnalysis):
+    problems: list[SmashEvidenceProblem] = Field(max_length=3)
+
+
 class SkillFeedbackAnalysis(BaseModel):
     skill: str
     language: Literal["zh-TW"]
@@ -125,6 +135,10 @@ class SkillFeedbackAnalysis(BaseModel):
         return self
 
 
+class SmashEvidenceAnalysis(SkillFeedbackAnalysis):
+    problems: list[SmashEvidenceProblem] = Field(max_length=3)
+
+
 class ClearFeedbackAnalysis(SkillFeedbackAnalysis):
     skill: Literal["clear"] = "clear"
 
@@ -138,9 +152,10 @@ class SampledFrame:
     checkpoint_role_zh_tw: str
     image_path: Path
     data_url: str
+    criterion_ids: tuple[str, ...] = ()
 
-    def manifest(self) -> dict[str, str | int | float]:
-        return {
+    def manifest(self) -> dict[str, Any]:
+        result = {
             "frame_index": self.frame_index,
             "source_frame_index": self.source_frame_index,
             "timestamp_seconds": self.timestamp_seconds,
@@ -148,6 +163,9 @@ class SampledFrame:
             "checkpoint_role_zh_tw": self.checkpoint_role_zh_tw,
             "image_path": str(self.image_path),
         }
+        if self.criterion_ids:
+            result["criterion_ids"] = list(self.criterion_ids)
+        return result
 
 
 def _validated_phase_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
@@ -368,6 +386,7 @@ def sample_video_frames(
     frame_indices: Sequence[int] | None = None,
     max_width: int = 640,
     jpeg_quality: int = 85,
+    checkpoint_evidence: dict[str, Any] | None = None,
 ) -> list[SampledFrame]:
     phases = _validated_phase_indices(phase_indices)
     resolved_spec = spec or get_skill_spec(Skill.CLEAR)
@@ -381,6 +400,24 @@ def sample_video_frames(
     selected_frames = (
         feedback_frame_indices(phases) if frame_indices is None else frame_indices
     )
+    plan = [(int(index), source_mapping[int(index)], ()) for index in selected_frames]
+    if checkpoint_evidence is not None:
+        if resolved_spec.skill != Skill.SMASH:
+            raise ValueError("scorer-owned checkpoint evidence is currently smash-only")
+        if set(checkpoint_evidence) != {rule.id for rule in resolved_spec.rules}:
+            raise ValueError("checkpoint evidence must cover all smash criteria")
+        owned: dict[int, list[str]] = {}
+        for rule in resolved_spec.rules:
+            frames = checkpoint_evidence[rule.id]["output_frame_indices"]
+            if not frames or any(type(frame) is not int for frame in frames):
+                raise ValueError("checkpoint evidence needs nonempty integer output frames")
+            for frame in frames:
+                if not 0 <= frame <= source_mapping[-1]:
+                    raise ValueError("checkpoint evidence is outside the scored video window")
+                owned.setdefault(frame, []).append(rule.id)
+        plan.extend((64 + index, frame, tuple(dict.fromkeys(owners)))
+                    for index, (frame, owners) in enumerate(sorted(owned.items())))
+        plan.sort(key=lambda item: (item[1], item[0]))
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise ValueError(f"could not open video: {video_path}")
@@ -395,8 +432,7 @@ def sample_video_frames(
         for old_frame in output_dir.glob("frame_*.jpg"):
             old_frame.unlink()
         samples: list[SampledFrame] = []
-        for frame_index in selected_frames:
-            source_frame_index = source_mapping[int(frame_index)]
+        for frame_index, source_frame_index, criterion_ids in plan:
             if not 0 <= source_frame_index < frame_count:
                 raise ValueError(
                     f"requested source frame {source_frame_index}, but video has "
@@ -422,17 +458,25 @@ def sample_video_frames(
                     frame_index=frame_index,
                     source_frame_index=source_frame_index,
                     timestamp_seconds=source_frame_index / fps,
-                    phase=phase_for_frame(frame_index, phases, resolved_spec),
-                    checkpoint_role_zh_tw=checkpoint_role(
-                        frame_index, phases, resolved_spec
-                    ),
+                    phase=(resolved_spec.rule(criterion_ids[0]).phase if criterion_ids
+                           else phase_for_frame(frame_index, phases, resolved_spec)),
+                    checkpoint_role_zh_tw=("評分區間證據：" + "、".join(
+                        resolved_spec.rule(reference).name_zh_tw for reference in criterion_ids)
+                        if criterion_ids else checkpoint_role(frame_index, phases, resolved_spec)),
                     image_path=image_path,
                     data_url=data_url,
+                    criterion_ids=criterion_ids,
                 )
             )
         return samples
     finally:
         capture.release()
+
+
+def criterion_evidence_frames(rule, samples, anchors):
+    """Exact scorer evidence takes precedence over legacy phase anchors."""
+    owned = [sample.frame_index for sample in samples if rule.id in sample.criterion_ids]
+    return owned or [anchors[index] for index in rule.allowed_anchor_indices]
 
 
 def prompt_context(
@@ -487,6 +531,9 @@ def prompt_context(
             "score_status": advice.get("score_status"),
         },
         "score_warning_zh_tw": (
+            "分數由指定區間的骨架比較及已校準的動作規則共同決定；"
+            "請依各項實際量測與可見影像解釋，不得將所有扣分都歸因於修正骨架距離。"
+            if resolved_spec.skill == Skill.SMASH else
             "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
             "分數決定哪些技術標準需要回饋；影像用來具體說明該項動作差距。"
         ),
@@ -508,7 +555,7 @@ def prompt_context(
         "criterion_priority_supporting_only": priority_criteria,
         "correction_distance_grade": correction_grade,
         "criterion_allowed_frames": {
-            rule.name_zh_tw: [anchors[index] for index in rule.allowed_anchor_indices]
+            rule.name_zh_tw: criterion_evidence_frames(rule, samples, anchors)
             for rule in resolved_spec.rules
         },
         "criterion_comparison_frames": {
@@ -516,7 +563,7 @@ def prompt_context(
                 [anchors[0], anchors[-1]]
                 if resolved_spec.skill == Skill.SERVE
                 and rule.id == "weight_transfer"
-                else [anchors[index] for index in rule.allowed_anchor_indices]
+                else criterion_evidence_frames(rule, samples, anchors)
             )
             for rule in resolved_spec.rules
         },
@@ -615,7 +662,7 @@ def validate_analysis_frames(
         )
     anchors = _validated_phase_indices(phase_indices)
     allowed_by_rule = {
-        rule.id: {anchors[index] for index in rule.allowed_anchor_indices}
+        rule.id: set(criterion_evidence_frames(rule, samples, anchors))
         for rule in resolved_spec.rules
     }
     available = {sample.frame_index: sample for sample in samples}
@@ -639,11 +686,19 @@ def validate_analysis_frames(
 
 
 def system_instructions(spec: SkillCorrectionSpec) -> str:
-    return f"""你是專業羽球教練，正在分析{spec.description_zh_tw}。
+    instructions = f"""你是專業羽球教練，正在分析{spec.description_zh_tw}。
 你必須嚴格依照提供的{len(spec.rules)}項{spec.name_zh_tw}技術標準，不得新增、改寫或混用其他技術標準。
 評分系統提供的低分標準是必須處理的回饋契約；影像用來解釋青色學生骨架與綠色修正骨架在該標準的具體差異。不得漏掉required_priority_criteria，也不得只回報最低分的一項。只有沒有低分候選標準時才回傳空的problems。
 所有給使用者看的文字必須使用臺灣繁體中文（zh-TW），不得使用英文句子或簡體中文。
 每項建議必須簡短明確，能在兩秒的影片暫停畫面中閱讀。關節編號必須使用提供的慣用側正規化對照。"""
+    if spec.skill == Skill.SMASH:
+        instructions += """
+殺球六項滿分依序為5／20／5／20／30／20，總分100。不得套用舊版10／10／20／20／20／20。
+逐項閱讀checkpoint_evidence的評分區間、量測與可用性，再比較各criterion_comparison_frames。frame_index是影像證據編號，不是原始影片時間；不得自行依編號推算時間。
+雙手平衡需特別檢查非慣用手已抬起、慣用手仍偏低的早期持續片段。必須分清慣用手與非慣用手，不可把慣用手偏低改寫為非慣用手偏低，也不可用之後正常的一幀推翻前段不足。
+隨揮沿用最佳終點與起終肩寬比較，不加入未採用的幀平均或後續回退扣分。
+分數是系統量測，不是動作缺失的直接證明。若full_interval_visible為false、指定影像不足或量測標為無法評估，請明示限制，不能宣稱完整審閱所有區間；給出檢查建議，不能捏造左右側、角度數值或未看見的缺失。"""
+    return instructions
 
 
 SYSTEM_INSTRUCTIONS = system_instructions(get_skill_spec(Skill.CLEAR))

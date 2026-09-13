@@ -9,7 +9,6 @@ from numpy.typing import NDArray
 
 from badminton_analysis.models.types import Skill
 
-
 SUPPORTED_CORRECTION_SKILLS = (
     Skill.SERVE,
     Skill.LIFT,
@@ -151,7 +150,9 @@ class SkillCorrectionSpec:
         if tuple(rule.name_zh_tw for rule in self.rules) != tuple(
             detail.name_zh_tw for detail in self.details
         ):
-            raise ValueError(f"{self.skill} rules and correction details are misaligned")
+            raise ValueError(
+                f"{self.skill} rules and correction details are misaligned"
+            )
         if self.transition_weight > 0.0 and (
             not self.transition_joints or len(self.transition_lean_joints) != 4
         ):
@@ -453,9 +454,11 @@ def _details(
             metric=(
                 "full_transition"
                 if rule.id in {"weight_transfer", "lunge_backswing"}
-                else "serve_follow_through_cross_body"
-                if rule.id == "shoulder_rotation"
-                else "window_distance"
+                else (
+                    "serve_follow_through_cross_body"
+                    if rule.id == "shoulder_rotation"
+                    else "window_distance"
+                )
             ),
         )
         for rule, (start, end, joints) in zip(rules, windows, strict=True)
@@ -463,9 +466,23 @@ def _details(
 
 
 _UPPER_BODY_WEIGHTS = (
-    0.5, 0.25, 0.25, 0.25, 0.25,
-    1.5, 2.0, 1.25, 3.0, 1.5, 4.0,
-    1.5, 1.5, 1.25, 1.25, 1.25, 1.25,
+    0.5,
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    1.5,
+    2.0,
+    1.25,
+    3.0,
+    1.5,
+    4.0,
+    1.5,
+    1.5,
+    1.25,
+    1.25,
+    1.25,
+    1.25,
 )
 
 
@@ -514,9 +531,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：殺球動作終點",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.5, 2.5, 1.25, 3.5, 1.25, 4.5,
-            2.0, 2.0, 1.5, 1.5, 1.25, 1.25,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.5,
+            2.5,
+            1.25,
+            3.5,
+            1.25,
+            4.5,
+            2.0,
+            2.0,
+            1.5,
+            1.5,
+            1.25,
+            1.25,
         ),
         details=_details(
             _SMASH_RULES,
@@ -549,9 +580,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：髖部及肩膀完成前旋",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.75, 2.0, 1.5, 2.5, 1.5, 3.0,
-            2.5, 2.5, 2.0, 2.0, 2.0, 2.0,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.75,
+            2.0,
+            1.5,
+            2.5,
+            1.5,
+            3.0,
+            2.5,
+            2.5,
+            2.0,
+            2.0,
+            2.0,
+            2.0,
         ),
         details=_details(
             _SERVE_RULES,
@@ -587,9 +632,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：平衡隨揮與回復起點",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.5, 2.5, 1.25, 3.5, 1.25, 4.5,
-            2.0, 2.5, 1.75, 2.5, 1.75, 2.5,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.5,
+            2.5,
+            1.25,
+            3.5,
+            1.25,
+            4.5,
+            2.0,
+            2.5,
+            1.75,
+            2.5,
+            1.75,
+            2.5,
         ),
         details=_details(
             _LIFT_RULES,
@@ -626,8 +685,6 @@ def get_skill_spec(skill: Skill | str) -> SkillCorrectionSpec:
         ) from exc
 
 
-
-
 def validate_checkpoint_spec(
     checkpoint: Mapping[str, Any], spec: SkillCorrectionSpec
 ) -> None:
@@ -653,9 +710,7 @@ def validate_checkpoint_spec(
     checkpoint_transition_lean_joints = tuple(
         checkpoint.get("transition_lean_joints", ())
     )
-    checkpoint_transition_direction_joint = checkpoint.get(
-        "transition_direction_joint"
-    )
+    checkpoint_transition_direction_joint = checkpoint.get("transition_direction_joint")
     if (
         checkpoint_transition_weight != spec.transition_weight
         or checkpoint_transition_joints != spec.transition_joints

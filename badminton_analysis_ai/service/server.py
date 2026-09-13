@@ -148,7 +148,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     "only serve and smash are currently supported",
                 )
             if handedness is None:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness")
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness"
+                )
 
             output_path = temp_dir / "student_corrected.mp4"
             skeleton_overlay_path = temp_dir / "student_skeleton_overlay.mp4"
@@ -172,9 +174,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
-                overlay_object_path = (
-                    f"{analysis_root}/student_skeleton_overlay.mp4"
-                )
+                overlay_object_path = f"{analysis_root}/student_skeleton_overlay.mp4"
                 overlay_signed = self.storage.upload_file(
                     skeleton_overlay_path,
                     overlay_object_path,
@@ -197,7 +197,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     probe_video(skeleton_overlay_path),
                 )
             except SkillMismatchError as exc:
-                LOGGER.warning("analysis skill mismatch id=%s error=%s", analysis_id, exc)
+                LOGGER.warning(
+                    "analysis skill mismatch id=%s error=%s", analysis_id, exc
+                )
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             except (ValueError, KeyError) as exc:
                 LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
@@ -225,7 +227,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
         except ValueError as exc:
             LOGGER.warning(
-                "expert checkpoints unusable expert=%s error=%s", reference.subject_id, exc
+                "expert checkpoints unusable expert=%s error=%s",
+                reference.subject_id,
+                exc,
             )
             return []
         return [
@@ -266,7 +270,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         window_end = int(result.diagnostics.get("analysis_window_end_frame", 63))
         normalized_length = int(result.diagnostics.get("normalized_sequence_length", 0))
         for problem in result.coaching_problems:
-            local_frame = coaching_video_frame(problem, normalized_length, window_end - window_start + 1)
+            local_frame = coaching_video_frame(
+                problem, normalized_length, window_end - window_start + 1
+            )
             problems_by_frame.setdefault(local_frame, []).append(problem)
         fps = float(student_metadata["fps"])
         pause_frames = round(fps * result.pause_seconds)
@@ -373,11 +379,17 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     ) -> analysis_pb2.RefreshPlaybackUrlsResponse:
         self._authorize(context)
         if not request.object_paths or len(request.object_paths) > 8:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects"
+            )
         videos = []
         for object_path in request.object_paths:
-            if ".." in object_path or not object_path.startswith(("analyses/", "experts/")):
-                context.abort(grpc.StatusCode.PERMISSION_DENIED, "object path is not playable")
+            if ".." in object_path or not object_path.startswith(
+                ("analyses/", "experts/")
+            ):
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED, "object path is not playable"
+                )
             videos.append(self._stored_video(self.storage.sign(object_path), {}))
         return analysis_pb2.RefreshPlaybackUrlsResponse(videos=videos)
 
@@ -386,7 +398,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     ) -> analysis_pb2.HealthResponse:
         return analysis_pb2.HealthResponse(
             status="serving",
-            loaded_skills=[_SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills],
+            loaded_skills=[
+                _SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills
+            ],
         )
 
 

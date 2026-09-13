@@ -4,16 +4,29 @@ All inputs use decoded source-frame indices. Conversion to the cropped video's
 clock happens once here. Missing lead-in/tail remains explicit; do not clamp a
 missing source frame onto an unrelated visible image.
 """
+
 from typing import Any
 
-CRITERIA = ("preparation", "body_rotation", "arm_balance", "elbow_forward",
-            "wrist_flick", "follow_through")
+CRITERIA = (
+    "preparation",
+    "body_rotation",
+    "arm_balance",
+    "elbow_forward",
+    "wrist_flick",
+    "follow_through",
+)
 
 
-def build_checkpoint_evidence(*, intervals: dict[str, Any], window_start: int,
-                              window_end: int, initial_frame: int,
-                              balance_anchor: int, selected_endpoint: int,
-                              balance_measurement: dict[str, Any]) -> dict[str, Any]:
+def build_checkpoint_evidence(
+    *,
+    intervals: dict[str, Any],
+    window_start: int,
+    window_end: int,
+    initial_frame: int,
+    balance_anchor: int,
+    selected_endpoint: int,
+    balance_measurement: dict[str, Any],
+) -> dict[str, Any]:
     if not 0 <= window_start <= window_end or set(intervals) != set(CRITERIA):
         raise ValueError("ordered source window and six scoring intervals required")
     result = {}
@@ -32,7 +45,10 @@ def build_checkpoint_evidence(*, intervals: dict[str, Any], window_start: int,
         if reference == "arm_balance" and balance_measurement.get("available"):
             event_start = int(balance_measurement["event_start"])
             event_end = int(balance_measurement["event_end"])
-            if not start <= event_start <= event_end <= end or event_end - event_start != 4:
+            if (
+                not start <= event_start <= event_end <= end
+                or event_end - event_start != 4
+            ):
                 raise ValueError("balance evidence must be the scored five-frame event")
             requested.update(range(event_start, event_end + 1))
         # Include actual visible interval boundaries if only part is rendered.
@@ -40,8 +56,11 @@ def build_checkpoint_evidence(*, intervals: dict[str, Any], window_start: int,
         if visible_start > visible_end:
             raise ValueError(f"no visible scored evidence for {reference}")
         requested.update((visible_start, visible_end))
-        available = sorted(frame for frame in requested
-                           if window_start <= frame <= window_end and start <= frame <= end)
+        available = sorted(
+            frame
+            for frame in requested
+            if window_start <= frame <= window_end and start <= frame <= end
+        )
         result[reference] = {
             "source_interval": [start, end],
             "output_frame_indices": [frame - window_start for frame in available],
@@ -53,9 +72,18 @@ def build_checkpoint_evidence(*, intervals: dict[str, Any], window_start: int,
         }
         if reference == "arm_balance":
             result[reference]["measurement"] = {
-                key: balance_measurement[key] for key in
-                ("available", "reason", "handedness", "event_start", "event_end",
-                 "sustained_gap", "tolerance", "fraction", "valid_fraction")
+                key: balance_measurement[key]
+                for key in (
+                    "available",
+                    "reason",
+                    "handedness",
+                    "event_start",
+                    "event_end",
+                    "sustained_gap",
+                    "tolerance",
+                    "fraction",
+                    "valid_fraction",
+                )
                 if key in balance_measurement
             }
     return result

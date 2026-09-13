@@ -28,9 +28,7 @@ DEFAULT_PHASE_INDICES = (0, 20, 39, 51, 63)
 
 CANONICAL_JOINTS = CANONICAL_JOINTS_ZH_TW
 
-CLEAR_RULES = tuple(
-    rule.as_prompt_dict() for rule in get_skill_spec(Skill.CLEAR).rules
-)
+CLEAR_RULES = tuple(rule.as_prompt_dict() for rule in get_skill_spec(Skill.CLEAR).rules)
 
 RULE_CONTRACTS: dict[str, dict[str, Any]] = {
     rule.id: {
@@ -170,15 +168,13 @@ class SampledFrame:
 
 def _validated_phase_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
     values = tuple(int(value) for value in phase_indices)
-    if len(values) != 5 or any(first > second for first, second in zip(values, values[1:])):
+    if len(values) != 5 or any(
+        first > second for first, second in zip(values, values[1:])
+    ):
         raise ValueError("phase_indices must contain five ordered frame indices")
     if values[0] < 0 or values[-1] > 63:
         raise ValueError("phase indices must be inside the 64-frame sequence")
     return values
-
-
-
-
 
 
 def feedback_frame_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
@@ -240,8 +236,6 @@ def checkpoint_role(
     anchors = _validated_phase_indices(phase_indices)
     roles = dict(zip(anchors, resolved_spec.checkpoint_roles_zh_tw, strict=True))
     return roles.get(frame_index, "關鍵幀之間的動作過渡畫面")
-
-
 
 
 def load_feedback_problems(
@@ -335,9 +329,7 @@ def load_correction_grade_context(
                 "rule_reference": rule.id,
                 "score": float(row[f"detail_{index}_grade"]),
                 "maximum": rule.maximum,
-                "correction_distance": float(
-                    row[f"detail_{index}_distance"]
-                ),
+                "correction_distance": float(row[f"detail_{index}_distance"]),
             }
         )
     component_names = (
@@ -366,9 +358,7 @@ def load_correction_grade_context(
 
 
 def _encode_jpeg(frame: NDArray[Any], quality: int) -> tuple[bytes, str]:
-    success, buffer = cv2.imencode(
-        ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality]
-    )
+    success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if not success:
         raise RuntimeError("could not encode sampled video frame")
     encoded = bytes(buffer)
@@ -410,13 +400,19 @@ def sample_video_frames(
         for rule in resolved_spec.rules:
             frames = checkpoint_evidence[rule.id]["output_frame_indices"]
             if not frames or any(type(frame) is not int for frame in frames):
-                raise ValueError("checkpoint evidence needs nonempty integer output frames")
+                raise ValueError(
+                    "checkpoint evidence needs nonempty integer output frames"
+                )
             for frame in frames:
                 if not 0 <= frame <= source_mapping[-1]:
-                    raise ValueError("checkpoint evidence is outside the scored video window")
+                    raise ValueError(
+                        "checkpoint evidence is outside the scored video window"
+                    )
                 owned.setdefault(frame, []).append(rule.id)
-        plan.extend((64 + index, frame, tuple(dict.fromkeys(owners)))
-                    for index, (frame, owners) in enumerate(sorted(owned.items())))
+        plan.extend(
+            (64 + index, frame, tuple(dict.fromkeys(owners)))
+            for index, (frame, owners) in enumerate(sorted(owned.items()))
+        )
         plan.sort(key=lambda item: (item[1], item[0]))
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
@@ -458,11 +454,20 @@ def sample_video_frames(
                     frame_index=frame_index,
                     source_frame_index=source_frame_index,
                     timestamp_seconds=source_frame_index / fps,
-                    phase=(resolved_spec.rule(criterion_ids[0]).phase if criterion_ids
-                           else phase_for_frame(frame_index, phases, resolved_spec)),
-                    checkpoint_role_zh_tw=("評分區間證據：" + "、".join(
-                        resolved_spec.rule(reference).name_zh_tw for reference in criterion_ids)
-                        if criterion_ids else checkpoint_role(frame_index, phases, resolved_spec)),
+                    phase=(
+                        resolved_spec.rule(criterion_ids[0]).phase
+                        if criterion_ids
+                        else phase_for_frame(frame_index, phases, resolved_spec)
+                    ),
+                    checkpoint_role_zh_tw=(
+                        "評分區間證據："
+                        + "、".join(
+                            resolved_spec.rule(reference).name_zh_tw
+                            for reference in criterion_ids
+                        )
+                        if criterion_ids
+                        else checkpoint_role(frame_index, phases, resolved_spec)
+                    ),
                     image_path=image_path,
                     data_url=data_url,
                     criterion_ids=criterion_ids,
@@ -475,7 +480,9 @@ def sample_video_frames(
 
 def criterion_evidence_frames(rule, samples, anchors):
     """Exact scorer evidence takes precedence over legacy phase anchors."""
-    owned = [sample.frame_index for sample in samples if rule.id in sample.criterion_ids]
+    owned = [
+        sample.frame_index for sample in samples if rule.id in sample.criterion_ids
+    ]
     return owned or [anchors[index] for index in rule.allowed_anchor_indices]
 
 
@@ -496,10 +503,8 @@ def prompt_context(
     priority_criteria = sorted(
         correction_grade.get("criteria", []),
         key=lambda item: (
-            float(item.get("score", 0.0))
-            - max(float(item.get("maximum", 1.0)), 1e-6),
-            float(item.get("score", 0.0))
-            / max(float(item.get("maximum", 1.0)), 1e-6),
+            float(item.get("score", 0.0)) - max(float(item.get("maximum", 1.0)), 1e-6),
+            float(item.get("score", 0.0)) / max(float(item.get("maximum", 1.0)), 1e-6),
             -float(item.get("correction_distance", 0.0)),
         ),
     )
@@ -509,17 +514,14 @@ def prompt_context(
     feedback_candidate_criteria = [
         str(item["rule_reference"])
         for item in priority_criteria
-        if float(item.get("score", 0.0))
-        / max(float(item.get("maximum", 1.0)), 1e-6)
+        if float(item.get("score", 0.0)) / max(float(item.get("maximum", 1.0)), 1e-6)
         < 0.8
     ]
     # Use every available feedback slot for distinct low-scoring criteria.
     # Every available slot is assigned by the rubric. The vision model explains
     # the scored deficit from the evidence frames; it does not silently discard
     # a criterion that the scoring system says requires coaching.
-    required_priority_criteria = feedback_candidate_criteria[
-        :maximum_problem_count
-    ]
+    required_priority_criteria = feedback_candidate_criteria[:maximum_problem_count]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
         "skill": resolved_spec.slug,
@@ -533,8 +535,8 @@ def prompt_context(
         "score_warning_zh_tw": (
             "分數由指定區間的骨架比較及已校準的動作規則共同決定；"
             "請依各項實際量測與可見影像解釋，不得將所有扣分都歸因於修正骨架距離。"
-            if resolved_spec.skill == Skill.SMASH else
-            "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
+            if resolved_spec.skill == Skill.SMASH
+            else "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
             "分數決定哪些技術標準需要回饋；影像用來具體說明該項動作差距。"
         ),
         "overlay_legend_zh_tw": {
@@ -542,12 +544,8 @@ def prompt_context(
             "green": "模型預測的專家化修正骨架",
         },
         "canonical_joint_ids_zh_tw": CANONICAL_JOINTS,
-        "handedness_note_zh_tw": handedness_note_zh_tw(
-            advice.get("handedness")
-        ),
-        "technical_criteria": [
-            rule.as_prompt_dict() for rule in resolved_spec.rules
-        ],
+        "handedness_note_zh_tw": handedness_note_zh_tw(advice.get("handedness")),
+        "technical_criteria": [rule.as_prompt_dict() for rule in resolved_spec.rules],
         "maximum_problem_count": maximum_problem_count,
         "minimum_problem_count_when_nonempty": minimum_problem_count,
         "required_priority_criteria_when_nonempty": required_priority_criteria,
@@ -561,15 +559,13 @@ def prompt_context(
         "criterion_comparison_frames": {
             rule.name_zh_tw: (
                 [anchors[0], anchors[-1]]
-                if resolved_spec.skill == Skill.SERVE
-                and rule.id == "weight_transfer"
+                if resolved_spec.skill == Skill.SERVE and rule.id == "weight_transfer"
                 else criterion_evidence_frames(rule, samples, anchors)
             )
             for rule in resolved_spec.rules
         },
         "criterion_coaching_target_joint_ids": {
-            rule.name_zh_tw: list(rule.coaching_joints)
-            for rule in resolved_spec.rules
+            rule.name_zh_tw: list(rule.coaching_joints) for rule in resolved_spec.rules
         },
         "model_priority_corrections_supporting_only": advice.get(
             "priority_corrections", []
@@ -587,15 +583,11 @@ def build_response_input(
     resolved_spec = spec or get_skill_spec(str(context.get("skill", "clear")))
     criterion_count = len(resolved_spec.rules)
     maximum_problem_count = int(context.get("maximum_problem_count", 1))
-    minimum_problem_count = int(
-        context.get("minimum_problem_count_when_nonempty", 0)
-    )
+    minimum_problem_count = int(context.get("minimum_problem_count_when_nonempty", 0))
     required_priority_criteria = list(
         context.get("required_priority_criteria_when_nonempty", [])
     )
-    feedback_candidate_criteria = list(
-        context.get("feedback_candidate_criteria", [])
-    )
+    feedback_candidate_criteria = list(context.get("feedback_candidate_criteria", []))
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
@@ -622,8 +614,7 @@ def build_response_input(
                 "feedback與evidence必須使用臺灣繁體中文，禁止英文句子與簡體中文。"
                 "顯示分數只能使用correction_distance_grade，不得另算總分。"
                 "骨架修正與分數只能作為輔助，必須先由影像"
-                "確認問題。\n\n分析資料：\n"
-                + json.dumps(context, ensure_ascii=False)
+                "確認問題。\n\n分析資料：\n" + json.dumps(context, ensure_ascii=False)
             ),
         }
     ]

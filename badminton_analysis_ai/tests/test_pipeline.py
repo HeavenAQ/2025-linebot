@@ -194,9 +194,7 @@ def test_generated_expert_gpt_context_describes_expert_only_score() -> None:
         "angle_distance": 0.1,
         "scorer": "continuous_generated_expert_distribution_v1",
     }
-    criteria = [
-        (rule.name_zh_tw, 0.1, rule.maximum * 0.8) for rule in spec.rules
-    ]
+    criteria = [(rule.name_zh_tw, 0.1, rule.maximum * 0.8) for rule in spec.rules]
 
     context = _correction_grade_context(
         {"total_grade": 80.0}, diagnostics, spec, criteria

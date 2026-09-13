@@ -101,9 +101,11 @@ def reliability(confidence, initial_confidence):
     context = initial[[5, 6, 11, 12]].min()
     return np.asarray(
         [
-            c[k, 0, list(JOINTS[k])].min()
-            if k == 4
-            else min(float(np.median(c[k][:, JOINTS[k]].min(1))), float(context))
+            (
+                c[k, 0, list(JOINTS[k])].min()
+                if k == 4
+                else min(float(np.median(c[k][:, JOINTS[k]].min(1))), float(context))
+            )
             for k in range(6)
         ]
     )

@@ -35,7 +35,6 @@ from badminton_analysis.services.video_processor import VideoProcessor
 from service.renderer import render_correction_video, source_fps, source_frame_rate
 from service.coaching import CoachingGenerator
 
-
 LOGGER = logging.getLogger("badminton-analysis")
 
 
@@ -205,9 +204,7 @@ def expert_phase_results(
             label=rule.name_zh_tw,
             normalized_frame=frame,
             normalized_position=float(frame) / max(1, last_frame),
-            timestamp_seconds=float(
-                phase_seconds[rule.allowed_anchor_indices[-1]]
-            ),
+            timestamp_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
         )
         for rule, frame in zip(spec.rules, frames, strict=True)
     )
@@ -284,8 +281,11 @@ def _source_qualitative_phase_results(
             spec.rules,
             normalized_frames,
             (
-                (checkpoint_source_frames[rule.id] if checkpoint_source_frames is not None
-                 else source_phase_frames[rule.allowed_anchor_indices[-1]])
+                (
+                    checkpoint_source_frames[rule.id]
+                    if checkpoint_source_frames is not None
+                    else source_phase_frames[rule.allowed_anchor_indices[-1]]
+                )
                 for rule in spec.rules
             ),
             strict=True,
@@ -306,17 +306,27 @@ def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
     return estimate.handedness
 
 
-def _populate_dominant_motion(
-    tracking: TrackingData, handedness: Handedness
-) -> None:
+def _populate_dominant_motion(tracking: TrackingData, handedness: Handedness) -> None:
     body_2d = tracking.get("body_landmarks_2d")
     if not body_2d:
         raise ValueError("2D landmarks are required for motion analysis")
     skeleton, confidence = tracking_body_arrays(tracking)
-    wrist = COCOKeypoints.RIGHT_WRIST if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_WRIST
-    elbow = COCOKeypoints.RIGHT_ELBOW if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_ELBOW
-    tracking["hand_positions"] = list(interpolated_keypoint(skeleton, confidence, wrist))
-    tracking["elbow_positions"] = list(interpolated_keypoint(skeleton, confidence, elbow))
+    wrist = (
+        COCOKeypoints.RIGHT_WRIST
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_WRIST
+    )
+    elbow = (
+        COCOKeypoints.RIGHT_ELBOW
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_ELBOW
+    )
+    tracking["hand_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, wrist)
+    )
+    tracking["elbow_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, elbow)
+    )
 
 
 def _dump_pose_arrays(
@@ -449,8 +459,11 @@ class SkeletonAnalysisPipeline:
         pipeline_started = time.perf_counter()
         if skill == Skill.SMASH:
             from service.smash_source import normalize_smash_source
+
             video_path = normalize_smash_source(
-                video_path, output_path.with_name(output_path.stem + ".source-30fps.mp4"))
+                video_path,
+                output_path.with_name(output_path.stem + ".source-30fps.mp4"),
+            )
         with self.lock:
             pose_started = time.perf_counter()
             processor = VideoProcessor(
@@ -475,14 +488,17 @@ class SkeletonAnalysisPipeline:
             # phase sequence. The independently frozen label-support bank
             # retains its EIMD-v3 windows; grading uses its own matched contract.
             prepared = backend.prepare(tracking, handedness, filename)
-            support_prepared = (backend.prepare_skill_support(tracking, handedness, filename)
-                if hasattr(backend, "prepare_skill_support") else prepared)
-            alternative_skill = (
-                Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+            support_prepared = (
+                backend.prepare_skill_support(tracking, handedness, filename)
+                if hasattr(backend, "prepare_skill_support")
+                else prepared
             )
+            alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
             try:
                 alternative = self.backends[alternative_skill]
-                support_prepare = getattr(alternative, "prepare_skill_support", alternative.prepare)
+                support_prepare = getattr(
+                    alternative, "prepare_skill_support", alternative.prepare
+                )
                 alternative_prepared = support_prepare(tracking, handedness, filename)
             except ValueError as exc:
                 # This is a conservative rejection-only guard. If the other
@@ -589,9 +605,17 @@ class SkeletonAnalysisPipeline:
             dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
             if dump_prefix:
                 _dump_pose_arrays(
-                    dump_prefix, filename, skill, handedness,
-                    tracking, skeleton, confidence, original_root, window,
-                    phases, generated.source_frame_indices,
+                    dump_prefix,
+                    filename,
+                    skill,
+                    handedness,
+                    tracking,
+                    skeleton,
+                    confidence,
+                    original_root,
+                    window,
+                    phases,
+                    generated.source_frame_indices,
                 )
             scoring_finished = time.perf_counter()
             frame_rate = source_frame_rate(video_path)
@@ -601,9 +625,15 @@ class SkeletonAnalysisPipeline:
                 grade, diagnostics, spec, criterion_values
             )
             if "checkpoint_evidence" in generated.score:
-                correction_grade["checkpoint_evidence"] = generated.score["checkpoint_evidence"]
-                correction_grade["checkpoint_measurements"] = generated.score["checkpoint_measurements"]
-                correction_grade["generated_source_window"] = generated.score["generation_window"]
+                correction_grade["checkpoint_evidence"] = generated.score[
+                    "checkpoint_evidence"
+                ]
+                correction_grade["checkpoint_measurements"] = generated.score[
+                    "checkpoint_measurements"
+                ]
+                correction_grade["generated_source_window"] = generated.score[
+                    "generation_window"
+                ]
                 correction_grade["overlay_padding_policy"] = (
                     "No generated skeleton before coverage; after coverage the final local pose is held for display only."
                 )
@@ -702,7 +732,8 @@ class SkeletonAnalysisPipeline:
                     - overlay_finished
                     - float(coaching_payload["latency_llm_inference_seconds"])
                 ),
-                "latency_final_render_seconds": final_render_finished - coaching_finished,
+                "latency_final_render_seconds": final_render_finished
+                - coaching_finished,
                 "latency_pipeline_seconds": final_render_finished - pipeline_started,
                 "pose_execution_provider": self.pose_detector.execution_provider,
                 "pose_active_execution_providers": (

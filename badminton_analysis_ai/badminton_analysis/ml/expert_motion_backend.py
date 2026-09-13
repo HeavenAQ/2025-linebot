@@ -50,7 +50,6 @@ from badminton_analysis.models.types import (
     TrackingData,
 )
 
-
 # The bundle validates that the checkpoint declares this method on load, but
 # does not keep it as a field, so the diagnostic names it directly.
 EIMD_METHOD = "expert_only_error_isolated_motion_diffusion"
@@ -85,16 +84,13 @@ def _clip_level_rigid_target_alignment(
     source_center = np.mean(source_points, axis=0)
     target_center = np.mean(target_points, axis=0)
     left, _, right = np.linalg.svd(
-        (source_points - source_center).T
-        @ (target_points - target_center)
+        (source_points - source_center).T @ (target_points - target_center)
     )
     rotation = left @ right
     if float(np.linalg.det(rotation)) < 0.0:
         left[:, -1] *= -1.0
         rotation = left @ right
-    return ((corrected - source_center) @ rotation + target_center).astype(
-        np.float32
-    )
+    return ((corrected - source_center) @ rotation + target_center).astype(np.float32)
 
 
 def _dual_window_scoring_correction(
@@ -146,9 +142,7 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         np.exp(-max(0.0, strict_distance - tolerance) / robust_scale)
     )
     transfer_cap = float(transfer["maximum"]) * transfer_support_ratio
-    attributed["weight_transfer"] = min(
-        attributed["weight_transfer"], transfer_cap
-    )
+    attributed["weight_transfer"] = min(attributed["weight_transfer"], transfer_cap)
     preserved_sum = float(sum(attributed.values()))
     if preserved_sum > total:
         scale = total / max(preserved_sum, 1e-8)
@@ -160,9 +154,7 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
             sum(float(by_id[key]["maximum"]) for key in flexible),
         )
         active = list(flexible)
-        weights = {
-            key: max(float(by_id[key]["score"]), 1e-12) for key in flexible
-        }
+        weights = {key: max(float(by_id[key]["score"]), 1e-12) for key in flexible}
         while active and remaining > 1e-12:
             weight_sum = sum(weights[key] for key in active)
             capped = []
@@ -273,9 +265,7 @@ def _score_smash_correction(
                 **item,
                 "name_zh_tw": rule.name_zh_tw,
                 "raw_checkpoint_ratio": float(item["ratio"]),
-                "raw_weighted_score": (
-                    float(rule.maximum) * float(item["ratio"])
-                ),
+                "raw_weighted_score": (float(rule.maximum) * float(item["ratio"])),
                 "maximum": float(rule.maximum),
                 "euclidean_distance": float(item["semantic_distance"]),
                 "target_angle_distance": 0.0,
@@ -294,9 +284,7 @@ def _score_smash_correction(
         ),
         semantic_total,
     )
-    for item, attributed in zip(
-        semantic_criteria, attributed_scores, strict=True
-    ):
+    for item, attributed in zip(semantic_criteria, attributed_scores, strict=True):
         item["score"] = float(attributed)
         item["aggregate_attributed_score"] = float(attributed)
     attributed_total = float(sum(item["score"] for item in semantic_criteria))
@@ -361,9 +349,7 @@ def apply_score_conditioned_correction(
     """
     if spec.slug != "serve":
         return correction
-    criteria = {
-        str(item["rule_reference"]): item for item in score["criteria"]
-    }
+    criteria = {str(item["rule_reference"]): item for item in score["criteria"]}
 
     def blend(
         student: NDArray[np.floating],
@@ -447,14 +433,9 @@ def apply_score_conditioned_correction(
     corrected_root = correction.student.root + root_alpha[:, None] * (
         correction.corrected_root - correction.student.root
     )
-    aligned_corrected_root = (
-        correction.aligned_student_root
-        + aligned_root_alpha[:, None]
-        * (
-            correction.aligned_corrected_root
-            - correction.aligned_student_root
-        )
-    )
+    aligned_corrected_root = correction.aligned_student_root + aligned_root_alpha[
+        :, None
+    ] * (correction.aligned_corrected_root - correction.aligned_student_root)
     return replace(
         correction,
         corrected_pose=corrected,
@@ -552,11 +533,14 @@ class ExpertMotionGeneratorBackend:
         self.current_smash_scorer = None
         if current_smash and skill == Skill.SMASH:
             from badminton_analysis.ml.smash_current_runtime import CurrentSmashScorer
+
             self.current_smash_scorer = CurrentSmashScorer(
-                root / "checkpoint_scorer_v1", generator_path=self.model_path,
+                root / "checkpoint_scorer_v1",
+                generator_path=self.model_path,
                 trajectory_path=trajectory_score_path,
                 device=next(self.bundle.network.parameters()).device,
-                candidates=candidates, seed=seed,
+                candidates=candidates,
+                seed=seed,
             )
 
     def prepare(
@@ -572,8 +556,11 @@ class ExpertMotionGeneratorBackend:
             self.skill,
             filename,
             target_frames=self.target_frames,
-            phase_contract=("current" if self.current_smash_scorer is not None
-                            else self.generation_phase_contract),
+            phase_contract=(
+                "current"
+                if self.current_smash_scorer is not None
+                else self.generation_phase_contract
+            ),
         )
 
     def infer(
@@ -582,10 +569,9 @@ class ExpertMotionGeneratorBackend:
         handedness: Handedness,
         filename: str,
         *,
-        prepared: tuple[
-            MotionSample, tuple[int, int, int], NDArray[np.int64]
-        ]
-        | None = None,
+        prepared: (
+            tuple[MotionSample, tuple[int, int, int], NDArray[np.int64]] | None
+        ) = None,
         fps: float = 30.0,
     ) -> GeneratedMotionInference:
         sample, window, source_indices = (
@@ -614,7 +600,8 @@ class ExpertMotionGeneratorBackend:
         view_rotation = None
         if self.align_ankle_spine_view and self.current_smash_scorer is None:
             preparation = next(
-                window for window in self.spec.phase_windows
+                window
+                for window in self.spec.phase_windows
                 if window.name == "preparation"
             )
             view_start, view_end = preparation.bounds(
@@ -635,7 +622,8 @@ class ExpertMotionGeneratorBackend:
                 seed=self.seed,
             )
             preparation = next(
-                phase for phase in self.spec.phase_windows
+                phase
+                for phase in self.spec.phase_windows
                 if phase.name == "preparation"
             )
             scoring_start, scoring_end = preparation.bounds(
@@ -677,22 +665,34 @@ class ExpertMotionGeneratorBackend:
                 spec=self.spec,
             )
         if self.current_smash_scorer is not None:
-            from badminton_analysis.ml.skeleton_normalization import tracking_body_arrays
+            from badminton_analysis.ml.skeleton_normalization import (
+                tracking_body_arrays,
+            )
+
             full, full_confidence = tracking_body_arrays(tracking)
             score, corrected_pixels, window = self.current_smash_scorer.score(
-                sample=sample, correction=raw_correction,
+                sample=sample,
+                correction=raw_correction,
                 source_phases=source_indices[sample.phase_indices],
-                native_phases=self.bundle.canonical_phase_indices, window=window,
-                poses=full, confidence=full_confidence, handedness=handedness,
-                spec=self.spec, trajectory_scorer=self.smash_trajectory_scorer,
-                score_baseline=_score_smash_correction, fps=fps,
+                native_phases=self.bundle.canonical_phase_indices,
+                window=window,
+                poses=full,
+                confidence=full_confidence,
+                handedness=handedness,
+                spec=self.spec,
+                trajectory_scorer=self.smash_trajectory_scorer,
+                score_baseline=_score_smash_correction,
+                fps=fps,
             )
         # EIMD-v3 is the approved visible motion.  The older score-conditioned
         # blend was a presentation policy that could pull a valid generated
         # follow-through back toward the learner (notably removing the serve
         # forward lean).  Keep it only for the legacy/current generation
         # contract; scoring itself has already completed above.
-        if self.generation_phase_contract == "current" and self.current_smash_scorer is None:
+        if (
+            self.generation_phase_contract == "current"
+            and self.current_smash_scorer is None
+        ):
             correction = apply_score_conditioned_correction(
                 correction,
                 score,
@@ -745,7 +745,9 @@ class ExpertMotionGeneratorBackend:
                 next(self.bundle.network.parameters()).device
             ),
             "skeleton_tensorrt_active": 0.0,
-            "current_smash_checkpoint_scorer_active": float(self.current_smash_scorer is not None),
+            "current_smash_checkpoint_scorer_active": float(
+                self.current_smash_scorer is not None
+            ),
             "ankle_spine_view_alignment_active": float(
                 view_rotation is not None or self.current_smash_scorer is not None
             ),
@@ -782,9 +784,7 @@ class ExpertMotionGeneratorBackend:
                     )
             diagnostics["smash_trajectory_gate_active"] = float(
                 bool(
-                    trajectory_diagnostics.get(
-                        "outside_extreme_expert_support", False
-                    )
+                    trajectory_diagnostics.get("outside_extreme_expert_support", False)
                 )
             )
         if view_rotation is not None:
@@ -807,5 +807,11 @@ class ExpertMotionGeneratorBackend:
         Do not feed the new grading windows to that independently frozen gate.
         This hypothesis never supplies score or rendering frame indices.
         """
-        return prepare_expert_motion_sample(tracking, handedness, self.skill,
-            filename, target_frames=self.target_frames, phase_contract="eimd_v3")
+        return prepare_expert_motion_sample(
+            tracking,
+            handedness,
+            self.skill,
+            filename,
+            target_frames=self.target_frames,
+            phase_contract="eimd_v3",
+        )

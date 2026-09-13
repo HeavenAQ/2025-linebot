@@ -16,7 +16,7 @@ func (app *App) registrationReply(event *linebot.Event, message string) {
 	handleLineMessageResponseError(err)
 }
 
-// This gate runs before session changes, video downloads, GPT calls, rich-menu
+// This gate runs before session changes, video downloads, rich-menu
 // handlers, or postbacks. A successful registration consumes the message.
 func (app *App) registeredEventUser(event *linebot.Event) (*db.UserData, bool) {
 	return gateExperimentEvent(event, app.FirestoreClient.GetUserData, app.createUser,
@@ -47,7 +47,7 @@ func gateExperimentEvent(event *linebot.Event,
 	}
 	if user.HasExperimentRegistration() {
 		// Repeated LINE deliveries of the registration message are acknowledgments,
-		// not reflection notes or GPT prompts containing the student's identity.
+		// not reflection notes containing the student's identity.
 		if message, ok := event.Message.(*linebot.TextMessage); ok {
 			parsed, parseErr := db.ParseExperimentRegistration(message.Text)
 			if parseErr == nil && parsed.RealName == user.RealName &&

@@ -33,19 +33,6 @@ func (app *App) createUser(userID string) *db.UserData {
 	return userData
 }
 
-func (app *App) createUserIfNotExist(userID string) *db.UserData {
-	user, err := app.FirestoreClient.GetUserData(userID)
-	if err != nil {
-		app.Logger.Warn.Println("User not found, creating new user...")
-		userData := app.createUser(userID)
-		user = userData
-
-		app.Logger.Info.Println("New user created successfully.")
-	}
-
-	return user
-}
-
 func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 	session, err := app.FirestoreClient.GetUserSession(userID)
 	if err != nil {

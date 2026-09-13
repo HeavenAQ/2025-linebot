@@ -273,15 +273,29 @@ class CurrentSmashScorer:
             balance_measurement=result["evidence"]["arm_balance"],
         )
         criteria = [
-            dict(row, score=float(points), maximum=float(maximum))
+            dict(
+                rule_reference=row["rule_reference"],
+                name_zh_tw=row["name_zh_tw"],
+                score=float(points),
+                maximum=float(maximum),
+                ratio=float(points / maximum),
+                euclidean_distance=row["euclidean_distance"],
+                target_angle_distance=row["target_angle_distance"],
+                combined_distance=row["combined_distance"],
+                distance_basis="historical_semantic_diagnostic_not_current_score",
+            )
             for row, points, maximum in zip(
                 baseline["criteria"], result["points"], MAXIMA, strict=True
             )
         ]
         score = dict(
-            baseline,
             criteria=criteria,
             total_score=result["total"],
+            weighted_total_score=result["total"],
+            historical_score=baseline,
+            references=baseline.get("references", []),
+            trajectory_diagnostics=baseline.get("trajectory_diagnostics", {}),
+            score_reference_policy="frozen_expert_checkpoint_calibration",
             score_method="smash_local_checkpoint_graph_geometry_v20260913",
             checkpoint_evidence=evidence,
             checkpoint_source_frames=checkpoint_frames,

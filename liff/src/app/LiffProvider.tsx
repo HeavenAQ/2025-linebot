@@ -14,6 +14,7 @@ import { Profile } from '@liff/get-profile'
 import { Liff } from '@line/liff'
 
 import { setExpiredTokenHandler, setIdTokenSource } from '@/lib/api/client'
+import ExperimentGate from '@/components/ExperimentGate'
 
 const LiffContext = createContext<{
   liff: Liff | null
@@ -163,7 +164,10 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         sessionExpired
       }}
     >
-      {children}
+      <ExperimentGate authenticated={Boolean(liff && profile) && !sessionExpired}
+        loginError={liffError || (sessionExpired ? '登入已失效，請重新從 LINE 開啟此頁。' : null)}>
+        {children}
+      </ExperimentGate>
     </LiffContext.Provider>
   )
 }

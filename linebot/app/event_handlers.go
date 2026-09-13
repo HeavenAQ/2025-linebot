@@ -4,8 +4,15 @@ import "github.com/line/line-bot-sdk-go/v7/linebot"
 
 func (app *App) handleEvents(events []*linebot.Event) {
 	for _, event := range events {
-		user := app.createUserIfNotExist(event.Source.UserID)
+		user, allowed := app.registeredEventUser(event)
+		if !allowed {
+			continue
+		}
 		session := app.createUserSessionIfNotExist(event.Source.UserID)
+		if session == nil {
+			app.registrationReply(event, "暫時無法開啟功能，請稍後再試。")
+			continue
+		}
 
 		switch event.Type {
 		case linebot.EventTypeFollow:

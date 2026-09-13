@@ -10,6 +10,7 @@ func (app *App) createUser(userID string) *db.UserData {
 	username, err := app.LineBot.GetUserName(userID)
 	if err != nil {
 		app.Logger.Error.Println("Error getting new user's name:", err)
+		return nil
 	}
 	app.Logger.Info.Println("User name has been retrieved")
 
@@ -18,6 +19,7 @@ func (app *App) createUser(userID string) *db.UserData {
 	userFolders, err := app.StorageClient.CreateUserFolders(userID, username)
 	if err != nil {
 		app.Logger.Error.Println("Error creating new user's folders:", err)
+		return nil
 	}
 	app.Logger.Info.Println("User's folders has been created")
 

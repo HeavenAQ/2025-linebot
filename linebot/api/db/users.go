@@ -2,17 +2,26 @@ package db
 
 import (
 	"fmt"
+	"time"
+
+	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 )
 
 type UserData struct {
-	Portfolio   Portfolios  `json:"portfolio" firestore:"portfolio"`
-	FolderPaths FolderPaths `json:"folder_paths" firestore:"folder_paths"`
-	Name        string      `json:"name" firestore:"name"`
-	ID          string      `json:"id" firestore:"id"`
-	Handedness  Handedness  `json:"handedness" firestore:"handedness"`
+	RealName                string      `json:"real_name" firestore:"real_name"`
+	ExperimentNumber        string      `json:"experiment_number" firestore:"experiment_number"`
+	RegistrationVersion     int         `json:"registration_version" firestore:"registration_version"`
+	RegistrationCompletedAt time.Time   `json:"registration_completed_at" firestore:"registration_completed_at"`
+	Portfolio               Portfolios  `json:"portfolio" firestore:"portfolio"`
+	FolderPaths             FolderPaths `json:"folder_paths" firestore:"folder_paths"`
+	Name                    string      `json:"name" firestore:"name"`
+	ID                      string      `json:"id" firestore:"id"`
+	Handedness              Handedness  `json:"handedness" firestore:"handedness"`
 }
 
 type FolderPaths struct {
@@ -84,7 +93,10 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) 
 		},
 	}
 
-	_, err := ref.Set(*client.Ctx, newUserTemplate)
+	_, err := ref.Create(*client.Ctx, newUserTemplate)
+	if status.Code(err) == codes.AlreadyExists {
+		return client.GetUserData(userFolders.UserID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error creating user data: %w", err)
 	}
@@ -105,7 +117,10 @@ func (client *FirestoreClient) GetUserData(userID string) (*UserData, error) {
 }
 
 func (client *FirestoreClient) updateUserData(user *UserData) error {
-	_, err := client.Data.Doc(user.ID).Set(*client.Ctx, *user)
+	// An older in-flight portfolio write must not erase completed registration.
+	_, err := client.Data.Doc(user.ID).Set(*client.Ctx, *user,
+		firestore.Merge([]string{"portfolio"}, []string{"folder_paths"},
+			[]string{"name"}, []string{"id"}, []string{"handedness"}))
 	if err != nil {
 		return fmt.Errorf("error updating user data: %w", err)
 	}

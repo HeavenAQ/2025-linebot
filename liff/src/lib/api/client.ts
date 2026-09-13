@@ -12,6 +12,11 @@ type IdTokenSource = () => string | null
 
 let idTokenSource: IdTokenSource = () => null
 let onExpired: (() => void) | null = null
+let onRegistrationRequired: (() => void) | null = null
+
+export function setRegistrationRequiredHandler(handler: (() => void) | null): void {
+  onRegistrationRequired = handler
+}
 
 export function setIdTokenSource(source: IdTokenSource | null): void {
   idTokenSource = source ?? (() => null)
@@ -40,5 +45,9 @@ export async function authorizedFetch(path: string, init: RequestInit = {}): Pro
   // "reopen from LINE" instead of letting the login they are mid-way through
   // complete. 403 is left alone either way: the caller is known and refused.
   if (response.status === 401 && token) onExpired?.()
+  if (response.status === 403) {
+    const body = await response.clone().json().catch(() => null)
+    if (body?.code === 'registration_required') onRegistrationRequired?.()
+  }
   return response
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -135,7 +136,10 @@ def test_rules_retain_qualitative_grader_instructions() -> None:
             expected in calculation
             for expected, calculation in zip(movements, calculations, strict=True)
         )
-        assert all("度" not in calculation for calculation in calculations)
+        # Do not invent numeric angle thresholds in coaching prose. Words such
+        # as 高度/程度 describe the actual smash height rule, not degrees.
+        assert all(not re.search(r"\d+(?:\.\d+)?\s*度", calculation)
+                   for calculation in calculations)
 
 
 @pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
@@ -235,4 +239,3 @@ def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() ->
     assert spec.rule("wrist_flick").display_phase is None
     assert "最大手腕加速度" in spec.checkpoint_roles_zh_tw[2]
     assert "隨揮" in spec.checkpoint_roles_zh_tw[3]
-

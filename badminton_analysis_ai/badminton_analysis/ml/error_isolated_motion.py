@@ -53,7 +53,6 @@ from badminton_analysis.ml.skeleton_normalization import (
     restore_phase_timing,
 )
 
-
 CONDITION_PHASES = 4
 CORRUPTION_TYPES = ("rotation", "occlusion", "reflection", "phase_shift")
 _EPS = 1e-8
@@ -134,10 +133,6 @@ def condition_phase_bounds(
 CONDITION_PHASE_BOUNDS = condition_phase_bounds(CANONICAL_PHASE_INDICES)
 
 
-
-
-
-
 def stabilize_phase_timing(
     phase_indices: NDArray[np.integer],
     duration_min: NDArray[np.integer],
@@ -181,9 +176,7 @@ def stabilize_phase_timing(
             tuple(int(value) for value in candidate),
         ),
     )
-    return np.concatenate(
-        (np.asarray((0,), dtype=np.int64), np.cumsum(durations))
-    )
+    return np.concatenate((np.asarray((0,), dtype=np.int64), np.cumsum(durations)))
 
 
 def phase_joint_condition(
@@ -193,9 +186,7 @@ def phase_joint_condition(
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
     """Summarize aligned motion into four joint-aware semantic phase tokens."""
     canonical = _validate_canonical_phase_indices(canonical_phase_indices)
-    pose, confidence, _, _ = _aligned(
-        sample, canonical_phase_indices=canonical
-    )
+    pose, confidence, _, _ = _aligned(sample, canonical_phase_indices=canonical)
     from badminton_analysis.ml.kinematic_retargeting import parent_offsets
 
     directions = _unit(parent_offsets(pose))
@@ -217,22 +208,6 @@ def phase_joint_condition(
         np.stack(phase_directions).astype(np.float32),
         np.stack(phase_confidence).astype(np.float32),
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def sample_error_isolated_diffusion(
@@ -294,12 +269,6 @@ def sample_error_isolated_diffusion(
     return state, torch.sigmoid(reliability_logits)
 
 
-
-
-
-
-
-
 def load_error_isolated_bundle(
     path: str | Path, *, device: str = "auto"
 ) -> ErrorIsolatedMotionBundle:
@@ -314,9 +283,7 @@ def load_error_isolated_bundle(
         raise ValueError("checkpoint method is not EIMD")
     canonical = _validate_canonical_phase_indices(
         np.asarray(
-            checkpoint.get(
-                "canonical_phase_indices", CANONICAL_PHASE_INDICES.tolist()
-            ),
+            checkpoint.get("canonical_phase_indices", CANONICAL_PHASE_INDICES.tolist()),
             dtype=np.int64,
         )
     )
@@ -365,9 +332,7 @@ def load_error_isolated_bundle(
             checkpoint.get("expert_phase_duration_max", (60, 60, 60, 60)),
             dtype=np.int64,
         ),
-        expert_wrist_velocity_limit=float(
-            checkpoint["expert_wrist_velocity_limit"]
-        ),
+        expert_wrist_velocity_limit=float(checkpoint["expert_wrist_velocity_limit"]),
         loss_weights=ErrorIsolationLossWeights(**loss_values),
         corruption_curriculum=CorruptionCurriculum(
             **checkpoint["corruption_curriculum"]
@@ -402,9 +367,7 @@ def _inference_features(
     )
     return (
         {
-            "morphology": (
-                base.morphology - bundle.morphology_mean
-            )
+            "morphology": (base.morphology - bundle.morphology_mean)
             / bundle.morphology_scale,
             "handedness": base.handedness,
             "condition_directions": directions,
@@ -412,8 +375,6 @@ def _inference_features(
         },
         base.body_scale,
     )
-
-
 
 
 def _apply_reliable_condition_guidance(
@@ -436,14 +397,11 @@ def _apply_reliable_condition_guidance(
     if strength == 0.0:
         return generated
     raw = generated * state_scale[None] + state_mean[None]
-    directions = raw[..., :DIRECTION_DIM].reshape(
-        len(raw), FRAMES, JOINTS, 2
-    )
+    directions = raw[..., :DIRECTION_DIM].reshape(len(raw), FRAMES, JOINTS, 2)
     # Reliability below chance receives no guidance. Above chance, trust rises
     # linearly and is also bounded by observation confidence.
     trust = np.clip(
-        (reliability - reliability_threshold)
-        / (1.0 - reliability_threshold),
+        (reliability - reliability_threshold) / (1.0 - reliability_threshold),
         0.0,
         1.0,
     )
@@ -456,9 +414,7 @@ def _apply_reliable_condition_guidance(
         directions[:, start:end] = _unit(
             (1.0 - weight) * directions[:, start:end] + weight * target
         )
-    raw[..., :DIRECTION_DIM] = directions.reshape(
-        len(raw), FRAMES, DIRECTION_DIM
-    )
+    raw[..., :DIRECTION_DIM] = directions.reshape(len(raw), FRAMES, DIRECTION_DIM)
     return ((raw - state_mean[None]) / state_scale[None]).astype(np.float32)
 
 
@@ -471,22 +427,14 @@ def _candidate_canonical_velocities(
     joint = []
     for standardized in np.asarray(generated, dtype=np.float32):
         state = standardized * bundle.state_scale + bundle.state_mean
-        directions = _unit(
-            state[:, :DIRECTION_DIM].reshape(FRAMES, JOINTS, 2)
-        )
+        directions = _unit(state[:, :DIRECTION_DIM].reshape(FRAMES, JOINTS, 2))
         root = state[:, DIRECTION_DIM : DIRECTION_DIM + ROOT_DIM]
         contacts = np.clip(state[:, -CONTACT_DIM:], 0.0, 1.0)
-        directions, _, _ = smooth_generated_motion_state(
-            directions, root, contacts
-        )
+        directions, _, _ = smooth_generated_motion_state(directions, root, contacts)
         pose = _fk_from_directions(directions, bundle.canonical_lengths)
         wrist.append(float(np.max(dominant_wrist_velocities(pose))))
-        joint.append(
-            float(np.linalg.norm(np.diff(pose, axis=0), axis=-1).max())
-        )
-    return np.asarray(wrist, dtype=np.float32), np.asarray(
-        joint, dtype=np.float32
-    )
+        joint.append(float(np.linalg.norm(np.diff(pose, axis=0), axis=-1).max()))
+    return np.asarray(wrist, dtype=np.float32), np.asarray(joint, dtype=np.float32)
 
 
 def correct_student_motion_error_isolated(
@@ -535,23 +483,19 @@ def correct_student_motion_error_isolated(
             generated_array, bundle.expert_states
         )
     manifold = np.mean(
-        np.square(
-            generated_array[:, None] - bundle.expert_states[None]
-        ),
+        np.square(generated_array[:, None] - bundle.expert_states[None]),
         axis=(2, 3),
     ).min(axis=1)
-    acceleration = np.diff(
-        generated_array[:, :, :DIRECTION_DIM], n=2, axis=1
-    )
+    acceleration = np.diff(generated_array[:, :, :DIRECTION_DIM], n=2, axis=1)
     smoothness = np.mean(np.square(acceleration), axis=(1, 2))
     candidate_wrist_velocity, candidate_joint_velocity = (
         _candidate_canonical_velocities(generated_array, bundle)
     )
     wrist_limit = bundle.expert_canonical_wrist_velocity_limit
     joint_limit = bundle.expert_canonical_joint_velocity_limit
-    admissible = (
-        candidate_wrist_velocity <= wrist_limit * (1.0 + 1e-5)
-    ) & (candidate_joint_velocity <= joint_limit * (1.0 + 1e-5))
+    admissible = (candidate_wrist_velocity <= wrist_limit * (1.0 + 1e-5)) & (
+        candidate_joint_velocity <= joint_limit * (1.0 + 1e-5)
+    )
     objective = manifold + 0.025 * smoothness
     if np.any(admissible):
         objective = np.where(admissible, objective, np.inf)
@@ -570,19 +514,13 @@ def correct_student_motion_error_isolated(
     selected = int(np.argmin(objective))
     standardized = generated_array[selected]
     state = standardized * bundle.state_scale + bundle.state_mean
-    directions = _unit(
-        state[:, :DIRECTION_DIM].reshape(FRAMES, JOINTS, 2)
-    )
-    normalized_root = state[
-        :, DIRECTION_DIM : DIRECTION_DIM + ROOT_DIM
-    ]
+    directions = _unit(state[:, :DIRECTION_DIM].reshape(FRAMES, JOINTS, 2))
+    normalized_root = state[:, DIRECTION_DIM : DIRECTION_DIM + ROOT_DIM]
     contacts = np.clip(state[:, -CONTACT_DIM:], 0.0, 1.0).astype(np.float32)
     directions, normalized_root, contacts = smooth_generated_motion_state(
         directions, normalized_root, contacts
     )
-    generated_pose = _fk_from_directions(
-        directions, bundle.canonical_lengths
-    )
+    generated_pose = _fk_from_directions(directions, bundle.canonical_lengths)
 
     aligned_pose, aligned_confidence, aligned_root, _ = _aligned(
         sample,
@@ -597,9 +535,7 @@ def correct_student_motion_error_isolated(
     )
     root_delta = normalized_root * body_scale
     corrected_root = aligned_root[:1] + root_delta - root_delta[:1]
-    canonical_root = normalized_root * float(
-        np.median(bundle.canonical_lengths)
-    )
+    canonical_root = normalized_root * float(np.median(bundle.canonical_lengths))
     corrected_root = _retarget_root_with_contacts(
         corrected, corrected_root, contacts, generated_pose
     )
@@ -644,9 +580,7 @@ def correct_student_motion_error_isolated(
         reference_weights=weights.astype(np.float32),
         reference_distances=np.sqrt(distances[nearest]).astype(np.float32),
     )
-    if sample.skill == "serve" and np.isfinite(
-        bundle.expert_wrist_velocity_limit
-    ):
+    if sample.skill == "serve" and np.isfinite(bundle.expert_wrist_velocity_limit):
         correction = limit_correction_wrist_velocity(
             correction,
             bundle.expert_wrist_velocity_limit,
@@ -654,4 +588,3 @@ def correct_student_motion_error_isolated(
             output_phase_indices=output_phase_indices,
         )
     return correction
-

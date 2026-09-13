@@ -33,7 +33,9 @@ def test_correction_video_contains_only_the_scored_analysis_range(
     monkeypatch.setattr(renderer.cv2, "VideoWriter", Writer)
     monkeypatch.setattr(renderer, "_draw_skeleton", lambda *args, **kwargs: None)
     monkeypatch.setattr(renderer, "_draw_header", lambda *args, **kwargs: None)
-    monkeypatch.setattr(renderer, "_transcode_preserving_frame_rate", lambda *args: None)
+    monkeypatch.setattr(
+        renderer, "_transcode_preserving_frame_rate", lambda *args: None
+    )
 
     frames = [np.full((32, 32, 3), index, dtype=np.uint8) for index in range(5)]
     detected = np.zeros((5, 17, 2), dtype=np.float32)

@@ -75,9 +75,7 @@ def test_serve_single_head_preserves_original_rubric_and_total() -> None:
     assert np.isclose(result["total_score"], 62.5)
     assert np.isclose(sum(item["score"] for item in result["criteria"]), 62.5)
     assert [item["maximum"] for item in result["criteria"]] == list(maxima)
-    assert all(
-        0.0 <= item["score"] <= item["maximum"] for item in result["criteria"]
-    )
+    assert all(0.0 <= item["score"] <= item["maximum"] for item in result["criteria"])
 
 
 def test_serve_single_head_caps_transfer_when_required_cues_disagree() -> None:
@@ -110,9 +108,7 @@ def test_serve_single_head_caps_transfer_when_required_cues_disagree() -> None:
 
     assert np.isclose(result["total_score"], 70.0)
     assert np.isclose(sum(item["score"] for item in result["criteria"]), 70.0)
-    assert by_id["weight_transfer"]["score"] == pytest.approx(
-        30.0 * np.exp(-2.0)
-    )
+    assert by_id["weight_transfer"]["score"] == pytest.approx(30.0 * np.exp(-2.0))
     assert by_id["weight_transfer"]["strict_transfer_support_ratio"] == (
         pytest.approx(np.exp(-2.0))
     )
@@ -178,9 +174,7 @@ def test_serve_single_head_keeps_corrected_shoulder_height_as_arm_pass() -> None
     by_id = {item["rule_reference"]: item for item in result["criteria"]}
 
     assert by_id["arms_raised"]["score"] == pytest.approx(5.0)
-    assert sum(item["score"] for item in result["criteria"]) == pytest.approx(
-        50.0
-    )
+    assert sum(item["score"] for item in result["criteria"]) == pytest.approx(50.0)
 
 
 def test_smash_runtime_score_preserves_total_and_rubric_caps(
@@ -232,7 +226,4 @@ def test_smash_runtime_score_preserves_total_and_rubric_caps(
 
     assert result["total_score"] == pytest.approx(72.5)
     assert sum(item["score"] for item in result["criteria"]) == pytest.approx(72.5)
-    assert all(
-        0.0 <= item["score"] <= item["maximum"]
-        for item in result["criteria"]
-    )
+    assert all(0.0 <= item["score"] <= item["maximum"] for item in result["criteria"])

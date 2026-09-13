@@ -273,9 +273,7 @@ def _matched_response(alignment: tuple[tuple[float, float], ...]):
     result = replace(
         result, expert_reference=_expert_reference(), expert_alignment=alignment
     )
-    return service._response(
-        "analysis-1", result, signed, signed, metadata, metadata
-    )
+    return service._response("analysis-1", result, signed, signed, metadata, metadata)
 
 
 def _video() -> Path:

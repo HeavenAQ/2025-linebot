@@ -19,7 +19,6 @@ from service.coaching import (
     _normalized_to_output_frame_indices,
 )
 
-
 PHASES = (0, 20, 39, 51, 63)
 
 
@@ -97,7 +96,9 @@ def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
     assert references == ["weight_transfer", "wrist_flick", "arms_raised"]
 
 
-def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit() -> None:
+def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit() -> (
+    None
+):
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     rule = spec.rules[0]
@@ -136,9 +137,7 @@ def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit()
 
 def test_low_score_feedback_must_cover_every_priority_that_fits() -> None:
     spec = get_skill_spec(Skill.SERVE)
-    correction_grade = _correction_grade(
-        spec, (0.0, 5.0, 0.0, 10.0, 0.0, 20.0)
-    )
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 0.0, 10.0, 0.0, 20.0))
     chosen_rules = (spec.rule("arms_raised"), spec.rule("wrist_flick"))
     analysis = {
         "skill": spec.slug,
@@ -160,8 +159,7 @@ def test_low_score_feedback_must_cover_every_priority_that_fits() -> None:
         ],
     }
     samples = [
-        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec)
-        for rule in chosen_rules
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec) for rule in chosen_rules
     ]
 
     with pytest.raises(ValueError, match="weight_transfer"):
@@ -176,9 +174,7 @@ def test_low_score_feedback_must_cover_every_priority_that_fits() -> None:
 
 def test_mid_score_feedback_cannot_stop_after_only_one_low_criterion() -> None:
     spec = get_skill_spec(Skill.SERVE)
-    correction_grade = _correction_grade(
-        spec, (5.0, 5.0, 15.0, 10.0, 15.0, 20.0)
-    )
+    correction_grade = _correction_grade(spec, (5.0, 5.0, 15.0, 10.0, 15.0, 20.0))
     rule = spec.rule("weight_transfer")
     frame = PHASES[rule.allowed_anchor_indices[-1]]
     analysis = {
@@ -212,9 +208,7 @@ def test_mid_score_feedback_cannot_stop_after_only_one_low_criterion() -> None:
 
 def test_feedback_rejects_a_criterion_that_already_passed() -> None:
     spec = get_skill_spec(Skill.SERVE)
-    correction_grade = _correction_grade(
-        spec, (0.0, 5.0, 5.0, 4.0, 12.0, 20.0)
-    )
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 5.0, 4.0, 12.0, 20.0))
     chosen_rules = (spec.rule("weight_transfer"), spec.rule("shoulder_rotation"))
     analysis = {
         "skill": spec.slug,
@@ -236,8 +230,7 @@ def test_feedback_rejects_a_criterion_that_already_passed() -> None:
         ],
     }
     samples = [
-        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec)
-        for rule in chosen_rules
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec) for rule in chosen_rules
     ]
 
     with pytest.raises(ValueError, match="shoulder_rotation"):
@@ -389,9 +382,7 @@ def test_weight_transfer_allows_contact_display_anchor() -> None:
     normalized = CoachingGenerator._normalize_analysis(
         analysis,
         spec=spec,
-        correction_grade=_correction_grade(
-            spec, (5.0, 5.0, 3.0, 10.0, 30.0, 20.0)
-        ),
+        correction_grade=_correction_grade(spec, (5.0, 5.0, 3.0, 10.0, 30.0, 20.0)),
         phase_indices=phases,
         samples=[sample],
     )
@@ -507,11 +498,11 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
         }
     )
     response = SimpleNamespace(output_parsed=parsed, id="invalid-response")
-    client = SimpleNamespace(
-        responses=SimpleNamespace(parse=lambda **_: response)
-    )
+    client = SimpleNamespace(responses=SimpleNamespace(parse=lambda **_: response))
     samples = [_sample(0, spec)]
-    monkeypatch.setattr(coaching_module, "sample_video_frames", lambda *_, **__: samples)
+    monkeypatch.setattr(
+        coaching_module, "sample_video_frames", lambda *_, **__: samples
+    )
     monkeypatch.setattr(coaching_module, "prompt_context", lambda *_, **__: {})
     monkeypatch.setattr(coaching_module, "build_response_input", lambda *_, **__: [])
     generator = CoachingGenerator.__new__(CoachingGenerator)

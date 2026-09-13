@@ -5,6 +5,7 @@ as an explicit fallback for very small expert banks where the diffusion
 validation criterion is not met.  Both models consume only static morphology,
 preparation stance and handedness; a learner's moving pose is never an input.
 """
+
 from __future__ import annotations
 
 import math
@@ -39,14 +40,6 @@ def timestep_embedding(timesteps: Tensor, dimension: int) -> Tensor:
     if dimension % 2:
         embedding = torch.nn.functional.pad(embedding, (0, 1))
     return embedding
-
-
-
-
-
-
-
-
 
 
 def linear_diffusion_schedule(

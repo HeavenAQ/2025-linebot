@@ -124,9 +124,7 @@ class VideoProcessor:
         else:
             coordinates, scores = wholebody_keypoints
             body_coordinates = np.asarray(coordinates[:17], dtype=np.float64).copy()
-            body_scores = np.clip(
-                np.asarray(scores[:17], dtype=np.float64), 0.0, 1.0
-            )
+            body_scores = np.clip(np.asarray(scores[:17], dtype=np.float64), 0.0, 1.0)
             # Match get_2d_landmarks' validity decision while retaining the
             # detector's continuous score for every accepted keypoint.
             general_threshold = float(self.pose_detector.min_detection_confidence)
@@ -156,9 +154,7 @@ class VideoProcessor:
             self.wholebody_confidence.append(scores)
 
         if handedness is not None:
-            self.hand_positions.append(
-                np.asarray(landmark_2d[wrist], dtype=np.float64)
-            )
+            self.hand_positions.append(np.asarray(landmark_2d[wrist], dtype=np.float64))
             self.elbow_positions.append(
                 np.asarray(landmark_2d[elbow], dtype=np.float64)
             )
@@ -243,9 +239,7 @@ class VideoProcessor:
         Python-level thread mostly contended with that (high aggregate CPU
         time, worse wall time) rather than overlapping anything.
         """
-        self.logger.info(
-            "Starting video frame processing (extraction only, batched)"
-        )
+        self.logger.info("Starting video frame processing (extraction only, batched)")
         self.pose_detector.reset_tracking()
         cap = cv2.VideoCapture(self.video_path)
 
@@ -256,7 +250,9 @@ class VideoProcessor:
             # RF-DETR's native MPS path accepts variable batches. Eight keeps
             # peak unified-memory use bounded while avoiding the severe
             # per-call overhead of the former four-frame extraction batch.
-            8 if getattr(self.pose_detector, "device", "cuda") == "mps" else BATCH_SIZE
+            8
+            if getattr(self.pose_detector, "device", "cuda") == "mps"
+            else BATCH_SIZE
         )
 
         def flush_chunk() -> None:

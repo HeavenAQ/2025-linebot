@@ -27,7 +27,6 @@ from scripts.verify_eimd_v3_review_parity import (  # noqa: E402
     _score_case,
 )
 
-
 EXPECTED_TABS = {
     "serve_beginner": 50,
     "serve_expert": 53,
@@ -87,19 +86,14 @@ def _case(
             generation = fallback
     result: dict[str, Any] = {
         "skill": skill,
-        "generation_sample": (
-            "artifact:" + str(generation.relative_to(artifact_root))
-        ),
+        "generation_sample": ("artifact:" + str(generation.relative_to(artifact_root))),
     }
     if tab == "serve_beginner":
         result["scoring_sample"] = (
-            "validation:audit_30fps_labelled/samples/serve/student/"
-            f"{stem}.npz"
+            "validation:audit_30fps_labelled/samples/serve/student/" f"{stem}.npz"
         )
     elif tab == "serve_expert":
-        result["scoring_sample"] = (
-            f"validation:rfdetr_expert_bank_v14/serve/{stem}.npz"
-        )
+        result["scoring_sample"] = f"validation:rfdetr_expert_bank_v14/serve/{stem}.npz"
     return result
 
 
@@ -154,9 +148,7 @@ def main() -> None:
         if not args.skip_media:
             expected_frames = int(row["frames"])
             for key in ("input", "overlay"):
-                rate, frames, duration = _media_facts(
-                    args.review_root / str(row[key])
-                )
+                rate, frames, duration = _media_facts(args.review_root / str(row[key]))
                 media[key] = {
                     "fps": rate,
                     "frames": frames,
@@ -169,9 +161,7 @@ def main() -> None:
                         f"{label} {key} frames={frames} expected={expected_frames}"
                     )
                 if abs(duration - expected_frames / 30.0) > 1 / 30 + 1e-6:
-                    failures.append(
-                        f"{label} {key} duration={duration:.6f}"
-                    )
+                    failures.append(f"{label} {key} duration={duration:.6f}")
         records.append(
             {
                 "tab": row["tab"],

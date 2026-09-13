@@ -39,7 +39,6 @@ from badminton_analysis.ml.expert_phase_baseline import (
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
 
-
 PHASES = np.asarray((0, 16, 32, 48, 63), dtype=np.int64)
 
 
@@ -82,9 +81,7 @@ def _aggregation_criteria(
             "maximum": 1.0,
             "expert_tolerance": 0.19,
             "expert_robust_scale": 0.10,
-            "generated_target_distance": (
-                preparation_distance if index == 0 else 0.0
-            ),
+            "generated_target_distance": (preparation_distance if index == 0 else 0.0),
         }
         for index, (rule_id, ratio) in enumerate(zip(rule_ids, ratios))
     ]
@@ -128,9 +125,7 @@ def test_ankle_spine_rotation_projects_corrected_pose_into_student_view() -> Non
     )
     corrected = student @ forward.T
 
-    rotation = ankle_spine_view_rotation(
-        student, corrected, start=0, end=24
-    )
+    rotation = ankle_spine_view_rotation(student, corrected, start=0, end=24)
     projected = project_pose_to_student_view(student, corrected, rotation)
 
     assert np.linalg.det(rotation) == pytest.approx(1.0, abs=1e-6)
@@ -153,9 +148,7 @@ def test_knee_then_hip_shift_uses_hierarchical_body_chains() -> None:
 
     np.testing.assert_allclose(
         knee_shifted[:, :15] - corrected[:, :15],
-        np.broadcast_to(
-            np.asarray((0.3, -0.2), dtype=np.float32), (64, 15, 2)
-        ),
+        np.broadcast_to(np.asarray((0.3, -0.2), dtype=np.float32), (64, 15, 2)),
         atol=1e-6,
     )
     np.testing.assert_allclose(knee_shifted[:, 15:], corrected[:, 15:])
@@ -166,9 +159,7 @@ def test_knee_then_hip_shift_uses_hierarchical_body_chains() -> None:
     )
     np.testing.assert_allclose(
         shifted[:, :13] - knee_shifted[:, :13],
-        np.broadcast_to(
-            np.asarray((0.1, 0.05), dtype=np.float32), (64, 13, 2)
-        ),
+        np.broadcast_to(np.asarray((0.1, 0.05), dtype=np.float32), (64, 13, 2)),
         atol=1e-6,
     )
     np.testing.assert_allclose(shifted[:, 13:], knee_shifted[:, 13:])
@@ -235,11 +226,23 @@ def _pose(offset: float = 0.0) -> np.ndarray:
     pose = np.zeros((64, 17, 2), dtype=np.float32)
     base = np.asarray(
         [
-            (0.0, -1.2), (-0.1, -1.25), (0.1, -1.25),
-            (-0.2, -1.2), (0.2, -1.2), (-0.35, -0.8),
-            (0.35, -0.8), (-0.55, -0.35), (0.55, -0.35),
-            (-0.65, 0.1), (0.65, 0.1), (-0.25, 0.0), (0.25, 0.0),
-            (-0.25, 0.65), (0.25, 0.65), (-0.25, 1.3), (0.25, 1.3),
+            (0.0, -1.2),
+            (-0.1, -1.25),
+            (0.1, -1.25),
+            (-0.2, -1.2),
+            (0.2, -1.2),
+            (-0.35, -0.8),
+            (0.35, -0.8),
+            (-0.55, -0.35),
+            (0.55, -0.35),
+            (-0.65, 0.1),
+            (0.65, 0.1),
+            (-0.25, 0.0),
+            (0.25, 0.0),
+            (-0.25, 0.65),
+            (0.25, 0.65),
+            (-0.25, 1.3),
+            (0.25, 1.3),
         ],
         dtype=np.float32,
     )
@@ -372,9 +375,7 @@ def test_serve_weight_transfer_measures_body_over_feet_not_camera_motion() -> No
     identical = _serve_weight_transfer_components(
         target, root, target, root, confidence
     )
-    missing = _serve_weight_transfer_components(
-        source, root, target, root, confidence
-    )
+    missing = _serve_weight_transfer_components(source, root, target, root, confidence)
     moving_camera = root.copy()
     moving_camera[:, 0] = np.linspace(0.0, 2.0, 64)
     camera_invariant = _serve_weight_transfer_components(
@@ -401,9 +402,7 @@ def test_serve_weight_transfer_measures_body_over_feet_not_camera_motion() -> No
         root,
         confidence,
     )
-    assert rotated["combined_distance"] == pytest.approx(
-        missing["combined_distance"]
-    )
+    assert rotated["combined_distance"] == pytest.approx(missing["combined_distance"])
 
 
 def test_serve_qualitative_evidence_requires_two_raised_arms_and_real_stance() -> None:
@@ -443,14 +442,10 @@ def test_serve_arms_pass_at_corrected_shoulder_height_with_small_tolerance() -> 
     source[:, (9, 10), 1] = 0.82
     confidence = np.ones((64, 17), dtype=np.float32)
 
-    evidence = _serve_arms_at_corrected_shoulder_evidence(
-        source, corrected, confidence
-    )
+    evidence = _serve_arms_at_corrected_shoulder_evidence(source, corrected, confidence)
 
     assert evidence["passes_corrected_shoulder_height"] is True
-    assert evidence["weaker_hand_corrected_shoulder_margin"] == pytest.approx(
-        -0.18
-    )
+    assert evidence["weaker_hand_corrected_shoulder_margin"] == pytest.approx(-0.18)
 
 
 def test_serve_arms_fail_when_either_hand_stays_below_shoulder_level() -> None:
@@ -461,18 +456,14 @@ def test_serve_arms_fail_when_either_hand_stays_below_shoulder_level() -> None:
     source[:, 10, 1] = 0.55
     confidence = np.ones((64, 17), dtype=np.float32)
 
-    evidence = _serve_arms_at_corrected_shoulder_evidence(
-        source, corrected, confidence
-    )
+    evidence = _serve_arms_at_corrected_shoulder_evidence(source, corrected, confidence)
 
     assert evidence["passes_corrected_shoulder_height"] is False
 
 
 def test_serve_weight_transfer_rejects_uncoupled_pelvis_translation() -> None:
     drift = _pose()
-    progress = np.clip(
-        (np.arange(64, dtype=np.float32) - 20.0) / 36.0, 0.0, 1.0
-    )
+    progress = np.clip((np.arange(64, dtype=np.float32) - 20.0) / 36.0, 0.0, 1.0)
     # Translate the body over stationary feet without rotating the hip line.
     # Pelvis displacement alone must not be treated as a completed transfer.
     drift[:, :15, 0] += 0.65 * progress[:, None]
@@ -533,9 +524,9 @@ def test_serve_hip_rotation_is_coupled_to_dominant_chain_transfer() -> None:
             ),
             dtype=np.float32,
         )
-        target[frame, (11, 12)] = hip_centre + (
-            target[frame, (11, 12)] - hip_centre
-        ) @ rotation.T
+        target[frame, (11, 12)] = (
+            hip_centre + (target[frame, (11, 12)] - hip_centre) @ rotation.T
+        )
         target[frame, 6, 0] -= 0.35 * amount
         target[frame, 14, 0] -= 0.20 * amount
     uncoupled = target.copy()
@@ -590,9 +581,7 @@ def test_serve_hip_pattern_requires_contraction_and_orientation_groups() -> None
     assert components["semantic_cue_aggregation"] == (
         "contraction_and_orientation_camera_robust"
     )
-    assert components["matched_expert_subject"] == (
-        "subject_balanced_lower_envelope"
-    )
+    assert components["matched_expert_subject"] == ("subject_balanced_lower_envelope")
 
 
 def test_serve_wrist_action_uses_contact_window_speed_and_acceleration() -> None:
@@ -614,9 +603,10 @@ def test_serve_wrist_action_uses_contact_window_speed_and_acceleration() -> None
     assert identical["combined_distance"] == pytest.approx(0.0)
     assert missing["combined_distance"] > 0.03
     assert missing["source_wrist_speed_p90"] < missing["target_wrist_speed_p90"]
-    assert missing["source_wrist_acceleration_p90"] < missing[
-        "target_wrist_acceleration_p90"
-    ]
+    assert (
+        missing["source_wrist_acceleration_p90"]
+        < missing["target_wrist_acceleration_p90"]
+    )
 
 
 def test_serve_expert_envelope_uses_acceleration_event_window() -> None:
@@ -629,12 +619,8 @@ def test_serve_expert_envelope_uses_acceleration_event_window() -> None:
     confidence = np.ones((64, 17), dtype=np.float32)
     root = np.zeros((64, 2), dtype=np.float32)
 
-    event_evidence = _serve_semantic_evidence(
-        "wrist_flick", event, root, confidence
-    )[0]
-    late_evidence = _serve_semantic_evidence(
-        "wrist_flick", late, root, confidence
-    )[0]
+    event_evidence = _serve_semantic_evidence("wrist_flick", event, root, confidence)[0]
+    late_evidence = _serve_semantic_evidence("wrist_flick", late, root, confidence)[0]
 
     assert event_evidence[0] > late_evidence[0]
     assert len(event_evidence) == 2
@@ -691,9 +677,7 @@ def test_serve_v6_score_is_independent_of_generated_motion_style(
     assert model.criterion_metric_version == "serve_expert_distribution_v6"
     assert grade["score_method"] == "expert_only_identity_distribution_v6"
     assert grade["total_score"] == pytest.approx(expected["total_score"])
-    assert wrist["selected_expert_evidence"] == (
-        "expert_only_identity_distribution"
-    )
+    assert wrist["selected_expert_evidence"] == ("expert_only_identity_distribution")
     assert wrist["generated_target_distance"] != pytest.approx(
         expected["criteria"][4]["generated_target_distance"]
     )
@@ -702,9 +686,9 @@ def test_serve_v6_score_is_independent_of_generated_motion_style(
         assert item["selected_camera_evidence_ratio"] == pytest.approx(
             item["raw_checkpoint_ratio"]
         )
-        assert item["selected_camera_evidence_ratio"] >= item[
-            "strict_required_cue_ratio"
-        ]
+        assert (
+            item["selected_camera_evidence_ratio"] >= item["strict_required_cue_ratio"]
+        )
 
     assert sum(item["score"] for item in grade["criteria"]) == pytest.approx(
         grade["total_score"]
@@ -728,8 +712,7 @@ def test_serve_v6_score_is_independent_of_generated_motion_style(
     full_credit = {
         **expected,
         "criteria": [
-            {**item, "score": item["maximum"]}
-            for item in expected["criteria"]
+            {**item, "score": item["maximum"]} for item in expected["criteria"]
         ],
     }
     preserved = apply_score_conditioned_correction(

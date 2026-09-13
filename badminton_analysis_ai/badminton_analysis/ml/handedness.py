@@ -110,8 +110,7 @@ def estimate_handedness(
         axis=0,
     )
     shoulder_width = np.linalg.norm(
-        joints[COCOKeypoints.RIGHT_SHOULDER]
-        - joints[COCOKeypoints.LEFT_SHOULDER],
+        joints[COCOKeypoints.RIGHT_SHOULDER] - joints[COCOKeypoints.LEFT_SHOULDER],
         axis=-1,
     )
     valid_width = shoulder_width > 1e-8
@@ -120,9 +119,9 @@ def estimate_handedness(
     median_width = float(np.median(shoulder_width[valid_width]))
     shoulder_width = np.where(valid_width, shoulder_width, median_width)
 
-    left_positions = (
-        joints[COCOKeypoints.LEFT_WRIST] - torso_center
-    ) / shoulder_width[:, None]
+    left_positions = (joints[COCOKeypoints.LEFT_WRIST] - torso_center) / shoulder_width[
+        :, None
+    ]
     right_positions = (
         joints[COCOKeypoints.RIGHT_WRIST] - torso_center
     ) / shoulder_width[:, None]
@@ -134,7 +133,5 @@ def estimate_handedness(
     if larger <= 1e-12 or ratio < minimum_confidence_ratio:
         handedness = None
     else:
-        handedness = (
-            Handedness.LEFT if left_score > right_score else Handedness.RIGHT
-        )
+        handedness = Handedness.LEFT if left_score > right_score else Handedness.RIGHT
     return HandednessEstimate(handedness, left_score, right_score, ratio)

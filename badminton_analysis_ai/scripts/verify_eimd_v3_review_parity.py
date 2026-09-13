@@ -53,14 +53,10 @@ from scripts.build_expert_skill_support import _tracking_from_cache  # noqa: E40
 
 
 def _digest(value: np.ndarray) -> str:
-    return hashlib.sha256(
-        np.asarray(value, dtype=np.float32).tobytes()
-    ).hexdigest()
+    return hashlib.sha256(np.asarray(value, dtype=np.float32).tobytes()).hexdigest()
 
 
-def _resolve_sample(
-    value: str, *, artifact_root: Path, validation_root: Path
-) -> Path:
+def _resolve_sample(value: str, *, artifact_root: Path, validation_root: Path) -> Path:
     prefix, relative = value.split(":", 1)
     roots = {"artifact": artifact_root, "validation": validation_root}
     if prefix not in roots:
@@ -97,9 +93,7 @@ def _score_case(
         bundle, sample, candidates=candidates, seed=seed
     )
     preparation = next(
-        phase
-        for phase in score_model.spec.phase_windows
-        if phase.name == "preparation"
+        phase for phase in score_model.spec.phase_windows if phase.name == "preparation"
     )
     start, end = preparation.bounds(len(correction.aligned_student_pose))
     correction, _ = align_expert_correction_to_ankle_spine_view(
@@ -126,9 +120,7 @@ def _score_case(
             scoring = _dual_window_scoring_correction(
                 correction, scoring, start=start, end=end
             )
-        score = _serve_single_head_score(
-            score_expert_correction(score_model, scoring)
-        )
+        score = _serve_single_head_score(score_expert_correction(score_model, scoring))
     else:
         score = _score_smash_correction(
             base_score,
@@ -145,24 +137,18 @@ def _score_case(
             str(item["rule_reference"]): float(item["score"])
             for item in score["criteria"]
         },
-        "aligned_corrected_sha256": _digest(
-            correction.aligned_corrected_pose
-        ),
+        "aligned_corrected_sha256": _digest(correction.aligned_corrected_pose),
         "corrected_sha256": _digest(correction.corrected_pose),
     }
 
 
-def _load_backend(
-    model_root: Path, *, skill: str, device: str
-) -> dict[str, Any]:
+def _load_backend(model_root: Path, *, skill: str, device: str) -> dict[str, Any]:
     root = model_root / skill
     loaded: dict[str, Any] = {
         "bundle": load_error_isolated_bundle(
             root / "error_isolated_motion.pt", device=device
         ),
-        "score_model": load_expert_phase_model(
-            root / "expert_score_model.npz"
-        ),
+        "score_model": load_expert_phase_model(root / "expert_score_model.npz"),
     }
     if skill == "smash":
         distribution, variant = load_smash_distribution(
@@ -294,10 +280,7 @@ def main() -> None:
     parser.add_argument(
         "--skill-consistency-oracle",
         type=Path,
-        default=(
-            PROJECT_ROOT
-            / "tests/fixtures/eimd_v3_skill_consistency_cases.json"
-        ),
+        default=(PROJECT_ROOT / "tests/fixtures/eimd_v3_skill_consistency_cases.json"),
     )
     parser.add_argument("--device", required=True)
     parser.add_argument("--skip-media", action="store_true")
@@ -311,10 +294,7 @@ def main() -> None:
             "generate a reviewed device-specific oracle instead"
         )
     rendered = json.loads((args.review_root / "rendered.json").read_text())
-    by_key = {
-        (str(row["skill"]), Path(str(row["file"])).stem): row
-        for row in rendered
-    }
+    by_key = {(str(row["skill"]), Path(str(row["file"])).stem): row for row in rendered}
     failures = _verify_skill_consistency_cases(
         oracle_path=args.skill_consistency_oracle,
         bank_path=args.expert_bank,
@@ -333,17 +313,13 @@ def main() -> None:
             seed=int(contract["seed"]),
         )
         if not np.isclose(actual["score"], case["score"], atol=1e-8):
-            failures.append(
-                f"{label} score {actual['score']} != {case['score']}"
-            )
+            failures.append(f"{label} score {actual['score']} != {case['score']}")
         if actual["criteria"].keys() != case["criteria"].keys():
             failures.append(f"{label} criterion IDs changed")
         for criterion, expected in case["criteria"].items():
             value = actual["criteria"].get(criterion, float("nan"))
             if not np.isclose(value, expected, atol=1e-8):
-                failures.append(
-                    f"{label}:{criterion} {value} != {expected}"
-                )
+                failures.append(f"{label}:{criterion} {value} != {expected}")
         for key in ("aligned_corrected_sha256", "corrected_sha256"):
             if actual[key] != case[key]:
                 failures.append(f"{label} {key} changed")

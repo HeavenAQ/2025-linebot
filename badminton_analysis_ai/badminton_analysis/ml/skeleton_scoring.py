@@ -10,17 +10,40 @@ from torch import Tensor
 
 JOINT_WEIGHTS = np.asarray(
     [
-        0.5, 0.25, 0.25, 0.25, 0.25,
-        1.5, 2.0, 1.25, 3.0, 1.5, 4.0,
-        1.5, 1.5, 1.25, 1.25, 1.25, 1.25,
+        0.5,
+        0.25,
+        0.25,
+        0.25,
+        0.25,
+        1.5,
+        2.0,
+        1.25,
+        3.0,
+        1.5,
+        4.0,
+        1.5,
+        1.5,
+        1.25,
+        1.25,
+        1.25,
+        1.25,
     ],
     dtype=np.float64,
 )
 
 BONES = (
-    (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
-    (5, 11), (6, 12), (11, 12), (11, 13), (13, 15),
-    (12, 14), (14, 16),
+    (5, 6),
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),
+    (5, 11),
+    (6, 12),
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
 )
 
 # Lateral torso spans are projection-dependent rather than rigid limb lengths.
@@ -29,10 +52,14 @@ BONES = (
 TORSO_WIDTH_BONES = ((5, 6), (11, 12))
 
 ANGLE_TRIPLETS = (
-    (5, 7, 9), (6, 8, 10),
-    (7, 5, 11), (8, 6, 12),
-    (5, 11, 13), (6, 12, 14),
-    (11, 13, 15), (12, 14, 16),
+    (5, 7, 9),
+    (6, 8, 10),
+    (7, 5, 11),
+    (8, 6, 12),
+    (5, 11, 13),
+    (6, 12, 14),
+    (11, 13, 15),
+    (12, 14, 16),
 )
 
 DEFAULT_COMPONENT_WEIGHTS = {
@@ -77,25 +104,21 @@ def sequence_training_losses(
     if joint_weight_tensor.shape[-1] != prediction.shape[-2]:
         raise ValueError("joint_weights must contain one value per keypoint")
     position_error = (prediction - target).norm(dim=-1)
-    position = _masked_weighted_mean(
-        position_error, joint_weight_tensor, confidence
-    )
+    position = _masked_weighted_mean(position_error, joint_weight_tensor, confidence)
 
     prediction_velocity = prediction[:, 1:] - prediction[:, :-1]
     target_velocity = target[:, 1:] - target[:, :-1]
     velocity_mask = confidence[:, 1:] * confidence[:, :-1]
     velocity_error = (prediction_velocity - target_velocity).norm(dim=-1)
-    velocity = _masked_weighted_mean(
-        velocity_error, joint_weight_tensor, velocity_mask
-    )
+    velocity = _masked_weighted_mean(velocity_error, joint_weight_tensor, velocity_mask)
 
     bones = torch.as_tensor(BONES, dtype=torch.long, device=prediction.device)
     prediction_bones = (
         prediction[..., bones[:, 0], :] - prediction[..., bones[:, 1], :]
     ).norm(dim=-1)
-    target_bones = (
-        target[..., bones[:, 0], :] - target[..., bones[:, 1], :]
-    ).norm(dim=-1)
+    target_bones = (target[..., bones[:, 0], :] - target[..., bones[:, 1], :]).norm(
+        dim=-1
+    )
     bone_mask = confidence[..., bones[:, 0]] * confidence[..., bones[:, 1]]
     bone_length = _masked_weighted_mean(
         (prediction_bones - target_bones).abs(),
@@ -150,9 +173,7 @@ def sequence_training_losses(
             raise ValueError(
                 "transition_lean_joints must contain both shoulders and both hips"
             )
-        left_shoulder, right_shoulder, left_hip, right_hip = (
-            transition_lean_joints
-        )
+        left_shoulder, right_shoulder, left_hip, right_hip = transition_lean_joints
         source_torso = (
             (prediction[..., left_shoulder, :] + prediction[..., right_shoulder, :])
             - (prediction[..., left_hip, :] + prediction[..., right_hip, :])
@@ -172,8 +193,7 @@ def sequence_training_losses(
         lean_trajectory_mask = lean_mask * lean_mask[:, :1]
         lean_trajectory = _masked_weighted_mean(
             (
-                (source_lean - source_lean[:, :1])
-                - (target_lean - target_lean[:, :1])
+                (source_lean - source_lean[:, :1]) - (target_lean - target_lean[:, :1])
             ).abs(),
             torch.ones_like(lean_trajectory_mask),
             lean_trajectory_mask,
@@ -191,13 +211,10 @@ def sequence_training_losses(
         if transition_direction_joint is None:
             transition = 0.65 * lower_transition + 0.35 * lean_transition
         else:
-            pelvis_prediction = (
-                prediction[..., 11, :] + prediction[..., 12, :]
-            ) * 0.5
+            pelvis_prediction = (prediction[..., 11, :] + prediction[..., 12, :]) * 0.5
             pelvis_target = (target[..., 11, :] + target[..., 12, :]) * 0.5
             source_relative = (
-                prediction[..., transition_direction_joint, :]
-                - pelvis_prediction
+                prediction[..., transition_direction_joint, :] - pelvis_prediction
             )
             target_relative = target[..., transition_direction_joint, :] - pelvis_target
             source_displacement = source_relative - source_relative[:, :1]
@@ -210,12 +227,8 @@ def sequence_training_losses(
             peak_offset = target_window.norm(dim=-1).argmax(dim=1)
             peak_index = peak_offset + window_start
             gather_index = peak_index[:, None, None].expand(-1, 1, 2)
-            source_vector = torch.gather(
-                source_horizontal, 1, gather_index
-            ).squeeze(1)
-            target_vector = torch.gather(
-                target_horizontal, 1, gather_index
-            ).squeeze(1)
+            source_vector = torch.gather(source_horizontal, 1, gather_index).squeeze(1)
+            target_vector = torch.gather(target_horizontal, 1, gather_index).squeeze(1)
             source_norm = source_vector.norm(dim=-1)
             target_norm = target_vector.norm(dim=-1)
             cosine = (source_vector * target_vector).sum(dim=-1) / (
@@ -245,9 +258,7 @@ def sequence_training_losses(
                 direction_mask,
             )
             transition = (
-                0.45 * lower_transition
-                + 0.20 * lean_transition
-                + 0.35 * direction
+                0.45 * lower_transition + 0.20 * lean_transition + 0.35 * direction
             )
 
     total = (
@@ -347,7 +358,9 @@ def correction_distance_components(
     )
     source_angles = _numpy_angles(source, ANGLE_TRIPLETS)
     target_angles = _numpy_angles(target, ANGLE_TRIPLETS)
-    angle = _numpy_masked_mean(np.abs(source_angles - target_angles) / np.pi, angle_mask)
+    angle = _numpy_masked_mean(
+        np.abs(source_angles - target_angles) / np.pi, angle_mask
+    )
     return {
         "position_distance": position,
         "angle_distance": angle,
@@ -420,10 +433,7 @@ def full_transition_components(
         * full_mask[:, right_hip]
     )
     lean_trajectory = _numpy_masked_mean(
-        np.abs(
-            (source_lean - source_lean[0])
-            - (target_lean - target_lean[0])
-        ),
+        np.abs((source_lean - source_lean[0]) - (target_lean - target_lean[0])),
         lean_mask * lean_mask[0],
     )
     lean_endpoint = _numpy_masked_mean(
@@ -452,9 +462,7 @@ def full_transition_components(
         window_end = max(window_start + 1, len(full_target) * 7 // 8)
         peak_index = window_start + int(
             np.argmax(
-                np.linalg.norm(
-                    target_horizontal[window_start:window_end], axis=-1
-                )
+                np.linalg.norm(target_horizontal[window_start:window_end], axis=-1)
             )
         )
         source_vector = source_horizontal[peak_index]
@@ -472,8 +480,7 @@ def full_transition_components(
                 direction_distance = 1.0
             else:
                 cosine = float(
-                    np.dot(source_vector, target_vector)
-                    / (source_norm * target_norm)
+                    np.dot(source_vector, target_vector) / (source_norm * target_norm)
                 )
                 direction_distance = 0.5 * (1.0 - np.clip(cosine, -1.0, 1.0))
     transition_distance = (
@@ -489,8 +496,6 @@ def full_transition_components(
         "lunge_direction_distance": direction_distance,
         "transition_distance": transition_distance,
     }
-
-
 
 
 def correction_distance(
@@ -587,10 +592,7 @@ def keypoint_correction_components(
         if observed_count <= 1e-8:
             continue
         angle[center] += float(
-            np.sum(
-                angle_error[:, triplet_index]
-                * angle_mask[:, triplet_index]
-            )
+            np.sum(angle_error[:, triplet_index] * angle_mask[:, triplet_index])
             / observed_count
         )
         angle_counts[center] += 1.0
@@ -611,8 +613,7 @@ def keypoint_correction_components(
         if observed_count <= 1e-8:
             continue
         error = float(
-            np.sum(np.abs(source_length - target_length) * bone_mask)
-            / observed_count
+            np.sum(np.abs(source_length - target_length) * bone_mask) / observed_count
         )
         bone_length[start] += error
         bone_length[end] += error
@@ -713,7 +714,9 @@ def project_bone_lengths(
             adjustment = np.zeros_like(vector)
             adjustment[valid] = (
                 0.5
-                * ((length[valid] - desired_lengths[valid, bone_index]) / length[valid])[:, None]
+                * (
+                    (length[valid] - desired_lengths[valid, bone_index]) / length[valid]
+                )[:, None]
                 * vector[valid]
             )
             projected[:, start] += adjustment
@@ -836,8 +839,7 @@ def project_stable_bone_lengths(
             adjustment[valid] = (
                 0.5
                 * (
-                    (length[valid] - desired_lengths[valid, bone_index])
-                    / length[valid]
+                    (length[valid] - desired_lengths[valid, bone_index]) / length[valid]
                 )[:, None]
                 * vector[valid]
             )
@@ -963,9 +965,13 @@ class ScoreCalibration:
     target_expert_mean: float = 99.0
     target_reachable: bool = True
 
-    def score(self, distance: float | NDArray[np.floating]) -> float | NDArray[np.float64]:
+    def score(
+        self, distance: float | NDArray[np.floating]
+    ) -> float | NDArray[np.float64]:
         values = np.asarray(distance, dtype=np.float64)
-        scores = 100.0 * np.exp(-self.alpha * np.maximum(values - self.distance_offset, 0.0))
+        scores = 100.0 * np.exp(
+            -self.alpha * np.maximum(values - self.distance_offset, 0.0)
+        )
         if values.ndim == 0:
             return float(scores)
         return scores
@@ -992,8 +998,7 @@ def fit_score_calibration(
         reachable = minimum_mean <= target_beginner_mean
         low, high = 0.0, 1.0
         while (
-            float(np.mean(100.0 * np.exp(-high * adjusted)))
-            > target_beginner_mean
+            float(np.mean(100.0 * np.exp(-high * adjusted))) > target_beginner_mean
             and high < 1e6
         ):
             high *= 2.0

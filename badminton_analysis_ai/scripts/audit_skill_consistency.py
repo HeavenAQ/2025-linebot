@@ -118,9 +118,7 @@ def main() -> None:
             rows.append(future.result())
             if index % 10 == 0 or index == len(futures):
                 print(f"completed {index}/{len(futures)}", flush=True)
-    rows.sort(
-        key=lambda row: (row["skill"], row["requested_skill"], row["file"])
-    )
+    rows.sort(key=lambda row: (row["skill"], row["requested_skill"], row["file"]))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n")
     correct = [row for row in rows if row["skill"] == row["requested_skill"]]
@@ -133,8 +131,7 @@ def main() -> None:
     invalid_wrong = [
         row
         for row in wrong
-        if row["status"]
-        not in {"reject", "reject_requested_unavailable"}
+        if row["status"] not in {"reject", "reject_requested_unavailable"}
     ]
     for skill in ("serve", "smash"):
         selected = [row for row in correct if row["skill"] == skill]

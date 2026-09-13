@@ -148,9 +148,7 @@ def test_process_frames_batched_skips_frames_missing_expected_hand() -> None:
 
 
 def test_moving_average_preserves_shape() -> None:
-    positions = np.asarray(
-        [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)], dtype=float
-    )
+    positions = np.asarray([(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)], dtype=float)
     smoothed = VideoAnalyzer.moving_average(positions, window_size=3)
 
     assert smoothed.shape == positions.shape
@@ -158,9 +156,7 @@ def test_moving_average_preserves_shape() -> None:
 
 def test_moving_average_uses_edge_padding() -> None:
     positions = np.asarray([(0, 0), (10, 10)], dtype=float)
-    smoothed = VideoAnalyzer.moving_average(
-        positions, window_size=3, pad_mode="edge"
-    )
+    smoothed = VideoAnalyzer.moving_average(positions, window_size=3, pad_mode="edge")
 
     np.testing.assert_allclose(smoothed[0], np.array([3.33, 3.33]), atol=0.1)
 
@@ -225,9 +221,7 @@ def test_directional_acceleration_uses_body_relative_wrist_motion() -> None:
     )
     wrist = relative + anchor
 
-    _, peak, _ = VideoAnalyzer.find_acc_analysis_window(
-        list(wrist), list(anchor)
-    )
+    _, peak, _ = VideoAnalyzer.find_acc_analysis_window(list(wrist), list(anchor))
 
     assert peak == 24
 

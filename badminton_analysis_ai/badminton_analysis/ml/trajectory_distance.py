@@ -15,7 +15,6 @@ from typing import Any, Literal, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-
 TrajectoryDistance = Literal[
     "euclidean",
     "dtw",
@@ -99,8 +98,7 @@ def _joint_angles(pose: NDArray[np.floating]) -> NDArray[np.float64]:
         incoming = values[:, first] - values[:, centre]
         outgoing = values[:, last] - values[:, centre]
         denominator = np.maximum(
-            np.linalg.norm(incoming, axis=-1)
-            * np.linalg.norm(outgoing, axis=-1),
+            np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1),
             _EPS,
         )
         cosine = np.sum(incoming * outgoing, axis=-1) / denominator
@@ -121,14 +119,11 @@ def serve_angle_manifold_feature(
         incoming = values[:, first] - values[:, centre]
         outgoing = values[:, last] - values[:, centre]
         denominator = np.maximum(
-            np.linalg.norm(incoming, axis=-1)
-            * np.linalg.norm(outgoing, axis=-1),
+            np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1),
             1e-6,
         )
         cosine = np.sum(incoming * outgoing, axis=-1) / denominator
-        trajectories.append(
-            np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi
-        )
+        trajectories.append(np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi)
     sampled = np.stack(trajectories, axis=-1)[
         np.linspace(0, 63, 16).round().astype(np.int64)
     ]
@@ -213,9 +208,7 @@ def smash_motion_manifold_feature(
         orientations.extend((np.sin(phase), np.cos(phase)))
     signed_orientations = np.stack(orientations, axis=-1)
     arm_positions = local[:, (7, 8, 9, 10)].reshape(len(local), -1)
-    trajectory = np.concatenate(
-        (angles, signed_orientations, arm_positions), axis=-1
-    )
+    trajectory = np.concatenate((angles, signed_orientations, arm_positions), axis=-1)
     sampled = trajectory[np.linspace(0, 63, 16).round().astype(np.int64)]
     derivative = np.diff(sampled, axis=0, prepend=sampled[:1])
     return np.concatenate((sampled.ravel(), derivative.ravel()))
@@ -274,13 +267,20 @@ def load_smash_trajectory_scorer(path: str | Path) -> SmashTrajectoryScorer:
         if str(archive["method"].item()) != "smash_expert_corrected_trajectory_v1":
             raise ValueError("not a smash corrected-trajectory scorer")
         if bool(archive["student_data_used_for_training_or_calibration"].item()):
-            raise ValueError("smash trajectory scorer used forbidden student calibration")
+            raise ValueError(
+                "smash trajectory scorer used forbidden student calibration"
+            )
         distance_method = str(archive["distance_method"].item())
         if distance_method not in {
-            "euclidean", "dtw", "derivative_dtw", "shape_dtw",
+            "euclidean",
+            "dtw",
+            "derivative_dtw",
+            "shape_dtw",
             "multi_feature_dtw",
         }:
-            raise ValueError(f"unsupported smash trajectory distance: {distance_method}")
+            raise ValueError(
+                f"unsupported smash trajectory distance: {distance_method}"
+            )
         criterion_ids = tuple(str(value) for value in archive["criterion_ids"])
         joints = tuple(
             tuple(int(value) for value in str(serialized).split(","))
@@ -303,9 +303,7 @@ def load_smash_trajectory_scorer(path: str | Path) -> SmashTrajectoryScorer:
             distance_method=distance_method,  # type: ignore[arg-type]
             fusion=str(archive["fusion"].item()),
             criterion_ids=criterion_ids,
-            criterion_maxima=np.asarray(
-                archive["criterion_maxima"], dtype=np.float64
-            ),
+            criterion_maxima=np.asarray(archive["criterion_maxima"], dtype=np.float64),
             start_fractions=np.asarray(
                 archive["criterion_start_fractions"], dtype=np.float64
             ),
@@ -347,17 +345,13 @@ def apply_smash_trajectory_score(
     }
     if tuple(semantic_by_id) != scorer.criterion_ids:
         raise ValueError("semantic and trajectory smash criteria do not match")
-    manifold_distance = smash_motion_manifold_distance(
-        learner_pose, scorer.manifold
-    )
+    manifold_distance = smash_motion_manifold_distance(learner_pose, scorer.manifold)
     manifold_ratio = expert_residual_ratio(
         manifold_distance,
         tolerance=scorer.manifold.expert_q80,
         scale=scorer.manifold.expert_scale,
     )
-    boundary = float(
-        np.exp(-1.0) if scorer.fusion == "manifold_gate" else np.exp(-2.0)
-    )
+    boundary = float(np.exp(-1.0) if scorer.fusion == "manifold_gate" else np.exp(-2.0))
     outside_support = manifold_ratio < boundary
     criteria = []
     for index, criterion_id in enumerate(scorer.criterion_ids):
@@ -424,9 +418,10 @@ def _velocity(values: NDArray[np.floating]) -> NDArray[np.float64]:
     # Four canonical frames are approximately one sixteenth of a 64-frame
     # motion.  This factor keeps velocity and pose residuals on comparable
     # dimensionless scales without depending on the source video's FPS.
-    return np.vstack(
-        (np.zeros((1, trajectory.shape[1])), np.diff(trajectory, axis=0))
-    ) * 4.0
+    return (
+        np.vstack((np.zeros((1, trajectory.shape[1])), np.diff(trajectory, axis=0)))
+        * 4.0
+    )
 
 
 def _shape_descriptor(values: NDArray[np.floating]) -> NDArray[np.float64]:
@@ -470,11 +465,7 @@ def constrained_dtw_cost(
         for target_index in range(start, end + 1):
             local = float(
                 np.sqrt(
-                    np.mean(
-                        np.square(
-                            left[source_index - 1] - right[target_index - 1]
-                        )
-                    )
+                    np.mean(np.square(left[source_index - 1] - right[target_index - 1]))
                 )
             )
             predecessors = (
@@ -484,8 +475,7 @@ def constrained_dtw_cost(
             )
             choice = min(
                 range(3),
-                key=lambda index: predecessors[index][0]
-                + predecessors[index][1],
+                key=lambda index: predecessors[index][0] + predecessors[index][1],
             )
             if choice == 0:
                 previous = (source_index - 1, target_index - 1)
@@ -496,9 +486,7 @@ def constrained_dtw_cost(
             accumulated[source_index, target_index] = (
                 local + predecessors[choice][0] + predecessors[choice][1]
             )
-            path_length[source_index, target_index] = (
-                path_length[previous] + 1
-            )
+            path_length[source_index, target_index] = path_length[previous] + 1
     length = int(path_length[len(left), len(right)])
     if length == 0 or not np.isfinite(accumulated[len(left), len(right)]):
         raise ValueError("DTW constraints do not admit a valid path")
@@ -532,13 +520,9 @@ def corrected_motion_distance(
         max(start + 1, int(np.ceil(end_fraction * len(learner)))),
     )
     learner_position = learner[:, selected].reshape(len(learner), -1)[start:end]
-    corrected_position = corrected[:, selected].reshape(len(corrected), -1)[
-        start:end
-    ]
+    corrected_position = corrected[:, selected].reshape(len(corrected), -1)[start:end]
     if method == "euclidean":
-        return float(
-            np.sqrt(np.mean(np.square(learner_position - corrected_position)))
-        )
+        return float(np.sqrt(np.mean(np.square(learner_position - corrected_position))))
 
     radius = max(2, int(round(0.10 * len(learner_position))))
     if method == "dtw":

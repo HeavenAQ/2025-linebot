@@ -46,6 +46,7 @@ def _largest_person_index(
     areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     return int(np.argmax(np.where(keep, areas, -np.inf)))
 
+
 # COCO-WholeBody-133 total column count that `wrist_flick.py` and
 # `WholeBodyCoordinateDict` expect. RFDETRKeypointPreview only predicts the
 # 17 COCO body joints (no hands/face/feet), so only slots 0-16 are ever
@@ -69,7 +70,10 @@ _ELBOW_KEYPOINT_INDICES = frozenset(
 )
 
 _TRT_CACHE_ROOT = Path(
-    os.getenv("BADMINTON_TRT_CACHE_DIR", str(Path.home() / ".cache" / "badminton_analysis" / "trt_engines"))
+    os.getenv(
+        "BADMINTON_TRT_CACHE_DIR",
+        str(Path.home() / ".cache" / "badminton_analysis" / "trt_engines"),
+    )
 )
 
 
@@ -104,9 +108,7 @@ class PoseDetector:
         self.device = (
             "cuda"
             if torch.cuda.is_available()
-            else "mps"
-            if torch.backends.mps.is_available()
-            else "cpu"
+            else "mps" if torch.backends.mps.is_available() else "cpu"
         )
         self.logger.info(f"{self.device} is used")
 
@@ -153,10 +155,7 @@ class PoseDetector:
                 "rfdetr is required for person detection and pose estimation"
             ) from exc
         self._model = RFDETRKeypointPreview(device=self.device)
-        if (
-            self.device == "mps"
-            and os.getenv("BADMINTON_RFDETR_MPS_FP16", "0") == "1"
-        ):
+        if self.device == "mps" and os.getenv("BADMINTON_RFDETR_MPS_FP16", "0") == "1":
             # Match the production TensorRT engine's FP16 precision while
             # avoiding a second full-precision model copy on unified memory.
             # Compilation is deliberately disabled because audit batches have
@@ -306,9 +305,7 @@ class PoseDetector:
         )
         return [prediction]
 
-    def get_poses_batch(
-        self, images: list[MatLike]
-    ) -> list[list[PosePrediction]]:
+    def get_poses_batch(self, images: list[MatLike]) -> list[list[PosePrediction]]:
         """Detect the largest person and their pose across a batch of frames.
 
         Uses the cached fixed-batch TensorRT engine (`BATCH_SIZE` frames per

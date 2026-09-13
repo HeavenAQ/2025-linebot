@@ -85,9 +85,7 @@ def test_serve_angle_manifold_uses_other_identity_bounds() -> None:
     second = np.repeat(pose[None], 2, axis=0)
     second[:, :, 10, 0] *= -1.0
     experts = np.concatenate((first, second), axis=0)
-    manifold = fit_serve_angle_manifold(
-        experts, ("first", "first", "second", "second")
-    )
+    manifold = fit_serve_angle_manifold(experts, ("first", "first", "second", "second"))
 
     assert manifold.expert_q80 >= 0.0
     assert manifold.expert_scale >= 0.5

@@ -32,9 +32,9 @@ from service.renderer import (
 def test_smash_contact_timeline_is_pinned_without_moving_endpoints() -> None:
     frames = 64
     pose = np.zeros((frames, 17, 2), dtype=np.float32)
-    root = np.stack(
-        (np.linspace(0.0, 4.0, frames), np.zeros(frames)), axis=-1
-    ).astype(np.float32)
+    root = np.stack((np.linspace(0.0, 4.0, frames), np.zeros(frames)), axis=-1).astype(
+        np.float32
+    )
     pose[:, 6] = (0.0, 0.0)
     # A smooth racket-arm impulse centred well after the requested contact.
     time = np.arange(frames, dtype=np.float32)
@@ -182,9 +182,7 @@ def test_smash_student_displacement_preserves_anchor_and_generated_motion() -> N
     )
     # The student's displacement is added, not used to replace the generated
     # correction trajectory.
-    np.testing.assert_allclose(
-        transported[:, 11] - corrected[:, 11], travel, atol=1e-5
-    )
+    np.testing.assert_allclose(transported[:, 11] - corrected[:, 11], travel, atol=1e-5)
 
 
 def test_smash_local_ema_preserves_root_and_phase_endpoints() -> None:
@@ -200,9 +198,7 @@ def test_smash_local_ema_preserves_root_and_phase_endpoints() -> None:
         (0.20, 0.35, 0.12, 0.38, 0.10, 0.40, 0.08, 0.42, 0.06, 0.44, 0.04, 0.46),
         dtype=np.float32,
     )
-    pose[:, 9] = pose[:, 7] + 10.0 * np.stack(
-        (np.cos(angles), np.sin(angles)), axis=-1
-    )
+    pose[:, 9] = pose[:, 7] + 10.0 * np.stack((np.cos(angles), np.sin(angles)), axis=-1)
 
     smoothed = _ema_smooth_corrected_local_pose(
         pose, alpha_current=0.85, reset_frames=(5, frames - 1)
@@ -239,8 +235,7 @@ def test_smash_bbox_placement_smoothing_is_rigid_and_endpoint_preserving() -> No
         atol=1e-5,
     )
     before_anchor = 0.5 * (
-        pose[:, (5, 6, 11, 12)].min(axis=1)
-        + pose[:, (5, 6, 11, 12)].max(axis=1)
+        pose[:, (5, 6, 11, 12)].min(axis=1) + pose[:, (5, 6, 11, 12)].max(axis=1)
     )
     after_anchor = 0.5 * (
         smoothed[:, (5, 6, 11, 12)].min(axis=1)
@@ -267,13 +262,12 @@ def test_smash_contact_leg_constraint_handles_swapped_ankle_labels() -> None:
     # RF-DETR alternates semantic ankle IDs, but the screen-space pair is
     # stable and both feet are planted.
     detected[1::2, 15], detected[1::2, 16] = (
-        detected[1::2, 16].copy(), detected[1::2, 15].copy()
+        detected[1::2, 16].copy(),
+        detected[1::2, 15].copy(),
     )
     confidence = np.ones((frames, 17), dtype=np.float32)
 
-    constrained = _apply_smash_contact_leg_constraints(
-        corrected, detected, confidence
-    )
+    constrained = _apply_smash_contact_leg_constraints(corrected, detected, confidence)
 
     expected = np.asarray(((34.0, 108.0), (66.0, 108.0)), dtype=np.float32)
     for frame in range(frames):
@@ -341,16 +335,12 @@ def test_lift_rendering_moves_leg_directions_toward_expert_lunge() -> None:
     assert np.linalg.norm(result[16] - result[14]) == pytest.approx(
         np.linalg.norm(detected[16] - detected[14]), abs=1e-4
     )
-    assert _angle_between(
-        result[15] - result[13], detected[15] - detected[13]
-    ) < 1e-6
+    assert _angle_between(result[15] - result[13], detected[15] - detected[13]) < 1e-6
     grounded_target = np.asarray(
         (target_lunge[0], detected[16, 1] - result[12, 1]), dtype=np.float32
     )
     target_cross = _cross_2d(grounded_target, corrected[14] - corrected[12])
-    rendered_cross = _cross_2d(
-        result[16] - result[12], result[14] - result[12]
-    )
+    rendered_cross = _cross_2d(result[16] - result[12], result[14] - result[12])
     assert np.sign(rendered_cross) == np.sign(target_cross)
     np.testing.assert_allclose(
         (result[11] + result[12]) * 0.5,
@@ -446,9 +436,7 @@ def test_transcode_preserves_exact_rational_frame_rate(tmp_path) -> None:
 def test_normalized_correction_maps_back_to_source_motion_window() -> None:
     assert _normalized_to_source_frame(0, 64, 12, 43) == 12
     assert _normalized_to_source_frame(63, 64, 12, 43) == 43
-    mapped = [
-        _normalized_to_source_frame(index, 64, 12, 43) for index in range(64)
-    ]
+    mapped = [_normalized_to_source_frame(index, 64, 12, 43) for index in range(64)]
     assert mapped == sorted(mapped)
     assert set(mapped) == set(range(12, 44))
 
@@ -464,9 +452,7 @@ def test_full_body_correction_is_grounded_on_detected_support_ankle() -> None:
 
     np.testing.assert_allclose(grounded[16], detected[16])
     # Grounding is one rigid translation: expert joint configuration remains.
-    np.testing.assert_allclose(
-        grounded[10] - grounded[6], corrected[10] - corrected[6]
-    )
+    np.testing.assert_allclose(grounded[10] - grounded[6], corrected[10] - corrected[6])
     np.testing.assert_allclose(
         grounded[15] - grounded[16], corrected[15] - corrected[16]
     )

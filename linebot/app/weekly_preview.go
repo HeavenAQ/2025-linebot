@@ -25,8 +25,9 @@ const (
 	// preview, so they are skipped rather than pushed a note about a skill they
 	// cannot practise. Reported separately from PreviewNoHistory so a run makes
 	// the reason visible.
-	PreviewNoSupportedSkill PreviewStatus = "no_supported_skill"
-	PreviewFailed           PreviewStatus = "failed"
+	PreviewNoSupportedSkill     PreviewStatus = "no_supported_skill"
+	PreviewFailed               PreviewStatus = "failed"
+	PreviewRegistrationRequired PreviewStatus = "registration_required"
 )
 
 // PreviewOutcome reports one learner's result so a run can be inspected
@@ -126,6 +127,10 @@ func (app *App) previewFocus(user db.UserData, outcome *PreviewOutcome) (db.Badm
 // second answer, and it must not consume that week's scheduled push.
 func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
 	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
+	if !user.HasExperimentRegistration() {
+		outcome.Status = PreviewRegistrationRequired
+		return outcome
+	}
 
 	skill, history, ok := app.previewFocus(user, &outcome)
 	if !ok {

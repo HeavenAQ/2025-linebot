@@ -69,6 +69,9 @@ func main() {
 			return
 		}
 		c.Set(authenticatedUserKey, userID)
+		if !auth.AllowRegisteredLearner(c, userID, application.FirestoreClient.GetUserData) {
+			return
+		}
 		c.Next()
 	}
 	// learnerID is the only identity these handlers may act on.

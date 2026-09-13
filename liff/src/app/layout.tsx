@@ -20,8 +20,8 @@ export default function RootLayout({
   return (
     <html lang="zh-Hant" className={mPlusRounded1c.className} suppressHydrationWarning>
       <body suppressHydrationWarning>
-        <Navbar />
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
+          <Navbar />
           <div className="pb-16 pt-14">
             <Hero />
             {children}

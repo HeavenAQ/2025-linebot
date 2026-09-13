@@ -61,9 +61,16 @@ def _clip_metadata(video: Path) -> tuple[float, int, int]:
 def build(source_root: Path, output: Path) -> dict[str, int]:
     skeletons: list[np.ndarray] = []
     meta: dict[str, list] = {
-        "skill": [], "handedness": [], "video_object_path": [], "subject_id": [],
-        "fps": [], "analysis_window": [], "source_phase_indices": [],
-        "duration_seconds": [], "width": [], "height": [],
+        "skill": [],
+        "handedness": [],
+        "video_object_path": [],
+        "subject_id": [],
+        "fps": [],
+        "analysis_window": [],
+        "source_phase_indices": [],
+        "duration_seconds": [],
+        "width": [],
+        "height": [],
     }
     counts: dict[str, int] = {}
 
@@ -79,22 +86,34 @@ def build(source_root: Path, output: Path) -> dict[str, int]:
                     raise ValueError(f"synthetic mirror is not a real expert: {path}")
                 skeleton = sample["skeleton"].astype(np.float32)
                 if skeleton.shape != (64, 17, 2):
-                    raise ValueError(f"unexpected skeleton shape in {path}: {skeleton.shape}")
+                    raise ValueError(
+                        f"unexpected skeleton shape in {path}: {skeleton.shape}"
+                    )
                 video_name = str(sample["video_name"].item())
                 video = source_root / video_dir / video_name
                 if not video.exists():
-                    matches = list((source_root / video_dir).glob(Path(video_name).stem + ".*"))
+                    matches = list(
+                        (source_root / video_dir).glob(Path(video_name).stem + ".*")
+                    )
                     if not matches:
-                        raise FileNotFoundError(f"no video for {path.name}: {video_name}")
+                        raise FileNotFoundError(
+                            f"no video for {path.name}: {video_name}"
+                        )
                     video = matches[0]
                 skeletons.append(skeleton)
                 meta["skill"].append(skill)
                 meta["handedness"].append(str(sample["handedness"].item()))
-                meta["video_object_path"].append(f"{VIDEO_PREFIX}/{skill}/videos/{video.name}")
+                meta["video_object_path"].append(
+                    f"{VIDEO_PREFIX}/{skill}/videos/{video.name}"
+                )
                 meta["subject_id"].append(str(sample["subject_id"].item()))
                 meta["fps"].append(float(sample["fps"].item()))
-                meta["analysis_window"].append(sample["analysis_window"].astype(np.int64))
-                meta["source_phase_indices"].append(sample["source_phase_indices"].astype(np.int64))
+                meta["analysis_window"].append(
+                    sample["analysis_window"].astype(np.int64)
+                )
+                meta["source_phase_indices"].append(
+                    sample["source_phase_indices"].astype(np.int64)
+                )
                 duration, width, height = _clip_metadata(video)
                 meta["duration_seconds"].append(duration)
                 meta["width"].append(width)
@@ -122,11 +141,16 @@ def build(source_root: Path, output: Path) -> dict[str, int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", required=True, type=Path)
-    parser.add_argument("--output", type=Path, default=Path("models/expert_reference_bank.npz"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("models/expert_reference_bank.npz")
+    )
     args = parser.parse_args()
     counts = build(args.source_root, args.output)
     size = args.output.stat().st_size / 1024
-    print(f"wrote {args.output} ({size:.0f} KB): " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+    print(
+        f"wrote {args.output} ({size:.0f} KB): "
+        + ", ".join(f"{k}={v}" for k, v in counts.items())
+    )
     return 0
 
 

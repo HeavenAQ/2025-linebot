@@ -65,9 +65,7 @@ class PhaseJointReliabilityEncoder(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.diagnostic = nn.TransformerEncoder(
-            diagnostic_layer, diagnostic_layers
-        )
+        self.diagnostic = nn.TransformerEncoder(diagnostic_layer, diagnostic_layers)
         self.reliability_head = nn.Sequential(
             nn.LayerNorm(model_dim),
             nn.Linear(model_dim, model_dim // 2),
@@ -142,9 +140,7 @@ class PhaseJointReliabilityEncoder(nn.Module):
             batch, self.phases, self.joints, self.model_dim
         )
         weights = confidence.clamp(0.0, 1.0)[..., None] * reliability
-        phase_tokens = (fused * weights).sum(dim=2) / weights.sum(dim=2).clamp_min(
-            1e-4
-        )
+        phase_tokens = (fused * weights).sum(dim=2) / weights.sum(dim=2).clamp_min(1e-4)
         return self.phase_norm(phase_tokens), reliability_logits
 
 
@@ -258,9 +254,7 @@ class ErrorIsolatedMotionDenoiser(nn.Module):
             )
         phase = self.phase_features[None].expand(batch, -1, -1)
         hidden = self.state_projection(torch.cat((noisy_state, phase), dim=-1))
-        step = self.diffusion_step(
-            timestep_embedding(diffusion_step, self.model_dim)
-        )
+        step = self.diffusion_step(timestep_embedding(diffusion_step, self.model_dim))
         hidden = hidden + self.time_embedding + step[:, None]
         conditioned, _ = self.cross_attention(hidden, phase_tokens, phase_tokens)
         hidden = self.cross_norm(hidden + conditioned)

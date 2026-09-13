@@ -4,6 +4,7 @@ Training is deliberately restricted to expert archives.  Student motion is
 used only after a checkpoint has been frozen, to obtain static morphology,
 preparation stance, phase timing, and the source camera transform.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -27,7 +28,6 @@ from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     phase_align_sequence,
 )
-
 
 FRAMES = 64
 JOINTS = 17
@@ -55,8 +55,6 @@ class MotionFeatures:
     stance: NDArray[np.float32]
     handedness: NDArray[np.float32]
     body_scale: float
-
-
 
 
 def _aligned(
@@ -183,10 +181,6 @@ def motion_features(
     return MotionFeatures(state, morphology, stance, handedness, body_scale)
 
 
-
-
-
-
 def dominant_wrist_velocities(
     pose: NDArray[np.floating],
 ) -> NDArray[np.float32]:
@@ -194,12 +188,8 @@ def dominant_wrist_velocities(
     values = np.asarray(pose, dtype=np.float64)
     if values.shape != (FRAMES, JOINTS, 2):
         raise ValueError("pose must have shape (64, 17, 2)")
-    relative_wrist = (
-        values[:, _DOMINANT_WRIST] - values[:, _DOMINANT_SHOULDER]
-    )
-    return np.linalg.norm(np.diff(relative_wrist, axis=0), axis=-1).astype(
-        np.float32
-    )
+    relative_wrist = values[:, _DOMINANT_WRIST] - values[:, _DOMINANT_SHOULDER]
+    return np.linalg.norm(np.diff(relative_wrist, axis=0), axis=-1).astype(np.float32)
 
 
 def mean_joint_velocities(
@@ -211,9 +201,7 @@ def mean_joint_velocities(
     if values.shape != (FRAMES, JOINTS, 2) or root_values.shape != (FRAMES, 2):
         raise ValueError("pose/root must have shapes (64, 17, 2)/(64, 2)")
     world = values + root_values[:, None, :]
-    return np.linalg.norm(np.diff(world, axis=0), axis=-1).mean(1).astype(
-        np.float32
-    )
+    return np.linalg.norm(np.diff(world, axis=0), axis=-1).mean(1).astype(np.float32)
 
 
 def expert_wrist_velocity_limit(
@@ -227,21 +215,12 @@ def expert_wrist_velocity_limit(
     if safety_margin < 1.0:
         raise ValueError("wrist velocity safety margin cannot be below one")
     maxima = [
-        float(np.max(dominant_wrist_velocities(sample.pose)))
-        for sample in samples
+        float(np.max(dominant_wrist_velocities(sample.pose))) for sample in samples
     ]
     limit = safety_margin * max(maxima)
     if not np.isfinite(limit) or limit <= 0.0:
         raise ValueError("expert wrist velocity limit must be finite and positive")
     return float(limit)
-
-
-
-
-
-
-
-
 
 
 def _device(value: str) -> torch.device:
@@ -250,24 +229,6 @@ def _device(value: str) -> torch.device:
     if value == "mps" and not torch.backends.mps.is_available():
         raise ValueError("MPS was requested but is unavailable")
     return torch.device(value)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _fk_from_directions(
@@ -372,8 +333,7 @@ def _sample_pose_kinematically(
     for joint, parent in enumerate(COCO_PARENTS):
         anchor = pelvis if parent < 0 else output[:, parent]
         output[:, joint] = (
-            anchor
-            + sampled_lengths[:, joint, None] * sampled_directions[:, joint]
+            anchor + sampled_lengths[:, joint, None] * sampled_directions[:, joint]
         )
     return output.astype(np.float32)
 
@@ -402,9 +362,7 @@ def _rate_limited_sample_positions(
     original_positions = np.interp(timeline, phases, canonical)
 
     pose = np.asarray(aligned_pose, dtype=np.float64)
-    relative_wrist = (
-        pose[:, _DOMINANT_WRIST] - pose[:, _DOMINANT_SHOULDER]
-    )
+    relative_wrist = pose[:, _DOMINANT_WRIST] - pose[:, _DOMINANT_SHOULDER]
     wrist_steps = np.linalg.norm(np.diff(relative_wrist, axis=0), axis=-1)
     body_steps = mean_joint_velocities(pose, aligned_root).astype(np.float64)
     normalized_steps = np.maximum(
@@ -434,9 +392,9 @@ def _rate_limited_sample_positions(
     unique_arc, unique_indices = np.unique(cumulative_arc, return_index=True)
     if len(unique_arc) < 2:
         return original_positions.astype(np.float32)
-    positions = np.interp(
-        limited_arc, unique_arc, timeline[unique_indices]
-    ).astype(np.float32)
+    positions = np.interp(limited_arc, unique_arc, timeline[unique_indices]).astype(
+        np.float32
+    )
     positions[0] = 0.0
     positions[-1] = float(FRAMES - 1)
     return positions
@@ -450,9 +408,7 @@ def limit_correction_wrist_velocity(
     output_phase_indices: NDArray[np.integer] | None = None,
 ) -> ExpertCorrection:
     """Rate-limit only a serve correction that exceeds the expert ceiling."""
-    before = float(
-        np.max(dominant_wrist_velocities(correction.corrected_pose))
-    )
+    before = float(np.max(dominant_wrist_velocities(correction.corrected_pose)))
     if correction.student.skill != "serve" or before <= maximum_velocity:
         return correction
     if not np.isfinite(maximum_velocity) or maximum_velocity <= 0.0:
@@ -461,19 +417,20 @@ def limit_correction_wrist_velocity(
     source_pose = np.asarray(correction.corrected_pose, dtype=np.float32)
     source_root = np.asarray(correction.corrected_root, dtype=np.float32)
     source_contacts = np.asarray(correction.corrected_contacts, dtype=np.float32)
-    body_before = float(
-        np.max(mean_joint_velocities(source_pose, source_root))
-    )
+    body_before = float(np.max(mean_joint_velocities(source_pose, source_root)))
     wrist_arc_limit = float(maximum_velocity)
     body_arc_limit = body_before
-    best: tuple[
-        NDArray[np.float32],
-        NDArray[np.float32],
-        NDArray[np.float32],
-        NDArray[np.float32],
-        float,
-        float,
-    ] | None = None
+    best: (
+        tuple[
+            NDArray[np.float32],
+            NDArray[np.float32],
+            NDArray[np.float32],
+            NDArray[np.float32],
+            float,
+            float,
+        ]
+        | None
+    ) = None
     timing_phases = (
         correction.student.phase_indices
         if output_phase_indices is None
@@ -488,12 +445,8 @@ def limit_correction_wrist_velocity(
             body_arc_step_limit=body_arc_limit,
             canonical_phase_indices=canonical_phase_indices,
         )
-        pose = _sample_pose_kinematically(
-            correction.aligned_corrected_pose, positions
-        )
-        root = _sample_at_positions(
-            correction.aligned_corrected_root, positions
-        )
+        pose = _sample_pose_kinematically(correction.aligned_corrected_pose, positions)
+        root = _sample_at_positions(correction.aligned_corrected_root, positions)
         contacts = np.clip(
             _sample_at_positions(correction.aligned_corrected_contacts, positions),
             0.0,
@@ -538,10 +491,6 @@ def limit_correction_wrist_velocity(
     )
 
 
-
-
-
-
 def project_to_expert_motion_subspace(
     generated: NDArray[np.floating],
     expert_states: NDArray[np.floating],
@@ -567,9 +516,11 @@ def project_to_expert_motion_subspace(
     centered_experts = flattened_experts - center
     rank = min(maximum_rank, len(experts) - 1)
     if rank < 1:
-        return np.broadcast_to(center, (len(samples), len(center))).reshape(
-            samples.shape
-        ).astype(np.float32)
+        return (
+            np.broadcast_to(center, (len(samples), len(center)))
+            .reshape(samples.shape)
+            .astype(np.float32)
+        )
     _, singular_values, right = np.linalg.svd(centered_experts, full_matrices=False)
     usable = int(min(rank, np.sum(singular_values > 1e-6)))
     basis = right[:usable]
@@ -584,7 +535,3 @@ def project_to_expert_motion_subspace(
     coordinates *= np.minimum(1.0, maximum_radius / np.maximum(radius, _EPS))[:, None]
     projected = center + coordinates @ basis
     return projected.reshape(samples.shape).astype(np.float32)
-
-
-
-

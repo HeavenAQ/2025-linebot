@@ -184,23 +184,17 @@ class VideoAnalyzer:
         directional_acceleration = np.diff(projected_velocity)
         direction_cosine = projected_velocity / np.maximum(speeds, 1e-8)
         search_start = max(0, episode_index - window)
-        search_end = min(
-            len(directional_acceleration), episode_index + padding + 1
-        )
+        search_end = min(len(directional_acceleration), episode_index + padding + 1)
         candidate_velocity = projected_velocity[search_start + 1 : search_end + 1]
         candidate_alignment = direction_cosine[search_start + 1 : search_end + 1]
         if prefer_peak_velocity and candidate_velocity.size:
             return int(
                 search_start
-                + np.argmax(
-                    candidate_velocity * np.clip(candidate_alignment, 0.0, 1.0)
-                )
+                + np.argmax(candidate_velocity * np.clip(candidate_alignment, 0.0, 1.0))
                 + 2
             )
         score = (
-            np.maximum(
-                directional_acceleration[search_start:search_end], 0.0
-            )
+            np.maximum(directional_acceleration[search_start:search_end], 0.0)
             * np.clip(candidate_alignment, 0.0, 1.0)
             * (candidate_velocity > 0.0)
         )
@@ -269,9 +263,7 @@ class VideoAnalyzer:
         elbow_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
         start_frame, acceleration_peak_frame, acceleration_end_frame = (
-            cls.find_acc_analysis_window(
-                hand_positions, elbow_positions
-            )
+            cls.find_acc_analysis_window(hand_positions, elbow_positions)
         )
         idx = np.argmin(
             np.asarray(hand_positions)[start_frame : acceleration_end_frame + 1, 1]
@@ -291,9 +283,7 @@ class VideoAnalyzer:
         if wrist_stop is None:
             # Degenerate or nearly static tracks do not contain a trustworthy
             # velocity zero-crossing. Preserve enough context in that case.
-            minimum_follow_through = max(
-                4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2
-            )
+            minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
             new_end = max(
                 acceleration_end_frame,
                 new_peak + minimum_follow_through,
@@ -355,9 +345,7 @@ class VideoAnalyzer:
         descent_threshold = max(0.15, 0.18 * peak_downward_velocity)
         stop_threshold = max(0.08, 0.10 * peak_downward_velocity)
         raw_descent_threshold = max(0.10, 0.10 * peak_downward_velocity)
-        post_range = float(
-            np.max(smoothed_y[search_start:]) - smoothed_y[search_start]
-        )
+        post_range = float(np.max(smoothed_y[search_start:]) - smoothed_y[search_start])
         minimum_displacement = max(1.5, 0.08 * max(post_range, 0.0))
         # At 30 fps a genuine overhead follow-through persists across several
         # frames. Shorter excursions are usually a single noisy keypoint made
@@ -377,8 +365,7 @@ class VideoAnalyzer:
 
             following_trend = velocity_trend[frame : frame + 3]
             coherent_raw_descent = np.count_nonzero(
-                raw_vertical_velocity[descent_start : frame + 1]
-                > raw_descent_threshold
+                raw_vertical_velocity[descent_start : frame + 1] > raw_descent_threshold
             )
             if (
                 frame - descent_start >= minimum_descent_frames
@@ -391,9 +378,7 @@ class VideoAnalyzer:
                 neighborhood_end = min(len(smoothed_y), frame + 3)
                 return int(
                     neighborhood_start
-                    + np.argmax(
-                        smoothed_y[neighborhood_start:neighborhood_end]
-                    )
+                    + np.argmax(smoothed_y[neighborhood_start:neighborhood_end])
                 )
 
         return None
@@ -468,9 +453,7 @@ class VideoAnalyzer:
             forward_projection = positions @ forward_axis
             backswing = backswing_search_start + int(
                 np.argmin(
-                    forward_projection[
-                        backswing_search_start:backswing_search_end
-                    ]
+                    forward_projection[backswing_search_start:backswing_search_end]
                 )
             )
         else:
@@ -490,8 +473,7 @@ class VideoAnalyzer:
             max(settle_search_start, last_frame - settle_frames + 1),
         ):
             if np.all(
-                speeds[candidate : candidate + settle_frames]
-                <= settle_threshold
+                speeds[candidate : candidate + settle_frames] <= settle_threshold
             ):
                 completion = min(last_frame, candidate + settle_frames)
                 break

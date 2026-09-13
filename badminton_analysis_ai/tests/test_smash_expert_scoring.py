@@ -34,10 +34,22 @@ def _smash_pose(*, complete: bool = True) -> np.ndarray:
     pose = np.zeros((64, 17, 2), dtype=np.float32)
     pose[:] = np.asarray(
         [
-            (0.0, 2.1), (-0.1, 2.15), (0.1, 2.15), (-0.2, 2.05),
-            (0.2, 2.05), (-0.4, 1.45), (0.4, 1.45), (-0.7, 0.9),
-            (0.7, 0.9), (-0.8, 0.35), (0.8, 0.35), (-0.3, 0.0),
-            (0.3, 0.0), (-0.3, -1.0), (0.3, -1.0), (-0.3, -2.0),
+            (0.0, 2.1),
+            (-0.1, 2.15),
+            (0.1, 2.15),
+            (-0.2, 2.05),
+            (0.2, 2.05),
+            (-0.4, 1.45),
+            (0.4, 1.45),
+            (-0.7, 0.9),
+            (0.7, 0.9),
+            (-0.8, 0.35),
+            (0.8, 0.35),
+            (-0.3, 0.0),
+            (0.3, 0.0),
+            (-0.3, -1.0),
+            (0.3, -1.0),
+            (-0.3, -2.0),
             (0.3, -2.0),
         ],
         dtype=np.float32,
@@ -91,7 +103,8 @@ def test_expert_only_distribution_scores_incomplete_phase_sequence_lower() -> No
         evidence, _ = extract_smash_evidence(scale * _smash_pose(), confidence)
         experts.append(evidence)
     distribution = fit_smash_distribution(
-        np.stack(experts), ("coach-a", "coach-b", "coach-c"),
+        np.stack(experts),
+        ("coach-a", "coach-b", "coach-c"),
         policy="identity_support",
     )
     valid_evidence, valid_reliability = extract_smash_evidence(
@@ -111,7 +124,8 @@ def test_expert_only_distribution_scores_incomplete_phase_sequence_lower() -> No
     assert valid["total_score"] > incomplete["total_score"]
     assert valid["student_data_used_for_training_or_calibration"] is False
     elbow = next(
-        item for item in incomplete["criteria"]
+        item
+        for item in incomplete["criteria"]
         if item["rule_reference"] == "elbow_forward"
     )
     assert elbow["ratio"] < 1.0
@@ -121,7 +135,8 @@ def test_smash_distribution_round_trip(tmp_path: Path) -> None:
     confidence = np.ones((64, 17), dtype=np.float32)
     evidence, _ = extract_smash_evidence(_smash_pose(), confidence)
     distribution = fit_smash_distribution(
-        np.stack((evidence, evidence)), ("coach-a", "coach-b"),
+        np.stack((evidence, evidence)),
+        ("coach-a", "coach-b"),
         policy="identity_support",
     )
     destination = tmp_path / "smash_distribution.npz"

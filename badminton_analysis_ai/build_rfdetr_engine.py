@@ -31,7 +31,12 @@ def main() -> int:
     print(f"building on {gpu_name}", flush=True)
 
     cache_root = Path(os.environ["BADMINTON_TRT_CACHE_DIR"])
-    engine = cache_root / gpu_name.replace(" ", "_") / f"batch{BATCH_SIZE}" / "rfdetr-keypoint-preview.trt"
+    engine = (
+        cache_root
+        / gpu_name.replace(" ", "_")
+        / f"batch{BATCH_SIZE}"
+        / "rfdetr-keypoint-preview.trt"
+    )
 
     bucket_name = os.environ["GCS_BUCKET_NAME"]
     prefix = os.environ.get("ENGINE_UPLOAD_PREFIX", "models/rfdetr-trt-engines")

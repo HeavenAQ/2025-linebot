@@ -41,9 +41,11 @@ try:
     from google.cloud import firestore  # type: ignore
     from google.oauth2 import service_account  # type: ignore
 except Exception as e:
-    print("ERROR: Missing google-cloud-firestore dependencies.\n"
-          "Install with: pip install google-cloud-firestore google-auth",
-          file=sys.stderr)
+    print(
+        "ERROR: Missing google-cloud-firestore dependencies.\n"
+        "Install with: pip install google-cloud-firestore google-auth",
+        file=sys.stderr,
+    )
     raise
 
 
@@ -58,7 +60,9 @@ WorkKeyMap = {
 }
 
 
-def rename_keys(d: Dict[str, Any], mapping: Dict[str, str]) -> Tuple[Dict[str, Any], bool]:
+def rename_keys(
+    d: Dict[str, Any], mapping: Dict[str, str]
+) -> Tuple[Dict[str, Any], bool]:
     changed = False
     out = dict(d)
     for old, new in mapping.items():
@@ -103,8 +107,12 @@ def correct_common_collapses(key: str) -> str:
     if key in corrections:
         return corrections[key]
     for prefix in ("gpt", "ai"):
-        if key.startswith(prefix) and not key.startswith(prefix + "_") and len(key) > len(prefix):
-            return prefix + "_" + key[len(prefix):]
+        if (
+            key.startswith(prefix)
+            and not key.startswith(prefix + "_")
+            and len(key) > len(prefix)
+        ):
+            return prefix + "_" + key[len(prefix) :]
     return key
 
 
@@ -126,7 +134,9 @@ def deep_snake_keys(obj: Any) -> Any:
     return obj
 
 
-def migrate_user_doc(doc: Dict[str, Any], deep: bool = False) -> Tuple[Dict[str, Any], bool]:
+def migrate_user_doc(
+    doc: Dict[str, Any], deep: bool = False
+) -> Tuple[Dict[str, Any], bool]:
     changed = False
     new_doc = copy.deepcopy(doc)
 
@@ -168,7 +178,9 @@ def migrate_user_doc(doc: Dict[str, Any], deep: bool = False) -> Tuple[Dict[str,
     return new_doc, changed
 
 
-def migrate_chat_doc(doc: Dict[str, Any], deep: bool = False) -> Tuple[Dict[str, Any], bool]:
+def migrate_chat_doc(
+    doc: Dict[str, Any], deep: bool = False
+) -> Tuple[Dict[str, Any], bool]:
     changed = False
     new_doc = copy.deepcopy(doc)
 
@@ -230,7 +242,16 @@ def process_collection(col, dry_run: bool, deep: bool) -> int:
     return updated
 
 
-def run(project: str, data_collection: str, chat_collection: str, creds_path: str | None, dry_run: bool, deep: bool, all_collections: bool, only_collections: list[str] | None) -> None:
+def run(
+    project: str,
+    data_collection: str,
+    chat_collection: str,
+    creds_path: str | None,
+    dry_run: bool,
+    deep: bool,
+    all_collections: bool,
+    only_collections: list[str] | None,
+) -> None:
     if creds_path:
         creds = service_account.Credentials.from_service_account_file(creds_path)
         client = firestore.Client(project=project, credentials=creds)
@@ -279,15 +300,40 @@ def run(project: str, data_collection: str, chat_collection: str, creds_path: st
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Migrate Firestore fields to snake_case.")
+    parser = argparse.ArgumentParser(
+        description="Migrate Firestore fields to snake_case."
+    )
     parser.add_argument("--project", required=True, help="GCP project ID")
-    parser.add_argument("--data-collection", required=True, help="Users/Data collection name (e.g., 'users')")
-    parser.add_argument("--chat-collection", default="chat_history", help="Chat history collection name")
-    parser.add_argument("--credentials", help="Path to service account JSON (optional if ADC configured)")
-    parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
-    parser.add_argument("--deep", action="store_true", help="Recursively convert ALL camelCase/PascalCase keys to snake_case")
-    parser.add_argument("--all-collections", action="store_true", help="Process all root collections and subcollections")
-    parser.add_argument("--collections", nargs="*", help="Limit to these collection IDs when using --all-collections")
+    parser.add_argument(
+        "--data-collection",
+        required=True,
+        help="Users/Data collection name (e.g., 'users')",
+    )
+    parser.add_argument(
+        "--chat-collection", default="chat_history", help="Chat history collection name"
+    )
+    parser.add_argument(
+        "--credentials",
+        help="Path to service account JSON (optional if ADC configured)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Preview changes without writing"
+    )
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="Recursively convert ALL camelCase/PascalCase keys to snake_case",
+    )
+    parser.add_argument(
+        "--all-collections",
+        action="store_true",
+        help="Process all root collections and subcollections",
+    )
+    parser.add_argument(
+        "--collections",
+        nargs="*",
+        help="Limit to these collection IDs when using --all-collections",
+    )
     args = parser.parse_args()
 
     run(

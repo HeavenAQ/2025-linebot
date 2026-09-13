@@ -26,9 +26,7 @@ def test_serve_eimd_v3_contract_ends_at_post_acceleration_shoulder_maximum() -> 
         (np.zeros(25), np.linspace(0.0, 8.0, 10), np.full(13, 8.0))
     )
 
-    phases = _serve_eimd_v3_phases(
-        (4, 12, 20, 30, 42), skeleton, Handedness.RIGHT
-    )
+    phases = _serve_eimd_v3_phases((4, 12, 20, 30, 42), skeleton, Handedness.RIGHT)
 
     assert phases[0] == 4
     assert phases[2] < phases[-1]
@@ -44,9 +42,7 @@ def test_serve_start_uses_minimum_smoothed_pelvis_x_before_acceleration() -> Non
     skeleton[:, 11, 0] = pelvis_x - 0.2
     skeleton[:, 12, 0] = pelvis_x + 0.2
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=2, acceleration=16
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=2, acceleration=16)
 
     assert start == 8
 
@@ -57,9 +53,7 @@ def test_serve_start_uses_visible_hip_when_other_hip_is_missing() -> None:
     skeleton[:, 11, 0] = np.nan
     skeleton[:, 12, 0] = pelvis_x
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=1, acceleration=14
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=1, acceleration=14)
 
     assert start == 6
 
@@ -91,7 +85,9 @@ def test_left_serve_start_uses_minimum_x_after_handedness_canonicalization() -> 
     assert left_start == right_start
 
 
-def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation() -> None:
+def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation() -> (
+    None
+):
     frames = 24
     skeleton = np.zeros((frames, 17, 2), dtype=np.float32)
     pelvis_x = np.full(frames, 8.0, dtype=np.float32)
@@ -100,9 +96,7 @@ def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation()
     skeleton[:, 11, 0] = pelvis_x - 0.2
     skeleton[:, 12, 0] = pelvis_x + 0.2
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=2, acceleration=18
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=2, acceleration=18)
 
     # At least the final quarter of detected preparation remains before the
     # acceleration event, so the late swing minimum cannot become the start.
@@ -200,17 +194,13 @@ def test_serve_contact_uses_across_body_direction_beyond_legacy_window() -> None
     right[:, 10, 1] = 1.0
     detected = (5, 10, 20, 25, 30)
 
-    right_phases = _serve_shoulder_completion_phases(
-        detected, right, Handedness.RIGHT
-    )
+    right_phases = _serve_shoulder_completion_phases(detected, right, Handedness.RIGHT)
 
     left = right.copy()
     left[..., 0] *= -1.0
     for first, second in ((5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)):
         left[:, (first, second)] = left[:, (second, first)]
-    left_phases = _serve_shoulder_completion_phases(
-        detected, left, Handedness.LEFT
-    )
+    left_phases = _serve_shoulder_completion_phases(detected, left, Handedness.LEFT)
 
     assert right_phases[2] > detected[-1]
     assert right_phases[-1] > right_phases[2]

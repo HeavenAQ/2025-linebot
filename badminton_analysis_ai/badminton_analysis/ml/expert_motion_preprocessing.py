@@ -80,9 +80,7 @@ def _serve_hip_minimum_start(
     kernel = np.ones(5, dtype=np.float64) / 5.0
     smoothed = np.convolve(np.pad(pelvis_x, (2, 2), mode="edge"), kernel, mode="valid")
     canonical_x = -smoothed if handedness == Handedness.LEFT else smoothed
-    return detected_start + int(
-        np.argmin(canonical_x[detected_start:search_end])
-    )
+    return detected_start + int(np.argmin(canonical_x[detected_start:search_end]))
 
 
 def _serve_motion_onset_interval(
@@ -105,9 +103,7 @@ def _serve_motion_onset_interval(
         raise ValueError("skeleton_2d must have shape (T, 17, 2)")
     if not 2 <= acceleration < len(coordinates):
         return detected_start, detected_start
-    elbow, wrist = (
-        (7, 9) if handedness == Handedness.LEFT else (8, 10)
-    )
+    elbow, wrist = (7, 9) if handedness == Handedness.LEFT else (8, 10)
     relative_wrist = coordinates[:, wrist] - coordinates[:, elbow]
     trajectory = np.column_stack(
         [
@@ -123,9 +119,7 @@ def _serve_motion_onset_interval(
     pre_acceleration = speed[:acceleration]
     if not len(pre_acceleration) or not np.any(np.isfinite(pre_acceleration)):
         return detected_start, detected_start
-    finite = np.where(
-        np.isfinite(pre_acceleration), pre_acceleration, 0.0
-    )
+    finite = np.where(np.isfinite(pre_acceleration), pre_acceleration, 0.0)
     kernel_width = min(7, len(finite))
     if kernel_width % 2 == 0:
         kernel_width -= 1
@@ -169,16 +163,11 @@ def _serve_preparation_was_truncated(
     """Require both observed and gap-filled evidence of a clipped start."""
     required_interpolated_extension = max(
         8,
-        int(
-            np.ceil(
-                0.25 * max(detected_peak - interpolated_onset_start, 1)
-            )
-        ),
+        int(np.ceil(0.25 * max(detected_peak - interpolated_onset_start, 1))),
     )
     return (
         detected_start - raw_onset_start >= 4
-        and detected_start - interpolated_onset_start
-        > required_interpolated_extension
+        and detected_start - interpolated_onset_start > required_interpolated_extension
     )
 
 
@@ -237,8 +226,7 @@ def _serve_shoulder_completion_phases(
         ]
     )
     forward_axes = (
-        motion_coordinates[:, opposite_shoulder]
-        - motion_coordinates[:, shoulder]
+        motion_coordinates[:, opposite_shoulder] - motion_coordinates[:, shoulder]
     )
     valid_axes = np.all(np.isfinite(forward_axes), axis=1)
     forward_axis = (
@@ -309,9 +297,7 @@ def _serve_shoulder_completion_phases(
 
     incoming = coordinates[:, hip] - coordinates[:, shoulder]
     outgoing = coordinates[:, elbow] - coordinates[:, shoulder]
-    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(
-        outgoing, axis=-1
-    )
+    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1)
     cosine = np.divide(
         np.sum(incoming * outgoing, axis=-1),
         denominator,
@@ -331,9 +317,7 @@ def _serve_shoulder_completion_phases(
     completion = completion_start + int(
         np.nanargmax(shoulder_angle[completion_start : completion_end + 1])
     )
-    preparation = start + max(
-        1, int(round(0.45 * (acceleration - start)))
-    )
+    preparation = start + max(1, int(round(0.45 * (acceleration - start))))
     preparation = min(preparation, acceleration - 1)
     follow_through = (acceleration + completion) // 2
     return start, preparation, acceleration, follow_through, completion
@@ -376,15 +360,11 @@ def _serve_eimd_v3_phases(
     if acceleration_stop < acceleration_start:
         raise ValueError("serve acceleration range is too short")
     acceleration = acceleration_start + int(
-        np.nanargmax(
-            acceleration_magnitude[acceleration_start - 1 : acceleration_stop]
-        )
+        np.nanargmax(acceleration_magnitude[acceleration_start - 1 : acceleration_stop])
     )
     incoming = coordinates[:, hip] - coordinates[:, shoulder]
     outgoing = coordinates[:, elbow] - coordinates[:, shoulder]
-    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(
-        outgoing, axis=-1
-    )
+    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1)
     cosine = np.divide(
         np.sum(incoming * outgoing, axis=-1),
         denominator,
@@ -416,9 +396,7 @@ def _smash_eimd_v3_phases(
     )
     hand = np.asarray(hand_positions, dtype=np.float64)
     elbow = np.asarray(elbow_positions, dtype=np.float64)
-    contact = start + int(
-        np.argmin(hand[start : acceleration_end + 1, 1])
-    )
+    contact = start + int(np.argmin(hand[start : acceleration_end + 1, 1]))
     start = max(0, contact - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
     end = contact + int(np.argmax(elbow[contact:, 1]))
     minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
@@ -449,9 +427,7 @@ def prepare_expert_motion_sample(
     if not body_2d or len(body_2d) < 5:
         raise ValueError("at least five aligned 2D poses are required")
     full_skeleton, full_confidence = tracking_body_arrays(tracking)
-    motion_skeleton, _ = interpolate_pose_sequence(
-        full_skeleton, full_confidence
-    )
+    motion_skeleton, _ = interpolate_pose_sequence(full_skeleton, full_confidence)
     phases = VideoAnalyzer.find_analysis_phases(
         skill=skill,
         hand_positions=tracking.get("hand_positions"),
@@ -505,16 +481,12 @@ def prepare_expert_motion_sample(
     contacts = estimate_foot_contacts(pose, root, confidence)
     phase_indices = resample_detected_phase_indices(phases, target_frames)
     if skill == Skill.SMASH:
-        refined = refine_delayed_overhead_contact_phase_indices(
-            pose, phase_indices
-        )
+        refined = refine_delayed_overhead_contact_phase_indices(pose, phase_indices)
         if not np.array_equal(refined, phase_indices):
             phase_indices = refined
             phase_source = "acceleration_wrist_velocity_stop_delayed_contact_v7"
 
-    source_indices = np.rint(
-        np.linspace(start, end, target_frames)
-    ).astype(np.int64)
+    source_indices = np.rint(np.linspace(start, end, target_frames)).astype(np.int64)
     sample = MotionSample(
         path=Path(filename),
         pose=pose.astype(np.float32),

@@ -25,13 +25,9 @@ def _icc(values: list[list[float]]) -> tuple[float, float]:
     residual = matrix - target_means[:, None] - rater_means[None] + grand
     ms_error = float(np.square(residual).sum()) / ((n - 1) * (k - 1))
     absolute = (ms_targets - ms_error) / (
-        ms_targets
-        + (k - 1) * ms_error
-        + k * (ms_raters - ms_error) / n
+        ms_targets + (k - 1) * ms_error + k * (ms_raters - ms_error) / n
     )
-    consistency = (ms_targets - ms_error) / (
-        ms_targets + (k - 1) * ms_error
-    )
+    consistency = (ms_targets - ms_error) / (ms_targets + (k - 1) * ms_error)
     return float(absolute), float(consistency)
 
 
@@ -45,10 +41,7 @@ def _summary(
     *,
     maximum: float,
 ) -> dict[str, Any]:
-    expert = [
-        [score * maximum / 100.0, maximum, maximum]
-        for score in expert_scores
-    ]
+    expert = [[score * maximum / 100.0, maximum, maximum] for score in expert_scores]
     learner_absolute, learner_consistency = _icc(learner)
     pooled_absolute, pooled_consistency = _icc(learner + expert)
     return {
@@ -104,9 +97,7 @@ def main() -> None:
         ]
         if len(matches) != 1:
             raise ValueError(f"serve rating mapping failed for {row['key']}")
-        serve_rows.append(
-            [matches[0] * 6.0 / 100.0, row["human_1"], row["human_2"]]
-        )
+        serve_rows.append([matches[0] * 6.0 / 100.0, row["human_1"], row["human_2"]])
 
     smash_source = json.loads(args.smash_ratings.read_text())
     smash_rows = []
@@ -125,38 +116,28 @@ def main() -> None:
         "human_ratings_usage": "validation_only_no_parameter_selection",
         "serve": _summary(
             serve_rows,
-            [
-                float(row["score"])
-                for row in records
-                if row["tab"] == "serve_expert"
-            ],
+            [float(row["score"]) for row in records if row["tab"] == "serve_expert"],
             maximum=6.0,
         ),
         "smash": _summary(
             smash_rows,
-            [
-                float(row["score"])
-                for row in records
-                if row["tab"] == "smash_expert"
-            ],
+            [float(row["score"]) for row in records if row["tab"] == "smash_expert"],
             maximum=7.0,
         ),
     }
     previous = json.loads(args.previous_report.read_text())
     result["reconciliation"] = {
         skill: {
-            "previous_learner_mean": previous[skill][
-                "learner_system_mean_100"
-            ]
-            if "learner_system_mean_100" in previous[skill]
-            else (
-                float(serve_source["summary"]["old_w0"]["mean"])
-                if skill == "serve"
-                else float(smash_source["system_mean_100"])
+            "previous_learner_mean": (
+                previous[skill]["learner_system_mean_100"]
+                if "learner_system_mean_100" in previous[skill]
+                else (
+                    float(serve_source["summary"]["old_w0"]["mean"])
+                    if skill == "serve"
+                    else float(smash_source["system_mean_100"])
+                )
             ),
-            "authoritative_learner_mean": result[skill][
-                "learner_system_mean_100"
-            ],
+            "authoritative_learner_mean": result[skill]["learner_system_mean_100"],
         }
         for skill in ("serve", "smash")
     }

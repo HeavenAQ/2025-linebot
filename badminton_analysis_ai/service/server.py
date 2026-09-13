@@ -17,6 +17,7 @@ from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.models.types import Handedness, Skill
 
 from service.config import Settings
+from service.coaching_timeline import coaching_video_frame
 from service.pipeline import (
     expert_phase_results,
     AnalysisResult,
@@ -147,7 +148,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     "only serve and smash are currently supported",
                 )
             if handedness is None:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness")
+                context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness"
+                )
 
             output_path = temp_dir / "student_corrected.mp4"
             skeleton_overlay_path = temp_dir / "student_skeleton_overlay.mp4"
@@ -171,9 +174,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
-                overlay_object_path = (
-                    f"{analysis_root}/student_skeleton_overlay.mp4"
-                )
+                overlay_object_path = f"{analysis_root}/student_skeleton_overlay.mp4"
                 overlay_signed = self.storage.upload_file(
                     skeleton_overlay_path,
                     overlay_object_path,
@@ -196,7 +197,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     probe_video(skeleton_overlay_path),
                 )
             except SkillMismatchError as exc:
-                LOGGER.warning("analysis skill mismatch id=%s error=%s", analysis_id, exc)
+                LOGGER.warning(
+                    "analysis skill mismatch id=%s error=%s", analysis_id, exc
+                )
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
             except (ValueError, KeyError) as exc:
                 LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
@@ -224,7 +227,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
         except ValueError as exc:
             LOGGER.warning(
-                "expert checkpoints unusable expert=%s error=%s", reference.subject_id, exc
+                "expert checkpoints unusable expert=%s error=%s",
+                reference.subject_id,
+                exc,
             )
             return []
         return [
@@ -261,36 +266,21 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
         ]
         problems_by_frame: dict[int, list[dict[str, object]]] = {}
+        window_start = int(result.diagnostics.get("analysis_window_start_frame", 0))
+        window_end = int(result.diagnostics.get("analysis_window_end_frame", 63))
+        normalized_length = int(result.diagnostics.get("normalized_sequence_length", 0))
         for problem in result.coaching_problems:
-            problems_by_frame.setdefault(int(problem["frame_index"]), []).append(problem)
+            local_frame = coaching_video_frame(
+                problem, normalized_length, window_end - window_start + 1
+            )
+            problems_by_frame.setdefault(local_frame, []).append(problem)
         fps = float(student_metadata["fps"])
         pause_frames = round(fps * result.pause_seconds)
         cues: list[analysis_pb2.CoachingCue] = []
         pauses_before = 0
         for frame in sorted(problems_by_frame):
-            window_start = int(
-                result.diagnostics.get("analysis_window_start_frame", 0)
-            )
-            window_end = int(
-                result.diagnostics.get("analysis_window_end_frame", frame)
-            )
-            normalized_length = int(
-                result.diagnostics.get("normalized_sequence_length", 0)
-            )
-            source_frame_count = int(
-                result.diagnostics.get("source_frame_count", 0)
-            )
-            if normalized_length > 1 and source_frame_count > 0:
-                progress = min(max(frame, 0), normalized_length - 1) / (
-                    normalized_length - 1
-                )
-                local_frame = round(progress * (window_end - window_start))
-                normalized_position = local_frame / max(
-                    1, window_end - window_start
-                )
-            else:
-                local_frame = frame
-                normalized_position = frame / 63.0
+            local_frame = frame
+            normalized_position = local_frame / max(1, window_end - window_start)
             # Both returned student videos contain only the inclusive analysis
             # window.  Their clock starts at zero, not at the source upload's
             # window_start frame.  Include earlier inserted coaching pauses in
@@ -302,7 +292,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     analysis_pb2.CoachingCue(
                         title=str(problem["title"]),
                         feedback=str(problem["feedback"]),
-                        normalized_frame=frame,
+                        normalized_frame=int(problem["frame_index"]),
                         normalized_position=normalized_position,
                         student_timestamp_seconds=start_time,
                         pause_duration_seconds=result.pause_seconds,
@@ -389,11 +379,17 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     ) -> analysis_pb2.RefreshPlaybackUrlsResponse:
         self._authorize(context)
         if not request.object_paths or len(request.object_paths) > 8:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects"
+            )
         videos = []
         for object_path in request.object_paths:
-            if ".." in object_path or not object_path.startswith(("analyses/", "experts/")):
-                context.abort(grpc.StatusCode.PERMISSION_DENIED, "object path is not playable")
+            if ".." in object_path or not object_path.startswith(
+                ("analyses/", "experts/")
+            ):
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED, "object path is not playable"
+                )
             videos.append(self._stored_video(self.storage.sign(object_path), {}))
         return analysis_pb2.RefreshPlaybackUrlsResponse(videos=videos)
 
@@ -402,7 +398,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     ) -> analysis_pb2.HealthResponse:
         return analysis_pb2.HealthResponse(
             status="serving",
-            loaded_skills=[_SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills],
+            loaded_skills=[
+                _SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills
+            ],
         )
 
 

@@ -35,7 +35,6 @@ from badminton_analysis.services.video_processor import VideoProcessor
 from service.renderer import render_correction_video, source_fps, source_frame_rate
 from service.coaching import CoachingGenerator
 
-
 LOGGER = logging.getLogger("badminton-analysis")
 
 
@@ -109,6 +108,14 @@ def _correction_grade_context(
             "挑球另比較持拍腳由預備至擊球的跨步方向"
         )
     )
+    if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
+        score_status = "frozen_checkpoint_calibration"
+        score_method = (
+            "殺球按指定檢核區間評分，權重為5/20/5/20/30/20。預備與平衡採凍結骨架圖模型，"
+            "再以手腕高度及連續五幀的持拍手過低限制得分；轉體比較下肢、軀幹及肩軸角度變化；"
+            "手肘與手腕沿用凍結語意及軌跡評分；收拍保留最佳終點，並以起終肩寬變化限制得分。"
+            "只根據所附實際評分區間與量測解釋分數，不得以未觀察到的幀推斷動作。"
+        )
     return {
         "score_method_zh_tw": score_method,
         "score_status": score_status,
@@ -197,9 +204,7 @@ def expert_phase_results(
             label=rule.name_zh_tw,
             normalized_frame=frame,
             normalized_position=float(frame) / max(1, last_frame),
-            timestamp_seconds=float(
-                phase_seconds[rule.allowed_anchor_indices[-1]]
-            ),
+            timestamp_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
         )
         for rule, frame in zip(spec.rules, frames, strict=True)
     )
@@ -238,6 +243,7 @@ def _source_qualitative_phase_results(
     analysis_window_start_frame: int,
     analysis_window_end_frame: int,
     fps: float,
+    checkpoint_source_frames: dict[str, int] | None = None,
 ) -> tuple[PhaseResult, ...]:
     if source_sequence_length <= 0 or normalized_sequence_length <= 0 or fps <= 0:
         raise ValueError("source checkpoint timeline requires positive dimensions")
@@ -275,7 +281,11 @@ def _source_qualitative_phase_results(
             spec.rules,
             normalized_frames,
             (
-                source_phase_frames[rule.allowed_anchor_indices[-1]]
+                (
+                    checkpoint_source_frames[rule.id]
+                    if checkpoint_source_frames is not None
+                    else source_phase_frames[rule.allowed_anchor_indices[-1]]
+                )
                 for rule in spec.rules
             ),
             strict=True,
@@ -296,17 +306,27 @@ def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
     return estimate.handedness
 
 
-def _populate_dominant_motion(
-    tracking: TrackingData, handedness: Handedness
-) -> None:
+def _populate_dominant_motion(tracking: TrackingData, handedness: Handedness) -> None:
     body_2d = tracking.get("body_landmarks_2d")
     if not body_2d:
         raise ValueError("2D landmarks are required for motion analysis")
     skeleton, confidence = tracking_body_arrays(tracking)
-    wrist = COCOKeypoints.RIGHT_WRIST if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_WRIST
-    elbow = COCOKeypoints.RIGHT_ELBOW if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_ELBOW
-    tracking["hand_positions"] = list(interpolated_keypoint(skeleton, confidence, wrist))
-    tracking["elbow_positions"] = list(interpolated_keypoint(skeleton, confidence, elbow))
+    wrist = (
+        COCOKeypoints.RIGHT_WRIST
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_WRIST
+    )
+    elbow = (
+        COCOKeypoints.RIGHT_ELBOW
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_ELBOW
+    )
+    tracking["hand_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, wrist)
+    )
+    tracking["elbow_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, elbow)
+    )
 
 
 def _dump_pose_arrays(
@@ -412,10 +432,10 @@ class SkeletonAnalysisPipeline:
                 candidates=8,
                 seed=19,
                 generation_phase_contract="eimd_v3",
-                # Serve and smash share the same camera-frame contract. Apply
-                # the ankle–spine projection before both scoring and rendering;
-                # the renderer then rigidly grounds the generated full body on
-                # the detected support ankle in pixel space.
+                current_smash=(skill == Skill.SMASH),
+                # Serve retains its preparation-window view alignment. The
+                # current smash path instead projects once at its first source
+                # frame and supplies scored pixels directly to the renderer.
                 align_ankle_spine_view=True,
             )
 
@@ -437,6 +457,13 @@ class SkeletonAnalysisPipeline:
         if skill not in self.backends:
             raise ValueError("only serve and smash are currently supported")
         pipeline_started = time.perf_counter()
+        if skill == Skill.SMASH:
+            from service.smash_source import normalize_smash_source
+
+            video_path = normalize_smash_source(
+                video_path,
+                output_path.with_name(output_path.stem + ".source-30fps.mp4"),
+            )
         with self.lock:
             pose_started = time.perf_counter()
             processor = VideoProcessor(
@@ -458,16 +485,21 @@ class SkeletonAnalysisPipeline:
             # The request label is untrusted.  Validate it against expert-only
             # temporal support after pose/handedness extraction and before the
             # requested generator can steer itself from an out-of-distribution
-            # phase sequence.  Reuse this exact prepared sample for inference;
-            # the guard and generator must never see different windows.
+            # phase sequence. The independently frozen label-support bank
+            # retains its EIMD-v3 windows; grading uses its own matched contract.
             prepared = backend.prepare(tracking, handedness, filename)
-            alternative_skill = (
-                Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+            support_prepared = (
+                backend.prepare_skill_support(tracking, handedness, filename)
+                if hasattr(backend, "prepare_skill_support")
+                else prepared
             )
+            alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
             try:
-                alternative_prepared = self.backends[alternative_skill].prepare(
-                    tracking, handedness, filename
+                alternative = self.backends[alternative_skill]
+                support_prepare = getattr(
+                    alternative, "prepare_skill_support", alternative.prepare
                 )
+                alternative_prepared = support_prepare(tracking, handedness, filename)
             except ValueError as exc:
                 # This is a conservative rejection-only guard. If the other
                 # stroke cannot form a valid five-phase hypothesis, it has not
@@ -482,7 +514,7 @@ class SkeletonAnalysisPipeline:
                 )
             skill_support = (
                 self.expert_bank.temporal_skill_support(
-                    prepared[0].pose,
+                    support_prepared[0].pose,
                     alternative_prepared[0].pose,
                     requested_skill=str(skill),
                 )
@@ -501,6 +533,7 @@ class SkeletonAnalysisPipeline:
                 handedness,
                 filename,
                 prepared=prepared,
+                fps=source_fps(video_path),
             )
             correction = generated.correction
             skeleton = correction.student.pose
@@ -572,9 +605,17 @@ class SkeletonAnalysisPipeline:
             dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
             if dump_prefix:
                 _dump_pose_arrays(
-                    dump_prefix, filename, skill, handedness,
-                    tracking, skeleton, confidence, original_root, window,
-                    phases, generated.source_frame_indices,
+                    dump_prefix,
+                    filename,
+                    skill,
+                    handedness,
+                    tracking,
+                    skeleton,
+                    confidence,
+                    original_root,
+                    window,
+                    phases,
+                    generated.source_frame_indices,
                 )
             scoring_finished = time.perf_counter()
             frame_rate = source_frame_rate(video_path)
@@ -583,6 +624,19 @@ class SkeletonAnalysisPipeline:
             correction_grade = _correction_grade_context(
                 grade, diagnostics, spec, criterion_values
             )
+            if "checkpoint_evidence" in generated.score:
+                correction_grade["checkpoint_evidence"] = generated.score[
+                    "checkpoint_evidence"
+                ]
+                correction_grade["checkpoint_measurements"] = generated.score[
+                    "checkpoint_measurements"
+                ]
+                correction_grade["generated_source_window"] = generated.score[
+                    "generation_window"
+                ]
+                correction_grade["overlay_padding_policy"] = (
+                    "No generated skeleton before coverage; after coverage the final local pose is held for display only."
+                )
             render_correction_video(
                 tracking=tracking,
                 original=skeleton,
@@ -596,6 +650,8 @@ class SkeletonAnalysisPipeline:
                 filename=filename,
                 score=float(grade["total_grade"]),
                 output_path=skeleton_overlay_path,
+                projected_corrected_pixels=generated.corrected_pixels,
+                generated_source_window=generated.score.get("generation_window"),
                 fps=fps,
                 frame_rate=frame_rate,
                 generated_full_body=True,
@@ -639,6 +695,8 @@ class SkeletonAnalysisPipeline:
                 filename=filename,
                 score=float(grade["total_grade"]),
                 output_path=output_path,
+                projected_corrected_pixels=generated.corrected_pixels,
+                generated_source_window=generated.score.get("generation_window"),
                 fps=fps,
                 frame_rate=frame_rate,
                 feedback=problems,
@@ -674,7 +732,8 @@ class SkeletonAnalysisPipeline:
                     - overlay_finished
                     - float(coaching_payload["latency_llm_inference_seconds"])
                 ),
-                "latency_final_render_seconds": final_render_finished - coaching_finished,
+                "latency_final_render_seconds": final_render_finished
+                - coaching_finished,
                 "latency_pipeline_seconds": final_render_finished - pipeline_started,
                 "pose_execution_provider": self.pose_detector.execution_provider,
                 "pose_active_execution_providers": (
@@ -698,6 +757,7 @@ class SkeletonAnalysisPipeline:
             source_sequence_length=len(tracking["frames"]),
             analysis_window_start_frame=int(window[0]),
             analysis_window_end_frame=int(window[2]),
+            checkpoint_source_frames=generated.score.get("checkpoint_source_frames"),
             fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:

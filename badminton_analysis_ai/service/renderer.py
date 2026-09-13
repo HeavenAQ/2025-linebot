@@ -22,10 +22,17 @@ from badminton_analysis.ml.expert_phase_baseline import (
 )
 from badminton_analysis.ml.skeleton_scoring import BONES
 from badminton_analysis.models.types import Handedness, Skill, TrackingData
+from service.coaching_timeline import coaching_video_frame
 
 _LEFT_RIGHT_PAIRS = (
-    (1, 2), (3, 4), (5, 6), (7, 8),
-    (9, 10), (11, 12), (13, 14), (15, 16),
+    (1, 2),
+    (3, 4),
+    (5, 6),
+    (7, 8),
+    (9, 10),
+    (11, 12),
+    (13, 14),
+    (15, 16),
 )
 _LEG_CHAINS = ((11, 13, 15), (12, 14, 16))
 _SERVE_MAX_LEG_CORRECTION_RADIANS = np.deg2rad(12.0)
@@ -137,9 +144,7 @@ def _bounded_bone_vector(
             np.cos(target_angle - observed_angle),
         )
     )
-    angle = observed_angle + float(
-        np.clip(difference, -maximum_angle, maximum_angle)
-    )
+    angle = observed_angle + float(np.clip(difference, -maximum_angle, maximum_angle))
     return np.asarray(
         (np.cos(angle) * length, np.sin(angle) * length), dtype=np.float32
     )
@@ -167,16 +172,12 @@ def _solve_two_bone_leg(
 
     minimum_reach = abs(thigh_length - shin_length) + 1e-4
     maximum_reach = thigh_length + shin_length - 1e-4
-    vertical = float(
-        np.clip(target_ankle[1] - hip[1], -maximum_reach, maximum_reach)
-    )
+    vertical = float(np.clip(target_ankle[1] - hip[1], -maximum_reach, maximum_reach))
     horizontal_limit = float(
         np.sqrt(max(maximum_reach * maximum_reach - vertical * vertical, 0.0))
     )
     target_horizontal = float(target_ankle[0] - target_hip[0])
-    horizontal = float(
-        np.clip(target_horizontal, -horizontal_limit, horizontal_limit)
-    )
+    horizontal = float(np.clip(target_horizontal, -horizontal_limit, horizontal_limit))
     target_vector = np.asarray((horizontal, vertical), dtype=np.float64)
     target_length = float(np.linalg.norm(target_vector))
     if target_length < minimum_reach:
@@ -192,9 +193,7 @@ def _solve_two_bone_leg(
     reach = target_length
     ankle = np.asarray(hip, dtype=np.float64) + direction * reach
     along = (
-        thigh_length * thigh_length
-        - shin_length * shin_length
-        + reach * reach
+        thigh_length * thigh_length - shin_length * shin_length + reach * reach
     ) / (2.0 * reach)
     height = float(np.sqrt(max(thigh_length * thigh_length - along * along, 0.0)))
     perpendicular = np.asarray((-direction[1], direction[0]), dtype=np.float64)
@@ -360,9 +359,9 @@ def _prepare_detected_pose_for_render(
         measured = np.asarray(dense_coordinates, dtype=np.float32)
         measured_confidence = np.asarray(dense_confidence, dtype=np.float32)
         expected_frames = len(tracking["frames"])
-        if (
-            measured.shape != (expected_frames, 17, 2)
-            or measured_confidence.shape != (expected_frames, 17)
+        if measured.shape != (expected_frames, 17, 2) or measured_confidence.shape != (
+            expected_frames,
+            17,
         ):
             raise ValueError("dense detected pose must align with tracking frames")
     else:
@@ -373,9 +372,8 @@ def _prepare_detected_pose_for_render(
         measured, measured_confidence
     )
     for elbow in (7, 8):
-        accepted = (
-            (measured_confidence[:, elbow] > 0.05)
-            & np.all(np.isfinite(measured[:, elbow]), axis=1)
+        accepted = (measured_confidence[:, elbow] > 0.05) & np.all(
+            np.isfinite(measured[:, elbow]), axis=1
         )
         prepared[:, elbow] = measured[:, elbow]
         prepared_confidence[:, elbow] = np.where(
@@ -422,9 +420,27 @@ def _draw_header(frame: NDArray[np.uint8], filename: str, score: float) -> None:
     ImageDraw.Draw(image).text((14, 4), label, font=_font(), fill=(245, 245, 245))
     frame[12:62, 12:width] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
     cv2.line(frame, (28, 79), (68, 79), (255, 210, 30), 5, cv2.LINE_AA)
-    cv2.putText(frame, "detected", (79, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (245, 245, 245), 1, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        "detected",
+        (79, 85),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (245, 245, 245),
+        1,
+        cv2.LINE_AA,
+    )
     cv2.line(frame, (205, 79), (245, 79), (55, 225, 75), 5, cv2.LINE_AA)
-    cv2.putText(frame, "corrected", (256, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (245, 245, 245), 1, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        "corrected",
+        (256, 85),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (245, 245, 245),
+        1,
+        cv2.LINE_AA,
+    )
 
 
 def _draw_feedback(
@@ -449,7 +465,9 @@ def _draw_feedback(
     cv2.addWeighted(overlay, 0.9, frame, 0.1, 0.0, frame)
     image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(image)
-    draw.text((22, panel_top + 13), "教練指導暫停", font=_feedback_font(), fill=(255, 110, 95))
+    draw.text(
+        (22, panel_top + 13), "教練指導暫停", font=_feedback_font(), fill=(255, 110, 95)
+    )
     y = panel_top + 50
     for index, issue in enumerate(issues, start=1):
         message = (
@@ -469,7 +487,9 @@ def _draw_feedback(
         if line:
             lines.append(line)
         for rendered_line in lines[:2]:
-            draw.text((22, y), rendered_line, font=_feedback_font(), fill=(248, 248, 248))
+            draw.text(
+                (22, y), rendered_line, font=_feedback_font(), fill=(248, 248, 248)
+            )
             y += 28
         y += 7
     frame[:] = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
@@ -541,9 +561,19 @@ def _constant_frame_rate_flag() -> str:
     """
     probe = subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "lavfi", "-i", "nullsrc=s=16x16:d=0.1",
-            "-fps_mode", "cfr", "-f", "null", "-",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "nullsrc=s=16x16:d=0.1",
+            "-fps_mode",
+            "cfr",
+            "-f",
+            "null",
+            "-",
         ],
         capture_output=True,
     )
@@ -559,13 +589,30 @@ def _transcode_preserving_frame_rate(
         raise ValueError(f"invalid frame rate: {frame_rate}")
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-i", str(raw_path), "-an",
-            "-vf", f"setpts=N/(({normalized_rate})*TB)",
-            "-r", normalized_rate,
-            _constant_frame_rate_flag(), "cfr",
-            "-c:v", "libx264", "-crf", "21", "-preset", "fast",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(raw_path),
+            "-an",
+            "-vf",
+            f"setpts=N/(({normalized_rate})*TB)",
+            "-r",
+            normalized_rate,
+            _constant_frame_rate_flag(),
+            "cfr",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "21",
+            "-preset",
+            "fast",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
             str(output_path),
         ],
         check=True,
@@ -686,7 +733,11 @@ def _transport_corrected_to_detected_pelvis(
     """
     corrected = np.asarray(corrected_pixels, dtype=np.float32)
     detected = np.asarray(detected_pixels, dtype=np.float32)
-    if corrected.shape != detected.shape or corrected.ndim != 3 or corrected.shape[1:] != (17, 2):
+    if (
+        corrected.shape != detected.shape
+        or corrected.ndim != 3
+        or corrected.shape[1:] != (17, 2)
+    ):
         raise ValueError("pelvis transport poses must share shape (T, 17, 2)")
     corrected_pelvis = 0.5 * (corrected[:, 11] + corrected[:, 12])
     detected_pelvis = 0.5 * (detected[:, 11] + detected[:, 12])
@@ -711,7 +762,11 @@ def _transport_corrected_by_student_displacement(
     corrected = np.asarray(corrected_pixels, dtype=np.float32)
     detected = np.asarray(detected_pixels, dtype=np.float32)
     observed = np.asarray(confidence, dtype=np.float32)
-    if corrected.shape != detected.shape or corrected.ndim != 3 or corrected.shape[1:] != (17, 2):
+    if (
+        corrected.shape != detected.shape
+        or corrected.ndim != 3
+        or corrected.shape[1:] != (17, 2)
+    ):
         raise ValueError("student displacement poses must share shape (T, 17, 2)")
     if observed.shape != corrected.shape[:2]:
         raise ValueError("student displacement confidence must have shape (T, 17)")
@@ -733,9 +788,7 @@ def _transport_corrected_by_student_displacement(
         return corrected.copy()
     timeline = np.arange(len(position))
     for axis in range(2):
-        position[:, axis] = np.interp(
-            timeline, timeline[valid], position[valid, axis]
-        )
+        position[:, axis] = np.interp(timeline, timeline[valid], position[valid, axis])
     # Reject isolated detector jitter without suppressing real player travel.
     smoothed = position.copy()
     padded = np.pad(position, ((2, 2), (0, 0)), mode="edge")
@@ -777,14 +830,12 @@ def _smooth_corrected_bbox_placement(
     forward = anchor.copy()
     for frame in range(1, len(anchor)):
         forward[frame] = (
-            alpha_current * anchor[frame]
-            + (1.0 - alpha_current) * forward[frame - 1]
+            alpha_current * anchor[frame] + (1.0 - alpha_current) * forward[frame - 1]
         )
     backward = anchor.copy()
     for frame in range(len(anchor) - 2, -1, -1):
         backward[frame] = (
-            alpha_current * anchor[frame]
-            + (1.0 - alpha_current) * backward[frame + 1]
+            alpha_current * anchor[frame] + (1.0 - alpha_current) * backward[frame + 1]
         )
     stable_anchor = 0.5 * (forward + backward)
     stable_anchor[0] = anchor[0]
@@ -862,13 +913,17 @@ def _align_smash_contact_timeline(
     shift = before - target
     apply = tolerance_frames < abs(shift) <= maximum_shift_frames
     if not apply:
-        return pose.copy(), root.copy(), {
-            "contact_event_before": before,
-            "contact_event_target": target,
-            "contact_event_after": before,
-            "contact_warp_applied": False,
-            "contact_shift_frames": shift,
-        }
+        return (
+            pose.copy(),
+            root.copy(),
+            {
+                "contact_event_before": before,
+                "contact_event_target": target,
+                "contact_event_after": before,
+                "contact_warp_applied": False,
+                "contact_shift_frames": shift,
+            },
+        )
     aligned_pose, aligned_root = pose.copy(), root.copy()
     after = before
     # Acceleration is a second derivative, so resampling can move the detected
@@ -885,16 +940,18 @@ def _align_smash_contact_timeline(
         )
         aligned_pose = _sample_timeline_at_positions(aligned_pose, positions)
         aligned_root = _sample_timeline_at_positions(aligned_root, positions)
-        after = _dominant_wrist_acceleration_event(
-            aligned_pose, target_index=target
-        )
-    return aligned_pose, aligned_root, {
-        "contact_event_before": before,
-        "contact_event_target": target,
-        "contact_event_after": after,
-        "contact_warp_applied": True,
-        "contact_shift_frames": shift,
-    }
+        after = _dominant_wrist_acceleration_event(aligned_pose, target_index=target)
+    return (
+        aligned_pose,
+        aligned_root,
+        {
+            "contact_event_before": before,
+            "contact_event_target": target,
+            "contact_event_after": after,
+            "contact_warp_applied": True,
+            "contact_shift_frames": shift,
+        },
+    )
 
 
 def _ema_smooth_corrected_local_pose(
@@ -962,7 +1019,11 @@ def _apply_smash_contact_leg_constraints(
     corrected = np.asarray(corrected_pixels, dtype=np.float64)
     detected = np.asarray(detected_pixels, dtype=np.float64)
     observed = np.asarray(confidence, dtype=np.float64)
-    if corrected.shape != detected.shape or corrected.ndim != 3 or corrected.shape[1:] != (17, 2):
+    if (
+        corrected.shape != detected.shape
+        or corrected.ndim != 3
+        or corrected.shape[1:] != (17, 2)
+    ):
         raise ValueError("contact constraint poses must share shape (T, 17, 2)")
     if observed.shape != corrected.shape[:2]:
         raise ValueError("contact constraint confidence must have shape (T, 17)")
@@ -981,20 +1042,39 @@ def _apply_smash_contact_leg_constraints(
     for track in range(2):
         for axis in range(2):
             padded = np.pad(smoothed[:, track, axis], (2, 2), mode="edge")
-            smoothed[:, track, axis] = np.convolve(
-                padded, target_kernel, mode="valid"
-            )
+            smoothed[:, track, axis] = np.convolve(padded, target_kernel, mode="valid")
 
     preparation = slice(0, max(2, int(np.ceil(0.375 * len(corrected)))))
-    direct_cost = float(np.median(np.linalg.norm(corrected[preparation, 15] - smoothed[preparation, 0], axis=-1)) +
-                        np.median(np.linalg.norm(corrected[preparation, 16] - smoothed[preparation, 1], axis=-1)))
-    crossed_cost = float(np.median(np.linalg.norm(corrected[preparation, 15] - smoothed[preparation, 1], axis=-1)) +
-                         np.median(np.linalg.norm(corrected[preparation, 16] - smoothed[preparation, 0], axis=-1)))
+    direct_cost = float(
+        np.median(
+            np.linalg.norm(
+                corrected[preparation, 15] - smoothed[preparation, 0], axis=-1
+            )
+        )
+        + np.median(
+            np.linalg.norm(
+                corrected[preparation, 16] - smoothed[preparation, 1], axis=-1
+            )
+        )
+    )
+    crossed_cost = float(
+        np.median(
+            np.linalg.norm(
+                corrected[preparation, 15] - smoothed[preparation, 1], axis=-1
+            )
+        )
+        + np.median(
+            np.linalg.norm(
+                corrected[preparation, 16] - smoothed[preparation, 0], axis=-1
+            )
+        )
+    )
     track_for_joint = {15: 0, 16: 1} if direct_cost <= crossed_cost else {15: 1, 16: 0}
 
     torso = np.linalg.norm(
         0.5 * (detected[:, 5] + detected[:, 6])
-        - 0.5 * (detected[:, 11] + detected[:, 12]), axis=-1,
+        - 0.5 * (detected[:, 11] + detected[:, 12]),
+        axis=-1,
     )
     scale = max(float(np.median(torso[np.isfinite(torso) & (torso > 1e-5)])), 1e-5)
     velocity = np.zeros((len(smoothed), 2), dtype=np.float64)
@@ -1003,7 +1083,9 @@ def _apply_smash_contact_leg_constraints(
         velocity[0] = np.linalg.norm(smoothed[1] - smoothed[0], axis=-1)
         velocity[-1] = np.linalg.norm(smoothed[-1] - smoothed[-2], axis=-1)
     ground_y = np.max(smoothed[:, :, 1], axis=1)
-    contact = ((ground_y[:, None] - smoothed[:, :, 1]) <= 0.18 * scale) & (velocity <= 0.08 * scale)
+    contact = ((ground_y[:, None] - smoothed[:, :, 1]) <= 0.18 * scale) & (
+        velocity <= 0.08 * scale
+    )
     # A smash retains at least one load-bearing foot.  If the stricter pair
     # test rejects both, retain only the lower, slower candidate.
     for frame in range(len(contact)):
@@ -1024,22 +1106,27 @@ def _apply_smash_contact_leg_constraints(
     result = corrected.copy()
     for hip, knee, ankle in _LEG_CHAINS:
         track = track_for_joint[ankle]
-        thigh = float(np.median(np.linalg.norm(corrected[:, knee] - corrected[:, hip], axis=-1)))
-        shin = float(np.median(np.linalg.norm(corrected[:, ankle] - corrected[:, knee], axis=-1)))
+        thigh = float(
+            np.median(np.linalg.norm(corrected[:, knee] - corrected[:, hip], axis=-1))
+        )
+        shin = float(
+            np.median(np.linalg.norm(corrected[:, ankle] - corrected[:, knee], axis=-1))
+        )
         if thigh <= 1e-5 or shin <= 1e-5:
             continue
         for frame in np.flatnonzero(contact_weight[:, track] > 1e-4):
             weight = float(contact_weight[frame, track])
-            target = (
-                (1.0 - weight) * corrected[frame, ankle]
-                + weight * smoothed[frame, track]
-            )
+            target = (1.0 - weight) * corrected[frame, ankle] + weight * smoothed[
+                frame, track
+            ]
             vector = target - result[frame, hip]
             distance = float(np.linalg.norm(vector))
             if distance <= 1e-5:
                 continue
             direction = vector / distance
-            reach = float(np.clip(distance, abs(thigh - shin) + 1e-4, thigh + shin - 1e-4))
+            reach = float(
+                np.clip(distance, abs(thigh - shin) + 1e-4, thigh + shin - 1e-4)
+            )
             ankle_target = result[frame, hip] + direction * reach
             along = (thigh * thigh - shin * shin + reach * reach) / (2.0 * reach)
             height = float(np.sqrt(max(thigh * thigh - along * along, 0.0)))
@@ -1047,7 +1134,9 @@ def _apply_smash_contact_leg_constraints(
             old_knee = corrected[frame, knee] - corrected[frame, hip]
             cross = direction[0] * old_knee[1] - direction[1] * old_knee[0]
             bend = 1.0 if cross >= 0.0 else -1.0
-            result[frame, knee] = result[frame, hip] + direction * along + perpendicular * bend * height
+            result[frame, knee] = (
+                result[frame, hip] + direction * along + perpendicular * bend * height
+            )
             result[frame, ankle] = ankle_target
     return result.astype(np.float32)
 
@@ -1074,13 +1163,18 @@ def _repair_isolated_corrected_flickers(
     corrected = np.asarray(corrected_pixels, dtype=np.float64)
     detected = np.asarray(detected_pixels, dtype=np.float64)
     observed = np.asarray(confidence, dtype=np.float64)
-    if corrected.shape != detected.shape or corrected.ndim != 3 or corrected.shape[1:] != (17, 2):
+    if (
+        corrected.shape != detected.shape
+        or corrected.ndim != 3
+        or corrected.shape[1:] != (17, 2)
+    ):
         raise ValueError("flicker repair poses must share shape (T, 17, 2)")
     if observed.shape != corrected.shape[:2]:
         raise ValueError("flicker repair confidence must have shape (T, 17)")
     torso = np.linalg.norm(
         0.5 * (detected[:, 5] + detected[:, 6])
-        - 0.5 * (detected[:, 11] + detected[:, 12]), axis=1,
+        - 0.5 * (detected[:, 11] + detected[:, 12]),
+        axis=1,
     )
     finite = torso[np.isfinite(torso) & (torso > 1e-5)]
     scale = float(np.median(finite)) if len(finite) else 1.0
@@ -1088,8 +1182,11 @@ def _repair_isolated_corrected_flickers(
     intervals: list[dict[str, Any]] = []
     for chain_index, (root, middle, endpoint) in enumerate(_FLICKER_CHAINS):
         vectors = np.stack(
-            (corrected[:, middle] - corrected[:, root],
-             corrected[:, endpoint] - corrected[:, middle]), axis=1,
+            (
+                corrected[:, middle] - corrected[:, root],
+                corrected[:, endpoint] - corrected[:, middle],
+            ),
+            axis=1,
         )
         candidates: list[tuple[int, int, float, float]] = []
         for start in range(1, len(corrected) - 1):
@@ -1098,18 +1195,29 @@ def _repair_isolated_corrected_flickers(
                 if stop >= len(corrected) - 1:
                     break
                 before, after = vectors[start - 1], vectors[stop + 1]
-                endpoint_gap = float(np.max(np.linalg.norm(after - before, axis=-1)) / scale)
+                endpoint_gap = float(
+                    np.max(np.linalg.norm(after - before, axis=-1)) / scale
+                )
                 if endpoint_gap >= endpoint_gap_limit:
                     continue
-                alpha = np.linspace(1.0 / (interval_length + 1), interval_length / (interval_length + 1), interval_length)
+                alpha = np.linspace(
+                    1.0 / (interval_length + 1),
+                    interval_length / (interval_length + 1),
+                    interval_length,
+                )
                 expected = before[None] + alpha[:, None, None] * (after - before)[None]
-                residual = np.linalg.norm(vectors[start:stop + 1] - expected, axis=-1) / scale
-                incoming = vectors[start:stop + 1] - vectors[start - 1:stop]
-                outgoing = vectors[start + 1:stop + 2] - vectors[start:stop + 1]
+                residual = (
+                    np.linalg.norm(vectors[start : stop + 1] - expected, axis=-1)
+                    / scale
+                )
+                incoming = vectors[start : stop + 1] - vectors[start - 1 : stop]
+                outgoing = vectors[start + 1 : stop + 2] - vectors[start : stop + 1]
                 reversal = np.any(np.sum(incoming * outgoing, axis=-1) < 0.0)
                 maximum_residual = float(np.max(residual))
                 if maximum_residual > residual_limit and reversal:
-                    candidates.append((start, interval_length, maximum_residual, endpoint_gap))
+                    candidates.append(
+                        (start, interval_length, maximum_residual, endpoint_gap)
+                    )
         # Prefer the narrowest explanation. A valid one-frame bounded outlier
         # must never turn into a three-frame rewrite merely because an earlier
         # search window also contains it.
@@ -1122,10 +1230,16 @@ def _repair_isolated_corrected_flickers(
                 continue
             chain_frames[chain_index].update(range(start, stop + 1))
             occupied.update(range(start, stop + 1))
-            intervals.append({"chain": [root, middle, endpoint], "start": start, "end": stop,
-                              "kind": "temporal_parent_vector",
-                              "maximum_normalized_residual": maximum_residual,
-                              "normalized_endpoint_gap": endpoint_gap})
+            intervals.append(
+                {
+                    "chain": [root, middle, endpoint],
+                    "start": start,
+                    "end": stop,
+                    "kind": "temporal_parent_vector",
+                    "maximum_normalized_residual": maximum_residual,
+                    "normalized_endpoint_gap": endpoint_gap,
+                }
+            )
 
     # Independent spatial feasibility: affine-fit failures can persist for a
     # few frames and therefore lack a clean velocity reversal. Rigid limb
@@ -1136,16 +1250,18 @@ def _repair_isolated_corrected_flickers(
         (middle, endpoint) for _, middle, endpoint in _FLICKER_CHAINS
     )
     lengths = np.stack(
-        [np.linalg.norm(corrected[:, end] - corrected[:, start], axis=1)
-         for start, end in segments], axis=1,
+        [
+            np.linalg.norm(corrected[:, end] - corrected[:, start], axis=1)
+            for start, end in segments
+        ],
+        axis=1,
     )
     stable_lengths = np.median(lengths, axis=0)
     relative_length_error = np.abs(
         lengths / np.maximum(stable_lengths[None], 1e-5) - 1.0
     )
-    raw_spatial = (
-        (np.sum(relative_length_error > 0.25, axis=1) >= 2)
-        | (np.max(relative_length_error, axis=1) > 0.40)
+    raw_spatial = (np.sum(relative_length_error > 0.25, axis=1) >= 2) | (
+        np.max(relative_length_error, axis=1) > 0.40
     )
     # Only bounded spatial bursts are repairable evidence. A long run may be
     # genuine camera foreshortening and is intentionally left untouched.
@@ -1163,14 +1279,16 @@ def _repair_isolated_corrected_flickers(
             spatial_frames.update(range(cursor, stop + 1))
         cursor = stop + 1
     for frame in sorted(spatial_frames):
-        intervals.append({
-            "kind": "spatial_bone_length",
-            "start": frame,
-            "end": frame,
-            "maximum_relative_bone_length_error": float(
-                np.max(relative_length_error[frame])
-            ),
-        })
+        intervals.append(
+            {
+                "kind": "spatial_bone_length",
+                "start": frame,
+                "end": frame,
+                "maximum_relative_bone_length_error": float(
+                    np.max(relative_length_error[frame])
+                ),
+            }
+        )
 
     # Isolated elbow/knee branch flips are spatially plausible in length but
     # topologically wrong. Neighbouring frames must agree on the bend branch.
@@ -1182,14 +1300,19 @@ def _repair_isolated_corrected_flickers(
         for frame in range(1, len(corrected) - 1):
             if (
                 (frame in chain_frames[chain_index] or frame in spatial_frames)
-                and
-                np.sign(cross[frame - 1]) == np.sign(cross[frame + 1])
+                and np.sign(cross[frame - 1]) == np.sign(cross[frame + 1])
                 and np.sign(cross[frame]) != np.sign(cross[frame - 1])
                 and abs(cross[frame]) > 0.03 * scale * scale
             ):
                 branch_frames[chain_index].add(frame)
-                intervals.append({"kind": "isolated_branch_flip", "chain": [root, middle, endpoint],
-                                  "start": frame, "end": frame})
+                intervals.append(
+                    {
+                        "kind": "isolated_branch_flip",
+                        "chain": [root, middle, endpoint],
+                        "start": frame,
+                        "end": frame,
+                    }
+                )
 
     flagged = np.zeros(corrected.shape[:2], dtype=bool)
     for chain_index, (root, middle, endpoint) in enumerate(_FLICKER_CHAINS):
@@ -1202,13 +1325,22 @@ def _repair_isolated_corrected_flickers(
             # assignment below still leaves every unflagged frame bit-exact.
             flagged[frame, (root, middle, endpoint)] = True
     for frame in range(len(corrected)):
-        if frame in spatial_frames or sum(frame in values for values in chain_frames) >= 2:
+        if (
+            frame in spatial_frames
+            or sum(frame in values for values in chain_frames) >= 2
+        ):
             flagged[frame] = True
     if not np.any(flagged):
-        return corrected.astype(np.float32), {"intervals": [], "flagged_frames": [], "flagged_joint_frames": 0}
-    repaired = corrected.copy(); timeline = np.arange(len(repaired))
+        return corrected.astype(np.float32), {
+            "intervals": [],
+            "flagged_frames": [],
+            "flagged_joint_frames": 0,
+        }
+    repaired = corrected.copy()
+    timeline = np.arange(len(repaired))
     for joint in range(17):
-        bad = flagged[:, joint]; valid = ~bad & np.isfinite(repaired[:, joint]).all(axis=1)
+        bad = flagged[:, joint]
+        valid = ~bad & np.isfinite(repaired[:, joint]).all(axis=1)
         if not np.any(bad) or np.count_nonzero(valid) < 2:
             continue
         for axis in range(2):
@@ -1226,8 +1358,12 @@ def _repair_isolated_corrected_flickers(
             first_direction /= max(float(np.linalg.norm(first_direction)), 1e-5)
             second_direction = repaired[frame, endpoint] - repaired[frame, middle]
             second_direction /= max(float(np.linalg.norm(second_direction)), 1e-5)
-            repaired[frame, middle] = repaired[frame, root] + first_length * first_direction
-            repaired[frame, endpoint] = repaired[frame, middle] + second_length * second_direction
+            repaired[frame, middle] = (
+                repaired[frame, root] + first_length * first_direction
+            )
+            repaired[frame, endpoint] = (
+                repaired[frame, middle] + second_length * second_direction
+            )
     # Every valid frame is bit-identical to the pre-repair render timeline.
     output = corrected.copy()
     repaired_frames = np.any(flagged, axis=1)
@@ -1329,6 +1465,8 @@ def render_correction_video(
     pause_seconds: float = 0.0,
     fixed_hierarchical_placement: bool = False,
     constrained_hierarchical_placement: bool = False,
+    projected_corrected_pixels: NDArray[np.float32] | None = None,
+    generated_source_window: tuple[int, int, int] | None = None,
 ) -> None:
     start, _, end = window
     target_frames = len(original)
@@ -1338,6 +1476,17 @@ def render_correction_video(
     if not 0 <= start <= end < source_frame_count:
         raise ValueError("analysis window falls outside the source video")
     window_frame_count = end - start + 1
+    if projected_corrected_pixels is not None:
+        projected_corrected_pixels = np.asarray(
+            projected_corrected_pixels, dtype=np.float32
+        )
+        if (
+            projected_corrected_pixels.shape != (window_frame_count, 17, 2)
+            or not np.isfinite(projected_corrected_pixels).all()
+        ):
+            raise ValueError(
+                "Scored pixel overlay must exactly cover the render source window"
+            )
     raw_2d, raw_confidence = _prepare_detected_pose_for_render(tracking)
     if handedness == Handedness.LEFT:
         raw_2d, raw_confidence = _canonicalize_left(raw_2d, raw_confidence)
@@ -1370,12 +1519,12 @@ def render_correction_video(
         ),
         window_frame_count,
     )
-    if (
-        original_root_values.shape != (window_frame_count, 2)
-        or corrected_root_values.shape != (window_frame_count, 2)
-    ):
+    if original_root_values.shape != (
+        window_frame_count,
+        2,
+    ) or corrected_root_values.shape != (window_frame_count, 2):
         raise ValueError("resampled root trajectories must have shape (T, 2)")
-    if skill == Skill.SMASH:
+    if skill == Skill.SMASH and projected_corrected_pixels is None:
         corrected_timeline, corrected_root_values, _ = _align_smash_contact_timeline(
             corrected_timeline,
             corrected_root_values,
@@ -1393,7 +1542,17 @@ def render_correction_video(
         raise RuntimeError(f"could not open output writer: {raw_path}")
     fixed_corrected_pixels: NDArray[np.float32] | None = None
     fixed_display_masks: NDArray[np.float32] | None = None
-    if fixed_hierarchical_placement or constrained_hierarchical_placement:
+    if projected_corrected_pixels is not None:
+        # Already phase-aligned, projected, smoothed, and transported by the
+        # scorer. Never fit or smooth again in this presentation-only path.
+        fixed_corrected_pixels = projected_corrected_pixels
+        fixed_display_masks = detected_display_confidence[start : end + 1].copy()
+        if generated_source_window is not None:
+            # Show actual source evidence in the lead-in, not a fabricated
+            # generated pose. Tail continuation is explicitly display-only.
+            first_generated = generated_source_window[0] - start
+            fixed_display_masks[: max(0, first_generated)] = 0
+    elif fixed_hierarchical_placement or constrained_hierarchical_placement:
         mapped = []
         masks = []
         for window_index in range(window_frame_count):
@@ -1406,8 +1565,7 @@ def render_correction_video(
                 original_timeline[window_index], detected_pixels, mask
             )
             corrected_world = corrected_timeline[window_index] + (
-                corrected_root_values[window_index]
-                - original_root_values[window_index]
+                corrected_root_values[window_index] - original_root_values[window_index]
             )
             mapped.append(_map_to_pixels(corrected_world, transform))
             masks.append(
@@ -1450,8 +1608,8 @@ def render_correction_video(
     try:
         feedback_by_frame: dict[int, list[dict[str, Any]]] = {}
         for issue in feedback or []:
-            source_issue_frame = _normalized_to_source_frame(
-                int(issue["frame_index"]), target_frames, start, end
+            source_issue_frame = start + coaching_video_frame(
+                issue, target_frames, end - start + 1
             )
             feedback_by_frame.setdefault(source_issue_frame, []).append(issue)
         # The API returns the same reviewable clip that was scored, not the
@@ -1501,9 +1659,7 @@ def render_correction_video(
                     corrected_pixels = _ground_corrected_pose(
                         corrected_pixels, detected_pixels, display_mask
                     )
-                _draw_skeleton(
-                    frame, corrected_pixels, display_mask, (55, 225, 75), 3
-                )
+                _draw_skeleton(frame, corrected_pixels, display_mask, (55, 225, 75), 3)
             _draw_header(frame, filename, score)
             issues = feedback_by_frame.get(frame_index, [])
             if issues:

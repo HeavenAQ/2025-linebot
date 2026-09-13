@@ -31,8 +31,16 @@ from badminton_analysis.ml.skeleton_scoring import (
 )
 from badminton_analysis.models.types import Handedness
 
-
-LEFT_RIGHT_PAIRS = ((1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16))
+LEFT_RIGHT_PAIRS = (
+    (1, 2),
+    (3, 4),
+    (5, 6),
+    (7, 8),
+    (9, 10),
+    (11, 12),
+    (13, 14),
+    (15, 16),
+)
 
 
 def _pose_sequence(frames: int = 8) -> np.ndarray:
@@ -141,9 +149,7 @@ def test_normalization_preserves_rotation_relative_to_preparation() -> None:
     )
     sequence[1, :, :2] = sequence[1, :, :2] @ rotation.T
     confidence = np.ones(sequence.shape[:2], dtype=np.float32)
-    normalized, _ = normalize_skeleton_sequence(
-        sequence, confidence, Handedness.RIGHT
-    )
+    normalized, _ = normalize_skeleton_sequence(sequence, confidence, Handedness.RIGHT)
     shoulder_vector_0 = normalized[0, 6] - normalized[0, 5]
     shoulder_vector_1 = normalized[1, 6] - normalized[1, 5]
     assert abs(float(shoulder_vector_0[1])) < 1e-5
@@ -156,9 +162,7 @@ def test_normalization_does_not_amplify_compressed_shoulders() -> None:
     sequence[:, 6, 0] = 0.05
     confidence = np.ones(sequence.shape[:2], dtype=np.float32)
 
-    normalized, _ = normalize_skeleton_sequence(
-        sequence, confidence, Handedness.RIGHT
-    )
+    normalized, _ = normalize_skeleton_sequence(sequence, confidence, Handedness.RIGHT)
 
     assert float(np.ptp(normalized[..., 1])) < 10.0
 
@@ -174,7 +178,9 @@ def test_correction_distance_is_zero_for_identical_sequences() -> None:
 def test_score_distance_increases_with_synthetic_corruption() -> None:
     sequence = _pose_sequence()
     confidence = np.ones(sequence.shape[:2], dtype=np.float32)
-    pattern = np.linspace(-1.0, 1.0, sequence.size, dtype=np.float32).reshape(sequence.shape)
+    pattern = np.linspace(-1.0, 1.0, sequence.size, dtype=np.float32).reshape(
+        sequence.shape
+    )
     small, _ = correction_distance(sequence, sequence + 0.02 * pattern, confidence)
     large, _ = correction_distance(sequence, sequence + 0.10 * pattern, confidence)
     assert 0.0 < small < large
@@ -267,9 +273,7 @@ def test_full_transition_separates_support_and_torso_lean() -> None:
     }
 
     lower_body_difference = source.copy()
-    lower_body_difference[:, (15, 16), 0] += np.linspace(
-        0.0, 0.8, len(source)
-    )[:, None]
+    lower_body_difference[:, (15, 16), 0] += np.linspace(0.0, 0.8, len(source))[:, None]
     support = full_transition_components(
         source,
         lower_body_difference,
@@ -281,9 +285,7 @@ def test_full_transition_separates_support_and_torso_lean() -> None:
     assert support["torso_lean_transition_distance"] == pytest.approx(0.0)
 
     upper_body_difference = source.copy()
-    upper_body_difference[:, (5, 6), 2] += np.linspace(
-        0.0, 1.0, len(source)
-    )[:, None]
+    upper_body_difference[:, (5, 6), 2] += np.linspace(0.0, 1.0, len(source))[:, None]
     lean = full_transition_components(
         source,
         upper_body_difference,
@@ -398,14 +400,9 @@ def test_keypoint_components_attribute_wrist_correction() -> None:
     corrected[:, 10, 0] += np.linspace(0.0, 0.8, len(corrected))
     confidence = np.ones(original.shape[:2], dtype=np.float32)
 
-    components = keypoint_correction_components(
-        original, corrected, confidence
-    )
+    components = keypoint_correction_components(original, corrected, confidence)
 
     assert components["correction_distance"].shape == (17,)
-    assert (
-        components["correction_distance"][10]
-        > components["correction_distance"][9]
-    )
+    assert components["correction_distance"][10] > components["correction_distance"][9]
     assert components["position_distance"][10] > 0.0
     assert components["velocity_distance"][10] > 0.0

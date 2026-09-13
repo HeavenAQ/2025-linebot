@@ -49,13 +49,14 @@ def test_serve_and_smash_backends_enable_ankle_spine_projection(
     assert pipeline.expert_bank is sentinel_bank
     assert set(pipeline.loaded_skills) == {Skill.SERVE, Skill.SMASH}
     assert [skill for skill, _ in created] == [Skill.SERVE, Skill.SMASH]
-    for _, contract in created:
+    for skill, contract in created:
         assert contract == {
             "device": "auto",
             "candidates": 8,
             "seed": 19,
             "generation_phase_contract": "eimd_v3",
             "align_ankle_spine_view": True,
+            "current_smash": skill == Skill.SMASH,
         }
 
 
@@ -193,9 +194,7 @@ def test_generated_expert_gpt_context_describes_expert_only_score() -> None:
         "angle_distance": 0.1,
         "scorer": "continuous_generated_expert_distribution_v1",
     }
-    criteria = [
-        (rule.name_zh_tw, 0.1, rule.maximum * 0.8) for rule in spec.rules
-    ]
+    criteria = [(rule.name_zh_tw, 0.1, rule.maximum * 0.8) for rule in spec.rules]
 
     context = _correction_grade_context(
         {"total_grade": 80.0}, diagnostics, spec, criteria

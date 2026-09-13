@@ -11,10 +11,13 @@ from openai import OpenAI
 
 from badminton_analysis.ml.clear_feedback import (
     RawSkillFeedbackAnalysis,
+    RawSmashEvidenceAnalysis,
+    SmashEvidenceAnalysis,
     SampledFrame,
     SkillFeedbackAnalysis,
     build_response_input,
     coaching_target_joint_ids,
+    criterion_evidence_frames,
     maximum_feedback_problem_count,
     minimum_feedback_problem_count,
     prompt_context,
@@ -113,9 +116,7 @@ class CoachingGenerator:
 
     @staticmethod
     def _is_good_performance(correction_grade: dict[str, Any]) -> bool:
-        total_threshold = float(
-            os.getenv("COACHING_NO_SUGGESTION_MIN_SCORE", "90")
-        )
+        total_threshold = float(os.getenv("COACHING_NO_SUGGESTION_MIN_SCORE", "90"))
         criterion_threshold = float(
             os.getenv("COACHING_NO_SUGGESTION_MIN_CRITERION_RATIO", "0.8")
         )
@@ -123,8 +124,7 @@ class CoachingGenerator:
             return False
         criteria = correction_grade.get("criteria", [])
         return bool(criteria) and all(
-            float(criterion["score"])
-            / max(float(criterion["maximum"]), 1e-6)
+            float(criterion["score"]) / max(float(criterion["maximum"]), 1e-6)
             >= criterion_threshold
             for criterion in criteria
         )
@@ -169,9 +169,7 @@ class CoachingGenerator:
                 correction_grade["criteria"],
                 key=_criterion_priority,
             )
-            if float(item["score"])
-            / max(float(item["maximum"]), 1e-6)
-            < 0.8
+            if float(item["score"]) / max(float(item["maximum"]), 1e-6) < 0.8
         ][:problem_count]
         rules = [spec.rule(str(item["rule_reference"])) for item in criteria]
         if not criteria:
@@ -223,8 +221,7 @@ class CoachingGenerator:
         samples: list[SampledFrame],
     ) -> dict[str, Any]:
         criteria = {
-            str(item["rule_reference"]): item
-            for item in correction_grade["criteria"]
+            str(item["rule_reference"]): item for item in correction_grade["criteria"]
         }
         anchors = tuple(int(value) for value in phase_indices)
         for problem in analysis["problems"]:
@@ -233,7 +230,11 @@ class CoachingGenerator:
                 matched_rule = spec.rule(reference)
             except KeyError:
                 fallback_rule = next(
-                    (candidate for candidate in spec.rules if candidate.name_zh_tw == reference),
+                    (
+                        candidate
+                        for candidate in spec.rules
+                        if candidate.name_zh_tw == reference
+                    ),
                     None,
                 )
                 if fallback_rule is None:
@@ -243,10 +244,16 @@ class CoachingGenerator:
             problem["rule_reference"] = rule.id
             problem["title"] = rule.name_zh_tw
             problem["phase"] = rule.phase
-            allowed = [anchors[index] for index in rule.allowed_anchor_indices]
-            problem["frame_index"] = min(
-                allowed, key=lambda frame: abs(frame - int(problem["frame_index"]))
-            )
+            allowed = criterion_evidence_frames(rule, samples, anchors)
+            if correction_grade.get("checkpoint_evidence") is not None:
+                if int(problem["frame_index"]) not in allowed:
+                    raise ValueError(
+                        f"{rule.id} must select its scored evidence frames {allowed}"
+                    )
+            else:
+                problem["frame_index"] = min(
+                    allowed, key=lambda frame: abs(frame - int(problem["frame_index"]))
+                )
             problem["joint_ids"] = coaching_target_joint_ids(rule.id, spec)
             criterion = criteria[rule.id]
             problem["criterion_score"] = float(criterion["score"])
@@ -274,8 +281,7 @@ class CoachingGenerator:
         passed_references = {
             str(item["rule_reference"])
             for item in correction_grade["criteria"]
-            if float(item["score"]) / max(float(item["maximum"]), 1e-6)
-            >= 0.8
+            if float(item["score"]) / max(float(item["maximum"]), 1e-6) >= 0.8
         }
         invalid_passed = sorted(set(references) & passed_references)
         if invalid_passed:
@@ -285,12 +291,8 @@ class CoachingGenerator:
             )
         priority_criteria = [
             item
-            for item in sorted(
-                correction_grade["criteria"], key=_criterion_priority
-            )
-            if float(item["score"])
-            / max(float(item["maximum"]), 1e-6)
-            < 0.8
+            for item in sorted(correction_grade["criteria"], key=_criterion_priority)
+            if float(item["score"]) / max(float(item["maximum"]), 1e-6) < 0.8
         ]
         required_references = {
             str(item["rule_reference"])
@@ -302,11 +304,26 @@ class CoachingGenerator:
                 "feedback must cover all low-scoring priority criteria that fit: "
                 + ", ".join(missing_required)
             )
-        validated = SkillFeedbackAnalysis.model_validate(analysis)
+        analysis_type = (
+            SmashEvidenceAnalysis
+            if correction_grade.get("checkpoint_evidence") is not None
+            else SkillFeedbackAnalysis
+        )
+        validated = analysis_type.model_validate(analysis)
         validate_analysis_frames(validated, samples, anchors, spec)
-        timestamps = {sample.frame_index: sample.timestamp_seconds for sample in samples}
+        by_id = {sample.frame_index: sample for sample in samples}
         for problem in analysis["problems"]:
-            problem["timestamp_seconds"] = timestamps[problem["frame_index"]]
+            sample = by_id[problem["frame_index"]]
+            problem["timestamp_seconds"] = sample.timestamp_seconds
+            if correction_grade.get("checkpoint_evidence") is not None:
+                problem["evidence_frame_index"] = sample.frame_index
+                problem["video_frame_index"] = sample.source_frame_index
+                # Preserve the public normalized-frame contract. Rendering and
+                # cue timestamps use the exact output-local frame instead.
+                final_frame = max(item.source_frame_index for item in samples)
+                problem["frame_index"] = round(
+                    sample.source_frame_index * 63 / max(1, final_frame)
+                )
         return analysis
 
     def generate(
@@ -338,6 +355,7 @@ class CoachingGenerator:
                 output_frame_count,
             ),
             spec=spec,
+            checkpoint_evidence=correction_grade.get("checkpoint_evidence"),
         )
         advice = {
             "filename": filename,
@@ -356,6 +374,8 @@ class CoachingGenerator:
             correction_grade=correction_grade,
             spec=spec,
         )
+        if "checkpoint_evidence" in correction_grade:
+            context["checkpoint_evidence"] = correction_grade["checkpoint_evidence"]
         request_input = build_response_input(context, samples, spec)
         attempt_input = request_input
         response = None
@@ -369,7 +389,11 @@ class CoachingGenerator:
                     model=self.model,
                     instructions=system_instructions(spec),
                     input=attempt_input,  # type: ignore[arg-type]
-                    text_format=RawSkillFeedbackAnalysis,
+                    text_format=(
+                        RawSmashEvidenceAnalysis
+                        if correction_grade.get("checkpoint_evidence") is not None
+                        else RawSkillFeedbackAnalysis
+                    ),
                     reasoning={"effort": "medium"},
                     max_output_tokens=2200,
                     store=False,
@@ -402,22 +426,26 @@ class CoachingGenerator:
                 )
         llm_finished = time.perf_counter()
         if analysis is None:
-            analysis = self._normalize_analysis(
-                self._fallback_analysis(
-                    spec,
-                    correction_grade,
-                    problem_count=min(
-                        maximum_feedback_problem_count(
-                            float(correction_grade["total_score"])
-                        ),
-                        sum(
-                            float(item["score"])
-                            / max(float(item["maximum"]), 1e-6)
-                            < 0.8
-                            for item in correction_grade["criteria"]
-                        ),
+            fallback = self._fallback_analysis(
+                spec,
+                correction_grade,
+                problem_count=min(
+                    maximum_feedback_problem_count(
+                        float(correction_grade["total_score"])
+                    ),
+                    sum(
+                        float(item["score"]) / max(float(item["maximum"]), 1e-6) < 0.8
+                        for item in correction_grade["criteria"]
                     ),
                 ),
+            )
+            if correction_grade.get("checkpoint_evidence") is not None:
+                for problem in fallback["problems"]:
+                    problem["frame_index"] = criterion_evidence_frames(
+                        spec.rule(problem["rule_reference"]), samples, phase_indices
+                    )[0]
+            analysis = self._normalize_analysis(
+                fallback,
                 spec=spec,
                 correction_grade=correction_grade,
                 phase_indices=tuple(int(value) for value in phase_indices),

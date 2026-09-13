@@ -21,7 +21,9 @@ def _pose(progress: np.ndarray) -> np.ndarray:
     )
 
 
-def _reference(skeleton: np.ndarray | None, *, phases: tuple[int, ...] = PHASES) -> ExpertReference:
+def _reference(
+    skeleton: np.ndarray | None, *, phases: tuple[int, ...] = PHASES
+) -> ExpertReference:
     return ExpertReference(
         skill="serve",
         handedness="right",
@@ -93,7 +95,9 @@ def test_a_bank_built_without_skeletons_yields_no_alignment(student) -> None:
     assert segmental_alignment(_reference(None), student) == ()
 
 
-def test_a_pose_the_expert_cannot_be_compared_against_yields_no_alignment(expert) -> None:
+def test_a_pose_the_expert_cannot_be_compared_against_yields_no_alignment(
+    expert,
+) -> None:
     assert segmental_alignment(_reference(expert), np.zeros((32, 17, 2))) == ()
     assert segmental_alignment(_reference(expert), np.zeros((64, 17))) == ()
 
@@ -101,10 +105,14 @@ def test_a_pose_the_expert_cannot_be_compared_against_yields_no_alignment(expert
 def test_phases_that_collapse_on_resampling_yield_no_alignment(student, expert) -> None:
     # Four checkpoints crowded into the first frames of a long clip round onto
     # the same resampled frame, which leaves no segment to warp.
-    assert segmental_alignment(_reference(expert, phases=(0, 1, 2, 3, 400)), student) == ()
+    assert (
+        segmental_alignment(_reference(expert, phases=(0, 1, 2, 3, 400)), student) == ()
+    )
 
 
-def test_alignment_failure_costs_the_alignment_and_not_the_analysis(expert, caplog) -> None:
+def test_alignment_failure_costs_the_alignment_and_not_the_analysis(
+    expert, caplog
+) -> None:
     # A ragged pose is not something the warp can refuse politely; numpy raises
     # on it. The analysis still has to come back.
     assert _expert_alignment(_reference(expert), [[1.0, 2.0], [3.0]]) == ()
@@ -114,4 +122,6 @@ def test_alignment_failure_costs_the_alignment_and_not_the_analysis(expert, capl
 def test_alignment_matches_the_warp_when_it_succeeds(student, expert) -> None:
     reference = _reference(expert)
 
-    assert _expert_alignment(reference, student) == segmental_alignment(reference, student)
+    assert _expert_alignment(reference, student) == segmental_alignment(
+        reference, student
+    )

@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-
 # COCO has no explicit pelvis joint. ``-1`` means the midpoint of hips 11/12.
 COCO_PARENTS = (-1, 0, 0, 1, 2, -1, -1, 5, 6, 7, 8, -1, -1, 11, 12, 13, 14)
 COCO_CHAINS = (
@@ -16,8 +15,6 @@ COCO_CHAINS = (
 )
 
 _EPS = 1e-8
-
-
 
 
 def implicit_pelvis(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
@@ -38,7 +35,9 @@ def parent_offsets(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
     return offsets
 
 
-def _weighted_median(values: NDArray[np.float64], weights: NDArray[np.float64]) -> float:
+def _weighted_median(
+    values: NDArray[np.float64], weights: NDArray[np.float64]
+) -> float:
     valid = np.isfinite(values) & np.isfinite(weights) & (weights > 0.0)
     if not np.any(valid):
         return float("nan")
@@ -77,7 +76,9 @@ def stable_parent_lengths(
     # identity into two incompatible FK constraints.
     hip_half_width = _weighted_median(
         np.concatenate((lengths[:, 11], lengths[:, 12])),
-        np.concatenate((pelvis_confidence * observed[:, 11], pelvis_confidence * observed[:, 12])),
+        np.concatenate(
+            (pelvis_confidence * observed[:, 11], pelvis_confidence * observed[:, 12])
+        ),
     )
     if np.isfinite(hip_half_width) and hip_half_width > _EPS:
         output[11] = output[12] = hip_half_width
@@ -127,8 +128,6 @@ def _unit(values: NDArray[np.float64]) -> NDArray[np.float64]:
     )
 
 
-
-
 def body_frame_axes(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
     """Return rigid lateral/up axes from hips and shoulders for every frame."""
     values = np.asarray(sequence, dtype=np.float64)
@@ -136,9 +135,7 @@ def body_frame_axes(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
         raise ValueError("sequence must have shape (T, 17, 2|3)")
     pelvis = implicit_pelvis(values)
     shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
-    lateral = _unit(values[:, 6] - values[:, 5]) + _unit(
-        values[:, 12] - values[:, 11]
-    )
+    lateral = _unit(values[:, 6] - values[:, 5]) + _unit(values[:, 12] - values[:, 11])
     up = _unit(shoulder_center - pelvis)
     lateral -= np.sum(lateral * up, axis=-1, keepdims=True) * up
     lateral = _unit(lateral)
@@ -151,9 +148,7 @@ def body_frame_axes(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
         # broken crossed skeleton. Temporal sign continuity preserves the
         # initial physical side assignment without smoothing any joint angle.
         initial_sign = (
-            1.0
-            if float(np.dot(perpendicular[0], lateral[0])) >= 0.0
-            else -1.0
+            1.0 if float(np.dot(perpendicular[0], lateral[0])) >= 0.0 else -1.0
         )
         lateral = perpendicular.copy()
         lateral[0] *= initial_sign
@@ -210,12 +205,8 @@ def relative_projected_width_trajectory(
         raise ValueError("sequence must have shape (T, 17, 2)")
     if observed.shape != values.shape[:2]:
         raise ValueError("confidence must have shape (T, 17)")
-    widths = np.linalg.norm(
-        values[:, right_joint] - values[:, left_joint], axis=-1
-    )
-    weights = np.clip(
-        observed[:, left_joint] * observed[:, right_joint], 0.0, 1.0
-    )
+    widths = np.linalg.norm(values[:, right_joint] - values[:, left_joint], axis=-1)
+    weights = np.clip(observed[:, left_joint] * observed[:, right_joint], 0.0, 1.0)
     stable = _weighted_median(widths, weights)
     if not np.isfinite(stable) or stable <= _EPS:
         raise ValueError("could not estimate stable projected width")
@@ -224,8 +215,6 @@ def relative_projected_width_trajectory(
         raise ValueError("projected width trajectory contains no finite values")
     filled = np.interp(np.arange(len(widths)), np.flatnonzero(valid), widths[valid])
     return filled / stable
-
-
 
 
 def retarget_expert_body_local_rotations_fk(
@@ -253,9 +242,7 @@ def retarget_expert_body_local_rotations_fk(
     if source.shape != reference.shape or source.ndim != 3:
         raise ValueError("student and expert must have matching shape (T, 17, D)")
     if source.shape[1] != 17 or source.shape[2] not in (2, 3):
-        raise ValueError(
-            "body-local rotation transfer requires shape (T, 17, 2|3)"
-        )
+        raise ValueError("body-local rotation transfer requires shape (T, 17, 2|3)")
     if source_observed.shape != source.shape[:2]:
         raise ValueError("student_confidence must have shape (T, 17)")
     if reference_observed.shape != source.shape[:2]:
@@ -272,9 +259,7 @@ def retarget_expert_body_local_rotations_fk(
         out=np.zeros_like(source_offsets),
         where=source_norms > _EPS,
     )
-    valid = np.isfinite(expert_offsets).all(axis=-1) & (
-        expert_norms[..., 0] > _EPS
-    )
+    valid = np.isfinite(expert_offsets).all(axis=-1) & (expert_norms[..., 0] > _EPS)
     raw_directions = np.divide(
         expert_offsets,
         expert_norms,
@@ -288,12 +273,8 @@ def retarget_expert_body_local_rotations_fk(
     # Columns are lateral/up(/depth) basis vectors in camera coordinates. Express each
     # expert edge in that basis, then map it into a target basis whose initial
     # orientation is the student's and whose temporal turn is the expert's.
-    expert_relative_turn = np.einsum(
-        "ij,tjk->tik", expert_axes[0].T, expert_axes
-    )
-    target_axes = np.einsum(
-        "ij,tjk->tik", student_axes[0], expert_relative_turn
-    )
+    expert_relative_turn = np.einsum("ij,tjk->tik", expert_axes[0].T, expert_axes)
+    target_axes = np.einsum("ij,tjk->tik", student_axes[0], expert_relative_turn)
     local_directions = np.einsum("tjd,tdk->tjk", directions, expert_axes)
     directions = np.einsum("tjk,tdk->tjd", local_directions, target_axes)
     directions = _unit(directions)
@@ -368,9 +349,7 @@ def retarget_expert_canonical_2d_fk(
         out=np.zeros_like(source_offsets),
         where=source_norms > _EPS,
     )
-    valid = np.isfinite(expert_offsets).all(axis=-1) & (
-        expert_norms[..., 0] > _EPS
-    )
+    valid = np.isfinite(expert_offsets).all(axis=-1) & (expert_norms[..., 0] > _EPS)
     raw_directions = np.divide(
         expert_offsets,
         expert_norms,
@@ -386,9 +365,7 @@ def retarget_expert_canonical_2d_fk(
         if root.shape != (len(source), 2):
             raise ValueError("root_trajectory must have shape (T, 2)")
 
-    _, hip_width, torso_height = _stable_torso_dimensions(
-        source, source_observed
-    )
+    _, hip_width, torso_height = _stable_torso_dimensions(source, source_observed)
     shoulder_width_profile = relative_projected_width_trajectory(
         reference, reference_observed
     )
@@ -399,9 +376,7 @@ def retarget_expert_canonical_2d_fk(
     # first-frame shoulder span. Median anchoring previously enlarged smash
     # CG1 from 0.862 to 1.323 before the motion had even started.
     shoulder_width_profile /= max(float(shoulder_width_profile[0]), _EPS)
-    initial_shoulder_width = float(
-        np.linalg.norm(source[0, 6] - source[0, 5])
-    )
+    initial_shoulder_width = float(np.linalg.norm(source[0, 6] - source[0, 5]))
     expert_pelvis = implicit_pelvis(reference)
     expert_shoulder_center = 0.5 * (reference[:, 5] + reference[:, 6])
     shoulder_lateral = _unit(reference[:, 6] - reference[:, 5])
@@ -414,12 +389,10 @@ def retarget_expert_canonical_2d_fk(
     output[:, 12] = root + 0.5 * hip_width * hip_lateral
     projected_shoulder_width = initial_shoulder_width * shoulder_width_profile
     output[:, 5] = (
-        shoulder_center
-        - 0.5 * projected_shoulder_width[:, None] * shoulder_lateral
+        shoulder_center - 0.5 * projected_shoulder_width[:, None] * shoulder_lateral
     )
     output[:, 6] = (
-        shoulder_center
-        + 0.5 * projected_shoulder_width[:, None] * shoulder_lateral
+        shoulder_center + 0.5 * projected_shoulder_width[:, None] * shoulder_lateral
     )
     rigid_joints = {5, 6, 11, 12}
     for joint, parent in enumerate(COCO_PARENTS):
@@ -428,11 +401,3 @@ def retarget_expert_canonical_2d_fk(
         anchor = root if parent < 0 else output[:, parent]
         output[:, joint] = anchor + lengths[joint] * directions[:, joint]
     return output.astype(np.float32)
-
-
-
-
-
-
-
-

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -17,7 +18,6 @@ from badminton_analysis.ml.skill_specs import (
     validate_checkpoint_spec,
 )
 from badminton_analysis.models.types import Skill
-
 
 EXPECTED_CRITERIA = {
     Skill.SERVE: (
@@ -130,12 +130,19 @@ def test_rules_retain_qualitative_grader_instructions() -> None:
         ),
     }
     for skill, movements in expected_movements.items():
-        calculations = tuple(rule.calculation_zh_tw for rule in get_skill_spec(skill).rules)
+        calculations = tuple(
+            rule.calculation_zh_tw for rule in get_skill_spec(skill).rules
+        )
         assert all(
             expected in calculation
             for expected, calculation in zip(movements, calculations, strict=True)
         )
-        assert all("度" not in calculation for calculation in calculations)
+        # Do not invent numeric angle thresholds in coaching prose. Words such
+        # as 高度/程度 describe the actual smash height rule, not degrees.
+        assert all(
+            not re.search(r"\d+(?:\.\d+)?\s*度", calculation)
+            for calculation in calculations
+        )
 
 
 @pytest.mark.parametrize("skill", SUPPORTED_CORRECTION_SKILLS)
@@ -187,9 +194,7 @@ def test_serve_contract_requires_full_body_transition_metadata() -> None:
 
     validate_checkpoint_spec(checkpoint, serve)
     weight_transfer_detail = next(
-        detail
-        for detail in serve.details
-        if detail.name_zh_tw == "重心轉移至非持拍腳"
+        detail for detail in serve.details if detail.name_zh_tw == "重心轉移至非持拍腳"
     )
     assert weight_transfer_detail.metric == "full_transition"
     assert serve.transition_joints == (11, 12, 13, 14, 15, 16)
@@ -214,9 +219,8 @@ def test_each_rule_anchor_has_its_declared_display_phase(skill: Skill) -> None:
     for rule in spec.rules:
         for anchor_index in rule.allowed_anchor_indices:
             frame_index = DEFAULT_PHASE_INDICES[anchor_index]
-            assert (
-                phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec)
-                == (rule.display_phase or rule.phase)
+            assert phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec) == (
+                rule.display_phase or rule.phase
             )
 
 
@@ -235,4 +239,3 @@ def test_serve_contact_and_preparation_rule_anchors_match_extraction_events() ->
     assert spec.rule("wrist_flick").display_phase is None
     assert "最大手腕加速度" in spec.checkpoint_roles_zh_tw[2]
     assert "隨揮" in spec.checkpoint_roles_zh_tw[3]
-

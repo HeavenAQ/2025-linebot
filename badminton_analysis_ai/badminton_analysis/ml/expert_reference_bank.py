@@ -52,7 +52,9 @@ _SKILL_SUPPORT_SEGMENTS = (
     (5, 6),
     (11, 12),
 )
-_SKILL_SUPPORT_CONTRACT = "local_angles_torso_relative_directions_derivative_shape_dtw_v1"
+_SKILL_SUPPORT_CONTRACT = (
+    "local_angles_torso_relative_directions_derivative_shape_dtw_v1"
+)
 
 
 def skill_temporal_descriptor(
@@ -80,17 +82,14 @@ def skill_temporal_descriptor(
         incoming = values[:, first] - values[:, centre]
         outgoing = values[:, last] - values[:, centre]
         denominator = np.maximum(
-            np.linalg.norm(incoming, axis=-1)
-            * np.linalg.norm(outgoing, axis=-1),
+            np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1),
             1e-8,
         )
         cosine = np.sum(incoming * outgoing, axis=-1) / denominator
         features.append(np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi)
     for first, last in _SKILL_SUPPORT_SEGMENTS:
         segment = values[:, last] - values[:, first]
-        segment /= np.maximum(
-            np.linalg.norm(segment, axis=-1, keepdims=True), 1e-8
-        )
+        segment /= np.maximum(np.linalg.norm(segment, axis=-1, keepdims=True), 1e-8)
         features.extend(
             (
                 np.sum(segment * spine, axis=-1),
@@ -184,10 +183,14 @@ class ExpertReferenceBank:
                 else np.zeros(count, dtype=np.float32)
             )
             self.width = (
-                bank["width"].astype(np.int64) if "width" in bank else np.zeros(count, dtype=np.int64)
+                bank["width"].astype(np.int64)
+                if "width" in bank
+                else np.zeros(count, dtype=np.int64)
             )
             self.height = (
-                bank["height"].astype(np.int64) if "height" in bank else np.zeros(count, dtype=np.int64)
+                bank["height"].astype(np.int64)
+                if "height" in bank
+                else np.zeros(count, dtype=np.int64)
             )
             required_support = {
                 "skill_support_features",
@@ -205,22 +208,16 @@ class ExpertReferenceBank:
                     "expert reference bank lacks temporal skill support: "
                     + ", ".join(sorted(missing))
                 )
-            self.skill_support_features = bank[
-                "skill_support_features"
-            ].astype(np.float32)
-            self.skill_support_skill = bank["skill_support_skill"].astype(str)
-            self.skill_support_subject_id = bank[
-                "skill_support_subject_id"
-            ].astype(str)
-            self.skill_rejection_margin = float(
-                bank["skill_rejection_margin"].item()
+            self.skill_support_features = bank["skill_support_features"].astype(
+                np.float32
             )
+            self.skill_support_skill = bank["skill_support_skill"].astype(str)
+            self.skill_support_subject_id = bank["skill_support_subject_id"].astype(str)
+            self.skill_rejection_margin = float(bank["skill_rejection_margin"].item())
             self.skill_support_feature_contract = str(
                 bank["skill_support_feature_contract"].item()
             )
-            self.skill_support_fit_policy = str(
-                bank["skill_support_fit_policy"].item()
-            )
+            self.skill_support_fit_policy = str(bank["skill_support_fit_policy"].item())
             self.skill_support_expert_count = int(
                 bank["skill_support_expert_count"].item()
             )
@@ -249,7 +246,10 @@ class ExpertReferenceBank:
             raise ValueError("temporal skill expert count does not match support")
         if self.skill_support_student_data_used:
             raise ValueError("temporal skill support must not use student data")
-        if not np.isfinite(self.skill_rejection_margin) or self.skill_rejection_margin <= 0:
+        if (
+            not np.isfinite(self.skill_rejection_margin)
+            or self.skill_rejection_margin <= 0
+        ):
             raise ValueError("temporal skill rejection margin must be positive")
 
     def __len__(self) -> int:
@@ -270,9 +270,7 @@ class ExpertReferenceBank:
         if not len(candidates):
             raise ValueError(f"expert bank has no independent {skill} support")
         return min(
-            skill_temporal_distance(
-                descriptor, self.skill_support_features[int(index)]
-            )
+            skill_temporal_distance(descriptor, self.skill_support_features[int(index)])
             for index in candidates
         )
 
@@ -333,7 +331,9 @@ class ExpertReferenceBank:
             distances = np.linalg.norm(bank - query, axis=1)
             best = int(np.argmin(distances))
             distance = float(distances[best])
-            denominator = float(np.linalg.norm(query)) * float(np.linalg.norm(bank[best])) or 1.0
+            denominator = (
+                float(np.linalg.norm(query)) * float(np.linalg.norm(bank[best])) or 1.0
+            )
             similarity = float(bank[best] @ query / denominator)
         else:
             norms = np.linalg.norm(bank, axis=1) * float(np.linalg.norm(query))
@@ -351,7 +351,9 @@ class ExpertReferenceBank:
             subject_id=str(self.subject_id[index]),
             fps=float(self.fps[index]),
             analysis_window=tuple(int(v) for v in self.analysis_window[index]),
-            source_phase_indices=tuple(int(v) for v in self.source_phase_indices[index]),
+            source_phase_indices=tuple(
+                int(v) for v in self.source_phase_indices[index]
+            ),
             distance=distance,
             similarity=similarity,
             duration_seconds=float(self.duration_seconds[index]),
@@ -404,14 +406,18 @@ def segmental_alignment(
         e0, e1 = int(expert_anchors[segment]), int(expert_anchors[segment + 1])
         if s1 <= s0 or e1 <= e0:
             return ()
-        local = _dtw_segment_positions(expert[e0 : e1 + 1], student[s0 : s1 + 1], weights)
+        local = _dtw_segment_positions(
+            expert[e0 : e1 + 1], student[s0 : s1 + 1], weights
+        )
         expert_positions[s0 : s1 + 1] = e0 + local
     # The anchors are the fixed points of the map; DTW fills in between them.
     expert_positions[student_anchors] = expert_anchors.astype(np.float64)
     expert_positions = np.maximum.accumulate(expert_positions)
 
     last = frames - 1
-    start, end = int(reference.source_phase_indices[0]), int(reference.source_phase_indices[-1])
+    start, end = int(reference.source_phase_indices[0]), int(
+        reference.source_phase_indices[-1]
+    )
     span = end - start
     return tuple(
         (

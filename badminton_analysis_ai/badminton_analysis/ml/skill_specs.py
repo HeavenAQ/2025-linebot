@@ -9,7 +9,6 @@ from numpy.typing import NDArray
 
 from badminton_analysis.models.types import Skill
 
-
 SUPPORTED_CORRECTION_SKILLS = (
     Skill.SERVE,
     Skill.LIFT,
@@ -151,7 +150,9 @@ class SkillCorrectionSpec:
         if tuple(rule.name_zh_tw for rule in self.rules) != tuple(
             detail.name_zh_tw for detail in self.details
         ):
-            raise ValueError(f"{self.skill} rules and correction details are misaligned")
+            raise ValueError(
+                f"{self.skill} rules and correction details are misaligned"
+            )
         if self.transition_weight > 0.0 and (
             not self.transition_joints or len(self.transition_lean_joints) != 4
         ):
@@ -270,8 +271,8 @@ _SMASH_RULES = (
         "preparation",
         "球拍舉至腰部預備",
         "preparation",
-        10,
-        "準備時將球拍舉至腰部，保持身體放鬆並準備轉身蓄力。",
+        5,
+        "球拍舉至腰部預備：在預備評分區間將持拍手維持腰部附近。評分以手腕沿髖部至肩部軸的相對高度作為代理；手腕升到肩部附近會扣分，不可將高舉持拍手視為滿分預備。這不是直接偵測拍頭高度。",
         (5, 6, 7, 8, 9, 10),
         (6, 8, 10),
         (0,),
@@ -280,8 +281,8 @@ _SMASH_RULES = (
         "body_rotation",
         "轉身",
         "rotation",
-        10,
-        "引拍時先轉身，讓髖部與肩膀共同完成殺球蓄力。",
+        20,
+        "比較起始到雙手平衡的轉身過程：慣用側髖－慣用側踝－非慣用側踝角、肩軸與肩相對髖軸的變化均需達到評分標準。不能只看最後姿勢相似；需檢查持拍側腿帶動與肩髖的實際轉動，並依提供的量測證據說明。",
         (5, 6, 11, 12, 13, 14, 15, 16),
         (11, 12),
         (1,),
@@ -290,8 +291,8 @@ _SMASH_RULES = (
         "arm_balance",
         "雙手手肘平衡",
         "rotation",
-        20,
-        "蓄力時雙手手肘保持平衡：自然抬起並向兩側展開，非慣用手協助穩定並指向來球；兩側因功能不同可有合理高低差，不要求等高。",
+        5,
+        "雙手手肘保持平衡：檢查整段指定雙手平衡區間，而非只看較晚的抬手姿勢。非慣用手已抬至肩附近時，若慣用手腕持續低於自身肩部超過專家容許程度，會受到扣分；稍後抬起不能抹除前面的不足。兩手可有合理高低差，不要求等高；左右必須依持拍手判斷。",
         (5, 6, 7, 8, 9, 10),
         (7, 8),
         (1,),
@@ -310,8 +311,8 @@ _SMASH_RULES = (
         "wrist_flick",
         "手腕發力",
         "contact",
-        20,
-        "擊球瞬間用手腕發力，讓球拍快速向下通過擊球點。",
+        30,
+        "在評分指定的擊球加速關鍵幀及其鄰近區間，檢查慣用側肩、肘與腕的協調及揮拍通過擊球點的動態。單一腕關節點不能直接證明手腕屈曲、握拍力量或球拍速度，不可僅憑結尾姿勢判斷手腕發力。",
         (6, 8, 10),
         (8, 10),
         (2,),
@@ -321,7 +322,7 @@ _SMASH_RULES = (
         "慣用手肩膀往前轉",
         "follow_through",
         20,
-        "隨揮時讓慣用側肩膀往前轉，並順勢帶動上半身向前。",
+        "使用評分器選定的最佳合格隨揮終點，與起始姿勢比較慣用側肩膀往前轉及肩寬縮短。肩寬幾乎不變時，即使原始隨揮分數很高仍可降至零。此項保留最佳終點，不採幀平均，也不因最佳終點之後肩部回退而額外扣分。",
         (5, 6, 8, 10, 11, 12),
         (6,),
         (3, 4),
@@ -453,9 +454,11 @@ def _details(
             metric=(
                 "full_transition"
                 if rule.id in {"weight_transfer", "lunge_backswing"}
-                else "serve_follow_through_cross_body"
-                if rule.id == "shoulder_rotation"
-                else "window_distance"
+                else (
+                    "serve_follow_through_cross_body"
+                    if rule.id == "shoulder_rotation"
+                    else "window_distance"
+                )
             ),
         )
         for rule, (start, end, joints) in zip(rules, windows, strict=True)
@@ -463,9 +466,23 @@ def _details(
 
 
 _UPPER_BODY_WEIGHTS = (
-    0.5, 0.25, 0.25, 0.25, 0.25,
-    1.5, 2.0, 1.25, 3.0, 1.5, 4.0,
-    1.5, 1.5, 1.25, 1.25, 1.25, 1.25,
+    0.5,
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    1.5,
+    2.0,
+    1.25,
+    3.0,
+    1.5,
+    4.0,
+    1.5,
+    1.5,
+    1.25,
+    1.25,
+    1.25,
+    1.25,
 )
 
 
@@ -514,9 +531,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：殺球動作終點",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.5, 2.5, 1.25, 3.5, 1.25, 4.5,
-            2.0, 2.0, 1.5, 1.5, 1.25, 1.25,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.5,
+            2.5,
+            1.25,
+            3.5,
+            1.25,
+            4.5,
+            2.0,
+            2.0,
+            1.5,
+            1.5,
+            1.25,
+            1.25,
         ),
         details=_details(
             _SMASH_RULES,
@@ -549,9 +580,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：髖部及肩膀完成前旋",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.75, 2.0, 1.5, 2.5, 1.5, 3.0,
-            2.5, 2.5, 2.0, 2.0, 2.0, 2.0,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.75,
+            2.0,
+            1.5,
+            2.5,
+            1.5,
+            3.0,
+            2.5,
+            2.5,
+            2.0,
+            2.0,
+            2.0,
+            2.0,
         ),
         details=_details(
             _SERVE_RULES,
@@ -587,9 +632,23 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             "第4關鍵幀：平衡隨揮與回復起點",
         ),
         joint_weights=(
-            0.5, 0.25, 0.25, 0.25, 0.25,
-            1.5, 2.5, 1.25, 3.5, 1.25, 4.5,
-            2.0, 2.5, 1.75, 2.5, 1.75, 2.5,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.25,
+            1.5,
+            2.5,
+            1.25,
+            3.5,
+            1.25,
+            4.5,
+            2.0,
+            2.5,
+            1.75,
+            2.5,
+            1.75,
+            2.5,
         ),
         details=_details(
             _LIFT_RULES,
@@ -626,8 +685,6 @@ def get_skill_spec(skill: Skill | str) -> SkillCorrectionSpec:
         ) from exc
 
 
-
-
 def validate_checkpoint_spec(
     checkpoint: Mapping[str, Any], spec: SkillCorrectionSpec
 ) -> None:
@@ -653,9 +710,7 @@ def validate_checkpoint_spec(
     checkpoint_transition_lean_joints = tuple(
         checkpoint.get("transition_lean_joints", ())
     )
-    checkpoint_transition_direction_joint = checkpoint.get(
-        "transition_direction_joint"
-    )
+    checkpoint_transition_direction_joint = checkpoint.get("transition_direction_joint")
     if (
         checkpoint_transition_weight != spec.transition_weight
         or checkpoint_transition_joints != spec.transition_joints

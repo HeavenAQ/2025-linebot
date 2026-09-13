@@ -31,9 +31,7 @@ from badminton_analysis.models.types import Skill
 
 
 def _write_test_video(path: Path, frame_count: int = 64) -> None:
-    writer = cv2.VideoWriter(
-        str(path), cv2.VideoWriter.fourcc(*"mp4v"), 30.0, (48, 64)
-    )
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter.fourcc(*"mp4v"), 30.0, (48, 64))
     assert writer.isOpened()
     try:
         for frame_index in range(frame_count):

@@ -74,12 +74,8 @@ def _tracking_from_cache(path: Path) -> tuple[TrackingData, Handedness]:
         "body_landmarks_2d": sparse,
         "body_keypoints_2d": list(skeleton),
         "body_confidence_2d": list(confidence),
-        "hand_positions": list(
-            interpolated_keypoint(skeleton, confidence, wrist)
-        ),
-        "elbow_positions": list(
-            interpolated_keypoint(skeleton, confidence, elbow)
-        ),
+        "hand_positions": list(interpolated_keypoint(skeleton, confidence, wrist)),
+        "elbow_positions": list(interpolated_keypoint(skeleton, confidence, elbow)),
     }
     return tracking, handedness
 
@@ -116,9 +112,7 @@ def _expert_rows(
                     target_frames=64,
                     phase_contract="eimd_v3",
                 )
-                hypotheses[hypothesis_name] = skill_temporal_descriptor(
-                    hypothesis.pose
-                )
+                hypotheses[hypothesis_name] = skill_temporal_descriptor(hypothesis.pose)
             rows.append(
                 {
                     "skill": skill_name,
@@ -142,9 +136,7 @@ def _nearest(
             continue
         hypotheses = row["hypotheses"]
         assert isinstance(hypotheses, dict)
-        distances.append(
-            skill_temporal_distance(descriptor, hypotheses[skill])
-        )
+        distances.append(skill_temporal_distance(descriptor, hypotheses[skill]))
     if not distances:
         raise ValueError(f"no independent expert support for {skill}")
     return min(distances)
@@ -199,16 +191,10 @@ def build(
                     for row in rows
                 ]
             ).astype(np.float32),
-            "skill_support_skill": np.asarray(
-                [row["skill"] for row in rows]
-            ),
-            "skill_support_subject_id": np.asarray(
-                [row["subject_id"] for row in rows]
-            ),
+            "skill_support_skill": np.asarray([row["skill"] for row in rows]),
+            "skill_support_subject_id": np.asarray([row["subject_id"] for row in rows]),
             "skill_rejection_margin": np.asarray(margin, dtype=np.float64),
-            "skill_support_feature_contract": np.asarray(
-                _SKILL_SUPPORT_CONTRACT
-            ),
+            "skill_support_feature_contract": np.asarray(_SKILL_SUPPORT_CONTRACT),
             "skill_support_fit_policy": np.asarray(
                 "expert_only_leave_one_identity_out"
             ),

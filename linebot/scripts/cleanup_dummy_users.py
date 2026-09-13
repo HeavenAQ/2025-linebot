@@ -14,6 +14,7 @@ Usage:
   python scripts/cleanup_dummy_users.py --prefix UTEST --yes
   python scripts/cleanup_dummy_users.py --prefix UTEST --dry-run  # preview only
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,7 +29,9 @@ except Exception:
 try:
     from google.cloud import firestore  # type: ignore
 except Exception:
-    print("ERROR: Missing google-cloud-firestore.\nInstall with: pip install google-cloud-firestore python-dotenv")
+    print(
+        "ERROR: Missing google-cloud-firestore.\nInstall with: pip install google-cloud-firestore python-dotenv"
+    )
     raise
 
 
@@ -44,10 +47,16 @@ def load_env(project_root: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prefix", required=True, help="Delete docs whose ID starts with this prefix")
+    parser.add_argument(
+        "--prefix", required=True, help="Delete docs whose ID starts with this prefix"
+    )
     parser.add_argument("--project", default=None, help="Override GCP project id")
-    parser.add_argument("--dry-run", action="store_true", help="Print matches without deleting")
-    parser.add_argument("--yes", action="store_true", help="Confirm deletion without interactive prompt")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print matches without deleting"
+    )
+    parser.add_argument(
+        "--yes", action="store_true", help="Confirm deletion without interactive prompt"
+    )
     args = parser.parse_args()
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
@@ -55,7 +64,9 @@ def main() -> None:
 
     project_id = args.project or os.getenv("GCP_PROJECT_ID")
     if not project_id:
-        raise SystemExit("GCP_PROJECT_ID is required (set in ../.env or pass --project)")
+        raise SystemExit(
+            "GCP_PROJECT_ID is required (set in ../.env or pass --project)"
+        )
 
     data_collection = os.getenv("FIREBASE_DATA_DB", "users")
 
@@ -68,7 +79,9 @@ def main() -> None:
     matches: List[str] = [doc.id for doc in docs if doc.id.startswith(args.prefix)]
 
     if not matches:
-        print(f"No documents start with prefix '{args.prefix}' in collection '{data_collection}'.")
+        print(
+            f"No documents start with prefix '{args.prefix}' in collection '{data_collection}'."
+        )
         return
 
     print(f"Found {len(matches)} document(s) to delete in '{data_collection}':")
@@ -91,4 +104,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

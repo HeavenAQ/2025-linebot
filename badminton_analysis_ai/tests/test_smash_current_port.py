@@ -98,7 +98,8 @@ def test_committed_current_artifact_hashes():
     assert contract["generation"]["seed"] == 19
 
 
-def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path):
+@pytest.mark.parametrize("selected_end", [5, 8])
+def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path, selected_end):
     import service.renderer as renderer
     from badminton_analysis.models.types import Handedness
 
@@ -150,8 +151,8 @@ def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path):
         original=p[:5],
         corrected=p[:5],
         confidence=np.ones((5, 17)),
-        projected_corrected_pixels=q,
-        window=(0, 4, 8),
+        projected_corrected_pixels=q[: selected_end + 1],
+        window=(0, 4, selected_end),
         handedness=Handedness.RIGHT,
         skill=Skill.SMASH,
         filename="test.mp4",
@@ -160,5 +161,33 @@ def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path):
         fps=30,
         fixed_hierarchical_placement=True,
     )
-    assert len(written) == 9
-    np.testing.assert_array_equal(np.array(drawn[1::2]), q)
+    assert len(written) == selected_end + 1
+    np.testing.assert_array_equal(np.array(drawn[1::2]), q[: selected_end + 1])
+
+
+def test_checkpoint_ranges_remain_on_cropped_unpaused_source_clock():
+    spec = get_skill_spec(Skill.SMASH)
+    frames = dict(zip((r.id for r in spec.rules), [12, 30, 34, 51, 52, 110]))
+    evidence = {
+        r.id: {"source_interval": [max(0, frames[r.id] - 5), frames[r.id]]}
+        for r in spec.rules
+    }
+    evidence["follow_through"]["source_interval"] = [10, 110]
+    phases = _source_qualitative_phase_results(
+        spec,
+        phase_indices=(0, 25, 50, 60, 63),
+        source_phase_frames=[10, 35, 52, 75, 90],
+        normalized_sequence_length=64,
+        source_sequence_length=130,
+        analysis_window_start_frame=0,
+        analysis_window_end_frame=110,
+        fps=30,
+        checkpoint_source_frames=frames,
+        checkpoint_evidence=evidence,
+    )
+    for marker in phases:
+        expected = evidence[marker.id]["source_interval"]
+        assert marker.start_seconds == pytest.approx(expected[0] / 30)
+        assert marker.end_seconds == pytest.approx(expected[1] / 30)
+    assert phases[-1].normalized_position == 1
+    assert phases[-1].timestamp_seconds == pytest.approx(110 / 30)

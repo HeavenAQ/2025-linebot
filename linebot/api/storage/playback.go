@@ -18,9 +18,17 @@ const PlaybackURLTTL = 60 * time.Minute
 // Object paths arrive from stored analyses, but signing is a capability worth
 // fencing: a bug elsewhere must not be able to hand out a link to the bucket's
 // private corners.
-var playablePrefixes = []string{"analyses/", "experts/"}
+var playablePrefixes = []string{"analyses/", "experts/", "noai/analyses/", "no-ai/analyses/"}
 
 func playbackContentType(objectPath string) string {
+	switch strings.ToLower(objectPath[strings.LastIndex(objectPath, ".")+1:]) {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "webp":
+		return "image/webp"
+	}
 	if strings.HasSuffix(strings.ToLower(objectPath), ".mov") {
 		return "video/quicktime"
 	}
@@ -51,6 +59,23 @@ func PlayableObject(objectPath string) bool {
 // while on Cloud Run the metadata credentials sign through IAM, which needs the
 // service account to hold roles/iam.serviceAccountTokenCreator on itself.
 func (c *BucketClient) SignPlaybackURL(objectPath string, serviceAccountEmail string) (commons.MediaRef, error) {
+	return c.SignPlaybackURLIn(c.bucketName, objectPath, serviceAccountEmail)
+}
+
+func BucketFromGCSURI(uri string) string {
+	rest, found := strings.CutPrefix(strings.TrimSpace(uri), "gs://")
+	if !found {
+		return ""
+	}
+	bucket, _, _ := strings.Cut(rest, "/")
+	return bucket
+}
+
+// SignPlaybackURLIn preserves the bucket stored with shared analysis outputs.
+func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
+	if strings.TrimSpace(bucketName) == "" {
+		bucketName = c.bucketName
+	}
 	if !PlayableObject(objectPath) {
 		return commons.MediaRef{}, fmt.Errorf("object path is not playable: %q", objectPath)
 	}
@@ -69,13 +94,13 @@ func (c *BucketClient) SignPlaybackURL(objectPath string, serviceAccountEmail st
 	if trimmed := strings.TrimSpace(serviceAccountEmail); trimmed != "" {
 		opts.GoogleAccessID = trimmed
 	}
-	url, err := c.client.Bucket(c.bucketName).SignedURL(objectPath, opts)
+	url, err := c.client.Bucket(bucketName).SignedURL(objectPath, opts)
 	if err != nil {
 		return commons.MediaRef{}, fmt.Errorf("sign playback URL for %q: %w", objectPath, err)
 	}
 	return commons.MediaRef{
 		ObjectPath:       objectPath,
-		GCSURI:           fmt.Sprintf("gs://%s/%s", c.bucketName, objectPath),
+		GCSURI:           fmt.Sprintf("gs://%s/%s", bucketName, objectPath),
 		SignedURL:        url,
 		SignedURLExpires: expires.Unix(),
 	}, nil

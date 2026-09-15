@@ -22,9 +22,23 @@ func (app *App) sendPortfolio(
 	if err != nil {
 		return fmt.Errorf("load weekly notes for portfolio: %w", err)
 	}
+	display := db.WithWeeklyReflectionNotes(user, weekly)
+	// Sign a presentation copy, never persist expiring links in Firestore.
+	portfolio := display.Portfolio.GetSkillPortfolio(skill.String())
+	for _, work := range app.LineBot.PortfolioWorksForDisplay(portfolio) {
+		if work.Thumbnail == "" {
+			continue
+		}
+		signed, err := app.StorageClient.SignThumbnailURL(work.Thumbnail, app.Config.GCP.ServiceAccountEmail)
+		if err != nil {
+			return fmt.Errorf("sign portfolio thumbnail: %w", err)
+		}
+		work.Thumbnail = signed.SignedURL
+		portfolio[work.DateTime] = work
+	}
 	return app.LineBot.SendPortfolio(
 		event,
-		db.WithWeeklyReflectionNotes(user, weekly),
+		display,
 		skill,
 		userState,
 		textMsg,

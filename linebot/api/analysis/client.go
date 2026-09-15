@@ -206,7 +206,7 @@ func media(value *analysisv1.StoredVideo) commons.MediaRef {
 func phaseMarkers(values []*analysisv1.PhaseMarker) []commons.PhaseMarker {
 	markers := make([]commons.PhaseMarker, 0, len(values))
 	for _, value := range values {
-		markers = append(markers, commons.PhaseMarker{ID: value.Id, Label: value.Label, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, TimestampSeconds: value.TimestampSeconds})
+		markers = append(markers, commons.PhaseMarker{ID: value.Id, Label: value.Label, NormalizedFrame: value.NormalizedFrame, NormalizedPosition: value.NormalizedPosition, TimestampSeconds: value.TimestampSeconds, StartSeconds: value.StartSeconds, EndSeconds: value.EndSeconds})
 	}
 	return markers
 }

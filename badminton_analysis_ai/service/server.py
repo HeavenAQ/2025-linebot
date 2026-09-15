@@ -239,6 +239,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 normalized_frame=marker.normalized_frame,
                 normalized_position=marker.normalized_position,
                 timestamp_seconds=marker.timestamp_seconds,
+                start_seconds=marker.start_seconds,
+                end_seconds=marker.end_seconds,
             )
             for marker in markers
         ]
@@ -364,6 +366,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     normalized_frame=phase.normalized_frame,
                     normalized_position=phase.normalized_position,
                     timestamp_seconds=phase.timestamp_seconds,
+                    start_seconds=phase.start_seconds,
+                    end_seconds=phase.end_seconds,
                 )
                 for phase in result.phases
             ],
@@ -385,7 +389,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         videos = []
         for object_path in request.object_paths:
             if ".." in object_path or not object_path.startswith(
-                ("analyses/", "experts/")
+                ("analyses/", "experts/", "noai/analyses/", "no-ai/analyses/")
             ):
                 context.abort(
                     grpc.StatusCode.PERMISSION_DENIED, "object path is not playable"

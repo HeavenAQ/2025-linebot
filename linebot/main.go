@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"log"
 	"net/http"
 	"strings"
@@ -360,7 +361,8 @@ func main() {
 			if media.ObjectPath == "" {
 				return nil
 			}
-			signed, err := application.StorageClient.SignPlaybackURL(
+			signed, err := application.StorageClient.SignPlaybackURLIn(
+				storage.BucketFromGCSURI(media.GCSURI),
 				media.ObjectPath, application.Config.GCP.ServiceAccountEmail,
 			)
 			if err != nil {

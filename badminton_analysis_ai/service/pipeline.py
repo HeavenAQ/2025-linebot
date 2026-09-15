@@ -49,6 +49,8 @@ class PhaseResult:
     normalized_frame: int
     normalized_position: float
     timestamp_seconds: float
+    start_seconds: float | None = None
+    end_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +207,8 @@ def expert_phase_results(
             normalized_frame=frame,
             normalized_position=float(frame) / max(1, last_frame),
             timestamp_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
+            start_seconds=float(phase_seconds[rule.allowed_anchor_indices[0]]),
+            end_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
         )
         for rule, frame in zip(spec.rules, frames, strict=True)
     )
@@ -244,6 +248,7 @@ def _source_qualitative_phase_results(
     analysis_window_end_frame: int,
     fps: float,
     checkpoint_source_frames: dict[str, int] | None = None,
+    checkpoint_evidence: dict | None = None,
 ) -> tuple[PhaseResult, ...]:
     if source_sequence_length <= 0 or normalized_sequence_length <= 0 or fps <= 0:
         raise ValueError("source checkpoint timeline requires positive dimensions")
@@ -257,11 +262,28 @@ def _source_qualitative_phase_results(
     if analysis_window_end_frame >= source_sequence_length:
         raise ValueError("analysis window exceeds the source sequence")
     last_local_frame = analysis_window_end_frame - analysis_window_start_frame
+
+    def evidence_range(rule):
+        item = (checkpoint_evidence or {}).get(rule.id)
+        if item:
+            start, end = item["source_interval"]
+        else:
+            start = source_phase_frames[rule.allowed_anchor_indices[0]]
+            end = source_phase_frames[rule.allowed_anchor_indices[-1]]
+        start = max(analysis_window_start_frame, min(start, analysis_window_end_frame))
+        end = max(start, min(end, analysis_window_end_frame))
+        return (
+            (start - analysis_window_start_frame) / fps,
+            (end - analysis_window_start_frame) / fps,
+        )
+
     return tuple(
         PhaseResult(
             id=rule.id,
             label=rule.name_zh_tw,
             normalized_frame=normalized_frame,
+            start_seconds=evidence_range(rule)[0],
+            end_seconds=evidence_range(rule)[1],
             normalized_position=float(
                 min(
                     max(source_frame - analysis_window_start_frame, 0),
@@ -758,6 +780,7 @@ class SkeletonAnalysisPipeline:
             analysis_window_start_frame=int(window[0]),
             analysis_window_end_frame=int(window[2]),
             checkpoint_source_frames=generated.score.get("checkpoint_source_frames"),
+            checkpoint_evidence=generated.score.get("checkpoint_evidence"),
             fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:

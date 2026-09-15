@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n$badminton/analysis/v1/analysis.proto\x12\x15\x62\x61\x64minton.analysis.v1\"\xde\x01\n\x12\x41nalyzeVideoHeader\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08\x66ilename\x18\x03 \x01(\t\x12+\n\x05skill\x18\x04 \x01(\x0e\x32\x1c.badminton.analysis.v1.Skill\x12\x35\n\nhandedness\x18\x05 \x01(\x0e\x32!.badminton.analysis.v1.Handedness\x12\x15\n\rskip_coaching\x18\x06 \x01(\x08\x12\x16\n\x0estorage_prefix\x18\x07 \x01(\t\"k\n\x11\x41nalyzeVideoChunk\x12;\n\x06header\x18\x01 \x01(\x0b\x32).badminton.analysis.v1.AnalyzeVideoHeaderH\x00\x12\x0e\n\x04\x64\x61ta\x18\x02 \x01(\x0cH\x00\x42\t\n\x07payload\"Z\n\rGradingDetail\x12\x14\n\x0c\x63riterion_id\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\r\n\x05grade\x18\x03 \x01(\x01\x12\x0f\n\x07maximum\x18\x04 \x01(\x01\"z\n\x0eGradingOutcome\x12\x13\n\x0btotal_grade\x18\x01 \x01(\x01\x12=\n\x0fgrading_details\x18\x02 \x03(\x0b\x32$.badminton.analysis.v1.GradingDetail\x12\x14\n\x0cscore_status\x18\x03 \x01(\t\"z\n\x0bPhaseMarker\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12\x18\n\x10normalized_frame\x18\x03 \x01(\x05\x12\x1b\n\x13normalized_position\x18\x04 \x01(\x01\x12\x19\n\x11timestamp_seconds\x18\x05 \x01(\x01\"F\n\x0f\x41lignmentSample\x12\x1b\n\x13normalized_position\x18\x01 \x01(\x01\x12\x16\n\x0e\x65xpert_seconds\x18\x02 \x01(\x01\"\xbb\x01\n\x0b\x43oachingCue\x12\r\n\x05title\x18\x01 \x01(\t\x12\x10\n\x08\x66\x65\x65\x64\x62\x61\x63k\x18\x02 \x01(\t\x12\x18\n\x10normalized_frame\x18\x03 \x01(\x05\x12\x1b\n\x13normalized_position\x18\x04 \x01(\x01\x12!\n\x19student_timestamp_seconds\x18\x05 \x01(\x01\x12\x1e\n\x16pause_duration_seconds\x18\x06 \x01(\x01\x12\x11\n\tjoint_ids\x18\x07 \x03(\x05\"\xb1\x01\n\x0bStoredVideo\x12\x13\n\x0bobject_path\x18\x01 \x01(\t\x12\x0f\n\x07gcs_uri\x18\x02 \x01(\t\x12\x12\n\nsigned_url\x18\x03 \x01(\t\x12\"\n\x1asigned_url_expires_at_unix\x18\x04 \x01(\x03\x12\x18\n\x10\x64uration_seconds\x18\x05 \x01(\x01\x12\x0b\n\x03\x66ps\x18\x06 \x01(\x01\x12\r\n\x05width\x18\x07 \x01(\x05\x12\x0e\n\x06height\x18\x08 \x01(\x05\"\xb1\x02\n\x0b\x45xpertMatch\x12\x11\n\texpert_id\x18\x01 \x01(\t\x12\x14\n\x0c\x64isplay_name\x18\x02 \x01(\t\x12\x1b\n\x13\x63orrection_distance\x18\x03 \x01(\x01\x12\x31\n\x05video\x18\x04 \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12\x1c\n\x14motion_start_seconds\x18\x05 \x01(\x01\x12\x1a\n\x12motion_end_seconds\x18\x06 \x01(\x01\x12\x34\n\x08timeline\x18\x07 \x03(\x0b\x32\".badminton.analysis.v1.PhaseMarker\x12\x39\n\talignment\x18\x08 \x03(\x0b\x32&.badminton.analysis.v1.AlignmentSample\"-\n\x0f\x44iagnosticValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01\"\xfc\x04\n\x14\x41nalyzeVideoResponse\x12\x13\n\x0b\x61nalysis_id\x18\x01 \x01(\t\x12+\n\x05skill\x18\x02 \x01(\x0e\x32\x1c.badminton.analysis.v1.Skill\x12\x35\n\nhandedness\x18\x03 \x01(\x0e\x32!.badminton.analysis.v1.Handedness\x12\x34\n\x05grade\x18\x04 \x01(\x0b\x32%.badminton.analysis.v1.GradingOutcome\x12\x39\n\rstudent_video\x18\x05 \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12\x32\n\x06\x65xpert\x18\x06 \x01(\x0b\x32\".badminton.analysis.v1.ExpertMatch\x12\x34\n\x08timeline\x18\x07 \x03(\x0b\x32\".badminton.analysis.v1.PhaseMarker\x12;\n\x0b\x64iagnostics\x18\x08 \x03(\x0b\x32&.badminton.analysis.v1.DiagnosticValue\x12\x39\n\rcoaching_cues\x18\t \x03(\x0b\x32\".badminton.analysis.v1.CoachingCue\x12\x18\n\x10overall_feedback\x18\n \x01(\t\x12\x42\n\x16skeleton_overlay_video\x18\x0b \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12:\n\x0e\x66\x65\x65\x64\x62\x61\x63k_video\x18\x0c \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\"2\n\x1aRefreshPlaybackUrlsRequest\x12\x14\n\x0cobject_paths\x18\x01 \x03(\t\"Q\n\x1bRefreshPlaybackUrlsResponse\x12\x32\n\x06videos\x18\x01 \x03(\x0b\x32\".badminton.analysis.v1.StoredVideo\"\x0f\n\rHealthRequest\"U\n\x0eHealthResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x33\n\rloaded_skills\x18\x02 \x03(\x0e\x32\x1c.badminton.analysis.v1.Skill*a\n\x05Skill\x12\x15\n\x11SKILL_UNSPECIFIED\x10\x00\x12\x0f\n\x0bSKILL_SERVE\x10\x01\x12\x0e\n\nSKILL_LIFT\x10\x02\x12\x0f\n\x0bSKILL_CLEAR\x10\x03\x12\x0f\n\x0bSKILL_SMASH\x10\x04*h\n\nHandedness\x12\x1a\n\x16HANDEDNESS_UNSPECIFIED\x10\x00\x12\x13\n\x0fHANDEDNESS_AUTO\x10\x01\x12\x14\n\x10HANDEDNESS_RIGHT\x10\x02\x12\x13\n\x0fHANDEDNESS_LEFT\x10\x03\x32\xd1\x02\n\x11\x42\x61\x64mintonAnalysis\x12g\n\x0c\x41nalyzeVideo\x12(.badminton.analysis.v1.AnalyzeVideoChunk\x1a+.badminton.analysis.v1.AnalyzeVideoResponse(\x01\x12|\n\x13RefreshPlaybackUrls\x12\x31.badminton.analysis.v1.RefreshPlaybackUrlsRequest\x1a\x32.badminton.analysis.v1.RefreshPlaybackUrlsResponse\x12U\n\x06Health\x12$.badminton.analysis.v1.HealthRequest\x1a%.badminton.analysis.v1.HealthResponseBBZ@github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1;analysisv1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n$badminton/analysis/v1/analysis.proto\x12\x15\x62\x61\x64minton.analysis.v1\"\xde\x01\n\x12\x41nalyzeVideoHeader\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x10\n\x08\x66ilename\x18\x03 \x01(\t\x12+\n\x05skill\x18\x04 \x01(\x0e\x32\x1c.badminton.analysis.v1.Skill\x12\x35\n\nhandedness\x18\x05 \x01(\x0e\x32!.badminton.analysis.v1.Handedness\x12\x15\n\rskip_coaching\x18\x06 \x01(\x08\x12\x16\n\x0estorage_prefix\x18\x07 \x01(\t\"k\n\x11\x41nalyzeVideoChunk\x12;\n\x06header\x18\x01 \x01(\x0b\x32).badminton.analysis.v1.AnalyzeVideoHeaderH\x00\x12\x0e\n\x04\x64\x61ta\x18\x02 \x01(\x0cH\x00\x42\t\n\x07payload\"Z\n\rGradingDetail\x12\x14\n\x0c\x63riterion_id\x18\x01 \x01(\t\x12\x13\n\x0b\x64\x65scription\x18\x02 \x01(\t\x12\r\n\x05grade\x18\x03 \x01(\x01\x12\x0f\n\x07maximum\x18\x04 \x01(\x01\"z\n\x0eGradingOutcome\x12\x13\n\x0btotal_grade\x18\x01 \x01(\x01\x12=\n\x0fgrading_details\x18\x02 \x03(\x0b\x32$.badminton.analysis.v1.GradingDetail\x12\x14\n\x0cscore_status\x18\x03 \x01(\t\"\xd2\x01\n\x0bPhaseMarker\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05label\x18\x02 \x01(\t\x12\x18\n\x10normalized_frame\x18\x03 \x01(\x05\x12\x1b\n\x13normalized_position\x18\x04 \x01(\x01\x12\x19\n\x11timestamp_seconds\x18\x05 \x01(\x01\x12\x1a\n\rstart_seconds\x18\x06 \x01(\x01H\x00\x88\x01\x01\x12\x18\n\x0b\x65nd_seconds\x18\x07 \x01(\x01H\x01\x88\x01\x01\x42\x10\n\x0e_start_secondsB\x0e\n\x0c_end_seconds\"F\n\x0f\x41lignmentSample\x12\x1b\n\x13normalized_position\x18\x01 \x01(\x01\x12\x16\n\x0e\x65xpert_seconds\x18\x02 \x01(\x01\"\xbb\x01\n\x0b\x43oachingCue\x12\r\n\x05title\x18\x01 \x01(\t\x12\x10\n\x08\x66\x65\x65\x64\x62\x61\x63k\x18\x02 \x01(\t\x12\x18\n\x10normalized_frame\x18\x03 \x01(\x05\x12\x1b\n\x13normalized_position\x18\x04 \x01(\x01\x12!\n\x19student_timestamp_seconds\x18\x05 \x01(\x01\x12\x1e\n\x16pause_duration_seconds\x18\x06 \x01(\x01\x12\x11\n\tjoint_ids\x18\x07 \x03(\x05\"\xb1\x01\n\x0bStoredVideo\x12\x13\n\x0bobject_path\x18\x01 \x01(\t\x12\x0f\n\x07gcs_uri\x18\x02 \x01(\t\x12\x12\n\nsigned_url\x18\x03 \x01(\t\x12\"\n\x1asigned_url_expires_at_unix\x18\x04 \x01(\x03\x12\x18\n\x10\x64uration_seconds\x18\x05 \x01(\x01\x12\x0b\n\x03\x66ps\x18\x06 \x01(\x01\x12\r\n\x05width\x18\x07 \x01(\x05\x12\x0e\n\x06height\x18\x08 \x01(\x05\"\xb1\x02\n\x0b\x45xpertMatch\x12\x11\n\texpert_id\x18\x01 \x01(\t\x12\x14\n\x0c\x64isplay_name\x18\x02 \x01(\t\x12\x1b\n\x13\x63orrection_distance\x18\x03 \x01(\x01\x12\x31\n\x05video\x18\x04 \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12\x1c\n\x14motion_start_seconds\x18\x05 \x01(\x01\x12\x1a\n\x12motion_end_seconds\x18\x06 \x01(\x01\x12\x34\n\x08timeline\x18\x07 \x03(\x0b\x32\".badminton.analysis.v1.PhaseMarker\x12\x39\n\talignment\x18\x08 \x03(\x0b\x32&.badminton.analysis.v1.AlignmentSample\"-\n\x0f\x44iagnosticValue\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x01\"\xfc\x04\n\x14\x41nalyzeVideoResponse\x12\x13\n\x0b\x61nalysis_id\x18\x01 \x01(\t\x12+\n\x05skill\x18\x02 \x01(\x0e\x32\x1c.badminton.analysis.v1.Skill\x12\x35\n\nhandedness\x18\x03 \x01(\x0e\x32!.badminton.analysis.v1.Handedness\x12\x34\n\x05grade\x18\x04 \x01(\x0b\x32%.badminton.analysis.v1.GradingOutcome\x12\x39\n\rstudent_video\x18\x05 \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12\x32\n\x06\x65xpert\x18\x06 \x01(\x0b\x32\".badminton.analysis.v1.ExpertMatch\x12\x34\n\x08timeline\x18\x07 \x03(\x0b\x32\".badminton.analysis.v1.PhaseMarker\x12;\n\x0b\x64iagnostics\x18\x08 \x03(\x0b\x32&.badminton.analysis.v1.DiagnosticValue\x12\x39\n\rcoaching_cues\x18\t \x03(\x0b\x32\".badminton.analysis.v1.CoachingCue\x12\x18\n\x10overall_feedback\x18\n \x01(\t\x12\x42\n\x16skeleton_overlay_video\x18\x0b \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\x12:\n\x0e\x66\x65\x65\x64\x62\x61\x63k_video\x18\x0c \x01(\x0b\x32\".badminton.analysis.v1.StoredVideo\"2\n\x1aRefreshPlaybackUrlsRequest\x12\x14\n\x0cobject_paths\x18\x01 \x03(\t\"Q\n\x1bRefreshPlaybackUrlsResponse\x12\x32\n\x06videos\x18\x01 \x03(\x0b\x32\".badminton.analysis.v1.StoredVideo\"\x0f\n\rHealthRequest\"U\n\x0eHealthResponse\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x33\n\rloaded_skills\x18\x02 \x03(\x0e\x32\x1c.badminton.analysis.v1.Skill*a\n\x05Skill\x12\x15\n\x11SKILL_UNSPECIFIED\x10\x00\x12\x0f\n\x0bSKILL_SERVE\x10\x01\x12\x0e\n\nSKILL_LIFT\x10\x02\x12\x0f\n\x0bSKILL_CLEAR\x10\x03\x12\x0f\n\x0bSKILL_SMASH\x10\x04*h\n\nHandedness\x12\x1a\n\x16HANDEDNESS_UNSPECIFIED\x10\x00\x12\x13\n\x0fHANDEDNESS_AUTO\x10\x01\x12\x14\n\x10HANDEDNESS_RIGHT\x10\x02\x12\x13\n\x0fHANDEDNESS_LEFT\x10\x03\x32\xd1\x02\n\x11\x42\x61\x64mintonAnalysis\x12g\n\x0c\x41nalyzeVideo\x12(.badminton.analysis.v1.AnalyzeVideoChunk\x1a+.badminton.analysis.v1.AnalyzeVideoResponse(\x01\x12|\n\x13RefreshPlaybackUrls\x12\x31.badminton.analysis.v1.RefreshPlaybackUrlsRequest\x1a\x32.badminton.analysis.v1.RefreshPlaybackUrlsResponse\x12U\n\x06Health\x12$.badminton.analysis.v1.HealthRequest\x1a%.badminton.analysis.v1.HealthResponseBBZ@github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1;analysisv1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,10 +32,10 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'badminton.analysis.v1.analy
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z@github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1;analysisv1'
-  _globals['_SKILL']._serialized_start=2412
-  _globals['_SKILL']._serialized_end=2509
-  _globals['_HANDEDNESS']._serialized_start=2511
-  _globals['_HANDEDNESS']._serialized_end=2615
+  _globals['_SKILL']._serialized_start=2501
+  _globals['_SKILL']._serialized_end=2598
+  _globals['_HANDEDNESS']._serialized_start=2600
+  _globals['_HANDEDNESS']._serialized_end=2704
   _globals['_ANALYZEVIDEOHEADER']._serialized_start=64
   _globals['_ANALYZEVIDEOHEADER']._serialized_end=286
   _globals['_ANALYZEVIDEOCHUNK']._serialized_start=288
@@ -44,28 +44,28 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GRADINGDETAIL']._serialized_end=487
   _globals['_GRADINGOUTCOME']._serialized_start=489
   _globals['_GRADINGOUTCOME']._serialized_end=611
-  _globals['_PHASEMARKER']._serialized_start=613
-  _globals['_PHASEMARKER']._serialized_end=735
-  _globals['_ALIGNMENTSAMPLE']._serialized_start=737
-  _globals['_ALIGNMENTSAMPLE']._serialized_end=807
-  _globals['_COACHINGCUE']._serialized_start=810
-  _globals['_COACHINGCUE']._serialized_end=997
-  _globals['_STOREDVIDEO']._serialized_start=1000
-  _globals['_STOREDVIDEO']._serialized_end=1177
-  _globals['_EXPERTMATCH']._serialized_start=1180
-  _globals['_EXPERTMATCH']._serialized_end=1485
-  _globals['_DIAGNOSTICVALUE']._serialized_start=1487
-  _globals['_DIAGNOSTICVALUE']._serialized_end=1532
-  _globals['_ANALYZEVIDEORESPONSE']._serialized_start=1535
-  _globals['_ANALYZEVIDEORESPONSE']._serialized_end=2171
-  _globals['_REFRESHPLAYBACKURLSREQUEST']._serialized_start=2173
-  _globals['_REFRESHPLAYBACKURLSREQUEST']._serialized_end=2223
-  _globals['_REFRESHPLAYBACKURLSRESPONSE']._serialized_start=2225
-  _globals['_REFRESHPLAYBACKURLSRESPONSE']._serialized_end=2306
-  _globals['_HEALTHREQUEST']._serialized_start=2308
-  _globals['_HEALTHREQUEST']._serialized_end=2323
-  _globals['_HEALTHRESPONSE']._serialized_start=2325
-  _globals['_HEALTHRESPONSE']._serialized_end=2410
-  _globals['_BADMINTONANALYSIS']._serialized_start=2618
-  _globals['_BADMINTONANALYSIS']._serialized_end=2955
+  _globals['_PHASEMARKER']._serialized_start=614
+  _globals['_PHASEMARKER']._serialized_end=824
+  _globals['_ALIGNMENTSAMPLE']._serialized_start=826
+  _globals['_ALIGNMENTSAMPLE']._serialized_end=896
+  _globals['_COACHINGCUE']._serialized_start=899
+  _globals['_COACHINGCUE']._serialized_end=1086
+  _globals['_STOREDVIDEO']._serialized_start=1089
+  _globals['_STOREDVIDEO']._serialized_end=1266
+  _globals['_EXPERTMATCH']._serialized_start=1269
+  _globals['_EXPERTMATCH']._serialized_end=1574
+  _globals['_DIAGNOSTICVALUE']._serialized_start=1576
+  _globals['_DIAGNOSTICVALUE']._serialized_end=1621
+  _globals['_ANALYZEVIDEORESPONSE']._serialized_start=1624
+  _globals['_ANALYZEVIDEORESPONSE']._serialized_end=2260
+  _globals['_REFRESHPLAYBACKURLSREQUEST']._serialized_start=2262
+  _globals['_REFRESHPLAYBACKURLSREQUEST']._serialized_end=2312
+  _globals['_REFRESHPLAYBACKURLSRESPONSE']._serialized_start=2314
+  _globals['_REFRESHPLAYBACKURLSRESPONSE']._serialized_end=2395
+  _globals['_HEALTHREQUEST']._serialized_start=2397
+  _globals['_HEALTHREQUEST']._serialized_end=2412
+  _globals['_HEALTHRESPONSE']._serialized_start=2414
+  _globals['_HEALTHRESPONSE']._serialized_end=2499
+  _globals['_BADMINTONANALYSIS']._serialized_start=2707
+  _globals['_BADMINTONANALYSIS']._serialized_end=3044
 # @@protoc_insertion_point(module_scope)

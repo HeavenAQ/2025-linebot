@@ -250,3 +250,9 @@ func (client *Client) getCarousels(works map[string]db.Work, skill string, showB
 	slices.Reverse(carouselItems)
 	return carouselItems, nil
 }
+
+// PortfolioWorksForDisplay shares the card limit/order with media signing, so
+// old records not shown in the carousel cannot block a current portfolio.
+func (client *Client) PortfolioWorksForDisplay(works map[string]db.Work) []db.Work {
+	return client.latestPortfolioWorks(works)
+}

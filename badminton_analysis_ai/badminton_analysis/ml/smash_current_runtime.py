@@ -248,8 +248,11 @@ class CurrentSmashScorer:
             fps=fps,
             endpoint_acceleration=peak,
         )
-        # Keep the original source clock through the entire upload. Lead-in and
-        # tail hold the nearest generated local pose, never stretch its motion.
+        # Grade the full evidence first, then crop presentation at the selected
+        # endpoint. Never resample motion or recompute scores on the cropped clip.
+        render_end = int(result["selected_endpoint"])
+        if not start <= peak <= render_end < len(full):
+            raise ValueError("Scored smash endpoint falls outside the render window")
         displacement = transport_corrected_by_student_displacement(
             np.zeros_like(full, dtype=np.float32), full, full_c
         )[:, 0].astype(float)
@@ -257,7 +260,7 @@ class CurrentSmashScorer:
         extended = np.concatenate((displayed, tail))
         render_pixels = np.concatenate(
             (np.repeat(displayed[:1], start, axis=0), extended)
-        )
+        )[: render_end + 1]
         checkpoint_frames = {
             key: int(value["anchor"]) for key, value in intervals.items()
         }
@@ -266,7 +269,7 @@ class CurrentSmashScorer:
         evidence = build_checkpoint_evidence(
             intervals=intervals,
             window_start=0,
-            window_end=len(full) - 1,
+            window_end=render_end,
             initial_frame=start,
             balance_anchor=result["balance_anchor"],
             selected_endpoint=result["selected_endpoint"],
@@ -303,4 +306,4 @@ class CurrentSmashScorer:
             generation_window=list(window),
             scorer_contract=self.contract["version"],
         )
-        return score, render_pixels.astype(np.float32), (0, peak, len(full) - 1)
+        return score, render_pixels.astype(np.float32), (0, peak, render_end)

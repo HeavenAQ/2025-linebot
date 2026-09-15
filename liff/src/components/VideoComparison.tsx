@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 
 import AutoHeight from '@/components/ui/auto-height'
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import { expertMotionWindow } from '@/lib/expertAlignment'
+import { useCheckpointLoop } from '@/components/useCheckpointLoop'
 import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -89,6 +90,12 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
+  const loop = useCheckpointLoop(studentRef, expertRef, playingRef, viewMode, setPlaying)
+  const stopCheckpointLoop = loop.stop
+  const studentOnly = viewMode === 'student'
+  const unpaused =
+    (studentOnly || loop.selection !== null) && Boolean(playback.skeleton_overlay_video?.signed_url)
+  const studentMedia = unpaused ? playback.skeleton_overlay_video : playback.student_video
   const [captionsOn, setCaptionsOn] = useState(true)
   const [caption, setCaption] = useState<Caption | null>(null)
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null)
@@ -102,6 +109,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const expertOnly = viewMode === 'expert'
 
   const pauses = useMemo<PauseInterval[]>(() => {
+    if (unpaused) return []
     const unique = new Map<number, CoachingCue>()
     for (const cue of playback.coaching_cues) {
       const current = unique.get(cue.normalized_frame)
@@ -118,7 +126,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         position: clamp(cue.normalized_position),
         cue
       }))
-  }, [playback.coaching_cues])
+  }, [playback.coaching_cues, unpaused])
 
   const totalPauseDuration = useMemo(
     () => pauses.reduce((total, pause) => total + pause.duration, 0),
@@ -292,6 +300,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   const seek = useCallback(
     (position: number, cue?: CoachingCue) => {
+      loop.stop()
       const next = clamp(position)
       const student = studentRef.current
       const expert = expertRef.current
@@ -317,7 +326,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertTimeFromMotionProgress,
       resetBarrierCursor,
       studentTimeFromMotionProgress,
-      updateCaption
+      updateCaption,
+      loop
     ]
   )
 
@@ -331,6 +341,18 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       if (!shouldPlay) {
         student?.pause()
         expert.pause()
+        return
+      }
+      if (loop.selection || studentOnly) {
+        if (studentOnly) expert.pause()
+        if (viewMode !== 'expert' && student) {
+          if (student.ended && !loop.selection) student.currentTime = 0
+          void student.play().catch(() => {
+            playingRef.current = false
+            setPlaying(false)
+          })
+        }
+        if (viewMode !== 'student') void expert.play().catch(() => undefined)
         return
       }
       if (expertOnly) {
@@ -378,6 +400,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertOnly,
       pauseAtTime,
       progress,
+      loop,
+      studentOnly,
+      viewMode,
       resetBarrierCursor,
       seek,
       updateExpertCaption
@@ -391,6 +416,16 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   // throttled separately so re-rendering does not ride at 60fps.
   const followPlayhead = useCallback(
     (force: boolean) => {
+      if (loop.selection) {
+        if (studentRef.current)
+          setProgress(motionProgressFromStudentTime(studentRef.current.currentTime))
+        if (expertRef.current)
+          setExpertProgress(
+            clamp((expertRef.current.currentTime - expertMotionStart) / expertMotionSpan)
+          )
+        setActiveCheckpointId(loop.selection.id)
+        return
+      }
       if (expertOnly) {
         const expert = expertRef.current
         if (!expert || expertMotionEnd <= expertMotionStart) return
@@ -414,6 +449,20 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       }
       const student = studentRef.current
       if (!student) return
+      if (studentOnly) {
+        const next = motionProgressFromStudentTime(student.currentTime)
+        const reached = playback.timeline
+          .filter(marker => marker.normalized_position <= next + CHECKPOINT_REACHED_EPSILON)
+          .sort((a, b) => b.normalized_position - a.normalized_position)[0]
+        setActiveCheckpointId(reached?.id ?? null)
+        setProgress(next)
+        updateCaption(student.currentTime, next)
+        if (student.ended) {
+          playingRef.current = false
+          setPlaying(false)
+        }
+        return
+      }
       const next = motionProgressFromStudentTime(student.currentTime)
       const expert = expertRef.current
       const nextExpert = expert
@@ -436,8 +485,11 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       expertProgress,
       motionProgressFromStudentTime,
       coordinatePlayback,
+      loop.selection,
+      studentOnly,
       updateCaption,
-      updateExpertCaption
+      updateExpertCaption,
+      playback.timeline
     ]
   )
 
@@ -452,6 +504,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   useEffect(() => {
     playingRef.current = false
+    stopCheckpointLoop()
     setPlaying(false)
     setProgress(0)
     setExpertProgress(0)
@@ -463,7 +516,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     setCaption(null)
     setStudentRatio(metadataRatio(playback.student_video.width, playback.student_video.height))
     setExpertRatio(metadataRatio(playback.expert.video.width, playback.expert.video.height))
-  }, [playback])
+  }, [playback, stopCheckpointLoop])
 
   const showStudent = viewMode !== 'expert'
   const showExpert = viewMode !== 'student'
@@ -556,6 +609,21 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   const seekCheckpoint = useCallback(
     (marker: (typeof checkpoints)[number]) => {
+      const sm = playback.timeline.find(item => item.id === marker.id)
+      const em = playback.expert.timeline.find(item => item.id === marker.id)
+      if (sm && em) {
+        loop.start(
+          marker.id,
+          marker.label,
+          sm,
+          em,
+          playback.skeleton_overlay_video?.duration_seconds || studentDuration,
+          expertMotionStart,
+          expertMotionEnd
+        )
+        setActiveCheckpointId(marker.id)
+        return
+      }
       const student = studentRef.current
       const expert = expertRef.current
       if (student && marker.studentSeconds !== undefined) {
@@ -576,11 +644,21 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       setActiveCheckpointId(marker.id)
       setCaption({ title: marker.label, body: '', live: false })
     },
-    [checkpoints, expertMotionEnd, expertMotionStart, resetBarrierCursor, studentDuration]
+    [
+      expertMotionEnd,
+      expertMotionStart,
+      resetBarrierCursor,
+      studentDuration,
+      playback.timeline,
+      playback.expert.timeline,
+      playback.skeleton_overlay_video?.duration_seconds,
+      loop
+    ]
   )
 
   const seekExpertTrack = useCallback(
     (position: number) => {
+      loop.stop()
       const seconds = expertMotionStart + clamp(position) * expertMotionSpan
       const expert = expertRef.current
       if (expert) {
@@ -590,7 +668,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       setExpertProgress(clamp(position))
       if (expertOnly) updateExpertCaption(seconds)
     },
-    [expertMotionSpan, expertMotionStart, expertOnly, updateExpertCaption]
+    [expertMotionSpan, expertMotionStart, expertOnly, updateExpertCaption, loop]
   )
 
   useEffect(() => {
@@ -599,6 +677,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     // tab switch: doing so paused both videos immediately after playback began.
     if (previousViewModeRef.current === viewMode) return
     previousViewModeRef.current = viewMode
+    loop.stop()
     const student = studentRef.current
     const expert = expertRef.current
     student?.pause()
@@ -617,6 +696,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
       updateExpertCaption(seconds)
     }
   }, [
+    loop,
     expertAxisPosition,
     expertMotionEnd,
     expertMotionStart,
@@ -667,6 +747,25 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
           point, and stacking them on a phone puts the two halves of the
           comparison a scroll apart. Each frame takes its own video's aspect
           ratio, so the footage fills it exactly with no letterboxing. */}
+      {loop.selection && (
+        <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 text-sm" role="status">
+          <span>
+            重播區間：{loop.selection.label}
+            {(loop.selection.student.inferred || loop.selection.expert.inferred) &&
+              '（舊紀錄使用檢查點附近片段）'}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              loop.stop()
+              setPlayback(false)
+            }}
+          >
+            返回完整影片
+          </Button>
+        </div>
+      )}
       <AutoHeight className="mx-3">
         <div
           className={`grid gap-1.5 ${showStudent && showExpert ? 'grid-cols-2' : 'grid-cols-1'}`}
@@ -677,7 +776,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             </span>
             <video
               ref={studentRef}
-              src={playback.student_video.signed_url}
+              src={studentMedia.signed_url}
               className="w-full object-contain"
               style={{ aspectRatio: studentRatio }}
               playsInline
@@ -693,7 +792,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               onEnded={() => {
                 // In comparison mode the student may finish first. Keep the
                 // controller alive so the expert can reach the same endpoint.
-                if (expertOnly) setPlayback(false)
+                if (expertOnly && !loop.selection) setPlayback(false)
                 else followPlayhead(true)
               }}
               onClick={() => setPlayback(!playingRef.current)}
@@ -723,7 +822,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
                 if (expertOnly) followPlayhead(true)
               }}
               onEnded={() => {
-                if (expertOnly) setPlayback(false)
+                if (expertOnly && !loop.selection) setPlayback(false)
               }}
               onClick={() => setPlayback(!playingRef.current)}
             />

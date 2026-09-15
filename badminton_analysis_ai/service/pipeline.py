@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
 from badminton_analysis.ml.expert_reference_bank import (
     ExpertReference,
@@ -181,6 +183,22 @@ def _rule_anchor_frames(
     ]
 
 
+def _checkpoint_phase_range(spec, rule, phase_indices, phase_times, sequence_length):
+    """Map a semantic window to the source clock, including its display anchor.
+
+    Anchor indices locate checkpoint buttons; they are not interval bounds.
+    Explicit scored evidence takes precedence over this phase-window fallback.
+    """
+    window = next(item for item in spec.phase_windows if item.name == rule.phase)
+    last = max(1, sequence_length - 1)
+    anchor = phase_indices[rule.allowed_anchor_indices[-1]]
+    start = min(window.start_fraction * last, anchor)
+    end = max(window.end_fraction * last, anchor)
+    return tuple(
+        float(value) for value in np.interp([start, end], phase_indices, phase_times)
+    )
+
+
 def expert_phase_results(
     spec: SkillCorrectionSpec,
     *,
@@ -207,8 +225,12 @@ def expert_phase_results(
             normalized_frame=frame,
             normalized_position=float(frame) / max(1, last_frame),
             timestamp_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
-            start_seconds=float(phase_seconds[rule.allowed_anchor_indices[0]]),
-            end_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
+            start_seconds=_checkpoint_phase_range(
+                spec, rule, phase_indices, phase_seconds, sequence_length
+            )[0],
+            end_seconds=_checkpoint_phase_range(
+                spec, rule, phase_indices, phase_seconds, sequence_length
+            )[1],
         )
         for rule, frame in zip(spec.rules, frames, strict=True)
     )
@@ -268,8 +290,13 @@ def _source_qualitative_phase_results(
         if item:
             start, end = item["source_interval"]
         else:
-            start = source_phase_frames[rule.allowed_anchor_indices[0]]
-            end = source_phase_frames[rule.allowed_anchor_indices[-1]]
+            start, end = _checkpoint_phase_range(
+                spec,
+                rule,
+                phase_indices,
+                source_phase_frames,
+                normalized_sequence_length,
+            )
         start = max(analysis_window_start_frame, min(start, analysis_window_end_frame))
         end = max(start, min(end, analysis_window_end_frame))
         return (

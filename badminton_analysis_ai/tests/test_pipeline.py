@@ -243,6 +243,22 @@ def test_source_playback_timeline_uses_analysis_clip_clock() -> None:
     assert timeline[-1].timestamp_seconds == pytest.approx(31 / 30)
     assert timeline[-1].normalized_position == pytest.approx(1.0)
     assert timeline[-1].normalized_frame == 63
+    assert all(marker.end_seconds > marker.start_seconds for marker in timeline)
+
+
+@pytest.mark.parametrize("skill", ["serve", "smash"])
+def test_expert_replay_ranges_are_movements_not_single_anchor_frames(skill):
+    from service.pipeline import expert_phase_results
+
+    markers = expert_phase_results(
+        get_skill_spec(skill),
+        phase_indices=(0, 1, 2, 3, 4),
+        phase_seconds=(1.0, 1.5, 2.0, 2.5, 3.0),
+        sequence_length=5,
+    )
+    for marker in markers:
+        assert 1 <= marker.start_seconds < marker.end_seconds <= 3
+        assert marker.start_seconds <= marker.timestamp_seconds <= marker.end_seconds
 
 
 def test_lift_playback_timeline_has_four_qualitative_checkpoints() -> None:

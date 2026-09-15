@@ -69,6 +69,16 @@ func TestTokenLineRejectsIsRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLineRejectionLogsOnlyASafeReason(t *testing.T) {
+	v := verifierAgainst(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error_description":"IdToken expired; private-token-user-data"}`))
+	})
+	_, err := v.UserID(context.Background(), "private-token")
+	require.ErrorContains(t, err, "reason=token_expired")
+	require.NotContains(t, err.Error(), "private-token")
+}
+
 func TestEmptyTokenNeverReachesLine(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,7 +96,22 @@ func (v *Verifier) UserID(ctx context.Context, idToken string) (string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("id token rejected by LINE (status %d)", response.StatusCode)
+		var failure struct {
+			Description string `json:"error_description"`
+		}
+		// Never log the upstream body, token, claims, or learner identity.
+		_ = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&failure)
+		reason := "line_rejected"
+		description := strings.ToLower(failure.Description)
+		switch {
+		case strings.Contains(description, "expir"):
+			reason = "token_expired"
+		case strings.Contains(description, "audience") || strings.Contains(description, "client_id"):
+			reason = "channel_mismatch"
+		case strings.Contains(description, "signature"):
+			reason = "invalid_signature"
+		}
+		return "", fmt.Errorf("id token rejected by LINE (status %d, reason=%s)", response.StatusCode, reason)
 	}
 
 	var claims Claims

@@ -15,6 +15,7 @@ import { Liff } from '@line/liff'
 
 import { setExpiredTokenHandler, setIdTokenSource } from '@/lib/api/client'
 import ExperimentGate from '@/components/ExperimentGate'
+import { recoverLiffLogin } from '@/lib/liffRecovery'
 
 const LiffContext = createContext<{
   liff: Liff | null
@@ -49,7 +50,22 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
   const [profile, setProfile] = useState<Profile | null>(null)
   const [liffError, setLiffError] = useState<string | null>(null)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const [recovering, setRecovering] = useState(false)
   const initializedRef = useRef(false)
+
+  const reauthenticate = useCallback(async () => {
+    if (recovering) return
+    setRecovering(true)
+    try {
+      const sdk = liff ?? (await import('@line/liff')).default
+      if (!liff) await sdk.init({ liffId })
+      sessionStorage.removeItem('liff-login-initiated')
+      await recoverLiffLogin(sdk, window.location.href, url => window.location.replace(url))
+    } catch {
+      setLiffError('無法重新登入 LINE，請稍後再試。您的實驗登記資料仍會保留。')
+      setRecovering(false)
+    }
+  }, [liff, liffId, recovering])
 
   const initLiff = useCallback(async () => {
     if (initializedRef.current) return
@@ -119,6 +135,7 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           console.log(prof.pictureUrl)
         } catch (e) {
           console.warn('Failed to get LIFF profile:', e)
+          setLiffError('無法確認 LINE 登入身分，請按下「重新登入 LINE」。')
         }
         // Every backend call proves who is asking with this token, so hand over
         // the getter rather than the string it returns right now.
@@ -132,12 +149,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           setLiffError('LINE 未提供登入憑證，請確認 LIFF 應用已開啟 openid 權限。')
         }
 
-        // A LINE ID token lasts an hour and LIFF cannot refresh one, so a page
-        // left open eventually has every call refused. This does NOT log the
-        // learner back in: liff.login() redirects to LINE and back to the
-        // endpoint URL registered in the console, which in an ordinary browser
-        // bounces them away from the page they were on. The session is marked
-        // stale instead, and the app asks them to reopen it from LINE.
+        // A rejection does not prove expiry. Keep registration intact and
+        // offer explicit SDK reauthentication instead of a reload loop.
         setExpiredTokenHandler(() => setSessionExpired(true))
 
         setLiff(liff)
@@ -164,8 +177,17 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         sessionExpired
       }}
     >
-      <ExperimentGate authenticated={Boolean(liff && profile) && !sessionExpired}
-        loginError={liffError || (sessionExpired ? '登入已失效，請重新從 LINE 開啟此頁。' : null)}>
+      <ExperimentGate
+        authenticated={Boolean(liff && profile) && !sessionExpired && !liffError}
+        onReauthenticate={reauthenticate}
+        recovering={recovering}
+        loginError={
+          liffError ||
+          (sessionExpired
+            ? 'LINE 登入驗證未通過，請重新登入。您的實驗編號與姓名不需重新登記。'
+            : null)
+        }
+      >
         {children}
       </ExperimentGate>
     </LiffContext.Provider>

@@ -44,9 +44,12 @@ export async function authorizedFetch(path: string, init: RequestInit = {}): Pro
   // finished yet — calling it an expired session there strands the learner on
   // "reopen from LINE" instead of letting the login they are mid-way through
   // complete. 403 is left alone either way: the caller is known and refused.
-  if (response.status === 401 && token) onExpired?.()
+  if (response.status === 401 && token && token === idTokenSource()) onExpired?.()
   if (response.status === 403) {
-    const body = await response.clone().json().catch(() => null)
+    const body = await response
+      .clone()
+      .json()
+      .catch(() => null)
     if (body?.code === 'registration_required') onRegistrationRequired?.()
   }
   return response

@@ -31,7 +31,9 @@ export const PhaseMarkerSchema = z.object({
   label: z.string(),
   normalized_frame: z.number(),
   normalized_position: z.number(),
-  timestamp_seconds: z.number()
+  timestamp_seconds: z.number(),
+  start_seconds: z.number().nullable().optional(),
+  end_seconds: z.number().nullable().optional()
 })
 
 export const AlignmentSampleSchema = z.object({

@@ -73,6 +73,9 @@ message PhaseMarker {
   int32 normalized_frame = 3;
   double normalized_position = 4;
   double timestamp_seconds = 5;
+  // Inclusive evidence range on the unpaused video's clock. Optional for old records.
+  optional double start_seconds = 6;
+  optional double end_seconds = 7;
 }
 
 // One point on the map from the learner's motion onto the expert's clock.

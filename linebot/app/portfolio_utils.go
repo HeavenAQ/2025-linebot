@@ -25,7 +25,7 @@ func (app *App) sendPortfolio(
 	display := db.WithWeeklyReflectionNotes(user, weekly)
 	// Sign a presentation copy, never persist expiring links in Firestore.
 	portfolio := display.Portfolio.GetSkillPortfolio(skill.String())
-	for date, work := range portfolio {
+	for _, work := range app.LineBot.PortfolioWorksForDisplay(portfolio) {
 		if work.Thumbnail == "" {
 			continue
 		}
@@ -34,7 +34,7 @@ func (app *App) sendPortfolio(
 			return fmt.Errorf("sign portfolio thumbnail: %w", err)
 		}
 		work.Thumbnail = signed.SignedURL
-		portfolio[date] = work
+		portfolio[work.DateTime] = work
 	}
 	return app.LineBot.SendPortfolio(
 		event,

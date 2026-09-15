@@ -449,8 +449,11 @@ type PhaseMarker struct {
 	NormalizedFrame    int32                  `protobuf:"varint,3,opt,name=normalized_frame,json=normalizedFrame,proto3" json:"normalized_frame,omitempty"`
 	NormalizedPosition float64                `protobuf:"fixed64,4,opt,name=normalized_position,json=normalizedPosition,proto3" json:"normalized_position,omitempty"`
 	TimestampSeconds   float64                `protobuf:"fixed64,5,opt,name=timestamp_seconds,json=timestampSeconds,proto3" json:"timestamp_seconds,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Inclusive evidence range on the unpaused video's clock. Optional for old records.
+	StartSeconds  *float64 `protobuf:"fixed64,6,opt,name=start_seconds,json=startSeconds,proto3,oneof" json:"start_seconds,omitempty"`
+	EndSeconds    *float64 `protobuf:"fixed64,7,opt,name=end_seconds,json=endSeconds,proto3,oneof" json:"end_seconds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PhaseMarker) Reset() {
@@ -514,6 +517,20 @@ func (x *PhaseMarker) GetNormalizedPosition() float64 {
 func (x *PhaseMarker) GetTimestampSeconds() float64 {
 	if x != nil {
 		return x.TimestampSeconds
+	}
+	return 0
+}
+
+func (x *PhaseMarker) GetStartSeconds() float64 {
+	if x != nil && x.StartSeconds != nil {
+		return *x.StartSeconds
+	}
+	return 0
+}
+
+func (x *PhaseMarker) GetEndSeconds() float64 {
+	if x != nil && x.EndSeconds != nil {
+		return *x.EndSeconds
 	}
 	return 0
 }
@@ -1270,13 +1287,18 @@ const file_badminton_analysis_v1_analysis_proto_rawDesc = "" +
 	"\vtotal_grade\x18\x01 \x01(\x01R\n" +
 	"totalGrade\x12M\n" +
 	"\x0fgrading_details\x18\x02 \x03(\v2$.badminton.analysis.v1.GradingDetailR\x0egradingDetails\x12!\n" +
-	"\fscore_status\x18\x03 \x01(\tR\vscoreStatus\"\xbc\x01\n" +
+	"\fscore_status\x18\x03 \x01(\tR\vscoreStatus\"\xae\x02\n" +
 	"\vPhaseMarker\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12)\n" +
 	"\x10normalized_frame\x18\x03 \x01(\x05R\x0fnormalizedFrame\x12/\n" +
 	"\x13normalized_position\x18\x04 \x01(\x01R\x12normalizedPosition\x12+\n" +
-	"\x11timestamp_seconds\x18\x05 \x01(\x01R\x10timestampSeconds\"i\n" +
+	"\x11timestamp_seconds\x18\x05 \x01(\x01R\x10timestampSeconds\x12(\n" +
+	"\rstart_seconds\x18\x06 \x01(\x01H\x00R\fstartSeconds\x88\x01\x01\x12$\n" +
+	"\vend_seconds\x18\a \x01(\x01H\x01R\n" +
+	"endSeconds\x88\x01\x01B\x10\n" +
+	"\x0e_start_secondsB\x0e\n" +
+	"\f_end_seconds\"i\n" +
 	"\x0fAlignmentSample\x12/\n" +
 	"\x13normalized_position\x18\x01 \x01(\x01R\x12normalizedPosition\x12%\n" +
 	"\x0eexpert_seconds\x18\x02 \x01(\x01R\rexpertSeconds\"\xaa\x02\n" +
@@ -1429,6 +1451,7 @@ func file_badminton_analysis_v1_analysis_proto_init() {
 		(*AnalyzeVideoChunk_Header)(nil),
 		(*AnalyzeVideoChunk_Data)(nil),
 	}
+	file_badminton_analysis_v1_analysis_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

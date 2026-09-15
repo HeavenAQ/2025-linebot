@@ -48,11 +48,13 @@ type AlignmentSample struct {
 }
 
 type PhaseMarker struct {
-	ID                 string  `json:"id" firestore:"id"`
-	Label              string  `json:"label" firestore:"label"`
-	NormalizedFrame    int32   `json:"normalized_frame" firestore:"normalized_frame"`
-	NormalizedPosition float64 `json:"normalized_position" firestore:"normalized_position"`
-	TimestampSeconds   float64 `json:"timestamp_seconds" firestore:"timestamp_seconds"`
+	StartSeconds       *float64 `json:"start_seconds,omitempty" firestore:"start_seconds,omitempty"`
+	EndSeconds         *float64 `json:"end_seconds,omitempty" firestore:"end_seconds,omitempty"`
+	ID                 string   `json:"id" firestore:"id"`
+	Label              string   `json:"label" firestore:"label"`
+	NormalizedFrame    int32    `json:"normalized_frame" firestore:"normalized_frame"`
+	NormalizedPosition float64  `json:"normalized_position" firestore:"normalized_position"`
+	TimestampSeconds   float64  `json:"timestamp_seconds" firestore:"timestamp_seconds"`
 }
 
 type AnalysisOutcome struct {

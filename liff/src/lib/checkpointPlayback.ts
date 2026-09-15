@@ -7,6 +7,25 @@ export type RangeMarker = {
 
 export type ClipRange = { start: number; end: number; inferred: boolean }
 
+// Older follow-through markers carry the initial-to-final scoring evidence
+// interval. Replay the action after contact, not its initial-pose reference.
+// Do not mutate the stored evidence or change other checkpoints.
+export function checkpointReplayMarker(marker: RangeMarker, timeline: RangeMarker[]): RangeMarker {
+  if (marker.id !== 'follow_through') return marker
+  const contact = timeline.find(item => item.id === 'wrist_flick')?.timestamp_seconds
+  if (
+    contact === undefined ||
+    !Number.isFinite(contact) ||
+    !Number.isFinite(marker.start_seconds) ||
+    !Number.isFinite(marker.end_seconds) ||
+    contact >= marker.end_seconds! ||
+    contact <= marker.start_seconds!
+  ) {
+    return marker
+  }
+  return { ...marker, start_seconds: contact }
+}
+
 // New analyses carry scored intervals. Legacy records only have a point:
 // expose a short preview around it, explicitly marked as inferred in the UI.
 export function checkpointRange(marker: RangeMarker, start: number, end: number): ClipRange {

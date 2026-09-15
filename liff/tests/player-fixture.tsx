@@ -32,12 +32,14 @@ const playback = PlaybackResponseSchema.parse({
     motion_end_seconds: 6,
     timeline: [
       marker('body_rotation', '身體旋轉', 1, 3, 6),
+      marker('wrist_flick', '手腕發力', 3, 4, 6),
       marker('follow_through', '隨揮', 4, 5.9, 6)
     ]
   },
   timeline: [
     marker('body_rotation', '身體旋轉', 0.5, 1.4, 4),
-    marker('follow_through', '隨揮', 2, 3.9, 4)
+    marker('wrist_flick', '手腕發力', 1.5, 2, 4),
+    marker('follow_through', '隨揮', 0, 3.9, 4)
   ],
   coaching_cues: [
     {

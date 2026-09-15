@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import { expertMotionWindow } from '@/lib/expertAlignment'
 import { useCheckpointLoop } from '@/components/useCheckpointLoop'
+import { checkpointReplayMarker } from '@/lib/checkpointPlayback'
 import type { PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -532,7 +533,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
         loop.start(
           marker.id,
           marker.label,
-          sm,
+          checkpointReplayMarker(sm, playback.timeline),
           em,
           playback.skeleton_overlay_video?.duration_seconds || studentDuration,
           expertMotionStart,

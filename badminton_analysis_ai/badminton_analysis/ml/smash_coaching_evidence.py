@@ -86,4 +86,12 @@ def build_checkpoint_evidence(
                 )
                 if key in balance_measurement
             }
+        if reference == "follow_through":
+            # Initial pose is a scoring/coaching reference, not the start of
+            # the follow-through action that the player should loop.
+            contact = int(intervals["wrist_flick"]["anchor"])
+            result[reference]["replay_source_interval"] = [
+                max(visible_start, min(contact, visible_end)),
+                visible_end,
+            ]
     return result

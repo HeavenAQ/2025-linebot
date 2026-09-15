@@ -288,7 +288,7 @@ def _source_qualitative_phase_results(
     def evidence_range(rule):
         item = (checkpoint_evidence or {}).get(rule.id)
         if item:
-            start, end = item["source_interval"]
+            start, end = item.get("replay_source_interval", item["source_interval"])
         else:
             start, end = _checkpoint_phase_range(
                 spec,

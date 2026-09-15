@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { advanceCheckpointLoop, checkpointRange } from './checkpointPlayback.ts'
+import {
+  advanceCheckpointLoop,
+  checkpointRange,
+  checkpointReplayMarker
+} from './checkpointPlayback.ts'
+
+test('legacy ending evidence replays after contact without changing scoring metadata', () => {
+  const ending = { id: 'follow_through', timestamp_seconds: 4, start_seconds: 0, end_seconds: 4 }
+  const contact = { id: 'wrist_flick', timestamp_seconds: 3 }
+  const replay = checkpointReplayMarker(ending, [contact, ending])
+  assert.deepEqual(checkpointRange(replay, 0, 4 + 1 / 30), {
+    start: 3,
+    end: 4 + 1 / 30,
+    inferred: false
+  })
+  assert.equal(ending.start_seconds, 0)
+  assert.equal(checkpointReplayMarker(contact, [contact, ending]), contact)
+  const alreadyLocal = { ...ending, start_seconds: 3.5 }
+  assert.equal(checkpointReplayMarker(alreadyLocal, [contact]), alreadyLocal)
+  assert.equal(checkpointReplayMarker(ending, []), ending)
+  assert.equal(checkpointReplayMarker(ending, [{ ...contact, timestamp_seconds: 5 }]), ending)
+})
 
 test('uses measured source-clock range, including its last frame', () => {
   assert.deepEqual(

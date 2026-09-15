@@ -96,6 +96,13 @@ def grade():
     )
 
 
+def test_follow_through_replay_does_not_include_initial_scoring_reference():
+    evidence = eg27_evidence()["follow_through"]
+    assert evidence["source_interval"] == [60, 130]
+    assert evidence["replay_source_interval"] == [119, 130]
+    assert evidence["source_frame_indices"] == [60, 130]
+
+
 def analysis(frame):
     return dict(
         skill="smash",

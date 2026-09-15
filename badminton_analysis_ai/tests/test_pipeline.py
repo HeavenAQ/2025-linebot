@@ -261,6 +261,30 @@ def test_expert_replay_ranges_are_movements_not_single_anchor_frames(skill):
         assert marker.start_seconds <= marker.timestamp_seconds <= marker.end_seconds
 
 
+def test_follow_through_replay_uses_local_action_not_full_scoring_evidence():
+    evidence = {
+        "follow_through": {
+            "source_interval": [12, 43],
+            "replay_source_interval": [31, 43],
+        }
+    }
+    timeline = _source_qualitative_phase_results(
+        get_skill_spec("smash"),
+        phase_indices=(0, 16, 32, 48, 63),
+        source_phase_frames=[12, 18, 24, 31, 43],
+        normalized_sequence_length=64,
+        source_sequence_length=58,
+        analysis_window_start_frame=12,
+        analysis_window_end_frame=43,
+        fps=30.0,
+        checkpoint_evidence=evidence,
+    )
+    ending = next(marker for marker in timeline if marker.id == "follow_through")
+    assert ending.start_seconds == pytest.approx(19 / 30)
+    assert ending.end_seconds == pytest.approx(31 / 30)
+    assert evidence["follow_through"]["source_interval"] == [12, 43]
+
+
 def test_lift_playback_timeline_has_four_qualitative_checkpoints() -> None:
     spec = get_skill_spec("lift")
     phases = (0, 15, 29, 41, 63)

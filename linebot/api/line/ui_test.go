@@ -21,6 +21,20 @@ func portfolioWork() db.Work {
 	}
 }
 
+func TestPortfolioCardWithoutThumbnailStillHasScoreAndPlayback(t *testing.T) {
+	client := &Client{}
+	work := portfolioWork()
+	work.Thumbnail = ""
+	card := client.getCarouselItem(work, "smash", false)
+	require.NotNil(t, card)
+	require.Nil(t, card.Hero)
+	require.NotEmpty(t, card.Body.Contents)
+	require.NotEmpty(t, card.Footer.Contents)
+	data, err := json.Marshal(card)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), `"hero"`)
+}
+
 func TestPortfolioVideoPostbackStaysWithinLineLimit(t *testing.T) {
 	client := &Client{}
 	work := portfolioWork()

@@ -79,6 +79,11 @@ func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountE
 	if !PlayableObject(objectPath) {
 		return commons.MediaRef{}, fmt.Errorf("object path is not playable: %q", objectPath)
 	}
+	return c.signObjectURL(bucketName, objectPath, serviceAccountEmail)
+}
+
+// Only callers that have validated their specific media path may use this.
+func (c *BucketClient) signObjectURL(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	expires := time.Now().Add(PlaybackURLTTL)
 	opts := &gcs.SignedURLOptions{
 		Method:  "GET",

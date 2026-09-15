@@ -30,10 +30,11 @@ func (c *fakeClient) Bucket(name string) BucketHandle {
 func (c *fakeClient) Close() error { return nil }
 
 type fakeBucket struct {
-	name    string
-	objects map[string]*fakeObject
-	signed  []string
-	signErr error
+	signedOptions []*gcs.SignedURLOptions
+	name          string
+	objects       map[string]*fakeObject
+	signed        []string
+	signErr       error
 }
 
 func (b *fakeBucket) Object(name string) ObjectHandle {
@@ -42,6 +43,7 @@ func (b *fakeBucket) Object(name string) ObjectHandle {
 
 // signedCalls records what the playback path asked to sign.
 func (b *fakeBucket) SignedURL(object string, opts *gcs.SignedURLOptions) (string, error) {
+	b.signedOptions = append(b.signedOptions, opts)
 	b.signed = append(b.signed, object)
 	if b.signErr != nil {
 		return "", b.signErr

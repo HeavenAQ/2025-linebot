@@ -166,10 +166,9 @@ func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse
 	const addReflection = "➡️ 學習反思：開啟「每週回顧」的反思，一邊看影片一邊寫下這一週的心得\n\n"
 	const analyzeRecording = "➡️ 動作分析：上傳個人動作錄影，系統將自動產生分析結果\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
-	const learningDashboard = "➡️ 學習儀表板：查看學習進度及成就\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
 	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + portfolio + addPreview + addReflection + analyzeRecording + expertVideo + learningDashboard + note1 + note2
+	const msg = welcome + instruction + addReflection + portfolio + analyzeRecording + addPreview + expertVideo + note1 + note2
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 
@@ -332,4 +331,3 @@ func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.Badmin
 	}
 	return nil
 }
-

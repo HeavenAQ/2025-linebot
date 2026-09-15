@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -282,17 +282,24 @@ func (app *App) handleWatchPortfolioVideo(
 	}
 	// Always signed fresh. The URL a record was created with expires within the
 	// hour, so there is nothing worth falling back to.
-	videos, err := app.AnalysisClient.RefreshPlaybackURLs(
-		context.Background(), work.StudentVideo.ObjectPath,
+	video, err := app.StorageClient.SignPlaybackURLIn(
+		storage.BucketFromGCSURI(work.StudentVideo.GCSURI),
+		work.StudentVideo.ObjectPath, app.Config.GCP.ServiceAccountEmail,
 	)
-	if err != nil || len(videos) != 1 {
+	if err != nil {
 		app.Logger.Error.Printf("failed to refresh portfolio video URL: %v", err)
 		app.LineBot.SendReply(replyToken, "影片連結更新失敗，請稍後再試")
 		return
 	}
 
+	thumbnail, err := app.StorageClient.SignThumbnailURL(work.Thumbnail, app.Config.GCP.ServiceAccountEmail)
+	if err != nil {
+		app.Logger.Error.Printf("failed to sign portfolio thumbnail: %v", err)
+		app.LineBot.SendReply(replyToken, "影片預覽圖連結更新失敗，請稍後再試")
+		return
+	}
 	if _, err := app.LineBot.SendVideoMessage(
-		replyToken, videos[0].SignedURL, work.Thumbnail,
+		replyToken, video.SignedURL, thumbnail.SignedURL,
 	); err != nil {
 		app.Logger.Error.Printf("failed to send portfolio video through LINE: %v", err)
 	}

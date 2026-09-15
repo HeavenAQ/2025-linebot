@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ const PlaybackURLTTL = 60 * time.Minute
 // Object paths arrive from stored analyses, but signing is a capability worth
 // fencing: a bug elsewhere must not be able to hand out a link to the bucket's
 // private corners.
-var playablePrefixes = []string{"analyses/", "experts/"}
+var playablePrefixes = []string{"analyses/", "experts/", "noai/analyses/", "no-ai/analyses/"}
 
 // PlayableObject reports whether a path may be signed for playback.
 func PlayableObject(objectPath string) bool {
@@ -78,9 +79,10 @@ func (c *BucketClient) SignPlaybackURLIn(
 	}
 	expires := time.Now().Add(PlaybackURLTTL)
 	opts := &gcs.SignedURLOptions{
-		Method:  "GET",
-		Expires: expires,
-		Scheme:  gcs.SigningSchemeV4,
+		Method:          "GET",
+		Expires:         expires,
+		Scheme:          gcs.SigningSchemeV4,
+		QueryParameters: url.Values{"response-content-type": []string{playbackContentType(objectPath)}},
 	}
 	if trimmed := strings.TrimSpace(serviceAccountEmail); trimmed != "" {
 		opts.GoogleAccessID = trimmed

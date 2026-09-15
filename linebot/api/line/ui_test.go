@@ -1,6 +1,7 @@
 package line
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -18,6 +19,20 @@ func portfolioWork() db.Work {
 		DateTime:  "2026-08-01-20-30",
 		Thumbnail: "https://storage.example/thumbnail.jpeg?" + string(make([]byte, 500)),
 	}
+}
+
+func TestPortfolioCardWithoutThumbnailStillHasScoreAndPlayback(t *testing.T) {
+	client := &Client{}
+	work := portfolioWork()
+	work.Thumbnail = ""
+	card := client.getCarouselItem(work, "smash", false)
+	require.NotNil(t, card)
+	require.Nil(t, card.Hero)
+	require.NotEmpty(t, card.Body.Contents)
+	require.NotEmpty(t, card.Footer.Contents)
+	data, err := json.Marshal(card)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), `"hero"`)
 }
 
 func TestPortfolioVideoPostbackStaysWithinLineLimit(t *testing.T) {

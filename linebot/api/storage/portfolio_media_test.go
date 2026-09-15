@@ -20,6 +20,8 @@ func TestPortfolioMediaPrefixesAndBucket(t *testing.T) {
 
 func TestPrivatePortfolioThumbnailSignedWithImageContentType(t *testing.T) {
 	c, bucket := playbackClient(t)
+	bucket.objects["no-ai/analyses/thumbnail/U1/t.jpeg"] = &fakeObject{}
+	bucket.objects["analyses/thumbnail/U1/t.jpeg"] = &fakeObject{}
 	for _, value := range []string{
 		"no-ai/analyses/thumbnail/U1/t.jpeg",
 		"https://storage.googleapis.com/nstc-2025-storage/no-ai/analyses/thumbnail/U1/t.jpeg?old=expired",
@@ -39,4 +41,33 @@ func TestPrivatePortfolioThumbnailSignedWithImageContentType(t *testing.T) {
 		_, err := c.SignThumbnailURL(value, "")
 		require.Error(t, err)
 	}
+}
+
+func TestLegacyThumbnailReadCompatibilityDoesNotBroadenVideoSigning(t *testing.T) {
+	c, bucket := playbackClient(t)
+	object := "U0123456789abcdef0123456789abcdef/thumbnail/2026-08-02-02-22.jpeg"
+	bucket.objects[object] = &fakeObject{}
+	for _, value := range []string{object, "gs://nstc-2025-storage/" + object,
+		"https://storage.googleapis.com/nstc-2025-storage/" + object + "?old=expired"} {
+		media, err := c.SignThumbnailURL(value, "svc@project.iam")
+		require.NoError(t, err)
+		require.Equal(t, object, media.ObjectPath)
+		require.Equal(t, "image/jpeg", bucket.signedOptions[len(bucket.signedOptions)-1].QueryParameters.Get("response-content-type"))
+	}
+	require.False(t, PlayableObject(object))
+	bucket.signed = nil
+	for _, value := range []string{
+		"U0123456789abcdef0123456789abcdef/private/file.jpeg",
+		"U0123456789abcdef0123456789abcdef/thumbnail/../file.jpeg",
+		"U0123456789abcdef0123456789abcdef/thumbnail/file.mp4",
+		"unknown/thumbnail/file.jpeg",
+	} {
+		_, err := c.SignThumbnailURL(value, "")
+		require.Error(t, err)
+	}
+	require.Empty(t, bucket.signed)
+	delete(bucket.objects, object)
+	_, err := c.SignThumbnailURL(object, "")
+	require.ErrorContains(t, err, "thumbnail unavailable")
+	require.Empty(t, bucket.signed, "a missing thumbnail must not become a signed 404")
 }

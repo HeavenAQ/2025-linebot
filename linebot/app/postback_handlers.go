@@ -294,8 +294,9 @@ func (app *App) handleWatchPortfolioVideo(
 
 	thumbnail, err := app.StorageClient.SignThumbnailURL(work.Thumbnail, app.Config.GCP.ServiceAccountEmail)
 	if err != nil {
-		app.Logger.Error.Printf("failed to sign portfolio thumbnail: %v", err)
-		app.LineBot.SendReply(replyToken, "影片預覽圖連結更新失敗，請稍後再試")
+		app.Logger.Warn.Println("portfolio video sent as a link because its thumbnail is unavailable")
+		_, replyErr := app.LineBot.SendReply(replyToken, "這筆紀錄的預覽圖無法使用，請點擊連結播放影片：\n"+video.SignedURL)
+		handleLineMessageResponseError(replyErr)
 		return
 	}
 	if _, err := app.LineBot.SendVideoMessage(

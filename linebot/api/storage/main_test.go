@@ -83,6 +83,13 @@ func (r *fakeObjectRef) Delete(ctx context.Context) error {
 }
 func (r *fakeObjectRef) ObjectName() string { return r.name }
 
+func (r *fakeObjectRef) Attrs(ctx context.Context) (*gcs.ObjectAttrs, error) {
+	if _, ok := r.bucket.objects[r.name]; !ok {
+		return nil, gcs.ErrObjectNotExist
+	}
+	return &gcs.ObjectAttrs{}, nil
+}
+
 type fakeWriter struct {
 	ref *fakeObjectRef
 	buf bytes.Buffer

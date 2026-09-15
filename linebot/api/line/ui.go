@@ -194,6 +194,9 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 		},
 	}
 
+	if work.Thumbnail == "" {
+		item.Hero = nil
+	}
 	if showBtns {
 		item.Footer = &linebot.BoxComponent{
 			Type:     "box",

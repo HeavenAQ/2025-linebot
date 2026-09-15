@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,7 +12,7 @@ func playbackClient(t *testing.T) (*BucketClient, *fakeBucket) {
 	t.Helper()
 	client := newFakeClient()
 	bucket := client.Bucket("nstc-2025-storage").(*fakeBucket)
-	return &BucketClient{client: client, bucketName: "nstc-2025-storage"}, bucket
+	return &BucketClient{client: client, bucketName: "nstc-2025-storage", ctx: context.Background()}, bucket
 }
 
 func TestSignPlaybackURLReturnsATimeLimitedLink(t *testing.T) {

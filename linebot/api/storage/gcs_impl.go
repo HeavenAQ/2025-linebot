@@ -22,6 +22,7 @@ type BucketHandle interface {
 }
 
 type ObjectHandle interface {
+	Attrs(ctx context.Context) (*gcs.ObjectAttrs, error)
 	NewWriter(ctx context.Context) ObjectWriter
 	Delete(ctx context.Context) error
 	ObjectName() string

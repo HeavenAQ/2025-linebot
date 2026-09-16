@@ -48,20 +48,6 @@ func PlayableObject(objectPath string) bool {
 	return false
 }
 
-// SignPlaybackURL mints a read URL for one stored object.
-//
-// Go signs these itself rather than asking the analysis service to, so opening
-// a video never depends on a GPU instance being awake. That service scales to
-// zero; routing playback through it would make the first view after an idle
-// period wait for a cold start.
-//
-// Signing uses whatever credentials the process has: a key file signs locally,
-// while on Cloud Run the metadata credentials sign through IAM, which needs the
-// service account to hold roles/iam.serviceAccountTokenCreator on itself.
-func (c *BucketClient) SignPlaybackURL(objectPath string, serviceAccountEmail string) (commons.MediaRef, error) {
-	return c.SignPlaybackURLIn(c.bucketName, objectPath, serviceAccountEmail)
-}
-
 func BucketFromGCSURI(uri string) string {
 	rest, found := strings.CutPrefix(strings.TrimSpace(uri), "gs://")
 	if !found {
@@ -71,7 +57,16 @@ func BucketFromGCSURI(uri string) string {
 	return bucket
 }
 
-// SignPlaybackURLIn preserves the bucket stored with shared analysis outputs.
+// SignPlaybackURLIn mints a read URL for one stored object, in the bucket the
+// analysis recorded (an empty name means this client's bucket).
+//
+// Go signs these itself rather than asking the analysis service to, so opening
+// a video never depends on the GPU service being awake; its minimum capacity is
+// scheduled and is zero outside class.
+//
+// Signing uses whatever credentials the process has: a key file signs locally,
+// while on Cloud Run the metadata credentials sign through IAM, which needs the
+// service account to hold roles/iam.serviceAccountTokenCreator on itself.
 func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	if strings.TrimSpace(bucketName) == "" {
 		bucketName = c.bucketName

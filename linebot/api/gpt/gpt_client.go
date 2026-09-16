@@ -128,14 +128,6 @@ func (client *Client) CreateConversation() (*conversations.Conversation, error) 
 	return conversation, nil
 }
 
-func (client *Client) RetrieveConversation(conversationID string) (*conversations.Conversation, error) {
-	conversation, err := client.Client.Conversations.Get(*client.Ctx, conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("error retrieving conversation: %w", err)
-	}
-	return conversation, nil
-}
-
 // AddMessageToConversation sends a learner's question through their skill
 // conversation and returns the coach's reply.
 //

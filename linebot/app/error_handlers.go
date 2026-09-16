@@ -9,7 +9,7 @@ import (
 
 func handleLineMessageResponseError(err error) {
 	if err != nil {
-		fmt.Println("Error sending type error message: ", err)
+		fmt.Println("Error sending LINE reply: ", err)
 		return
 	}
 }
@@ -54,11 +54,10 @@ func (app *App) handleThumbnailCreationError(err error, replyToken string) {
 	)(err, replyToken)
 }
 
-func (app *App) handleUploadToDriveError(err error, replyToken string) {
-	// Despite the historical name, this handles Cloud Storage (GCS) uploads.
+func (app *App) handleThumbnailUploadError(err error, replyToken string) {
 	app.handleLineError(
-		"Error uploading the video to Cloud Storage",
-		"Video has been uploaded to Cloud Storage successfully",
+		"Error uploading the thumbnail to Cloud Storage",
+		"Thumbnail has been uploaded to Cloud Storage successfully",
 	)(err, replyToken)
 }
 

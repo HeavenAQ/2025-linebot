@@ -8,9 +8,6 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 )
 
-// workKeyLayout is the format portfolio entries are keyed by.
-const workKeyLayout = "2006-01-02-15-04"
-
 // GetRecentSkillScores returns the learner's graded attempts for a skill,
 // newest first. A limit of zero or less returns every attempt. An empty or
 // missing portfolio is not an error: the learner simply has no scores yet.

@@ -223,9 +223,6 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
 	require.Equal(t, 1.0, result.Diagnostics["pose_tensorrt_active"])
-	// Pose detection runs on a TensorRT engine; the diffusion prior that
-	// replaced the skeleton corrector runs in torch and reports no engine.
-	require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
 	t.Logf("grade=%.2f expert=%q distance=%.4f cues=%d",
 		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance, len(result.CoachingCues))

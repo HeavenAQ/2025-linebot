@@ -72,13 +72,12 @@ func (app *App) updateUserPortfolioVideo(
 	thumbnail *storage.UploadedFile,
 ) error {
 	portfolio := app.getUserPortfolio(user, session.Skill)
-	thumbnailURL := "https://storage.googleapis.com/" + app.Config.GCP.Storage.BucketName + "/" + thumbnail.Path
 	return app.FirestoreClient.CreateUserPortfolioVideo(
 		user,
 		portfolio,
 		date,
 		session,
-		&storage.UploadedFile{Name: thumbnail.Name, Path: thumbnailURL},
+		thumbnail,
 		analysis,
 	)
 }

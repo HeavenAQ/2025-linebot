@@ -259,10 +259,9 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 	}
 }
 
-// refreshTimeout has to survive a cold start. The analysis service scales to
-// zero, so the first playback request after an idle period waits for an L4 to
-// boot and load its pose engines. It stays under the HTTP server's 100s write
-// timeout, which is the real ceiling on this path.
+// refreshTimeout bounds RefreshPlaybackUrls, which the benchmark and live
+// integration tests use (production playback is signed in Go). It allows for a
+// cold start, since the GPU service scales to zero outside scheduled class hours.
 const refreshTimeout = 90 * time.Second
 
 func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string) ([]commons.MediaRef, error) {
@@ -280,8 +279,8 @@ func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string)
 }
 
 func (c *Client) Health(ctx context.Context) error {
-	// Also sized for a cold start: a health check that fires while the service
-	// is scaling up from zero should wait for it, not report it down.
+	// Sized for a cold start: outside scheduled class hours the service scales
+	// to zero, and a check that wakes it should wait rather than report it down.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	response, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})

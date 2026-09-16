@@ -191,43 +191,6 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	return err
 }
 
-func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill string, id string) error {
-	switch skill {
-	case "serve":
-		user.GPTConversationIDs.Serve = id
-	case "smash":
-		user.GPTConversationIDs.Smash = id
-	case "clear":
-		user.GPTConversationIDs.Clear = id
-	case "lift":
-		user.GPTConversationIDs.Lift = id
-	}
-	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{FieldPath: []string{"gpt_conversation_ids", skill}, Value: id}})
-	return err
-}
-
-func (client *FirestoreClient) UpdateUserGPTConversationIDs(user *UserData, ids *GPTConversationIDs) error {
-	user.GPTConversationIDs = *ids
-	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{Path: "gpt_conversation_ids", Value: *ids}})
-	return err
-}
-
-func (client *FirestoreClient) UpdateUserPortfolioAINote(
-	user *UserData,
-	userPortfolio *map[string]Work,
-	skill string,
-	date string,
-	aiNote string,
-) error {
-	targetWork := (*userPortfolio)[date]
-	targetWork.AINote = aiNote
-	(*userPortfolio)[date] = targetWork
-	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{
-		FieldPath: []string{"portfolio", skill, date, "ai_note"}, Value: aiNote,
-	}})
-	return err
-}
-
 func (client *FirestoreClient) ListUsers() (*[]UserData, error) {
 	iter := client.Data.Documents(*client.Ctx)
 	var all []UserData

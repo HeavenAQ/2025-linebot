@@ -19,13 +19,13 @@ import (
 // 1. High-Level Handlers
 // ============================================================================
 
-// handlePostbackEvent processes LINE postback events.
-// - If it’s a menu-switch event, it’s ignored.
-// - Otherwise, it delegates to handleUserState.
 // coachingScoreLimit caps how many graded attempts ride along with a learner's
 // question. Enough to show a trend, short enough to leave room for the reply.
 const coachingScoreLimit = 5
 
+// handlePostbackEvent processes LINE postback events.
+// - If it’s a menu-switch event, it’s ignored.
+// - Otherwise, it delegates to handleUserState.
 func (app *App) handlePostbackEvent(event *linebot.Event, user *db.UserData, session *db.UserSession) {
 	if isMenuSwitchEvent(event.Postback.Data) {
 		app.Logger.Info.Printf("Menu switch event ignored. User ID: %v", event.Source.UserID)
@@ -467,7 +467,9 @@ func (app *App) handleWatchPortfolioVideo(
 	}
 }
 
-// handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
+// handleUploadingVideo accepts a learner's video. With the Cloud Tasks queue
+// configured and ANALYSIS_ASYNC_ACCEPT on, it records a durable analysis job and
+// replies at once; otherwise it analyzes synchronously and updates the portfolio.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
 	// Last line of defence before the analysis call: a video message routes
 	// straight here on the session's stored skill, which may have been chosen
@@ -484,7 +486,7 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 		return
 	}
 
-	// Send video to AI server for analysis
+	// Prefer the durable queued job; fall back to synchronous gRPC analysis.
 	if app.AnalysisQueue != nil && app.Config.AnalysisServer.AsyncAccept {
 		app.enqueueVideoAnalysis(event, session, user, videoContent, replyToken)
 		return
@@ -527,7 +529,7 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 	timestamp := time.Now().Format("2006-01-02-15-04")
 	thumbnail, err := app.uploadThumbnail(user, thumbnailPath, timestamp)
 	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
+		app.handleThumbnailUploadError(err, replyToken)
 		return
 	}
 	if err := app.updateUserPortfolioVideo(user, session, timestamp, *resp, thumbnail); err != nil {

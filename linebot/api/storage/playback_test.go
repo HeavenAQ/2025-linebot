@@ -19,7 +19,7 @@ func TestSignPlaybackURLReturnsATimeLimitedLink(t *testing.T) {
 	t.Parallel()
 
 	client, bucket := playbackClient(t)
-	media, err := client.SignPlaybackURL(
+	media, err := client.SignPlaybackURLIn("",
 		"analyses/v1/U123/req/student_corrected.mp4",
 		"svc@project.iam.gserviceaccount.com",
 	)
@@ -38,7 +38,7 @@ func TestSignPlaybackURLMarksMovExpertAsQuickTimeVideo(t *testing.T) {
 	t.Parallel()
 
 	client, bucket := playbackClient(t)
-	_, err := client.SignPlaybackURL(
+	_, err := client.SignPlaybackURLIn("",
 		"experts/v3/serve/videos/expert.mov",
 		"svc@project.iam.gserviceaccount.com",
 	)
@@ -57,7 +57,7 @@ func TestSignPlaybackURLRefusesPathsOutsidePlayableTrees(t *testing.T) {
 		"", "secrets/key.json", "analyses/../secrets/key.json",
 		"U123/thumbnail.jpeg", "/analyses/v1/x.mp4",
 	} {
-		_, err := client.SignPlaybackURL(path, "svc@project.iam.gserviceaccount.com")
+		_, err := client.SignPlaybackURLIn("", path, "svc@project.iam.gserviceaccount.com")
 		require.Error(t, err, path)
 	}
 	require.Empty(t, bucket.signed, "nothing outside a playable tree should reach the signer")
@@ -77,7 +77,7 @@ func TestSignPlaybackURLSurfacesSignerFailures(t *testing.T) {
 	client, bucket := playbackClient(t)
 	bucket.signErr = errors.New("iam: permission denied")
 
-	_, err := client.SignPlaybackURL("analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
+	_, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
 	require.ErrorContains(t, err, "iam: permission denied")
 }
 
@@ -87,7 +87,7 @@ func TestSignPlaybackURLOmitsAnEmptyServiceAccount(t *testing.T) {
 	t.Parallel()
 
 	client, _ := playbackClient(t)
-	media, err := client.SignPlaybackURL("analyses/v1/U1/r/student_corrected.mp4", "  ")
+	media, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "  ")
 
 	require.NoError(t, err)
 	require.Contains(t, media.SignedURL, "as=")

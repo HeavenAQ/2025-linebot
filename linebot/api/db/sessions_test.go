@@ -66,24 +66,3 @@ func TestUpdateSessionUserState(t *testing.T) {
 	// Clean up
 	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
 }
-
-// Test UpdateSessionUserSkill function
-func TestUpdateSessionUserSkill(t *testing.T) {
-	requireLive(t)
-	// Create a test user session
-	testUserID := "skill-user-id"
-	firestoreClient.CreateUserSession(testUserID)
-
-	// Update the user's skill
-	newSkill := "Public Speaking"
-	err := firestoreClient.UpdateSessionUserSkill(testUserID, newSkill)
-	require.NoError(t, err)
-
-	// Verify the skill was updated in Firestore
-	savedSession, err := firestoreClient.GetUserSession(testUserID)
-	require.NoError(t, err)
-	require.Equal(t, newSkill, savedSession.Skill)
-
-	// Clean up
-	firestoreClient.Sessions.Doc(testUserID).Delete(*firestoreClient.Ctx)
-}

@@ -16,8 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// (runtime snake_case conversion removed; DB is migrated instead)
-
 // recentScoreLimit caps how many graded attempts feed the learning summary.
 const recentScoreLimit = 5
 
@@ -41,7 +39,7 @@ func main() {
 		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
 	}))
 
-	// Routes (parity with previous net/http handlers)
+	// Routes
 	r.POST("/callback", func(c *gin.Context) {
 		handler := application.LineWebhookHandler()
 		handler(c.Writer, c.Request)
@@ -367,9 +365,8 @@ func main() {
 			c.JSON(http.StatusConflict, gin.H{"error": "analysis predates synchronized playback"})
 			return
 		}
-		// Signed here rather than through the analysis service: that service
-		// scales to zero, and a student opening a video should never wait for a
-		// GPU to boot just to be handed a URL.
+		// Signed here rather than through the analysis service, so a student
+		// opening a video never waits on the GPU service's capacity.
 		sign := func(media *commons.MediaRef) error {
 			if media.ObjectPath == "" {
 				return nil

@@ -168,27 +168,3 @@ func TestUploadThumbnail(t *testing.T) {
 	require.Equal(t, len(disk), len(obj.data))
 	require.Equal(t, "image/jpeg", obj.contentType)
 }
-
-func TestDeleteFile(t *testing.T) {
-	fake := newFakeClient()
-	bc := NewBucketClientWithClient(context.Background(), fake, "test-bucket")
-
-	// Seed an object via upload
-	fi := &FileInfo{}
-	fi.Bucket.VideoPath = "user123/videos/v2.mp4"
-	fi.Local.VideoBlob = []byte{9, 9, 9}
-	_, err := bc.UploadVideo(fi)
-	require.NoError(t, err)
-
-	// Delete it
-	err = bc.DeleteFile(fi.Bucket.VideoPath)
-	require.NoError(t, err)
-
-	// Verify it no longer exists
-	_, ok := fake.buckets["test-bucket"].objects[fi.Bucket.VideoPath]
-	require.False(t, ok)
-
-	// Delete again should error
-	err = bc.DeleteFile(fi.Bucket.VideoPath)
-	require.Error(t, err)
-}

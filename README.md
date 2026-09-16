@@ -11,42 +11,45 @@ and LIFF review interface for badminton coaching.
 ## Current architecture
 
 ```text
-LINE / LIFF client
-       |
-       v
-Go backend (public playback and application API)
-       |
-       | client-streamed gRPC request: header + MP4 bytes
-       v
-Python analysis service
-  - RF-DETR Keypoint Preview COCO-17 pose extraction
-  - serve/smash phase alignment
-  - expert-only diffusion inference
-  - grading and GPT coaching
-  - two H.264 video renders
-  - upload to GCS
-       |
-       | protobuf response: grades, feedback, object metadata, signed URLs
-       v
-Go backend -> Firestore persistence and user-facing playback response
+LINE app ──video──▶ Go backend (Cloud Run, asia-east1)
+                      │ store input + thumbnail in GCS
+                      │ Firestore transaction: pending attempt + analysis job
+                      │ named Cloud Task ──▶ Go worker /internal/analysis/task
+                      │
+                      │ client-streamed gRPC: header + MP4 chunks
+                      ▼
+            Python analysis service (Cloud Run + NVIDIA L4, asia-southeast1)
+              - RF-DETR Keypoint Preview COCO-17 pose
+                (fixed-batch-16 FP16 TensorRT, cross-request microbatching)
+              - serve/smash phase alignment and requested-skill guard
+              - expert-only EIMD v3 diffusion and grading
+              - GPT coaching
+              - two H.264 video renders, uploaded to GCS
+                      │
+                      │ protobuf: grades, feedback, object metadata
+                      ▼
+            Go worker ──▶ Firestore (attempt completed)
+
+LIFF app ──LINE ID token──▶ Go learner API (signs playback URLs itself)
 ```
 
-The legacy FastAPI video-serving responsibility is being retired. Python still
-generates and uploads the videos, but it does not return video bytes or directly
-serve media files to the browser. It returns GCS object metadata and signed URLs.
-The Go backend owns the public playback/video-serving endpoint. During migration,
-Go may use the internal `RefreshPlaybackUrls` gRPC method to refresh expiring
-signed URLs; clients should call Go, not the Python service, for playback.
+Uploads are processed as durable jobs; see
+`badminton_analysis_ai/service/ASYNC_ARCHITECTURE.md` for the queue, retry and
+GPU-capacity schedule. Python generates and uploads the videos and returns GCS
+object metadata; it never returns video bytes. The Go backend signs playback
+URLs locally (`linebot/api/storage/playback.go`), so browsers and LIFF never
+call the Python service.
 
 ## Repository layout
 
 - `badminton_analysis_ai/`: Python gRPC analysis, models, rendering, GPT feedback,
   and GCS upload/signing.
-- `linebot/`: Go gRPC client, public application/playback API, LINE workflow, and
-  Firestore persistence.
-- `liff/`: review interface for feedback and generated-expert overlay videos.
+- `linebot/`: Go LINE webhook, learner API, analysis job queue/worker, gRPC
+  client, and Firestore persistence.
+- `liff/`: review interface for feedback videos and the matched expert clip.
 - `proto/`: language-neutral gRPC contract and generated Python/Go bindings.
-- `.github/workflows/`: CI and Cloud Run deployment.
+- `scripts/`: Cloud Tasks / Cloud Scheduler provisioning and queue verification.
+- `.github/workflows/`: CI and Cloud Run / Netlify deployment.
 
 ## Latest models
 
@@ -59,15 +62,19 @@ v3 generator. These are the only motion weights required at runtime:
 | Serve | `models/error_isolated_motion/serve/expert_score_model.npz` | 53-take, 7-subject RF-DETR expert-distribution and residual scorer | `1a0e3c7e5dc32ee019d071e35255d9337a25c38f5c7210d1ec62104058c9095c` |
 | Smash | `models/error_isolated_motion/smash/error_isolated_motion.pt` | Expert-only EIMD prior | `956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977` |
 | Smash | `models/error_isolated_motion/smash/expert_score_model.npz` | Expert-only qualitative scorer | `1cf4c958cbe360a1c739260e4c077cd286cdec900712c25bcde0a1e72a228f20` |
-| Smash | `models/error_isolated_motion/smash/expert_semantic_score_model.npz` | Active expert-only semantic distribution scorer | `be6b704bd580ff362bb6718eefa4596b51c3edc8368b08d40626140ebc1b16a5` |
 | Smash | `models/error_isolated_motion/smash/expert_trajectory_score_model.npz` | Phase-aligned Euclidean residual and expert-manifold gate | `1ed6ee9aa4218f05fdd60e8e0ccdd833ce7163ac2cb75666532ac83f653af027` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/metric_graph.pt` | Frozen checkpoint graph heads | `c4cef078b3082584130e10d5bc189b88270b2f30ffeb5fc410ce305ce23b90f2` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/expert_semantic_score_model.npz` | Active expert-only semantic distribution scorer | `e7006472527ff2e253535afd80ef93c749114972edf914cc51cae16d621ab212` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/checkpoint_reference.npz` | Annotated expert checkpoint template | `685510316cc3aa498e0621e1650d04973e7ae9834dfa1cb5e8278080a1252280` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/calibration.json` | Checkpoint scorer calibration | `078acd914ea59e81e1ba0942bfdef6c2d9482e208fbef169d7d1a5ca7fb413dc` |
+| Both | `models/expert_reference_bank.npz` | Expert reference clips and requested-skill guard | `ed38bbb8873782a5cd5075522e66feca3abec3697a70117e7d3f5495741eb898` |
 
 Common inference settings:
 
 - method: conditional diffusion;
 - normalized output: 64 frames, 17 COCO joints, 2D pose plus root trajectory;
 - diffusion steps: 30;
-- candidates per request: 16;
+- candidates per request: 8;
 - deterministic inference seed: 19;
 - conditioning: stable student morphology, lower-body preparation stance,
   handedness, source coordinate system, and phase timing;
@@ -86,10 +93,8 @@ wrist velocity exceeds the maximum derived from expert demonstrations. It keeps
 the exact beginning and ending poses and advances the swing earlier through
 arc-length interpolation instead of deleting intermediate frames.
 
-The removed `models/expert_motion` and `models/skeleton_correction`
-Transformer/ONNX/calibration bundles and TensorRT corrector caches are obsolete
-and must not be restored to deployment. TensorRT remains in use only for the
-batched RF-DETR pose model in production.
+TensorRT is used only for the batched RF-DETR pose model; EIMD diffusion runs in
+PyTorch on the same GPU.
 
 ## Phase extraction and correction
 
@@ -176,21 +181,20 @@ Smash criteria and maxima:
 
 | Criterion ID | Maximum |
 |---|---:|
-| `preparation` | 10 |
-| `body_rotation` | 10 |
-| `arm_balance` | 20 |
+| `preparation` | 5 |
+| `body_rotation` | 20 |
+| `arm_balance` | 5 |
 | `elbow_forward` | 20 |
-| `wrist_flick` | 20 |
+| `wrist_flick` | 30 |
 | `follow_through` | 20 |
 
-Smash uses the same scoring family as serve: phase-aligned Euclidean distance
-between the detected and corrected skeletons, combined with an expert-only
-motion-manifold gate. The active trajectory artifact declares
-`distance_method=euclidean` and `fusion=manifold_gate`. Learner recordings were
-used only for held-out evaluation and did not fit the artifact. The workbook
-release uploaded on 2026-08-28 has learner ICC(2,1) `0.7073` and pooled
-100-video ICC(2,1) `0.9083`; these values describe the frozen validation cohort,
-not external-dataset generalization.
+Smash is graded by the September checkpoint scorer: frozen graph heads for
+preparation and arm balance, the semantic/trajectory heads (Euclidean residual
+with the expert-manifold gate) for elbow and wrist evidence, and
+contact-anchored ShapeDTW for checkpoint transfer and follow-through. The rules
+per criterion, artifacts and validation limits are documented in
+`badminton_analysis_ai/models/error_isolated_motion/README.md`. Learner
+recordings are used only for held-out evaluation and never fit the scorer.
 
 The API reports `score_status=expert_only_generated_distribution`.
 
@@ -213,7 +217,7 @@ Every successful analysis generates and uploads two H.264/yuv420p videos:
    GPT annotations or pauses.
 
 `student_video` is retained as a backward-compatible alias of `feedback_video`.
-The protobuf response contains only URLs and metadata:
+The protobuf response contains only object metadata:
 
 - GCS object path and `gs://` URI;
 - expiring signed HTTPS URL;
@@ -230,8 +234,8 @@ No generated video is embedded in protobuf, JSON, or base64.
   chunks; returns analysis results and both generated-video URLs.
 - `Health`: reports service readiness and the loaded skills. It should currently
   return only `SKILL_SERVE` and `SKILL_SMASH`.
-- `RefreshPlaybackUrls`: internal transition helper used by Go to refresh signed
-  URLs. Browser and LIFF clients must use the Go playback endpoint.
+- `RefreshPlaybackUrls`: re-signs stored objects; used by the latency benchmark
+  and integration tests. Production playback URLs are signed by Go.
 
 Public playback is owned by Go:
 
@@ -240,8 +244,8 @@ GET /api/db/playback?user_id=<id>&skill=<serve|smash>&work_date=<timestamp>
 ```
 
 The Go client streams video input in 1 MiB chunks and persists both returned media
-records. Serve/smash return `Generated expert prior` rather than a separate
-catalog expert video; the clean overlay is the generated-expert review view.
+records. When the reference bank has a matching expert, the response also pairs
+the nearest real expert clip for LIFF comparison.
 
 ## Configuration
 
@@ -265,16 +269,20 @@ Important optional variables:
 | `COACHING_PAUSE_SECONDS` | `2` | Pause inserted at each feedback frame |
 | `MAX_VIDEO_BYTES` | 150 MiB | Maximum streamed request size |
 | `SIGNED_URL_MINUTES` | `60` | Generated-video URL lifetime |
-| `POSE_EXECUTION_PROVIDER` | environment-dependent | RF-DETR provider; production uses `tensorrt` |
-| `POSE_TENSORRT_CACHE_DIR` | unset | Detector/pose TensorRT cache directory |
+| `BADMINTON_TRT_CACHE_DIR` | unset | Prebuilt RF-DETR TensorRT engine directory; production `/app/models/trt-engines` |
+| `COACHING_NO_SUGGESTION_MIN_SCORE` | `90` | Skip GPT coaching at or above this total… |
+| `COACHING_NO_SUGGESTION_MIN_CRITERION_RATIO` | `0.8` | …when every criterion also reaches this share of its maximum |
+| `OPENAI_COACHING_ATTEMPTS` | `2` | GPT attempts before deterministic rule-based advice |
+| `ANALYSIS_POSE_DUMP_PREFIX` | unset | Optional GCS prefix for pose dumps used in offline debugging |
 
 `auto` chooses CUDA when available, otherwise Apple MPS, otherwise CPU. Production
-Cloud Run uses an NVIDIA L4. Local Apple Silicon inference can use MPS.
+Cloud Run uses one NVIDIA L4 (4 vCPU, 16 GiB, concurrency 4, max 1 instance).
+It scales to zero, except that Cloud Scheduler keeps one instance warm on
+Mondays 13:45–18:10 Asia/Taipei. Local Apple Silicon inference can use MPS.
 
-Removed variables such as `SKELETON_MODEL_ROOT`, `SKELETON_EXECUTION_PROVIDER`,
-and `EXPERT_VIDEOS_COLLECTION` are not part of the current serve/smash runtime.
-`SKELETON_DEVICE` is accepted only as a temporary compatibility fallback for
-`EXPERT_MOTION_DEVICE`.
+The Go backend's queue is configured with `ANALYSIS_TASKS_QUEUE`,
+`ANALYSIS_ASYNC_ACCEPT`, `ANALYSIS_WORKER_URL` and
+`ANALYSIS_TASK_SERVICE_ACCOUNT` (see `scripts/configure_async_analysis.sh`).
 
 ## Running locally
 
@@ -308,16 +316,15 @@ npm run build
 
 Before deployment, verify:
 
-1. all six active EIMD/scorer artifacts exist and match the hashes above;
+1. all EIMD, scorer, `checkpoint_scorer_v1` and reference-bank artifacts exist
+   and match the hashes above;
 2. `Health` lists only serve and smash;
 3. a streamed serve and smash request each return non-empty `feedback_video` and
    `skeleton_overlay_video` signed URLs;
 4. both URLs decode as H.264/yuv420p;
 5. feedback duration is equal to or longer than the clean overlay because of
    coaching pauses;
-6. no `models/expert_motion`, `models/skeleton_correction`, or TensorRT
-   `correctors/` directory is present;
-7. the Go playback endpoint refreshes and returns both media records.
+6. the Go playback endpoint signs and returns both media records.
 
 ## Main inference trace
 

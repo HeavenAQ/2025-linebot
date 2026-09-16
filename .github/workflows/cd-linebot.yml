@@ -81,11 +81,10 @@ jobs:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           LIFF_ID: ${{ secrets.NEXT_PUBLIC_LIFF_ID }}
         run: |
-          # The GPU analysis service is deployed and torn down on its own
-          # schedule, so it may not exist right now. --update-env-vars only
-          # touches the keys it is given, so when the service is missing the
-          # target is left at whatever the running revision already has rather
-          # than being blanked -- and this deploy is not blocked on it.
+          # If the GPU analysis service cannot be described, leave
+          # ANALYSIS_GRPC_TARGET out: --update-env-vars only touches the keys it
+          # is given, so the running revision keeps its target rather than
+          # having it blanked, and this deploy is not blocked on it.
           env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
           env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
           env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"

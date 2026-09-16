@@ -7,11 +7,13 @@
 # public access and its IAM policy names that one service account as the sole
 # run.invoker, so an unauthenticated caller never reaches a container.
 #
-# The service scales to zero (--min 0): an L4 is billed by the second, and
-# analyses arrive in bursts around class, so keeping an instance warm all week
-# costs far more than it saves. The trade is a cold start on the first request
-# after an idle period, which loads the TensorRT pose engines and the diffusion
-# prior; the Go client's per-analysis deadline already covers that.
+# The service scales to zero (--min 0) outside class: an L4 is billed by the
+# second and analyses arrive in bursts. Cloud Scheduler raises min instances to 1
+# on Mondays 13:45-18:10 Asia/Taipei, and a deploy inside that window keeps it.
+# One instance (--max-instances 1) admits 4 concurrent requests; pose frames are
+# microbatched across them. Outside the window the first request pays a cold
+# start (TensorRT engine and diffusion prior load), which the queued analysis
+# job's retries and deadline absorb.
 name: Motion Analysis Service CD
 
 on:
@@ -190,16 +192,13 @@ jobs:
           export ANALYSIS_GRPC_TARGET="${ANALYSIS_CANDIDATE_URL#https://}"
           export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
             --secret analysis-grpc-api-key)"
-          # The service now requires an invoker identity. This runner is
+          # The service requires an invoker identity. This runner is
           # authenticated by workload identity federation, which cannot mint an
           # audience-bound token from ambient credentials, so impersonate the
           # service account the bot backend runs as and hand the token over.
-          # Audienced to the service URL, not the candidate tag URL that the
-          # request actually goes to. Cloud Run validates an identity token
-          # against the service, so a token minted for a tag URL is refused with
-          # a bare 401 -- which is why this passed while the service was being
-          # bootstrapped, when the two URLs were the same, and failed as soon as
-          # a candidate revision got its own tag.
+          # The token is audienced to the service URL, not the candidate tag URL
+          # the request goes to: Cloud Run validates identity tokens against the
+          # service and refuses one minted for a tag URL with a bare 401.
           export RUN_LIVE_ANALYSIS=1
           cd linebot
           refresh_identity_token() {
@@ -285,11 +284,6 @@ jobs:
           run_wrong_skill_fixture /tmp/analysis-e2e/serve-expert-left.mov smash left
 
       - name: Promote verified GPU revision
-        # Only the candidate pattern needs promoting. A bootstrapped service is
-        # already serving its first revision at 100%, and switching its traffic
-        # block from "latest" to a pinned revision makes Cloud Run materialise a
-        # second, identical revision -- which then blocks the cleanup below,
-        # because the latest-created revision cannot be deleted.
         if: env.ANALYSIS_CANDIDATE_TAG != ''
         run: |
           gcloud run services update-traffic badminton-analysis-ai \

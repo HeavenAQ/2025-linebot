@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent infrastructure setup. Run after both bot workers are deployed.
-# Existing URLs, branches, collections and storage prefixes stay compatible;
-# llm/no-llm are the new queue and scheduler names, not a data migration.
+# llm/no-llm name the queues and schedulers; service URLs, Firestore collections
+# and storage prefixes are unchanged.
 set -euo pipefail
 
 project="${GCP_PROJECT_ID:-nstc-linebot-2025}"

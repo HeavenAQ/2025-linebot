@@ -350,7 +350,9 @@ class ExpertMotionGeneratorBackend:
         self.smash_semantic_distribution: SmashDistribution | None = None
         self.smash_semantic_variant: SmashVariant | None = None
         self.smash_trajectory_scorer: SmashTrajectoryScorer | None = None
-        if skill == Skill.SMASH and semantic_score_path.exists():
+        # The current smash scorer loads its own semantic model from
+        # checkpoint_scorer_v1; the root one serves only the non-current path.
+        if skill == Skill.SMASH and not current_smash and semantic_score_path.exists():
             (
                 self.smash_semantic_distribution,
                 self.smash_semantic_variant,
@@ -481,14 +483,15 @@ class ExpertMotionGeneratorBackend:
                 start=scoring_start,
                 end=scoring_end,
             )
-        # Scored against the expert phase model with the checkpoint's own
-        # canonical phases, the same way the reference grader does.
-        score = score_expert_correction(
-            self.score_model,
-            scoring_correction,
-        )
-        if self.skill == Skill.SERVE:
-            score = _serve_single_head_score(score)
+        if self.current_smash_scorer is None:
+            # Scored against the expert phase model with the checkpoint's own
+            # canonical phases, the same way the reference grader does.
+            score = score_expert_correction(
+                self.score_model,
+                scoring_correction,
+            )
+            if self.skill == Skill.SERVE:
+                score = _serve_single_head_score(score)
         if (
             self.smash_semantic_distribution is not None
             and self.smash_semantic_variant is not None

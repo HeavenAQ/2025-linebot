@@ -84,24 +84,15 @@ def _correction_grade_context(
     criterion_values: list[tuple[str, float, float]],
 ) -> dict[str, Any]:
     component_names = ("position_distance", "angle_distance")
-    generated_expert = (
-        diagnostics.get("scorer") == "continuous_generated_expert_distribution_v1"
-    )
-    score_status = (
-        "expert_only_generated_distribution"
-        if generated_expert
-        else "diagnostic_group_calibrated"
-    )
+    # Every supported scorer is fitted from expert data only; learner recordings
+    # never calibrate a tolerance, so the prompt must not say otherwise.
+    score_status = "expert_only_generated_distribution"
     score_method = (
         "學生骨架與依其身形、站位座標及動作階段生成的專家全身骨架，逐項比較歐氏距離與目標關節角；"
         "分數容許範圍只由保留身分的專家動作分布校準"
-        if generated_expert
-        else (
-            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
-            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化；"
-            "挑球另比較持拍腳由預備至擊球的跨步方向"
-        )
     )
+    if spec.skill == Skill.SERVE:
+        score_method += "；發球重心轉移另比較預備至完成的下肢支撐與軀幹前傾變化"
     if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
         score_status = "frozen_checkpoint_calibration"
         score_method = (
@@ -357,6 +348,7 @@ def _dump_pose_arrays(
     window: Any,
     phase_indices: Any,
     source_frame_indices: Any,
+    pose_backend: str,
 ) -> None:
     """Write this run's pose arrays to GCS for an offline joint-by-joint diff.
 
@@ -383,10 +375,12 @@ def _dump_pose_arrays(
                 "source_frame_indices": np.asarray(
                     source_frame_indices, dtype=np.int64
                 ),
-                "skill": str(getattr(skill, "value", skill)),
-                "handedness": str(getattr(handedness, "value", handedness)),
+                # Names ("serve", "right"), as the offline extraction cache and
+                # Skill/Handedness.convert_to_enum expect -- not IntEnum values.
+                "skill": str(skill),
+                "handedness": str(handedness),
                 "video_name": filename,
-                "pose_backend": "tensorrt",
+                "pose_backend": pose_backend,
             }
             keypoints = tracking.get("body_keypoints_2d")
             if keypoints is not None:
@@ -634,6 +628,7 @@ class SkeletonAnalysisPipeline:
                 window,
                 phases,
                 generated.source_frame_indices,
+                self.pose_detector.execution_provider,
             )
         scoring_finished = time.perf_counter()
         frame_rate = source_frame_rate(video_path)

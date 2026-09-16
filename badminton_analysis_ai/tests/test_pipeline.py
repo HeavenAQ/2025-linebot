@@ -182,7 +182,13 @@ def test_serve_gpt_context_reports_backend_distance_components() -> None:
         "position_distance": 0.4,
         "angle_distance": 0.1,
     }
+    # Serve is graded against expert-only distributions; the prompt must not
+    # claim learner-group calibration or describe another skill.
+    assert context["score_status"] == "expert_only_generated_distribution"
+    assert "專家動作分布" in context["score_method_zh_tw"]
     assert "軀幹前傾" in context["score_method_zh_tw"]
+    assert "學生群組" not in context["score_method_zh_tw"]
+    assert "挑球" not in context["score_method_zh_tw"]
 
 
 def test_generated_expert_gpt_context_describes_expert_only_score() -> None:
@@ -347,3 +353,43 @@ def test_expert_timeline_rejects_mismatched_phase_timestamps() -> None:
             phase_seconds=(1.0, 2.0),
             sequence_length=64,
         )
+
+
+def test_pose_dump_records_skill_and_handedness_names_and_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import numpy as np
+
+    import service.storage
+
+    captured: dict[str, object] = {}
+
+    class Storage:
+        def __init__(self, project: str, bucket: str) -> None:
+            pass
+
+        def upload_file(self, local: Path, object_path: str, **_: object) -> None:
+            with np.load(local) as archive:
+                captured.update({key: archive[key] for key in archive.files})
+            captured["object_path"] = object_path
+
+    monkeypatch.setattr(service.storage, "ObjectStorage", Storage)
+    pipeline_module._dump_pose_arrays(
+        "dumps",
+        "clip.mp4",
+        Skill.SERVE,
+        Handedness.RIGHT,
+        {},
+        np.zeros((2, 17, 2)),
+        np.ones((2, 17)),
+        np.zeros((2, 2)),
+        (0, 1),
+        (0, 1, 1, 1, 1),
+        (0, 1),
+        "torch",
+    )
+
+    assert str(captured["skill"]) == "serve"
+    assert str(captured["handedness"]) == "right"
+    assert str(captured["pose_backend"]) == "torch"
+    assert Skill.convert_to_enum(str(captured["skill"])) == Skill.SERVE

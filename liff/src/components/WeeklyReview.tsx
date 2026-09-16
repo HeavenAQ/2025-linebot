@@ -170,6 +170,7 @@ export default function WeeklyReview({
   // The week a deep link opened, so the reset below can tell that week's video
   // being opened for the student apart from the student leaving the week.
   const focusedWeek = useRef('')
+  const appliedFocus = useRef('')
 
   // A link from a portfolio card names one attempt: show the week it belongs to
   // with that video already expanded, so the feedback and the reflection box
@@ -177,6 +178,8 @@ export default function WeeklyReview({
   // the student navigates freely.
   useEffect(() => {
     if (!focusWork) return
+    const focusKey = focusWork.skill + '/' + focusWork.date
+    if (appliedFocus.current === focusKey) return
     const at = parseWorkDate(focusWork.date)
     if (!at) return
     const label = isoWeek(at)
@@ -186,6 +189,7 @@ export default function WeeklyReview({
         candidate => candidate.skill === focusWork.skill && candidate.workDate === focusWork.date
       )
     if (!entry) return
+    appliedFocus.current = focusKey
     focusedWeek.current = label
     setSelectedWeek(label)
     setOpenWork(entry)

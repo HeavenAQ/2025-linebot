@@ -35,8 +35,12 @@ def main():
     parser.add_argument("--skill", choices=["serve", "smash"], required=True)
     parser.add_argument("--handedness", choices=["left", "right"], default="right")
     parser.add_argument("--minimum", type=float, default=0)
+    parser.add_argument("--expected", type=float, help="Assert score parity")
     parser.add_argument(
-        "--expected", type=float, help="Assert unchanged score within 1e-6"
+        "--tolerance",
+        type=float,
+        default=0.001,
+        help="Absolute points on the 100-point scale; allows GPU round-off",
     )
     args = parser.parse_args()
     project = "nstc-linebot-2025"
@@ -186,9 +190,14 @@ def main():
             assert work["reflection"] == "keep this test note"
             assert work["grading_outcome"]["total_grade"] >= args.minimum
             if args.expected is not None:
-                assert (
-                    abs(work["grading_outcome"]["total_grade"] - args.expected) < 1e-6
+                difference = abs(work["grading_outcome"]["total_grade"] - args.expected)
+                print(
+                    json.dumps(
+                        {"score_delta": difference, "tolerance": args.tolerance}
+                    ),
+                    flush=True,
                 )
+                assert difference <= args.tolerance
             assert work.get("student_video") and work.get("expert")
             if no_llm:
                 assert not work.get("coaching_cues") and not work.get("ai_note")

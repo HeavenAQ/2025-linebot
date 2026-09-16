@@ -35,6 +35,9 @@ def main():
     parser.add_argument("--skill", choices=["serve", "smash"], required=True)
     parser.add_argument("--handedness", choices=["left", "right"], default="right")
     parser.add_argument("--minimum", type=float, default=0)
+    parser.add_argument(
+        "--expected", type=float, help="Assert unchanged score within 1e-6"
+    )
     args = parser.parse_args()
     project = "nstc-linebot-2025"
     account = f"nstc-linebot-2025@{project}.iam.gserviceaccount.com"
@@ -182,6 +185,10 @@ def main():
             ), "worker failed; records retained for inspection"
             assert work["reflection"] == "keep this test note"
             assert work["grading_outcome"]["total_grade"] >= args.minimum
+            if args.expected is not None:
+                assert (
+                    abs(work["grading_outcome"]["total_grade"] - args.expected) < 1e-6
+                )
             assert work.get("student_video") and work.get("expert")
             if no_llm:
                 assert not work.get("coaching_cues") and not work.get("ai_note")

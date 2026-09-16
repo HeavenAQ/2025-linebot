@@ -280,7 +280,7 @@ func (c *Client) Health(ctx context.Context) error {
 	// is scaling up from zero should wait for it, not report it down.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	response, err := c.service.Health(ctx, &analysisv1.HealthRequest{})
+	response, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})
 	if err != nil {
 		return err
 	}

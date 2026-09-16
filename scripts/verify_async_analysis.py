@@ -168,7 +168,9 @@ def main():
                         "status": previous,
                         "grade": work.get("grading_outcome"),
                         "error": work.get("analysis_error"),
-                        "student_video": work.get("student_video"),
+                        "student_object": (work.get("student_video") or {}).get(
+                            "object_path"
+                        ),
                         "seconds": round(time.monotonic() - started, 1),
                     },
                     ensure_ascii=False,

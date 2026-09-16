@@ -59,14 +59,24 @@ jobs:
 
       - name: Download and verify the RF-DETR TensorRT engine
         run: |
-          # Built once on an L4 by build_rfdetr_engine.py and kept in GCS. The
-          # engine is tied to that GPU, and the detector looks it up by GPU
-          # name, so it is baked in at exactly the path it expects rather than
-          # rebuilt per cold start on a service that scales to zero.
-          mkdir -p badminton_analysis_ai/models/trt-engines
-          gcloud storage rsync --recursive \
-            gs://${{ env.GCS_BUCKET_NAME }}/models/rfdetr-trt-engines \
-            badminton_analysis_ai/models/trt-engines
+          # Built once on an L4 by build_rfdetr_engine.py and published to
+          # Artifact Registry as the generic artifact named in
+          # models/trt-engine.env. The engine is tied to that GPU, and the
+          # detector looks it up by GPU name, so it is baked in at exactly the
+          # path it expects rather than rebuilt per cold start on a service
+          # that scales to zero.
+          set -a
+          . badminton_analysis_ai/models/trt-engine.env
+          set +a
+          destination="badminton_analysis_ai/models/trt-engines/${TRT_ENGINE_SUBDIR}"
+          mkdir -p "${destination}"
+          gcloud artifacts generic download \
+            --location "${TRT_ENGINE_LOCATION}" \
+            --repository "${TRT_ENGINE_REPOSITORY}" \
+            --package "${TRT_ENGINE_PACKAGE}" \
+            --version "${TRT_ENGINE_VERSION}" \
+            --name "${TRT_ENGINE_FILENAME}" \
+            --destination "${destination}"
           cd badminton_analysis_ai/models/trt-engines
           sha256sum --check ../trt-engines.sha256
 

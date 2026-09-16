@@ -1,10 +1,8 @@
-from pathlib import Path
-
 import cv2
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.clear_feedback import (
+from badminton_analysis.ml.coaching_feedback import (
     sample_video_frames,
     prompt_context,
     system_instructions,

@@ -9,7 +9,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from badminton_analysis.ml.clear_feedback import (
+from badminton_analysis.ml.coaching_feedback import (
     RawSkillFeedbackAnalysis,
     RawSmashEvidenceAnalysis,
     SmashEvidenceAnalysis,

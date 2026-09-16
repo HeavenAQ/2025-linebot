@@ -8,7 +8,7 @@ from badminton_analysis.ml.expert_reference_bank import SkillSupport
 from service.pipeline import (
     SkeletonAnalysisPipeline,
     _correction_grade_context,
-    _qualitative_phase_results,
+    _rule_anchor_frames,
     _source_qualitative_phase_results,
     expert_phase_results,
 )
@@ -54,7 +54,6 @@ def test_serve_and_smash_backends_enable_ankle_spine_projection(
             "device": "auto",
             "candidates": 8,
             "seed": 19,
-            "generation_phase_contract": "eimd_v3",
             "align_ankle_spine_view": True,
             "current_smash": skill == Skill.SMASH,
         }
@@ -162,17 +161,13 @@ def test_skill_mismatch_stops_before_generation_and_rendering(
     assert not smash_backend.infer_called
 
 
-def test_serve_gpt_context_includes_full_body_transition_evidence() -> None:
+def test_serve_gpt_context_reports_backend_distance_components() -> None:
     spec = get_skill_spec("serve")
     diagnostics = {
         "correction_distance": 0.8,
         "position_distance": 0.4,
         "angle_distance": 0.1,
-        "velocity_distance": 0.1,
-        "bone_length_distance": 0.0,
-        "support_transition_distance": 0.3,
-        "torso_lean_transition_distance": 0.2,
-        "transition_distance": 0.265,
+        "scorer": "expert_only_identity_distribution_v6",
     }
     criteria = [
         (rule.name_zh_tw, 0.1 + index * 0.01, rule.maximum * 0.5)
@@ -183,9 +178,10 @@ def test_serve_gpt_context_includes_full_body_transition_evidence() -> None:
         {"total_grade": 45.0}, diagnostics, spec, criteria
     )
 
-    assert context["distance_components"]["support_transition_distance"] == 0.3
-    assert context["distance_components"]["torso_lean_transition_distance"] == 0.2
-    assert context["distance_components"]["transition_distance"] == 0.265
+    assert context["distance_components"] == {
+        "position_distance": 0.4,
+        "angle_distance": 0.1,
+    }
     assert "軀幹前傾" in context["score_method_zh_tw"]
 
 
@@ -206,25 +202,6 @@ def test_generated_expert_gpt_context_describes_expert_only_score() -> None:
     assert context["score_status"] == "expert_only_generated_distribution"
     assert "歐氏距離" in context["score_method_zh_tw"]
     assert "專家動作分布" in context["score_method_zh_tw"]
-
-
-def test_playback_timeline_uses_ordered_qualitative_skill_rules() -> None:
-    spec = get_skill_spec("smash")
-
-    timeline = _qualitative_phase_results(spec, sequence_length=64, fps=30.0)
-
-    assert [marker.id for marker in timeline] == [rule.id for rule in spec.rules]
-    assert [marker.label for marker in timeline] == [
-        "球拍舉至腰部預備",
-        "轉身",
-        "雙手手肘平衡",
-        "手肘往前轉至前方",
-        "手腕發力",
-        "慣用手肩膀往前轉",
-    ]
-    assert [marker.normalized_frame for marker in timeline] == sorted(
-        marker.normalized_frame for marker in timeline
-    )
 
 
 def test_source_playback_timeline_uses_analysis_clip_clock() -> None:
@@ -288,47 +265,12 @@ def test_follow_through_replay_uses_local_action_not_full_scoring_evidence():
     assert evidence["follow_through"]["source_interval"] == [12, 43]
 
 
-def test_lift_playback_timeline_has_four_qualitative_checkpoints() -> None:
-    spec = get_skill_spec("lift")
-    phases = (0, 15, 29, 41, 63)
-
-    timeline = _qualitative_phase_results(
-        spec,
-        phase_indices=phases,
-        sequence_length=64,
-        fps=30.0,
-    )
-
-    assert [marker.label for marker in timeline] == [
-        "球拍置於身前放鬆預備",
-        "持拍腳跨步並放鬆引拍",
-        "弓步穩定並以前臂手腕擊球",
-        "順勢隨揮並回復平衡",
-    ]
-    assert [marker.normalized_frame for marker in timeline] == [0, 29, 41, 63]
-
-
-def test_lift_playback_timeline_uses_lunge_and_follow_through_standard() -> None:
-    spec = get_skill_spec("lift")
-
-    assert [rule.name_zh_tw for rule in spec.rules] == [
-        "球拍置於身前放鬆預備",
-        "持拍腳跨步並放鬆引拍",
-        "弓步穩定並以前臂手腕擊球",
-        "順勢隨揮並回復平衡",
-    ]
-    assert spec.transition_joints == (11, 12, 13, 14, 15, 16)
-    assert spec.transition_weight > 0.0
-
-
 def test_expert_timeline_reuses_student_rule_anchors() -> None:
     spec = get_skill_spec("smash")
     phases = (0, 12, 30, 47, 63)
     phase_seconds = (1.0, 1.4, 2.0, 2.6, 3.1)
 
-    student = _qualitative_phase_results(
-        spec, phase_indices=phases, sequence_length=64, fps=30.0
-    )
+    student_frames = _rule_anchor_frames(spec, phases, 63)
     expert = expert_phase_results(
         spec,
         phase_indices=phases,
@@ -338,10 +280,8 @@ def test_expert_timeline_reuses_student_rule_anchors() -> None:
 
     # Marker i must be the same criterion on both sides, otherwise playback
     # would align a checkpoint against the wrong moment of the stroke.
-    assert [marker.id for marker in expert] == [marker.id for marker in student]
-    assert [marker.normalized_frame for marker in expert] == [
-        marker.normalized_frame for marker in student
-    ]
+    assert [marker.id for marker in expert] == [rule.id for rule in spec.rules]
+    assert [marker.normalized_frame for marker in expert] == student_frames
     assert expert[0].timestamp_seconds == 1.0
     assert expert[-1].timestamp_seconds == 3.1
 
@@ -381,7 +321,7 @@ def test_serve_expert_timeline_follows_scoring_order_not_stroke_order() -> None:
 
 
 def test_expert_timeline_timestamps_track_the_experts_own_tempo() -> None:
-    spec = get_skill_spec("clear")
+    spec = get_skill_spec("smash")
     phases = (0, 16, 32, 48, 63)
 
     # An expert who reaches impact early (1.2s into a 1.0-3.0s motion) must
@@ -398,7 +338,7 @@ def test_expert_timeline_timestamps_track_the_experts_own_tempo() -> None:
 
 
 def test_expert_timeline_rejects_mismatched_phase_timestamps() -> None:
-    spec = get_skill_spec("clear")
+    spec = get_skill_spec("smash")
 
     with pytest.raises(ValueError):
         expert_phase_results(
@@ -407,27 +347,3 @@ def test_expert_timeline_rejects_mismatched_phase_timestamps() -> None:
             phase_seconds=(1.0, 2.0),
             sequence_length=64,
         )
-
-
-def test_analysis_runs_pose_on_the_batched_tensorrt_path() -> None:
-    """The service must extract poses in batches, not frame by frame.
-
-    Only the batched path reaches the cached TensorRT engine; `process_frames`
-    runs RF-DETR in PyTorch a frame at a time, which is roughly an order of
-    magnitude slower on a GPU that is billed by the second. The two are
-    interchangeable at the call site, so nothing else would notice the swap --
-    hence this check on the source itself.
-    """
-    import ast
-    import pathlib
-
-    source = pathlib.Path(__file__).resolve().parents[1] / "service" / "pipeline.py"
-    tree = ast.parse(source.read_text())
-    called = {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-
-    assert "process_frames_batched" in called
-    assert "process_frames" not in called

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Mapping
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,8 +9,6 @@ from badminton_analysis.models.types import Skill
 
 SUPPORTED_CORRECTION_SKILLS = (
     Skill.SERVE,
-    Skill.LIFT,
-    Skill.CLEAR,
     Skill.SMASH,
 )
 
@@ -132,11 +128,6 @@ class SkillCorrectionSpec:
     details: tuple[CorrectionDetailSpec, ...]
     phase_windows: tuple[PhaseWindowSpec, ...]
     rules: tuple[FeedbackRuleSpec, ...]
-    transition_weight: float = 0.0
-    transition_joints: tuple[int, ...] = ()
-    transition_lean_joints: tuple[int, ...] = ()
-    transition_direction_joint: int | None = None
-    model_version: str = "v1"
 
     def __post_init__(self) -> None:
         if len(self.joint_weights) != 17:
@@ -153,43 +144,10 @@ class SkillCorrectionSpec:
             raise ValueError(
                 f"{self.skill} rules and correction details are misaligned"
             )
-        if self.transition_weight > 0.0 and (
-            not self.transition_joints or len(self.transition_lean_joints) != 4
-        ):
-            raise ValueError(
-                f"{self.skill} transition scoring requires support and torso joints"
-            )
-        if self.transition_direction_joint is not None and (
-            self.transition_weight <= 0.0
-            or self.transition_direction_joint not in self.transition_joints
-        ):
-            raise ValueError(
-                f"{self.skill} direction scoring requires a transition support joint"
-            )
 
     @property
     def slug(self) -> str:
         return str(self.skill)
-
-    @property
-    def model_stem(self) -> str:
-        return f"{self.slug}_expert_guided_{self.model_version}"
-
-    @property
-    def dataset_root(self) -> Path:
-        return Path("datasets/skeleton_sequences") / self.slug
-
-    @property
-    def model_path(self) -> Path:
-        return Path("models/skeleton_correction") / f"{self.model_stem}.pt"
-
-    @property
-    def training_metrics_dir(self) -> Path:
-        return Path("stats/skeleton_correction") / f"{self.model_stem}_training"
-
-    @property
-    def grading_output_dir(self) -> Path:
-        return Path("stats/skeleton_correction") / f"{self.model_stem}_grades"
 
     @property
     def joint_weights_array(self) -> NDArray[np.float64]:
@@ -200,70 +158,6 @@ class SkillCorrectionSpec:
             if rule.id == rule_id:
                 return rule
         raise KeyError(f"unknown {self.slug} feedback rule: {rule_id}")
-
-
-_CLEAR_RULES = (
-    FeedbackRuleSpec(
-        "preparation",
-        "球拍舉至腰部預備",
-        "preparation",
-        10,
-        "準備時將球拍舉至腰部，保持身體放鬆並準備轉身。",
-        (5, 6, 7, 8, 9, 10),
-        (6, 8, 10),
-        (0,),
-    ),
-    FeedbackRuleSpec(
-        "body_rotation",
-        "轉身",
-        "rotation",
-        10,
-        "引拍時先轉身，讓髖部與肩膀一起帶動身體。",
-        (5, 6, 11, 12, 13, 14, 15, 16),
-        (11, 12),
-        (1,),
-    ),
-    FeedbackRuleSpec(
-        "arm_balance",
-        "雙手手肘平衡",
-        "rotation",
-        20,
-        "轉身蓄力時雙手手肘保持平衡，非慣用手協助穩定身體。",
-        (5, 6, 7, 8, 9, 10),
-        (7, 8),
-        (1,),
-    ),
-    FeedbackRuleSpec(
-        "elbow_forward",
-        "手肘往前轉至前方",
-        "contact",
-        20,
-        "擊球前讓慣用手手肘往前轉到身體前方，再帶動前臂。",
-        (0, 6, 8, 10),
-        (6, 8),
-        (2,),
-    ),
-    FeedbackRuleSpec(
-        "wrist_flick",
-        "手腕發力",
-        "contact",
-        20,
-        "擊球瞬間用手腕發力，讓球拍快速向前通過擊球點。",
-        (6, 8, 10),
-        (8, 10),
-        (2,),
-    ),
-    FeedbackRuleSpec(
-        "follow_through",
-        "慣用手肩膀往前轉",
-        "follow_through",
-        20,
-        "隨揮時讓慣用側肩膀往前轉，並順勢帶動上半身向前。",
-        (5, 6, 8, 10, 11, 12),
-        (6,),
-        (3, 4),
-    ),
-)
 
 
 _SMASH_RULES = (
@@ -395,50 +289,6 @@ _SERVE_RULES = (
 )
 
 
-_LIFT_RULES = (
-    FeedbackRuleSpec(
-        "preparation",
-        "球拍置於身前放鬆預備",
-        "preparation",
-        15,
-        "準備時保持放鬆，球拍置於身前，雙腳維持可啟動的平衡姿勢。",
-        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (6, 8, 10, 12, 14, 16),
-        (0,),
-    ),
-    FeedbackRuleSpec(
-        "lunge_backswing",
-        "持拍腳跨步並放鬆引拍",
-        "backswing",
-        30,
-        "朝來球方向以持拍腳跨步，不可朝相反方向出腳；持拍手臂放鬆伸向擊球點並完成短引拍。",
-        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (8, 10, 12, 14, 16),
-        (1, 2),
-    ),
-    FeedbackRuleSpec(
-        "stable_contact",
-        "弓步穩定並以前臂手腕擊球",
-        "contact",
-        35,
-        "持拍腳形成穩定弓步並在擊球前落地，保持身體平衡，再以前臂旋轉與手腕發力將球拍送過擊球點。",
-        (5, 6, 8, 10, 11, 12, 13, 14, 15, 16),
-        (8, 10, 12, 14, 16),
-        (3,),
-    ),
-    FeedbackRuleSpec(
-        "balanced_follow_through",
-        "順勢隨揮並回復平衡",
-        "follow_through",
-        20,
-        "擊球後讓球拍依動量順勢隨揮，維持弓步與上半身平衡，再開始回復場地預備位置。",
-        (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
-        (6, 8, 10, 11, 12),
-        (4,),
-    ),
-)
-
-
 def _details(
     rules: tuple[FeedbackRuleSpec, ...],
     windows: tuple[tuple[float, float, tuple[int, ...] | None], ...],
@@ -452,73 +302,16 @@ def _details(
             end_fraction=end,
             joints=joints,
             metric=(
-                "full_transition"
-                if rule.id in {"weight_transfer", "lunge_backswing"}
-                else (
-                    "serve_follow_through_cross_body"
-                    if rule.id == "shoulder_rotation"
-                    else "window_distance"
-                )
+                "serve_follow_through_cross_body"
+                if rule.id == "shoulder_rotation"
+                else "window_distance"
             ),
         )
         for rule, (start, end, joints) in zip(rules, windows, strict=True)
     )
 
 
-_UPPER_BODY_WEIGHTS = (
-    0.5,
-    0.25,
-    0.25,
-    0.25,
-    0.25,
-    1.5,
-    2.0,
-    1.25,
-    3.0,
-    1.5,
-    4.0,
-    1.5,
-    1.5,
-    1.25,
-    1.25,
-    1.25,
-    1.25,
-)
-
-
 SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
-    Skill.CLEAR: SkillCorrectionSpec(
-        skill=Skill.CLEAR,
-        name_zh_tw="高遠球",
-        description_zh_tw="高遠球動作",
-        checkpoint_roles_zh_tw=(
-            "第0關鍵幀：準備動作與轉身起點",
-            "第1關鍵幀：轉身終點與雙手平衡",
-            "第2關鍵幀：手肘前轉與手腕發力",
-            "第3關鍵幀：隨揮候選畫面",
-            "第4關鍵幀：隨揮候選畫面與動作終點",
-        ),
-        joint_weights=_UPPER_BODY_WEIGHTS,
-        details=_details(
-            _CLEAR_RULES,
-            (
-                (0.0, 0.25, None),
-                (0.125, 0.5, (5, 6, 11, 12, 13, 14, 15, 16)),
-                (0.25, 0.625, (5, 7, 9, 6, 8, 10)),
-                (0.421875, 0.59375, (6, 8, 10)),
-                (0.375, 0.75, (6, 8, 10)),
-                (0.625, 1.0, None),
-            ),
-        ),
-        phase_windows=(
-            PhaseWindowSpec("preparation", 0.0, 0.25),
-            PhaseWindowSpec("rotation", 0.125, 0.5),
-            PhaseWindowSpec("contact", 0.421875, 0.59375),
-            PhaseWindowSpec("follow_through", 0.59375, 1.0),
-        ),
-        rules=_CLEAR_RULES,
-        model_version="v3",
-    ),
     Skill.SMASH: SkillCorrectionSpec(
         skill=Skill.SMASH,
         name_zh_tw="殺球",
@@ -616,60 +409,6 @@ SKILL_SPECS: dict[Skill, SkillCorrectionSpec] = {
             PhaseWindowSpec("follow_through", 0.75, 1.0),
         ),
         rules=_SERVE_RULES,
-        transition_weight=1.0,
-        transition_joints=(11, 12, 13, 14, 15, 16),
-        transition_lean_joints=(5, 6, 11, 12),
-    ),
-    Skill.LIFT: SkillCorrectionSpec(
-        skill=Skill.LIFT,
-        name_zh_tw="挑球",
-        description_zh_tw="挑球動作",
-        checkpoint_roles_zh_tw=(
-            "第0關鍵幀：球拍置於身前的平衡準備",
-            "第1關鍵幀：持拍腳啟動與放鬆伸拍",
-            "第2關鍵幀：持拍腳跨步與引拍終點",
-            "第3關鍵幀：弓步落地與擊球加速",
-            "第4關鍵幀：平衡隨揮與回復起點",
-        ),
-        joint_weights=(
-            0.5,
-            0.25,
-            0.25,
-            0.25,
-            0.25,
-            1.5,
-            2.5,
-            1.25,
-            3.5,
-            1.25,
-            4.5,
-            2.0,
-            2.5,
-            1.75,
-            2.5,
-            1.75,
-            2.5,
-        ),
-        details=_details(
-            _LIFT_RULES,
-            (
-                (0.0, 0.3125, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
-                (0.125, 0.6875, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
-                (0.5, 0.875, (5, 6, 8, 10, 11, 12, 13, 14, 15, 16)),
-                (0.6875, 1.0, (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)),
-            ),
-        ),
-        phase_windows=(
-            PhaseWindowSpec("preparation", 0.0, 0.3125),
-            PhaseWindowSpec("backswing", 0.1875, 0.625),
-            PhaseWindowSpec("contact", 0.5625, 0.875),
-            PhaseWindowSpec("follow_through", 0.75, 1.0),
-        ),
-        rules=_LIFT_RULES,
-        transition_weight=0.75,
-        transition_joints=(11, 12, 13, 14, 15, 16),
-        transition_lean_joints=(5, 6, 11, 12),
-        transition_direction_joint=16,
     ),
 }
 
@@ -683,41 +422,3 @@ def get_skill_spec(skill: Skill | str) -> SkillCorrectionSpec:
         raise ValueError(
             f"skeleton correction does not support {skill}; choose one of: {supported}"
         ) from exc
-
-
-def validate_checkpoint_spec(
-    checkpoint: Mapping[str, Any], spec: SkillCorrectionSpec
-) -> None:
-    checkpoint_skill = str(checkpoint.get("skill", "clear"))
-    if checkpoint_skill != spec.slug:
-        raise ValueError(
-            f"checkpoint skill is {checkpoint_skill}, but requested skill is "
-            f"{spec.slug}"
-        )
-    if "joint_weights" not in checkpoint:
-        if spec.skill == Skill.CLEAR:
-            return
-        raise ValueError(f"{spec.slug} checkpoint does not contain joint weights")
-    checkpoint_weights = np.asarray(checkpoint["joint_weights"], dtype=np.float64)
-    if checkpoint_weights.shape != (17,) or not np.allclose(
-        checkpoint_weights, spec.joint_weights_array
-    ):
-        raise ValueError(
-            f"{spec.slug} checkpoint joint weights do not match the current skill contract"
-        )
-    checkpoint_transition_weight = float(checkpoint.get("transition_weight", 0.0))
-    checkpoint_transition_joints = tuple(checkpoint.get("transition_joints", ()))
-    checkpoint_transition_lean_joints = tuple(
-        checkpoint.get("transition_lean_joints", ())
-    )
-    checkpoint_transition_direction_joint = checkpoint.get("transition_direction_joint")
-    if (
-        checkpoint_transition_weight != spec.transition_weight
-        or checkpoint_transition_joints != spec.transition_joints
-        or checkpoint_transition_lean_joints != spec.transition_lean_joints
-        or checkpoint_transition_direction_joint != spec.transition_direction_joint
-    ):
-        raise ValueError(
-            f"{spec.slug} checkpoint transition scoring does not match the current "
-            "skill contract"
-        )

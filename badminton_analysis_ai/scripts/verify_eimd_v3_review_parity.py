@@ -97,7 +97,7 @@ def _score_case(
     )
     start, end = preparation.bounds(len(correction.aligned_student_pose))
     correction, _ = align_expert_correction_to_ankle_spine_view(
-        correction, start=start, end=end, placement_mode="fixed"
+        correction, start=start, end=end
     )
     base_score = score_expert_correction(score_model, correction)
     if skill == "serve":
@@ -115,7 +115,7 @@ def _score_case(
                 bundle, current, candidates=candidates, seed=seed
             )
             scoring, _ = align_expert_correction_to_ankle_spine_view(
-                scoring, start=start, end=end, placement_mode="fixed"
+                scoring, start=start, end=end
             )
             scoring = _dual_window_scoring_correction(
                 correction, scoring, start=start, end=end

@@ -78,8 +78,6 @@ class _Pipeline:
             overall_feedback="保持動作連續。",
             coaching_problems=(),
             pause_seconds=2.0,
-            output_path=output_path,
-            skeleton_overlay_path=skeleton_overlay_path,
         )
 
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from badminton_analysis.ml.clear_feedback import (
+from badminton_analysis.ml.coaching_feedback import (
     RawSkillFeedbackAnalysis,
     SampledFrame,
     phase_for_frame,
@@ -66,20 +66,21 @@ def _correction_grade(spec, scores: tuple[float, ...]) -> dict:
 
 
 def test_fallback_coaching_uses_largest_weighted_point_deficit() -> None:
-    spec = get_skill_spec(Skill.LIFT)
-    correction_grade = _correction_grade(spec, (12.0, 24.0, 7.0, 16.0))
+    spec = get_skill_spec(Skill.SERVE)
+    # arms_raised has the lowest ratio, weight_transfer the largest deficit.
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 18.0, 10.0, 30.0, 20.0))
 
     analysis = CoachingGenerator._fallback_analysis(spec, correction_grade)
 
-    assert analysis["skill"] == "lift"
+    assert analysis["skill"] == "serve"
     assert analysis["language"] == "zh-TW"
     assert len(analysis["problems"]) == 1
     problem = analysis["problems"][0]
-    assert problem["rule_reference"] == "stable_contact"
-    assert problem["joint_ids"] == [8, 10, 12, 14, 16]
-    assert problem["feedback"] == spec.rule("stable_contact").calculation_zh_tw
+    assert problem["rule_reference"] == "weight_transfer"
+    assert problem["joint_ids"] == [5, 6, 11, 12, 15, 16]
+    assert problem["feedback"] == spec.rule("weight_transfer").calculation_zh_tw
     assert "度" not in problem["feedback"]
-    assert "7.0/35.0" in problem["evidence"]
+    assert "18.0/30.0" in problem["evidence"]
 
 
 def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
@@ -432,7 +433,7 @@ def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
 
 
 def test_normalize_analysis_accepts_exact_criterion_title_as_rule_reference() -> None:
-    spec = get_skill_spec(Skill.CLEAR)
+    spec = get_skill_spec(Skill.SMASH)
     correction_grade = _correction_grade(
         spec, (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
     )
@@ -474,7 +475,7 @@ def test_normalize_analysis_accepts_exact_criterion_title_as_rule_reference() ->
 def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
     monkeypatch, tmp_path: Path
 ) -> None:
-    spec = get_skill_spec(Skill.CLEAR)
+    spec = get_skill_spec(Skill.SMASH)
     scores = (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
     correction_grade = _correction_grade(spec, scores)
     parsed = RawSkillFeedbackAnalysis.model_validate(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -22,11 +22,6 @@ from badminton_analysis.ml.expert_phase_baseline import (
     align_expert_correction_to_ankle_spine_view,
     load_expert_phase_model,
     score_expert_correction,
-)
-from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-from badminton_analysis.ml.skeleton_scoring import (
-    TORSO_WIDTH_BONES,
-    project_stable_bone_lengths,
 )
 from badminton_analysis.ml.smash_expert_scoring import (
     SmashDistribution,
@@ -305,146 +300,6 @@ def _score_smash_correction(
     }
 
 
-_SERVE_CORRECTION_CHAINS: dict[str, tuple[int, ...]] = {
-    "arms_raised": (5, 6, 7, 8, 9, 10),
-    "racket_foot_weight": (11, 12, 13, 14, 15, 16),
-    "weight_transfer": (5, 6, 11, 12, 13, 14, 15, 16),
-    "hip_rotation": (5, 6, 11, 12, 13, 14, 15, 16),
-    "wrist_flick": (6, 8, 10),
-    "shoulder_rotation": (5, 6, 8, 10, 11, 12),
-}
-
-
-def _smooth_interval_weight(
-    frame_count: int, start: int, end: int, strength: float
-) -> NDArray[np.float32]:
-    values = np.zeros(frame_count, dtype=np.float32)
-    values[start:end] = np.float32(strength)
-    ramp = min(4, start, frame_count - end)
-    if ramp:
-        transition = 0.5 - 0.5 * np.cos(
-            np.linspace(0.0, np.pi, ramp + 2, dtype=np.float64)[1:-1]
-        )
-        values[start - ramp : start] = np.float32(strength) * transition
-        values[end : end + ramp] = np.float32(strength) * transition[::-1]
-    return values
-
-
-def apply_score_conditioned_correction(
-    correction: ExpertCorrection,
-    score: dict[str, Any],
-    spec: SkillCorrectionSpec,
-    *,
-    canonical_phase_indices: NDArray[np.integer],
-) -> ExpertCorrection:
-    """Apply generated motion only where expert-distribution evidence is weak.
-
-    Scoring and generation deliberately have separate responsibilities.  A
-    full-credit checkpoint is already a valid expert-distribution movement,
-    so replacing it with one stochastic diffusion style creates a false
-    visual correction (the crossing/missing green elbow case).  Deficient
-    checkpoints receive a smooth, chain-coherent blend toward the generated
-    expert motion.  This policy depends only on generic checkpoint scores, not
-    on filenames, cohorts, or human validation labels.
-    """
-    if spec.slug != "serve":
-        return correction
-    criteria = {str(item["rule_reference"]): item for item in score["criteria"]}
-
-    def blend(
-        student: NDArray[np.floating],
-        generated: NDArray[np.floating],
-        confidence: NDArray[np.floating],
-    ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-        frame_count = len(student)
-        alpha = np.zeros((frame_count, 17), dtype=np.float32)
-        root_alpha = np.zeros(frame_count, dtype=np.float32)
-        for detail, rule in zip(spec.details, spec.rules, strict=True):
-            item = criteria[rule.id]
-            maximum = max(float(item["maximum"]), 1e-8)
-            ratio = np.clip(
-                float(
-                    item.get(
-                        "raw_checkpoint_ratio",
-                        float(item["score"]) / maximum,
-                    )
-                ),
-                0.0,
-                1.0,
-            )
-            # A small no-op margin avoids imperceptible detector noise making
-            # a nominally correct green skeleton shimmer around the student.
-            strength = float(np.clip((0.98 - ratio) / 0.78, 0.0, 1.0))
-            if strength <= 0.0:
-                continue
-            start, end = detail.bounds(frame_count)
-            interval = _smooth_interval_weight(frame_count, start, end, strength)
-            joints = _SERVE_CORRECTION_CHAINS.get(
-                rule.id, tuple(detail.joints or rule.measured_joints)
-            )
-            alpha[:, list(joints)] = np.maximum(
-                alpha[:, list(joints)], interval[:, None]
-            )
-            if rule.id in {
-                "racket_foot_weight",
-                "weight_transfer",
-                "hip_rotation",
-            }:
-                root_alpha = np.maximum(root_alpha, interval)
-        if not np.any(alpha > 0.0):
-            return (
-                np.asarray(student, dtype=np.float32).copy(),
-                root_alpha,
-            )
-        placed = np.asarray(student, dtype=np.float32) + alpha[..., None] * (
-            np.asarray(generated, dtype=np.float32)
-            - np.asarray(student, dtype=np.float32)
-        )
-        placed = project_stable_bone_lengths(
-            student,
-            placed,
-            confidence,
-            # Shoulder and hip spans contract in the image when the player
-            # rotates away from the camera.  Treating those projected spans
-            # like rigid limb lengths forces a frontal clip median onto
-            # side-on frames and can tear the corrected torso/arms apart.
-            expert_length_bones=TORSO_WIDTH_BONES,
-            preserve_target_pelvis=True,
-            preserve_direction_chains=((5, 7, 9), (6, 8, 10)),
-        )
-        return placed, root_alpha
-
-    output_confidence = correction.student.confidence
-    corrected, root_alpha = blend(
-        correction.student.pose,
-        correction.corrected_pose,
-        output_confidence,
-    )
-    aligned_confidence = phase_align_sequence(
-        output_confidence,
-        correction.student.phase_indices,
-        canonical_indices=canonical_phase_indices,
-    )
-    aligned_corrected, aligned_root_alpha = blend(
-        correction.aligned_student_pose,
-        correction.aligned_corrected_pose,
-        aligned_confidence,
-    )
-    corrected_root = correction.student.root + root_alpha[:, None] * (
-        correction.corrected_root - correction.student.root
-    )
-    aligned_corrected_root = correction.aligned_student_root + aligned_root_alpha[
-        :, None
-    ] * (correction.aligned_corrected_root - correction.aligned_student_root)
-    return replace(
-        correction,
-        corrected_pose=corrected,
-        corrected_root=corrected_root.astype(np.float32),
-        aligned_corrected_pose=aligned_corrected,
-        aligned_corrected_root=aligned_corrected_root.astype(np.float32),
-    )
-
-
 @dataclass(frozen=True)
 class GeneratedMotionInference:
     grade: GradingOutcome
@@ -475,8 +330,6 @@ class ExpertMotionGeneratorBackend:
         candidates: int = 8,
         seed: int = 19,
         align_ankle_spine_view: bool = False,
-        hierarchical_placement_mode: Literal["fixed", "constrained"] = "fixed",
-        generation_phase_contract: Literal["current", "eimd_v3"] = "eimd_v3",
         current_smash: bool = False,
     ) -> None:
         if skill not in {Skill.SERVE, Skill.SMASH}:
@@ -494,23 +347,19 @@ class ExpertMotionGeneratorBackend:
             self.score_model_path
         )
         semantic_score_path = root / "expert_semantic_score_model.npz"
-        self.smash_semantic_score_model_path: Path | None = None
         self.smash_semantic_distribution: SmashDistribution | None = None
         self.smash_semantic_variant: SmashVariant | None = None
-        self.smash_trajectory_score_model_path: Path | None = None
         self.smash_trajectory_scorer: SmashTrajectoryScorer | None = None
         if skill == Skill.SMASH and semantic_score_path.exists():
             (
                 self.smash_semantic_distribution,
                 self.smash_semantic_variant,
             ) = load_smash_distribution(semantic_score_path)
-            self.smash_semantic_score_model_path = semantic_score_path
         trajectory_score_path = root / "expert_trajectory_score_model.npz"
         if skill == Skill.SMASH and trajectory_score_path.exists():
             self.smash_trajectory_scorer = load_smash_trajectory_scorer(
                 trajectory_score_path
             )
-            self.smash_trajectory_score_model_path = trajectory_score_path
         self.spec = self.score_model.spec
         expected_ids = tuple(rule.id for rule in self.spec.rules)
         model_ids = tuple(str(value) for value in self.score_model.criterion_ids)
@@ -524,12 +373,6 @@ class ExpertMotionGeneratorBackend:
         self.candidates = candidates
         self.seed = seed
         self.align_ankle_spine_view = align_ankle_spine_view
-        if hierarchical_placement_mode not in {"fixed", "constrained"}:
-            raise ValueError(
-                f"unsupported hierarchical placement mode: {hierarchical_placement_mode}"
-            )
-        self.hierarchical_placement_mode = hierarchical_placement_mode
-        self.generation_phase_contract = generation_phase_contract
         self.current_smash_scorer = None
         if current_smash and skill == Skill.SMASH:
             from badminton_analysis.ml.smash_current_runtime import CurrentSmashScorer
@@ -557,9 +400,7 @@ class ExpertMotionGeneratorBackend:
             filename,
             target_frames=self.target_frames,
             phase_contract=(
-                "current"
-                if self.current_smash_scorer is not None
-                else self.generation_phase_contract
+                "current" if self.current_smash_scorer is not None else "eimd_v3"
             ),
         )
 
@@ -580,7 +421,7 @@ class ExpertMotionGeneratorBackend:
             else self.prepare(tracking, handedness, filename)
         )
         scoring_sample = sample
-        if self.skill == Skill.SERVE and self.generation_phase_contract == "eimd_v3":
+        if self.skill == Skill.SERVE:
             scoring_sample, _, _ = prepare_expert_motion_sample(
                 tracking,
                 handedness,
@@ -611,7 +452,6 @@ class ExpertMotionGeneratorBackend:
                 correction,
                 start=view_start,
                 end=view_end,
-                placement_mode=self.hierarchical_placement_mode,
             )
         scoring_correction = correction
         if scoring_sample is not sample:
@@ -634,7 +474,6 @@ class ExpertMotionGeneratorBackend:
                     scoring_correction,
                     start=scoring_start,
                     end=scoring_end,
-                    placement_mode=self.hierarchical_placement_mode,
                 )
             scoring_correction = _dual_window_scoring_correction(
                 correction,
@@ -684,21 +523,6 @@ class ExpertMotionGeneratorBackend:
                 score_baseline=_score_smash_correction,
                 fps=fps,
             )
-        # EIMD-v3 is the approved visible motion.  The older score-conditioned
-        # blend was a presentation policy that could pull a valid generated
-        # follow-through back toward the learner (notably removing the serve
-        # forward lean).  Keep it only for the legacy/current generation
-        # contract; scoring itself has already completed above.
-        if (
-            self.generation_phase_contract == "current"
-            and self.current_smash_scorer is None
-        ):
-            correction = apply_score_conditioned_correction(
-                correction,
-                score,
-                self.spec,
-                canonical_phase_indices=self.bundle.canonical_phase_indices,
-            )
         criteria = score["criteria"]
         grade = GradingOutcome(
             total_grade=float(score["total_score"]),
@@ -741,10 +565,6 @@ class ExpertMotionGeneratorBackend:
             "student_data_used_for_training": False,
             "raw_expert_motion_score": float(score["total_score"]),
             "post_hoc_score_calibration_active": 0.0,
-            "skeleton_execution_provider": str(
-                next(self.bundle.network.parameters()).device
-            ),
-            "skeleton_tensorrt_active": 0.0,
             "current_smash_checkpoint_scorer_active": float(
                 self.current_smash_scorer is not None
             ),

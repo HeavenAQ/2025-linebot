@@ -123,15 +123,10 @@ def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path, select
             pass
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("Renderer attempted a second fit, EMA, or timeline warp")
+        raise AssertionError("Renderer attempted a second fit")
 
     monkeypatch.setattr(renderer.cv2, "VideoWriter", Writer)
-    for name in (
-        "_fit_affine",
-        "_align_smash_contact_timeline",
-        "_smooth_corrected_bbox_placement",
-    ):
-        monkeypatch.setattr(renderer, name, forbidden)
+    monkeypatch.setattr(renderer, "_fit_affine", forbidden)
     monkeypatch.setattr(
         renderer, "_draw_skeleton", lambda frame, pose, *args: drawn.append(pose.copy())
     )
@@ -146,7 +141,6 @@ def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path, select
             frames=[np.zeros((32, 32, 3), np.uint8) for _ in p],
             body_keypoints_2d=p,
             body_confidence_2d=np.ones((9, 17)),
-            original_landmarks=[{}] * 9,
         ),
         original=p[:5],
         corrected=p[:5],
@@ -154,12 +148,10 @@ def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path, select
         projected_corrected_pixels=q[: selected_end + 1],
         window=(0, 4, selected_end),
         handedness=Handedness.RIGHT,
-        skill=Skill.SMASH,
         filename="test.mp4",
         score=50,
         output_path=tmp_path / "video.mp4",
         fps=30,
-        fixed_hierarchical_placement=True,
     )
     assert len(written) == selected_end + 1
     np.testing.assert_array_equal(np.array(drawn[1::2]), q[: selected_end + 1])

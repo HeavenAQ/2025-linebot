@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 import re
-import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from badminton_analysis.ml.clear_feedback import (
-    DEFAULT_PHASE_INDICES,
+from badminton_analysis.ml.coaching_feedback import (
     SkillFeedbackAnalysis,
     phase_for_frame,
 )
-from badminton_analysis.ml.skeleton_scoring import ScoreCalibration
 from badminton_analysis.ml.skill_specs import (
     SUPPORTED_CORRECTION_SKILLS,
     get_skill_spec,
     motion_completion_bounds,
-    validate_checkpoint_spec,
 )
 from badminton_analysis.models.types import Skill
+
+PHASE_INDICES = (0, 20, 39, 51, 63)
 
 EXPECTED_CRITERIA = {
     Skill.SERVE: (
@@ -27,20 +25,6 @@ EXPECTED_CRITERIA = {
         "髖關節前旋",
         "持拍手手腕發力",
         "肩膀旋轉朝前",
-    ),
-    Skill.LIFT: (
-        "球拍置於身前放鬆預備",
-        "持拍腳跨步並放鬆引拍",
-        "弓步穩定並以前臂手腕擊球",
-        "順勢隨揮並回復平衡",
-    ),
-    Skill.CLEAR: (
-        "球拍舉至腰部預備",
-        "轉身",
-        "雙手手肘平衡",
-        "手肘往前轉至前方",
-        "手腕發力",
-        "慣用手肩膀往前轉",
     ),
     Skill.SMASH: (
         "球拍舉至腰部預備",
@@ -84,8 +68,6 @@ def test_each_supported_skill_has_an_independent_complete_contract() -> None:
         assert sum(rule.maximum for rule in spec.rules) == pytest.approx(100.0)
         assert sum(detail.maximum for detail in spec.details) == pytest.approx(100.0)
         assert len(spec.joint_weights) == 17
-        assert spec.dataset_root.name == spec.slug
-        assert spec.slug in spec.model_path.name
 
 
 def test_scoring_windows_scale_with_motion_completion() -> None:
@@ -111,15 +93,6 @@ def test_scoring_windows_scale_with_motion_completion() -> None:
 def test_rules_retain_qualitative_grader_instructions() -> None:
     expected_movements = {
         Skill.SERVE: ("雙手平舉", "持拍腳", "非持拍腳", "髖關節", "手腕", "肩膀"),
-        Skill.LIFT: ("球拍置於身前", "持拍腳跨步", "弓步", "順勢隨揮"),
-        Skill.CLEAR: (
-            "球拍舉至腰部",
-            "轉身",
-            "手肘保持平衡",
-            "手肘往前",
-            "手腕發力",
-            "肩膀往前",
-        ),
         Skill.SMASH: (
             "球拍舉至腰部",
             "轉身",
@@ -152,7 +125,7 @@ def test_feedback_schema_accepts_each_skill_contract(skill: Skill) -> None:
 
 
 def test_feedback_schema_rejects_a_criterion_from_another_skill() -> None:
-    payload = _feedback_payload(Skill.LIFT)
+    payload = _feedback_payload(Skill.SMASH)
     problem = payload["problems"][0]  # type: ignore[index]
     problem["title"] = "雙手平舉"  # type: ignore[index]
 
@@ -160,49 +133,15 @@ def test_feedback_schema_rejects_a_criterion_from_another_skill() -> None:
         SkillFeedbackAnalysis.model_validate(payload)
 
 
-def test_checkpoint_metadata_enforces_skill_separation() -> None:
-    lift = get_skill_spec(Skill.LIFT)
-    validate_checkpoint_spec(
-        {
-            "skill": "lift",
-            "joint_weights": list(lift.joint_weights),
-            "transition_weight": lift.transition_weight,
-            "transition_joints": list(lift.transition_joints),
-            "transition_lean_joints": list(lift.transition_lean_joints),
-            "transition_direction_joint": lift.transition_direction_joint,
-        },
-        lift,
-    )
-    with pytest.raises(ValueError, match="checkpoint skill"):
-        validate_checkpoint_spec(
-            {"skill": "serve", "joint_weights": list(lift.joint_weights)}, lift
-        )
-    with pytest.raises(ValueError, match="does not contain joint weights"):
-        validate_checkpoint_spec({"skill": "lift"}, lift)
-    assert lift.transition_direction_joint == 16
-
-
-def test_serve_contract_requires_full_body_transition_metadata() -> None:
+def test_serve_weight_transfer_uses_the_windowed_criterion_metric() -> None:
     serve = get_skill_spec(Skill.SERVE)
-    checkpoint = {
-        "skill": "serve",
-        "joint_weights": list(serve.joint_weights),
-        "transition_weight": serve.transition_weight,
-        "transition_joints": list(serve.transition_joints),
-        "transition_lean_joints": list(serve.transition_lean_joints),
+    metrics = {
+        rule.id: detail.metric
+        for detail, rule in zip(serve.details, serve.rules, strict=True)
     }
 
-    validate_checkpoint_spec(checkpoint, serve)
-    weight_transfer_detail = next(
-        detail for detail in serve.details if detail.name_zh_tw == "重心轉移至非持拍腳"
-    )
-    assert weight_transfer_detail.metric == "full_transition"
-    assert serve.transition_joints == (11, 12, 13, 14, 15, 16)
-    assert serve.transition_lean_joints == (5, 6, 11, 12)
-
-    checkpoint["transition_lean_joints"] = [11, 12, 15, 16]
-    with pytest.raises(ValueError, match="transition scoring"):
-        validate_checkpoint_spec(checkpoint, serve)
+    assert metrics["weight_transfer"] == "window_distance"
+    assert metrics["shoulder_rotation"] == "serve_follow_through_cross_body"
 
 
 def test_serve_follow_through_checks_forearm_near_opposite_neck() -> None:
@@ -218,8 +157,8 @@ def test_each_rule_anchor_has_its_declared_display_phase(skill: Skill) -> None:
     spec = get_skill_spec(skill)
     for rule in spec.rules:
         for anchor_index in rule.allowed_anchor_indices:
-            frame_index = DEFAULT_PHASE_INDICES[anchor_index]
-            assert phase_for_frame(frame_index, DEFAULT_PHASE_INDICES, spec) == (
+            frame_index = PHASE_INDICES[anchor_index]
+            assert phase_for_frame(frame_index, PHASE_INDICES, spec) == (
                 rule.display_phase or rule.phase
             )
 

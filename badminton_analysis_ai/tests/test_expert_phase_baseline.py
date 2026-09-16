@@ -6,10 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import badminton_analysis.ml.expert_motion_backend as expert_motion_backend
-from badminton_analysis.ml.expert_motion_backend import (
-    apply_score_conditioned_correction,
-)
 from badminton_analysis.ml.expert_phase_baseline import (
     _aggregate_qualitative_checkpoint_ratios,
     _criterion_components_for_spec,
@@ -23,23 +19,20 @@ from badminton_analysis.ml.expert_phase_baseline import (
     _serve_qualitative_pose_evidence,
     _serve_weight_transfer_components,
     _serve_wrist_action_components,
+    ExpertCorrection,
     ankle_spine_view_rotation,
-    apply_constrained_hierarchical_pose_placement,
     apply_fixed_hierarchical_pose_placement,
-    correct_student_motion,
-    discover_motion_samples,
     load_expert_phase_model,
     load_motion_sample,
     project_pose_to_student_view,
     shift_expert_body_chain_to_student_hip,
     shift_expert_body_chain_to_student_knee,
-    save_expert_phase_model,
     score_expert_correction,
-    train_expert_phase_model,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
 
 PHASES = np.asarray((0, 16, 32, 48, 63), dtype=np.int64)
+MODEL_ROOT = Path(__file__).resolve().parents[1] / "models/error_isolated_motion"
 
 
 def test_serve_checkpoint_aggregation_is_a_soft_conjunction() -> None:
@@ -185,42 +178,6 @@ def test_fixed_pose_placement_preserves_every_joint_velocity() -> None:
     )
 
 
-def test_constrained_pose_placement_tracks_smooth_root_without_deforming_arms() -> None:
-    corrected = _pose()
-    student = corrected.copy()
-    root_motion = np.column_stack(
-        (
-            0.18 * np.linspace(0.0, 1.0, len(student)),
-            0.04 * np.sin(np.linspace(0.0, np.pi, len(student))),
-        )
-    ).astype(np.float32)
-    student += root_motion[:, None]
-    # Deliberately request implausible knee/hip residuals. The placement may
-    # follow them only as far as the adjoining generated leg lengths allow.
-    student[:, :15, 0] += np.linspace(0.0, 0.5, len(student))[:, None]
-    student[:, :13, 1] -= np.linspace(0.0, 0.4, len(student))[:, None]
-
-    placed = apply_constrained_hierarchical_pose_placement(
-        student, corrected, start=0, end=24
-    )
-
-    # Every upper-body joint receives the same per-frame rigid shift, so arm
-    # vectors and therefore the generated arm correction are unchanged.
-    np.testing.assert_allclose(
-        placed[:, 10] - placed[:, 6],
-        corrected[:, 10] - corrected[:, 6],
-        atol=1e-6,
-    )
-    for moving, fixed in ((13, 15), (14, 16), (11, 13), (12, 14)):
-        original_length = np.linalg.norm(
-            corrected[:, moving] - corrected[:, fixed], axis=-1
-        )
-        placed_length = np.linalg.norm(placed[:, moving] - placed[:, fixed], axis=-1)
-        ratio = placed_length / original_length
-        assert float(np.min(ratio)) >= 0.85 - 1e-5
-        assert float(np.max(ratio)) <= 1.15 + 1e-5
-
-
 def _pose(offset: float = 0.0) -> np.ndarray:
     timeline = np.linspace(0.0, 1.0, 64, dtype=np.float32)
     pose = np.zeros((64, 17, 2), dtype=np.float32)
@@ -306,31 +263,42 @@ def test_loader_adapts_current_and_legacy_archives(tmp_path: Path) -> None:
     assert legacy_sample.identity_level == "archive_fallback"
 
 
-def test_expert_only_model_corrects_scores_and_round_trips(tmp_path: Path) -> None:
-    expert_dir = tmp_path / "experts"
-    student_dir = tmp_path / "beginners"
-    expert_dir.mkdir()
-    student_dir.mkdir()
-    for index, offset in enumerate((-0.05, 0.0, 0.05)):
-        _write_archive(
-            expert_dir / f"expert-{index}.npz",
-            schema="current",
-            skill="smash",
-            offset=offset,
-            subject_id=f"coach-{index}",
-        )
+def _expert_prior_correction(model, student) -> ExpertCorrection:
+    """Pair a learner sample with the model's first frozen expert motion."""
+    aligned_pose, _, aligned_root = _aligned(student)
+    expert_pose = model.expert_pose[0]
+    expert_root = aligned_root[:1] + model.expert_root[0] - model.expert_root[0, :1]
+    contacts = np.zeros((64, 2), dtype=np.float32)
+    return ExpertCorrection(
+        student=student,
+        aligned_student_pose=aligned_pose,
+        aligned_student_root=aligned_root,
+        aligned_corrected_pose=expert_pose,
+        aligned_corrected_root=expert_root,
+        corrected_pose=expert_pose,
+        corrected_root=expert_root,
+        aligned_corrected_contacts=contacts,
+        corrected_contacts=contacts,
+        expert_prototype_pose=expert_pose,
+        expert_prototype_root=expert_root,
+        reference_indices=np.zeros(1, dtype=np.int64),
+        reference_weights=np.ones(1, dtype=np.float32),
+        reference_distances=np.zeros(1, dtype=np.float32),
+    )
+
+
+def test_frozen_smash_model_scores_generated_correction(tmp_path: Path) -> None:
+    model = load_expert_phase_model(MODEL_ROOT / "smash/expert_score_model.npz")
+    student_path = tmp_path / "student.npz"
     _write_archive(
-        student_dir / "student.npz",
+        student_path,
         schema="current",
         skill="smash",
         offset=-0.25,
         subject_id="student-a",
     )
+    correction = _expert_prior_correction(model, load_motion_sample(student_path))
 
-    experts = discover_motion_samples(expert_dir, expected_skill="smash")
-    students = discover_motion_samples(student_dir, expected_skill="smash")
-    model, report = train_expert_phase_model(experts, skill="smash", top_k=2)
-    correction = correct_student_motion(model, students[0])
     grade = score_expert_correction(model, correction)
     custom_timing_grade = score_expert_correction(
         model,
@@ -338,29 +306,13 @@ def test_expert_only_model_corrects_scores_and_round_trips(tmp_path: Path) -> No
         canonical_phase_indices=np.asarray((0, 20, 42, 55, 63)),
     )
 
-    assert report["expert_samples"] == 3
-    assert len(report["held_out_expert_folds"]) == 3
-    assert correction.corrected_pose.shape == (64, 17, 2)
+    assert tuple(model.criterion_ids) == tuple(rule.id for rule in model.spec.rules)
     assert len(grade["criteria"]) == len(model.spec.rules)
     assert 0.0 <= grade["total_score"] <= 100.0
     assert 0.0 <= custom_timing_grade["total_score"] <= 100.0
-    assert {row["file"] for row in grade["references"]} <= {
-        path.name for path in expert_dir.glob("*.npz")
-    }
-
-    model_path = tmp_path / "model.npz"
-    save_expert_phase_model(model, model_path)
-    restored = load_expert_phase_model(model_path)
-    np.testing.assert_allclose(restored.expert_pose, model.expert_pose)
-    np.testing.assert_allclose(
-        restored.expert_foot_contacts,
-        model.expert_foot_contacts,
+    assert {row["file"] for row in grade["references"]} <= set(
+        str(value) for value in model.expert_files
     )
-    np.testing.assert_array_equal(
-        restored.expert_alignment_contracts,
-        model.expert_alignment_contracts,
-    )
-    assert restored.criterion_metric_version == model.criterion_metric_version
 
 
 def test_serve_weight_transfer_measures_body_over_feet_not_camera_motion() -> None:
@@ -628,19 +580,7 @@ def test_serve_expert_envelope_uses_acceleration_event_window() -> None:
 
 def test_serve_v6_score_is_independent_of_generated_motion_style(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expert_dir = tmp_path / "experts"
-    expert_dir.mkdir()
-    for index, offset in enumerate((-0.05, 0.0, 0.05)):
-        _write_archive(
-            expert_dir / f"expert-{index}.npz",
-            schema="current",
-            skill="serve",
-            offset=offset,
-            subject_id=f"coach-{index}",
-            root_motion=True,
-        )
     student_path = tmp_path / "student.npz"
     _write_archive(
         student_path,
@@ -649,13 +589,9 @@ def test_serve_v6_score_is_independent_of_generated_motion_style(
         subject_id="student-a",
         root_motion=True,
     )
-    model, _ = train_expert_phase_model(
-        discover_motion_samples(expert_dir, expected_skill="serve"),
-        skill="serve",
-        top_k=1,
-    )
+    model = load_expert_phase_model(MODEL_ROOT / "serve/expert_score_model.npz")
     student = load_motion_sample(student_path)
-    correction = correct_student_motion(model, student)
+    correction = _expert_prior_correction(model, student)
     distorted = replace(
         correction,
         aligned_student_pose=np.zeros_like(correction.aligned_student_pose),
@@ -709,57 +645,6 @@ def test_serve_v6_score_is_independent_of_generated_motion_style(
         for item in grade["criteria"]
     )
 
-    full_credit = {
-        **expected,
-        "criteria": [
-            {**item, "score": item["maximum"]} for item in expected["criteria"]
-        ],
-    }
-    preserved = apply_score_conditioned_correction(
-        correction,
-        full_credit,
-        get_skill_spec("serve"),
-        canonical_phase_indices=PHASES,
-    )
-    np.testing.assert_allclose(
-        preserved.corrected_pose, correction.student.pose, atol=0.0
-    )
-    np.testing.assert_allclose(
-        preserved.corrected_root, correction.student.root, atol=0.0
-    )
-
-    projected_width_arguments: list[tuple[tuple[int, int], ...]] = []
-    original_projector = expert_motion_backend.project_stable_bone_lengths
-
-    def record_projection_widths(*args: object, **kwargs: object) -> np.ndarray:
-        projected_width_arguments.append(
-            kwargs.get("expert_length_bones", ())  # type: ignore[arg-type]
-        )
-        return original_projector(*args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(
-        expert_motion_backend,
-        "project_stable_bone_lengths",
-        record_projection_widths,
-    )
-    deficient = {
-        **expected,
-        "criteria": [
-            {**item, "score": 0.0, "raw_checkpoint_ratio": 0.0}
-            for item in expected["criteria"]
-        ],
-    }
-    apply_score_conditioned_correction(
-        correction,
-        deficient,
-        get_skill_spec("serve"),
-        canonical_phase_indices=PHASES,
-    )
-    assert projected_width_arguments == [
-        expert_motion_backend.TORSO_WIDTH_BONES,
-        expert_motion_backend.TORSO_WIDTH_BONES,
-    ]
-
 
 def test_serve_completion_score_is_not_controlled_by_one_endpoint_frame() -> None:
     target = _pose()
@@ -790,27 +675,6 @@ def test_serve_completion_score_is_not_controlled_by_one_endpoint_frame() -> Non
 
     assert one_frame["completion_start_fraction"] == pytest.approx(0.875)
     assert one_frame["combined_distance"] < sustained["combined_distance"] * 0.35
-
-
-def test_rootless_serve_bank_is_rejected_for_full_body_correction(
-    tmp_path: Path,
-) -> None:
-    expert_dir = tmp_path / "experts"
-    expert_dir.mkdir()
-    for index, offset in enumerate((-0.05, 0.0, 0.05)):
-        _write_archive(
-            expert_dir / f"expert-{index}.npz",
-            schema="legacy",
-            skill="serve",
-            offset=offset,
-            subject_id=f"coach-{index}",
-        )
-    with pytest.raises(ValueError, match="global root motion"):
-        train_expert_phase_model(
-            discover_motion_samples(expert_dir, expected_skill="serve"),
-            skill="serve",
-            top_k=1,
-        )
 
 
 def test_contact_retarget_preserves_expert_support_foot_world_path() -> None:

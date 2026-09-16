@@ -5,8 +5,8 @@ The generator supplies an articulated correction for visualization.  This
 module grades observable checkpoint evidence in the detected motion itself so
 that a valid performer is not penalized for choosing a different expert style.
 
-All calibration statistics are fitted from expert RF-DETR skeletons.  Student
-poses and ratings are accepted only by the evaluation script, never here.
+The frozen distribution loaded here was calibrated from expert RF-DETR
+skeletons only; learner poses are scored against it but never fitted.
 """
 
 from __future__ import annotations
@@ -368,55 +368,6 @@ def aligned_smash_evidence(
     )
 
 
-def fit_smash_distribution(
-    evidence: NDArray[np.floating],
-    subject_ids: Sequence[str],
-    *,
-    policy: str = "identity_p10",
-) -> SmashDistribution:
-    matrix = np.asarray(evidence, dtype=np.float64)
-    subjects = np.asarray(subject_ids, dtype=np.str_)
-    if matrix.ndim != 2 or matrix.shape[1] != len(FEATURE_NAMES):
-        raise ValueError("smash evidence matrix has the wrong shape")
-    if len(subjects) != len(matrix) or not len(matrix):
-        raise ValueError("one expert subject id is required per evidence row")
-    identities = np.asarray(sorted(set(subjects.tolist())), dtype=np.str_)
-    subject_values = np.stack(
-        [np.median(matrix[subjects == identity], axis=0) for identity in identities]
-    )
-    clip_median = np.median(matrix, axis=0)
-    within_take_scale = 1.4826 * np.median(np.abs(matrix - clip_median[None]), axis=0)
-    if policy == "identity_p10":
-        lower = np.quantile(subject_values, 0.10, axis=0) - within_take_scale
-        upper = np.quantile(subject_values, 0.90, axis=0) + within_take_scale
-    elif policy == "identity_support":
-        lower = np.min(subject_values, axis=0) - within_take_scale
-        upper = np.max(subject_values, axis=0) + within_take_scale
-    elif policy == "clip_support":
-        lower = np.min(matrix, axis=0) - within_take_scale
-        upper = np.max(matrix, axis=0) + within_take_scale
-    else:
-        raise ValueError(f"unknown smash expert-envelope policy: {policy}")
-    identity_median = np.median(subject_values, axis=0)
-    scale = np.maximum.reduce(
-        (
-            identity_median - lower,
-            upper - identity_median,
-            within_take_scale,
-            0.10 * np.maximum(np.abs(identity_median), 0.30),
-            np.full(len(FEATURE_NAMES), 1e-3),
-        )
-    )
-    return SmashDistribution(
-        lower=lower,
-        upper=upper,
-        scale=scale,
-        subject_ids=identities,
-        subject_values=subject_values,
-        calibration_policy=policy,
-    )
-
-
 def _feature_deficiency(
     evidence: NDArray[np.floating], distribution: SmashDistribution
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
@@ -627,31 +578,6 @@ def score_smash_evidence(
             for name, value in zip(FEATURE_NAMES, values, strict=True)
         },
     }
-
-
-def save_smash_distribution(
-    distribution: SmashDistribution, variant: SmashVariant, path: str | Path
-) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        destination,
-        format_version=np.asarray(1, dtype=np.int64),
-        method=np.asarray("smash_expert_only_semantic_distribution_v1"),
-        feature_names=np.asarray(FEATURE_NAMES),
-        criterion_ids=np.asarray(CRITERION_IDS),
-        lower=distribution.lower,
-        upper=distribution.upper,
-        scale=distribution.scale,
-        subject_ids=distribution.subject_ids,
-        subject_values=distribution.subject_values,
-        calibration_policy=np.asarray(distribution.calibration_policy),
-        variant_name=np.asarray(variant.name),
-        decay=np.asarray(variant.decay, dtype=np.float64),
-        aggregation=np.asarray(variant.aggregation),
-        checkpoint_profile=np.asarray(variant.checkpoint_profile),
-        student_data_used_for_training_or_calibration=np.asarray(False),
-    )
 
 
 def load_smash_distribution(

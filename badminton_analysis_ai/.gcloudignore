@@ -1,5 +1,5 @@
-# Files and directories to exclude from upload to Cloud Build
-# This overrides .gitignore so we can include needed data files (e.g., stats/)
+# Files and directories to exclude from upload to Cloud Build.
+# gcloud reads this file instead of .gitignore.
 
 # VCS and editor junk
 .git
@@ -11,15 +11,8 @@ __pycache__/
 
 # Large or generated artifacts we don't need in the image
 output/
-uploads/
 expert_videos/
 test_videos/
 validation/
-yolo11m-pose.pt
 *.log
 logs/
-
-# Note: intentionally NOT ignoring stats/
-
-# Retired with the RTMW3D stack; nothing loads these engines.
-models/tensorrt-cache/

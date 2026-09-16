@@ -10,7 +10,6 @@ from badminton_analysis.ml.expert_phase_baseline import MotionSample
 from badminton_analysis.ml.skeleton_normalization import (
     estimate_foot_contacts,
     interpolate_pose_sequence,
-    landmark_dicts_to_array,
     tracking_body_arrays,
     normalize_skeleton_motion,
     refine_delayed_overhead_contact_phase_indices,
@@ -151,24 +150,6 @@ def _serve_motion_onset_interval(
     context = max(3, int(np.ceil(0.10 * max(acceleration - onset, 1))))
     search_start = min(detected_start, max(0, onset - context))
     return int(search_start), int(max(search_start, onset))
-
-
-def _serve_preparation_was_truncated(
-    *,
-    detected_start: int,
-    detected_peak: int,
-    raw_onset_start: int,
-    interpolated_onset_start: int,
-) -> bool:
-    """Require both observed and gap-filled evidence of a clipped start."""
-    required_interpolated_extension = max(
-        8,
-        int(np.ceil(0.25 * max(detected_peak - interpolated_onset_start, 1))),
-    )
-    return (
-        detected_start - raw_onset_start >= 4
-        and detected_start - interpolated_onset_start > required_interpolated_extension
-    )
 
 
 def _serve_shoulder_completion_phases(

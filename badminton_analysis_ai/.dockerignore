@@ -3,6 +3,4 @@
 ./test_videos
 ./output
 ./validation
-./uploads/
-./yolo11m-pose.pt
 *.log

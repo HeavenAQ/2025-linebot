@@ -159,7 +159,6 @@ _PARENT_CHILD_BONES = (
     (14, 16),
 )
 _STABILIZED_CHILD_CONFIDENCE = 0.5
-EXPERT_RECONSTRUCTED_CONFIDENCE = 0.2
 
 
 def _raise_confidence_for_bone_stabilized_joints(
@@ -442,8 +441,7 @@ def normalize_skeleton_motion(
     # bone's detected length can drift tens of percent frame-to-frame from
     # coordinate noise alone; smooth the jitter, then project onto stable
     # per-clip bone lengths so the stored skeleton (and anything trained
-    # against it) treats bone length as the anatomical constant it is. This
-    # mirrors the same fix in `tracking_to_normalized_sequence`'s live path.
+    # against it) treats bone length as the anatomical constant it is.
     from badminton_analysis.ml.skeleton_scoring import (
         TORSO_WIDTH_BONES,
         project_stable_bone_lengths,
@@ -677,49 +675,6 @@ def _dtw_segment_positions(
     positions[0] = 0.0
     positions[-1] = float(rows - 1)
     return np.maximum.accumulate(positions)
-
-
-def restore_phase_timing_dtw(
-    aligned_sequence: NDArray[np.floating],
-    aligned_source: NDArray[np.floating],
-    source_sequence: NDArray[np.floating],
-    phase_indices: NDArray[np.integer],
-    *,
-    joint_weights: NDArray[np.floating] | None = None,
-    canonical_indices: NDArray[np.integer] = CANONICAL_PHASE_INDICES,
-) -> NDArray[np.float32]:
-    """Restore timing with DTW inside each detected phase interval."""
-    values = np.asarray(aligned_sequence)
-    aligned = np.asarray(aligned_source)
-    source = np.asarray(source_sequence)
-    target_phases = np.asarray(phase_indices, dtype=np.int64)
-    canonical = np.asarray(canonical_indices, dtype=np.int64)
-    if values.shape != aligned.shape or aligned.shape != source.shape:
-        raise ValueError(
-            "aligned, source, and corrected sequences must have equal shapes"
-        )
-    if target_phases.shape != (5,) or canonical.shape != (5,):
-        raise ValueError("phase indices must contain five anchors")
-    if np.any(np.diff(target_phases) <= 0) or np.any(np.diff(canonical) <= 0):
-        raise ValueError("phase indices must be strictly increasing")
-    weights = (
-        np.ones(values.shape[1], dtype=np.float64)
-        if joint_weights is None
-        else np.asarray(joint_weights, dtype=np.float64)
-    )
-    sample_positions = np.zeros(len(values), dtype=np.float64)
-    for segment in range(4):
-        aligned_start, aligned_end = canonical[segment : segment + 2]
-        source_start, source_end = target_phases[segment : segment + 2]
-        local = _dtw_segment_positions(
-            aligned[aligned_start : aligned_end + 1],
-            source[source_start : source_end + 1],
-            weights,
-        )
-        sample_positions[source_start : source_end + 1] = aligned_start + local
-    sample_positions[target_phases] = canonical.astype(np.float64)
-    sample_positions = np.maximum.accumulate(sample_positions)
-    return _sample_sequence(values, sample_positions)
 
 
 def resample_detected_phase_indices(

@@ -5,14 +5,6 @@ from numpy.typing import NDArray
 
 # COCO has no explicit pelvis joint. ``-1`` means the midpoint of hips 11/12.
 COCO_PARENTS = (-1, 0, 0, 1, 2, -1, -1, 5, 6, 7, 8, -1, -1, 11, 12, 13, 14)
-COCO_CHAINS = (
-    (0, 1, 3),
-    (0, 2, 4),
-    (5, 7, 9),
-    (6, 8, 10),
-    (11, 13, 15),
-    (12, 14, 16),
-)
 
 _EPS = 1e-8
 
@@ -128,39 +120,6 @@ def _unit(values: NDArray[np.float64]) -> NDArray[np.float64]:
     )
 
 
-def body_frame_axes(sequence: NDArray[np.floating]) -> NDArray[np.float64]:
-    """Return rigid lateral/up axes from hips and shoulders for every frame."""
-    values = np.asarray(sequence, dtype=np.float64)
-    if values.ndim != 3 or values.shape[1] != 17 or values.shape[2] not in (2, 3):
-        raise ValueError("sequence must have shape (T, 17, 2|3)")
-    pelvis = implicit_pelvis(values)
-    shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
-    lateral = _unit(values[:, 6] - values[:, 5]) + _unit(values[:, 12] - values[:, 11])
-    up = _unit(shoulder_center - pelvis)
-    lateral -= np.sum(lateral * up, axis=-1, keepdims=True) * up
-    lateral = _unit(lateral)
-    if values.shape[-1] == 2:
-        perpendicular = np.stack((up[:, 1], -up[:, 0]), axis=-1)
-        # Choose chirality once, then unwrap it through time. Re-deciding the
-        # sign independently in every frame lets one detector-side
-        # shoulder/hip swap rotate the whole FK body by 180 degrees. In a 2D
-        # correction that is never an observable weight-transfer cue; it is a
-        # broken crossed skeleton. Temporal sign continuity preserves the
-        # initial physical side assignment without smoothing any joint angle.
-        initial_sign = (
-            1.0 if float(np.dot(perpendicular[0], lateral[0])) >= 0.0 else -1.0
-        )
-        lateral = perpendicular.copy()
-        lateral[0] *= initial_sign
-        for frame in range(1, len(lateral)):
-            if float(np.dot(lateral[frame], lateral[frame - 1])) < 0.0:
-                lateral[frame] *= -1.0
-        return np.stack((lateral, up), axis=-1)
-    depth = _unit(np.cross(lateral, up))
-    lateral = _unit(np.cross(up, depth))
-    return np.stack((lateral, up, depth), axis=-1)
-
-
 def _stable_torso_dimensions(
     sequence: NDArray[np.floating], confidence: NDArray[np.floating]
 ) -> tuple[float, float, float]:
@@ -217,95 +176,6 @@ def relative_projected_width_trajectory(
     return filled / stable
 
 
-def retarget_expert_body_local_rotations_fk(
-    student: NDArray[np.floating],
-    expert: NDArray[np.floating],
-    student_confidence: NDArray[np.floating],
-    expert_confidence: NDArray[np.floating],
-    *,
-    root_trajectory: NDArray[np.floating] | None = None,
-) -> NDArray[np.float32]:
-    """Transfer expert rotations in a torso-local frame, then run FK.
-
-    Coordinates from two independently filmed clips do not share a camera
-    frame. Copying raw bone vectors therefore transfers camera roll along with
-    technique. This representation removes each expert frame's torso
-    orientation, retains every expert joint direction relative to that torso,
-    and composes the expert's *relative* torso turn onto the student's initial
-    torso frame. It works directly in 2D as well as in lifted 3D; callers that
-    request a 2D pipeline never need to create or consume 3D coordinates.
-    """
-    source = np.asarray(student, dtype=np.float64)
-    reference = np.asarray(expert, dtype=np.float64)
-    source_observed = np.asarray(student_confidence, dtype=np.float64)
-    reference_observed = np.asarray(expert_confidence, dtype=np.float64)
-    if source.shape != reference.shape or source.ndim != 3:
-        raise ValueError("student and expert must have matching shape (T, 17, D)")
-    if source.shape[1] != 17 or source.shape[2] not in (2, 3):
-        raise ValueError("body-local rotation transfer requires shape (T, 17, 2|3)")
-    if source_observed.shape != source.shape[:2]:
-        raise ValueError("student_confidence must have shape (T, 17)")
-    if reference_observed.shape != source.shape[:2]:
-        raise ValueError("expert_confidence must have shape (T, 17)")
-
-    source_offsets = parent_offsets(source)
-    expert_offsets = parent_offsets(reference)
-    lengths = stable_parent_lengths(source, source_observed)
-    expert_norms = np.linalg.norm(expert_offsets, axis=-1, keepdims=True)
-    source_norms = np.linalg.norm(source_offsets, axis=-1, keepdims=True)
-    fallback = np.divide(
-        source_offsets,
-        source_norms,
-        out=np.zeros_like(source_offsets),
-        where=source_norms > _EPS,
-    )
-    valid = np.isfinite(expert_offsets).all(axis=-1) & (expert_norms[..., 0] > _EPS)
-    raw_directions = np.divide(
-        expert_offsets,
-        expert_norms,
-        out=np.zeros_like(expert_offsets),
-        where=expert_norms > _EPS,
-    )
-    directions = _fill_directions(raw_directions, valid, fallback)
-
-    expert_axes = body_frame_axes(reference)
-    student_axes = body_frame_axes(source)
-    # Columns are lateral/up(/depth) basis vectors in camera coordinates. Express each
-    # expert edge in that basis, then map it into a target basis whose initial
-    # orientation is the student's and whose temporal turn is the expert's.
-    expert_relative_turn = np.einsum("ij,tjk->tik", expert_axes[0].T, expert_axes)
-    target_axes = np.einsum("ij,tjk->tik", student_axes[0], expert_relative_turn)
-    local_directions = np.einsum("tjd,tdk->tjk", directions, expert_axes)
-    directions = np.einsum("tjk,tdk->tjd", local_directions, target_axes)
-    directions = _unit(directions)
-
-    if root_trajectory is None:
-        root = np.zeros((len(source), source.shape[-1]), dtype=np.float64)
-    else:
-        root = np.asarray(root_trajectory, dtype=np.float64)
-        if root.shape != (len(source), source.shape[-1]):
-            raise ValueError("root_trajectory must have shape (T, D)")
-
-    shoulder_width, hip_width, torso_height = _stable_torso_dimensions(
-        source, source_observed
-    )
-    lateral = target_axes[..., 0]
-    up = target_axes[..., 1]
-    shoulder_center = root + torso_height * up
-    output = np.empty_like(source)
-    output[:, 11] = root - 0.5 * hip_width * lateral
-    output[:, 12] = root + 0.5 * hip_width * lateral
-    output[:, 5] = shoulder_center - 0.5 * shoulder_width * lateral
-    output[:, 6] = shoulder_center + 0.5 * shoulder_width * lateral
-    rigid_joints = {5, 6, 11, 12}
-    for joint, parent in enumerate(COCO_PARENTS):
-        if joint in rigid_joints:
-            continue
-        anchor = root if parent < 0 else output[:, parent]
-        output[:, joint] = anchor + lengths[joint] * directions[:, joint]
-    return output.astype(np.float32)
-
-
 def retarget_expert_canonical_2d_fk(
     student: NDArray[np.floating],
     expert: NDArray[np.floating],
@@ -318,10 +188,9 @@ def retarget_expert_canonical_2d_fk(
 
     Skeleton archives are already root-centred, body-scale normalized, and
     rotated into the initial body frame by ``normalize_skeleton_motion``.
-    Re-basing the expert onto the student's initial torso a second time (as
-    ``retarget_expert_body_local_rotations_fk`` does) preserves the student's
-    global shoulder orientation and defeats visible shoulder-turn correction.
-    This variant copies every finite expert edge direction in the existing
+    Re-basing the expert onto the student's initial torso a second time would
+    preserve the student's global shoulder orientation and defeat visible
+    shoulder-turn correction. This transfer copies every finite expert edge direction in the existing
     shared canonical frame and changes only bone lengths to the student's
     stable anatomy.  Screen translation remains an explicit, separate input.
     """

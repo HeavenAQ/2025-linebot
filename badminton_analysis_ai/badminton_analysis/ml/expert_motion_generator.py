@@ -1,8 +1,8 @@
-"""Expert-only generative motion prior and personalized full-body inference.
+"""Motion-state features and post-processing shared by EIMD inference.
 
-Training is deliberately restricted to expert archives.  Student motion is
-used only after a checkpoint has been frozen, to obtain static morphology,
-preparation stance, phase timing, and the source camera transform.
+Encodes expert and learner poses as direction/root/contact states, and smooths,
+velocity-limits, and projects generated motion. Learner motion supplies only
+static morphology, preparation stance, phase timing, and the camera transform.
 """
 
 from __future__ import annotations
@@ -35,12 +35,10 @@ DIRECTION_DIM = JOINTS * 2
 ROOT_DIM = 2
 CONTACT_DIM = 2
 STATE_DIM = DIRECTION_DIM + ROOT_DIM + CONTACT_DIM
-MORPHOLOGY_DIM = JOINTS
 # Static coordinate/stance conditioning deliberately excludes face, arms,
 # elbows, and wrists. Those joints must come from the expert distribution so a
 # learner's missing hand raise cannot be preserved as a target constraint.
 STANCE_JOINTS = np.asarray((5, 6, 11, 12, 13, 14, 15, 16), dtype=np.int64)
-STANCE_DIM = len(STANCE_JOINTS) * 2
 CONDITIONING_POLICIES = ("selective", "full_pose", "morphology_only")
 _EPS = 1e-8
 _DOMINANT_SHOULDER = 6

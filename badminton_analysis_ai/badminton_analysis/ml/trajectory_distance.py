@@ -214,42 +214,6 @@ def smash_motion_manifold_feature(
     return np.concatenate((sampled.ravel(), derivative.ravel()))
 
 
-def fit_smash_motion_manifold(
-    expert_pose: NDArray[np.floating],
-    expert_subject_ids: Sequence[str],
-) -> SmashMotionManifold:
-    poses = np.asarray(expert_pose, dtype=np.float64)
-    subjects = np.asarray(tuple(expert_subject_ids))
-    if poses.ndim != 4 or poses.shape[1:] != (64, 17, 2):
-        raise ValueError("expert smash poses must have shape (N, 64, 17, 2)")
-    if len(subjects) != len(poses) or len(set(subjects.tolist())) < 2:
-        raise ValueError("smash manifold requires at least two expert identities")
-    features = np.stack([smash_motion_manifold_feature(pose) for pose in poses])
-    median = np.median(features, axis=0)
-    scale = np.maximum(
-        1.4826 * np.median(np.abs(features - median), axis=0),
-        0.03,
-    )
-    standardized = (features - median) / scale
-    held_out_distances = []
-    for index, subject in enumerate(subjects):
-        other_identity = standardized[subjects != subject]
-        distances = np.sqrt(
-            np.mean(np.square(other_identity - standardized[index]), axis=1)
-        )
-        held_out_distances.append(float(np.min(distances)))
-    held_out = np.asarray(held_out_distances, dtype=np.float64)
-    q80 = float(np.quantile(held_out, 0.80))
-    robust_scale = max(float(np.quantile(held_out, 0.95)) - q80, 0.5)
-    return SmashMotionManifold(
-        standardized_experts=standardized,
-        feature_median=median,
-        feature_scale=scale,
-        expert_q80=q80,
-        expert_scale=robust_scale,
-    )
-
-
 def smash_motion_manifold_distance(
     pose: NDArray[np.floating], manifold: SmashMotionManifold
 ) -> float:

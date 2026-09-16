@@ -1,14 +1,14 @@
+"""Rubric-bound GPT coaching: evidence frames, prompt, and response validation."""
+
 from __future__ import annotations
 
 import base64
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
 import cv2
-import pandas as pd
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -24,24 +24,7 @@ FeedbackPhase = str
 RuleReference = str
 CriterionName = str
 
-DEFAULT_PHASE_INDICES = (0, 20, 39, 51, 63)
-
 CANONICAL_JOINTS = CANONICAL_JOINTS_ZH_TW
-
-CLEAR_RULES = tuple(rule.as_prompt_dict() for rule in get_skill_spec(Skill.CLEAR).rules)
-
-RULE_CONTRACTS: dict[str, dict[str, Any]] = {
-    rule.id: {
-        "title": rule.name_zh_tw,
-        "phase": rule.phase,
-        "joint_ids": set(rule.measured_joints),
-    }
-    for rule in get_skill_spec(Skill.CLEAR).rules
-}
-
-COACHING_TARGET_JOINTS: dict[str, tuple[int, ...]] = {
-    rule.id: rule.coaching_joints for rule in get_skill_spec(Skill.CLEAR).rules
-}
 
 
 def maximum_feedback_problem_count(total_score: float) -> int:
@@ -137,10 +120,6 @@ class SmashEvidenceAnalysis(SkillFeedbackAnalysis):
     problems: list[SmashEvidenceProblem] = Field(max_length=3)
 
 
-class ClearFeedbackAnalysis(SkillFeedbackAnalysis):
-    skill: Literal["clear"] = "clear"
-
-
 @dataclass(frozen=True)
 class SampledFrame:
     frame_index: int
@@ -197,20 +176,11 @@ def feedback_frame_indices(phase_indices: Sequence[int]) -> tuple[int, ...]:
 
 def phase_for_frame(
     frame_index: int,
-    phase_indices: Sequence[int] = DEFAULT_PHASE_INDICES,
-    spec: SkillCorrectionSpec | None = None,
+    phase_indices: Sequence[int],
+    spec: SkillCorrectionSpec,
 ) -> FeedbackPhase:
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
-    _, anchor_1, anchor_2, anchor_3, _ = _validated_phase_indices(phase_indices)
-    if resolved_spec.skill == Skill.LIFT:
-        if frame_index < anchor_1:
-            return "preparation"
-        if frame_index < anchor_3:
-            return "backswing"
-        if frame_index <= anchor_3:
-            return "contact"
-        return "follow_through"
-    if resolved_spec.skill == Skill.SERVE:
+    _, anchor_1, anchor_2, _, _ = _validated_phase_indices(phase_indices)
+    if spec.skill == Skill.SERVE:
         if frame_index <= anchor_1:
             return "preparation"
         if frame_index < anchor_2:
@@ -230,61 +200,17 @@ def phase_for_frame(
 def checkpoint_role(
     frame_index: int,
     phase_indices: Sequence[int],
-    spec: SkillCorrectionSpec | None = None,
+    spec: SkillCorrectionSpec,
 ) -> str:
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
     anchors = _validated_phase_indices(phase_indices)
-    roles = dict(zip(anchors, resolved_spec.checkpoint_roles_zh_tw, strict=True))
+    roles = dict(zip(anchors, spec.checkpoint_roles_zh_tw, strict=True))
     return roles.get(frame_index, "關鍵幀之間的動作過渡畫面")
 
 
-def load_feedback_problems(
-    path: Path, spec: SkillCorrectionSpec | None = None
-) -> list[dict[str, Any]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    analysis_payload = payload.get("analysis", {})
-    if spec is not None:
-        validated_analysis = SkillFeedbackAnalysis.model_validate(analysis_payload)
-        if validated_analysis.skill != spec.slug:
-            raise ValueError(
-                f"feedback skill is {validated_analysis.skill}, but dataset skill is "
-                f"{spec.slug}"
-            )
-    problems = analysis_payload.get("problems")
-    if not isinstance(problems, list):
-        raise ValueError(f"feedback file has invalid analysis problems: {path}")
-    validated: list[dict[str, Any]] = []
-    for problem in problems:
-        if not isinstance(problem, dict):
-            raise ValueError("each feedback problem must be an object")
-        frame_index = int(problem.get("frame_index", -1))
-        joint_ids = problem.get("joint_ids")
-        if not 0 <= frame_index < 64:
-            raise ValueError(f"invalid feedback frame index: {frame_index}")
-        if not isinstance(joint_ids, list) or not joint_ids:
-            raise ValueError("feedback problem must include joint_ids")
-        if any(not 0 <= int(joint_id) < 17 for joint_id in joint_ids):
-            raise ValueError(f"invalid feedback joint IDs: {joint_ids}")
-        validated.append(problem)
-    return validated
-
-
-def load_feedback_display_score(path: Path) -> float | None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    value = payload.get("correction_total_score")
-    if value is None:
-        return None
-    score = float(value)
-    if not math.isfinite(score) or not 0.0 <= score <= 100.0:
-        raise ValueError(f"invalid feedback correction score: {value}")
-    return score
-
-
 def coaching_target_joint_ids(
-    rule_reference: str, spec: SkillCorrectionSpec | None = None
+    rule_reference: str, spec: SkillCorrectionSpec
 ) -> list[int]:
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
-    return list(resolved_spec.rule(rule_reference).coaching_joints)
+    return list(spec.rule(rule_reference).coaching_joints)
 
 
 def handedness_note_zh_tw(handedness: str | None) -> str:
@@ -303,60 +229,6 @@ def handedness_note_zh_tw(handedness: str | None) -> str:
     )
 
 
-def load_correction_grade_context(
-    grading_results_path: Path,
-    filename: str,
-    spec: SkillCorrectionSpec | None = None,
-) -> dict[str, Any]:
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
-    grading = pd.read_csv(grading_results_path)
-    rows = grading[grading["filename"] == filename]
-    if "label" in grading.columns:
-        student_rows = rows[rows["label"] == "beginners"]
-        if not student_rows.empty:
-            rows = student_rows
-    if rows.empty:
-        raise ValueError(
-            f"no correction-distance grade found for {filename} in "
-            f"{grading_results_path}"
-        )
-    row = rows.iloc[0]
-    criteria: list[dict[str, Any]] = []
-    for index, rule in enumerate(resolved_spec.rules, start=1):
-        criteria.append(
-            {
-                "name_zh_tw": rule.name_zh_tw,
-                "rule_reference": rule.id,
-                "score": float(row[f"detail_{index}_grade"]),
-                "maximum": rule.maximum,
-                "correction_distance": float(row[f"detail_{index}_distance"]),
-            }
-        )
-    component_names = (
-        "position_distance",
-        "angle_distance",
-        "velocity_distance",
-        "bone_length_distance",
-        "support_transition_distance",
-        "torso_lean_transition_distance",
-        "transition_distance",
-    )
-    return {
-        "score_method_zh_tw": (
-            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
-            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化"
-        ),
-        "total_score": float(row["total_grade"]),
-        "correction_distance": float(row["correction_distance"]),
-        "distance_components": {
-            name: float(row[name])
-            for name in component_names
-            if name in row.index and not pd.isna(row[name])
-        },
-        "criteria": criteria,
-    }
-
-
 def _encode_jpeg(frame: NDArray[Any], quality: int) -> tuple[bytes, str]:
     success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     if not success:
@@ -370,16 +242,15 @@ def sample_video_frames(
     video_path: Path,
     output_dir: Path,
     *,
-    phase_indices: Sequence[int] = DEFAULT_PHASE_INDICES,
+    phase_indices: Sequence[int],
     source_frame_indices: Sequence[int] | None = None,
-    spec: SkillCorrectionSpec | None = None,
+    spec: SkillCorrectionSpec,
     frame_indices: Sequence[int] | None = None,
     max_width: int = 640,
     jpeg_quality: int = 85,
     checkpoint_evidence: dict[str, Any] | None = None,
 ) -> list[SampledFrame]:
     phases = _validated_phase_indices(phase_indices)
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
     source_mapping = (
         tuple(range(64))
         if source_frame_indices is None
@@ -392,12 +263,12 @@ def sample_video_frames(
     )
     plan = [(int(index), source_mapping[int(index)], ()) for index in selected_frames]
     if checkpoint_evidence is not None:
-        if resolved_spec.skill != Skill.SMASH:
+        if spec.skill != Skill.SMASH:
             raise ValueError("scorer-owned checkpoint evidence is currently smash-only")
-        if set(checkpoint_evidence) != {rule.id for rule in resolved_spec.rules}:
+        if set(checkpoint_evidence) != {rule.id for rule in spec.rules}:
             raise ValueError("checkpoint evidence must cover all smash criteria")
         owned: dict[int, list[str]] = {}
-        for rule in resolved_spec.rules:
+        for rule in spec.rules:
             frames = checkpoint_evidence[rule.id]["output_frame_indices"]
             if not frames or any(type(frame) is not int for frame in frames):
                 raise ValueError(
@@ -455,18 +326,18 @@ def sample_video_frames(
                     source_frame_index=source_frame_index,
                     timestamp_seconds=source_frame_index / fps,
                     phase=(
-                        resolved_spec.rule(criterion_ids[0]).phase
+                        spec.rule(criterion_ids[0]).phase
                         if criterion_ids
-                        else phase_for_frame(frame_index, phases, resolved_spec)
+                        else phase_for_frame(frame_index, phases, spec)
                     ),
                     checkpoint_role_zh_tw=(
                         "評分區間證據："
                         + "、".join(
-                            resolved_spec.rule(reference).name_zh_tw
+                            spec.rule(reference).name_zh_tw
                             for reference in criterion_ids
                         )
                         if criterion_ids
-                        else checkpoint_role(frame_index, phases, resolved_spec)
+                        else checkpoint_role(frame_index, phases, spec)
                     ),
                     image_path=image_path,
                     data_url=data_url,
@@ -492,9 +363,8 @@ def prompt_context(
     *,
     phase_indices: Sequence[int],
     correction_grade: dict[str, Any],
-    spec: SkillCorrectionSpec | None = None,
+    spec: SkillCorrectionSpec,
 ) -> dict[str, Any]:
-    resolved_spec = spec or get_skill_spec(Skill.CLEAR)
     anchors = _validated_phase_indices(phase_indices)
     keypoints = sorted(
         advice.get("keypoints", []),
@@ -524,8 +394,8 @@ def prompt_context(
     required_priority_criteria = feedback_candidate_criteria[:maximum_problem_count]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
-        "skill": resolved_spec.slug,
-        "skill_name_zh_tw": resolved_spec.name_zh_tw,
+        "skill": spec.slug,
+        "skill_name_zh_tw": spec.name_zh_tw,
         "student": {
             "filename": advice.get("filename"),
             "handedness": advice.get("handedness"),
@@ -535,7 +405,7 @@ def prompt_context(
         "score_warning_zh_tw": (
             "分數由指定區間的骨架比較及已校準的動作規則共同決定；"
             "請依各項實際量測與可見影像解釋，不得將所有扣分都歸因於修正骨架距離。"
-            if resolved_spec.skill == Skill.SMASH
+            if spec.skill == Skill.SMASH
             else "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
             "分數決定哪些技術標準需要回饋；影像用來具體說明該項動作差距。"
         ),
@@ -545,7 +415,7 @@ def prompt_context(
         },
         "canonical_joint_ids_zh_tw": CANONICAL_JOINTS,
         "handedness_note_zh_tw": handedness_note_zh_tw(advice.get("handedness")),
-        "technical_criteria": [rule.as_prompt_dict() for rule in resolved_spec.rules],
+        "technical_criteria": [rule.as_prompt_dict() for rule in spec.rules],
         "maximum_problem_count": maximum_problem_count,
         "minimum_problem_count_when_nonempty": minimum_problem_count,
         "required_priority_criteria_when_nonempty": required_priority_criteria,
@@ -554,18 +424,18 @@ def prompt_context(
         "correction_distance_grade": correction_grade,
         "criterion_allowed_frames": {
             rule.name_zh_tw: criterion_evidence_frames(rule, samples, anchors)
-            for rule in resolved_spec.rules
+            for rule in spec.rules
         },
         "criterion_comparison_frames": {
             rule.name_zh_tw: (
                 [anchors[0], anchors[-1]]
-                if resolved_spec.skill == Skill.SERVE and rule.id == "weight_transfer"
+                if spec.skill == Skill.SERVE and rule.id == "weight_transfer"
                 else criterion_evidence_frames(rule, samples, anchors)
             )
-            for rule in resolved_spec.rules
+            for rule in spec.rules
         },
         "criterion_coaching_target_joint_ids": {
-            rule.name_zh_tw: list(rule.coaching_joints) for rule in resolved_spec.rules
+            rule.name_zh_tw: list(rule.coaching_joints) for rule in spec.rules
         },
         "model_priority_corrections_supporting_only": advice.get(
             "priority_corrections", []
@@ -578,10 +448,9 @@ def prompt_context(
 def build_response_input(
     context: dict[str, Any],
     samples: Sequence[SampledFrame],
-    spec: SkillCorrectionSpec | None = None,
+    spec: SkillCorrectionSpec,
 ) -> list[dict[str, Any]]:
-    resolved_spec = spec or get_skill_spec(str(context.get("skill", "clear")))
-    criterion_count = len(resolved_spec.rules)
+    criterion_count = len(spec.rules)
     maximum_problem_count = int(context.get("maximum_problem_count", 1))
     minimum_problem_count = int(context.get("minimum_problem_count_when_nonempty", 0))
     required_priority_criteria = list(
@@ -592,9 +461,9 @@ def build_response_input(
         {
             "type": "input_text",
             "text": (
-                f"請依照提供的{criterion_count}項{resolved_spec.name_zh_tw}技術標準"
+                f"請依照提供的{criterion_count}項{spec.name_zh_tw}技術標準"
                 "逐項分析這組依時間排序的動作畫面，不得只檢查其中一項。"
-                f"skill欄位必須填寫{resolved_spec.slug}。最多回報"
+                f"skill欄位必須填寫{spec.slug}。最多回報"
                 f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
                 f"只要低分優先項目非空，就必須回報至少{minimum_problem_count}項不同標準；"
                 f"必須逐項檢查並完整涵蓋低分優先項目{required_priority_criteria}，"
@@ -644,17 +513,16 @@ def validate_analysis_frames(
     analysis: SkillFeedbackAnalysis,
     samples: Sequence[SampledFrame],
     phase_indices: Sequence[int],
-    spec: SkillCorrectionSpec | None = None,
+    spec: SkillCorrectionSpec,
 ) -> None:
-    resolved_spec = spec or get_skill_spec(analysis.skill)
-    if analysis.skill != resolved_spec.slug:
+    if analysis.skill != spec.slug:
         raise ValueError(
-            f"feedback skill {analysis.skill} does not match {resolved_spec.slug}"
+            f"feedback skill {analysis.skill} does not match {spec.slug}"
         )
     anchors = _validated_phase_indices(phase_indices)
     allowed_by_rule = {
         rule.id: set(criterion_evidence_frames(rule, samples, anchors))
-        for rule in resolved_spec.rules
+        for rule in spec.rules
     }
     available = {sample.frame_index: sample for sample in samples}
     for problem in analysis.problems:
@@ -690,6 +558,3 @@ def system_instructions(spec: SkillCorrectionSpec) -> str:
 隨揮沿用最佳終點與起終肩寬比較，不加入未採用的幀平均或後續回退扣分。
 分數是系統量測，不是動作缺失的直接證明。若full_interval_visible為false、指定影像不足或量測標為無法評估，請明示限制，不能宣稱完整審閱所有區間；給出檢查建議，不能捏造左右側、角度數值或未看見的缺失。"""
     return instructions
-
-
-SYSTEM_INSTRUCTIONS = system_instructions(get_skill_spec(Skill.CLEAR))

@@ -1,1 +1,1 @@
-"""Production gRPC application around the skeleton-correction package."""
+"""Production gRPC analysis service for serve and smash videos."""

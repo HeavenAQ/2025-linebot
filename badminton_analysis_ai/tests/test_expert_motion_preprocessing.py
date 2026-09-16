@@ -6,7 +6,6 @@ from badminton_analysis.ml.expert_motion_preprocessing import (
     _serve_hip_minimum_start,
     _serve_eimd_v3_phases,
     _serve_motion_onset_interval,
-    _serve_preparation_was_truncated,
     _serve_shoulder_completion_phases,
 )
 from badminton_analysis.models.types import Handedness
@@ -147,32 +146,6 @@ def test_serve_motion_onset_is_mirror_invariant() -> None:
     )
 
     assert left_interval == right_interval
-
-
-def test_serve_truncation_gate_requires_raw_and_interpolated_evidence() -> None:
-    # Long preparation is visible both before and after interpolation.
-    assert _serve_preparation_was_truncated(
-        detected_start=90,
-        detected_peak=120,
-        raw_onset_start=67,
-        interpolated_onset_start=67,
-    )
-    # A detector gap hides part of the preparation, but raw motion still
-    # supplies a four-frame minimum of independent evidence.
-    assert _serve_preparation_was_truncated(
-        detected_start=64,
-        detected_peak=94,
-        raw_onset_start=56,
-        interpolated_onset_start=27,
-    )
-    # Do not replace a valid legacy contact anchor when a complete clip starts
-    # exactly at the detected preparation boundary.
-    assert not _serve_preparation_was_truncated(
-        detected_start=32,
-        detected_peak=62,
-        raw_onset_start=32,
-        interpolated_onset_start=32,
-    )
 
 
 def test_serve_contact_uses_across_body_direction_beyond_legacy_window() -> None:

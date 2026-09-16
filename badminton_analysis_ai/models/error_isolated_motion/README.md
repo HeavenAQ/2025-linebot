@@ -1,6 +1,6 @@
 # Frozen motion models and current scoring
 
-This tree contains inference-only code and frozen artifacts for serve and smash.
+This tree contains the frozen inference artifacts for serve and smash.
 Serve's generator, scoring, prompt, and display contract are unchanged by this port.
 The September smash scorer is selected explicitly by `service/pipeline.py`.
 
@@ -108,8 +108,9 @@ or authorize reporting its historical ICC as a new live-production measurement.
 
 ## SHA-256 manifest
 
-The new active smash semantic model is inside `checkpoint_scorer_v1/`.
-The root semantic model is retained for the explicit legacy API path only.
+The active smash semantic model is inside `checkpoint_scorer_v1/`. The root
+semantic model is loaded by the smash backend but not used for its grade, and
+is scored only by `scripts/verify_eimd_v3_review_parity.py`.
 
 | Skill | File | SHA-256 |
 |---|---|---|

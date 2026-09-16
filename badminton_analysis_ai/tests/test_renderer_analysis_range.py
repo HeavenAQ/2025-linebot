@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import service.renderer as renderer
-from badminton_analysis.models.types import Handedness, Skill
+from badminton_analysis.models.types import Handedness
 
 
 def test_correction_video_contains_only_the_scored_analysis_range(
@@ -47,24 +47,20 @@ def test_correction_video_contains_only_the_scored_analysis_range(
     renderer.render_correction_video(
         tracking={
             "frames": frames,
-            "original_landmarks": [{} for _ in frames],
             "body_keypoints_2d": detected,
             "body_confidence_2d": confidence,
             "hand_positions": [(0.0, 0.0) for _ in frames],
             "elbow_positions": [(0.0, 0.0) for _ in frames],
-            "time_intervals": [0.0 for _ in frames],
         },
         original=normalized,
         corrected=normalized,
         confidence=np.ones((3, 17), dtype=np.float32),
         window=(1, 2, 3),
         handedness=Handedness.RIGHT,
-        skill=Skill.SERVE,
         filename="fixture.mp4",
         score=100.0,
         output_path=tmp_path / "overlay.mp4",
         fps=30.0,
-        generated_full_body=True,
     )
 
     assert len(written) == 3

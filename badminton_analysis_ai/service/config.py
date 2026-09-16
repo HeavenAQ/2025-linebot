@@ -36,9 +36,7 @@ class Settings:
                     str(root / "models" / "error_isolated_motion"),
                 )
             ),
-            device=os.getenv(
-                "EXPERT_MOTION_DEVICE", os.getenv("SKELETON_DEVICE", "auto")
-            ),
+            device=os.getenv("EXPERT_MOTION_DEVICE", "auto"),
             openai_model=os.getenv("OPENAI_COACHING_MODEL", "gpt-5.6-terra"),
             coaching_pause_seconds=float(os.getenv("COACHING_PAUSE_SECONDS", "2.0")),
         )

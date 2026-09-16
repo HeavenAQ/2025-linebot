@@ -1,8 +1,9 @@
-"""Expert-only Error-Isolated Motion Diffusion (EIMD).
+"""Expert-only Error-Isolated Motion Diffusion (EIMD) inference.
 
-EIMD learns which joint-phase conditioning tokens are trustworthy by
-synthetically corrupting expert motions while retaining the clean expert
-sequence as the target. Learner data is never accepted by training functions.
+A frozen EIMD checkpoint, trained only on expert motion, weighs which
+joint-phase conditioning tokens of a learner's motion are trustworthy and
+samples a corrected expert motion from them. Bundles that declare learner
+training data are rejected on load.
 """
 
 from __future__ import annotations
@@ -28,7 +29,6 @@ from badminton_analysis.ml.expert_motion_generator import (
     _fk_from_directions,
     _unit,
     dominant_wrist_velocities,
-    expert_wrist_velocity_limit,
     limit_correction_wrist_velocity,
     motion_features,
     project_to_expert_motion_subspace,
@@ -53,8 +53,6 @@ from badminton_analysis.ml.skeleton_normalization import (
     restore_phase_timing,
 )
 
-CONDITION_PHASES = 4
-CORRUPTION_TYPES = ("rotation", "occlusion", "reflection", "phase_shift")
 _EPS = 1e-8
 
 
@@ -128,9 +126,6 @@ def condition_phase_bounds(
     return tuple(
         (int(start), int(end)) for start, end in zip(starts, ends, strict=True)
     )
-
-
-CONDITION_PHASE_BOUNDS = condition_phase_bounds(CANONICAL_PHASE_INDICES)
 
 
 def stabilize_phase_timing(

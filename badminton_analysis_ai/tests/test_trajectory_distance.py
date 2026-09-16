@@ -7,23 +7,27 @@ from badminton_analysis.ml.trajectory_distance import (
     constrained_dtw_cost,
     corrected_motion_distance,
     expert_residual_ratio,
+    SmashMotionManifold,
     fit_serve_angle_manifold,
-    fit_smash_motion_manifold,
     serve_angle_manifold_distance,
     smash_motion_manifold_distance,
+    smash_motion_manifold_feature,
 )
 
 
-def test_smash_motion_manifold_uses_signed_motion_and_other_identities() -> None:
-    base = np.repeat(_pose(), 4, axis=0)
-    experts = np.stack([base.copy() for _ in range(4)])
-    for index in range(4):
-        experts[index, :, 10, 0] += 0.04 * index
-    subjects = ("a", "a", "b", "b")
-    manifold = fit_smash_motion_manifold(experts, subjects)
+def test_smash_motion_manifold_distance_uses_signed_motion() -> None:
+    expert = np.repeat(_pose(), 4, axis=0)
+    feature = smash_motion_manifold_feature(expert)
+    manifold = SmashMotionManifold(
+        standardized_experts=np.zeros((1, len(feature))),
+        feature_median=feature,
+        feature_scale=np.full(len(feature), 0.03),
+        expert_q80=0.0,
+        expert_scale=0.5,
+    )
 
-    assert smash_motion_manifold_distance(experts[0], manifold) == pytest.approx(0.0)
-    reversed_motion = experts[0].copy()
+    assert smash_motion_manifold_distance(expert, manifold) == pytest.approx(0.0)
+    reversed_motion = expert.copy()
     reversed_motion[:, :, 0] *= -1.0
     assert smash_motion_manifold_distance(reversed_motion, manifold) > 0.1
 

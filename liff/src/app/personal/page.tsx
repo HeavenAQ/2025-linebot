@@ -23,6 +23,7 @@ import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
 import { useSkillSummary } from '@/lib/useSkillSummary'
 import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
+import { dailyBestScores } from '@/lib/dailyBest'
 import SkillSummary from '@/components/SkillSummary'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
@@ -36,8 +37,18 @@ const TAB_OPTIONS = [
 type TabValue = (typeof TAB_OPTIONS)[number]['value']
 
 const chartConfig = {
-  totalGrade: { label: '總分', color: 'hsl(var(--chart-1))' }
+  totalGrade: { label: '最高分', color: 'hsl(var(--chart-1))' }
 } satisfies ChartConfig
+
+/**
+ * Horizontal room each day gets on the trend chart. Past a phone screen's worth
+ * of days the chart grows wider than its card and scrolls instead of squeezing
+ * a semester of points into unreadable ticks.
+ */
+const TREND_DAY_WIDTH = 56
+/** Shared by the pinned score axis and the scrolling chart so the scales align. */
+const TREND_MARGIN = { top: 8, right: 0, bottom: 0, left: 0 }
+const TREND_X_AXIS_HEIGHT = 30
 
 /** Sort the "YYYY-MM-DD-HH-mm" keys chronologically. */
 const chronological = (a: string, b: string) => {
@@ -207,9 +218,13 @@ export default function PersonalPage() {
     const resume = () => {
       if (!document.hidden && !inFlight) {
         inFlight = true
-        void fetchUserDataSafe(profile.userId).then(result => {
-          if (!cancelled && result.ok) setUserData(result.data)
-        }).finally(() => { inFlight = false })
+        void fetchUserDataSafe(profile.userId)
+          .then(result => {
+            if (!cancelled && result.ok) setUserData(result.data)
+          })
+          .finally(() => {
+            inFlight = false
+          })
       }
     }
     const timer = window.setInterval(resume, 5000)
@@ -237,6 +252,17 @@ export default function PersonalPage() {
         )
       }))
   }, [selectedSkill, userData])
+
+  /** The trend chart plots each practice day once, at that day's best score. */
+  const dailyTrend = useMemo(() => dailyBestScores(trend), [trend])
+
+  // Open the chart on the most recent days, where a student looks first; the
+  // older ones stay a swipe to the left.
+  const trendScroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const scroller = trendScroller.current
+    if (scroller) scroller.scrollLeft = scroller.scrollWidth
+  }, [activeTab, dailyTrend])
 
   useEffect(() => {
     if (activeTab !== 'comparison' || !profile?.userId || !selectedDate) {
@@ -387,42 +413,84 @@ export default function PersonalPage() {
               <Criteria details={details} />
             </section>
 
-            {trend.length > 1 && (
+            {dailyTrend.length > 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{SkillNameMap[selectedSkill]} 歷次總分</CardTitle>
+                  <CardTitle>{SkillNameMap[selectedSkill]} 每日最高分</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig}>
-                    <LineChart
-                      accessibilityLayer
-                      data={trend}
-                      width={500}
-                      height={500}
-                      margin={{ left: -16, right: 10, top: 6 }}
+                  {/* The score axis stays put while the days scroll beside it,
+                      so a point far back in the semester can still be read. Both
+                      charts share a height and margins so their scales line up. */}
+                  <div className="flex">
+                    <ChartContainer config={chartConfig} className="aspect-auto h-56 w-9 shrink-0">
+                      <LineChart data={dailyTrend} margin={TREND_MARGIN}>
+                        <XAxis
+                          dataKey="day"
+                          tick={false}
+                          tickLine={false}
+                          axisLine={false}
+                          height={TREND_X_AXIS_HEIGHT}
+                        />
+                        <YAxis
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          domain={[0, 100]}
+                          fontSize={11}
+                        />
+                      </LineChart>
+                    </ChartContainer>
+                    <div
+                      ref={trendScroller}
+                      className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain pb-1"
+                      aria-label="每日最高分趨勢，可左右滑動"
                     >
-                      <CartesianGrid vertical={false} strokeDasharray="3 4" />
-                      <XAxis
-                        dataKey="date"
-                        type="category"
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={10}
-                        tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')}
-                        fontSize={11}
-                      />
-                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
-                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                      <Line
-                        dataKey="totalGrade"
-                        type="monotone"
-                        stroke="var(--color-totalGrade)"
-                        strokeWidth={2}
-                        dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
-                        activeDot={{ r: 5 }}
-                      />
-                    </LineChart>
-                  </ChartContainer>
+                      <div
+                        style={{
+                          width: `max(100%, ${dailyTrend.length * TREND_DAY_WIDTH}px)`
+                        }}
+                      >
+                        <ChartContainer config={chartConfig} className="aspect-auto h-56 w-full">
+                          <LineChart accessibilityLayer data={dailyTrend} margin={TREND_MARGIN}>
+                            <CartesianGrid vertical={false} strokeDasharray="3 4" />
+                            <XAxis
+                              dataKey="day"
+                              type="category"
+                              interval={0}
+                              height={TREND_X_AXIS_HEIGHT}
+                              padding={{ left: 16, right: 16 }}
+                              tickLine={false}
+                              axisLine={false}
+                              tickMargin={10}
+                              tickFormatter={(value: string) => value.slice(5).replace('-', '/')}
+                              fontSize={11}
+                            />
+                            <YAxis hide domain={[0, 100]} />
+                            <ChartTooltip
+                              cursor={false}
+                              content={
+                                <ChartTooltipContent
+                                  labelFormatter={(_, payload) =>
+                                    String(payload?.[0]?.payload?.day ?? '').replaceAll('-', '/')
+                                  }
+                                />
+                              }
+                            />
+                            <Line
+                              dataKey="totalGrade"
+                              type="monotone"
+                              stroke="var(--color-totalGrade)"
+                              strokeWidth={2}
+                              dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
+                              activeDot={{ r: 5 }}
+                              isAnimationActive={false}
+                            />
+                          </LineChart>
+                        </ChartContainer>
+                      </div>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             )}

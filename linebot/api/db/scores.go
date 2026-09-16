@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 )
@@ -58,6 +57,9 @@ func learningHistory(user *UserData, limit int) []commons.SkillHistory {
 func recentSkillScores(portfolio map[string]Work, limit int) []commons.SkillScore {
 	scores := make([]commons.SkillScore, 0, len(portfolio))
 	for key, work := range portfolio {
+		if work.AnalysisStatus != "" && work.AnalysisStatus != "completed" {
+			continue
+		}
 		scores = append(scores, commons.SkillScore{
 			Date:        key,
 			TotalGrade:  work.GradingOutcome.TotalGrade,
@@ -69,8 +71,8 @@ func recentSkillScores(portfolio map[string]Work, limit int) []commons.SkillScor
 	// Newest first. Keys that predate the current layout sort last rather than
 	// failing the whole lookup, since a summary is still worth producing.
 	sort.Slice(scores, func(i, j int) bool {
-		left, leftErr := time.Parse(workKeyLayout, scores[i].Date)
-		right, rightErr := time.Parse(workKeyLayout, scores[j].Date)
+		left, leftErr := ParseWorkTime(scores[i].Date)
+		right, rightErr := ParseWorkTime(scores[j].Date)
 		switch {
 		case leftErr == nil && rightErr == nil:
 			return left.After(right)

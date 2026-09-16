@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -82,6 +83,14 @@ func (r *fakeObjectRef) Delete(ctx context.Context) error {
 	return nil
 }
 func (r *fakeObjectRef) ObjectName() string { return r.name }
+
+func (r *fakeObjectRef) NewReader(ctx context.Context) (io.ReadCloser, error) {
+	obj, ok := r.bucket.objects[r.name]
+	if !ok {
+		return nil, gcs.ErrObjectNotExist
+	}
+	return io.NopCloser(bytes.NewReader(obj.data)), nil
+}
 
 func (r *fakeObjectRef) Attrs(ctx context.Context) (*gcs.ObjectAttrs, error) {
 	if _, ok := r.bucket.objects[r.name]; !ok {

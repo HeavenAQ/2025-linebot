@@ -36,6 +36,7 @@ from badminton_analysis.services.video_processor import VideoProcessor
 
 from service.renderer import render_correction_video, source_fps, source_frame_rate
 from service.coaching import CoachingGenerator
+from service.pose_batcher import PoseBatcher
 
 LOGGER = logging.getLogger("badminton-analysis")
 
@@ -458,6 +459,7 @@ class SkeletonAnalysisPipeline:
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
+        self.pose_batcher = PoseBatcher(self.pose_detector, self.lock)
         self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
         self.pause_seconds = pause_seconds
@@ -492,6 +494,14 @@ class SkeletonAnalysisPipeline:
     def loaded_skills(self) -> tuple[Skill, ...]:
         return tuple(self.backends)
 
+    def warmup(self):
+        with self.lock:
+            if not getattr(self, "_warmed", False):
+                self.pose_detector.get_poses_batch(
+                    [np.zeros((480, 640, 3), dtype=np.uint8)]
+                )
+                self._warmed = True
+
     def analyze(
         self,
         *,
@@ -513,70 +523,73 @@ class SkeletonAnalysisPipeline:
                 video_path,
                 output_path.with_name(output_path.stem + ".source-30fps.mp4"),
             )
+        pose_started = time.perf_counter()
+        processor = VideoProcessor(
+            str(video_path),
+            filename,
+            str(output_path.parent),
+            self.pose_batcher.request_detector(),
+        )
+        # Batched, so the pose pass runs on the cached TensorRT engine
+        # rather than frame-by-frame in PyTorch. A request arrives with the
+        # whole video already uploaded, so there is nothing to stream: the
+        # constraint that kept the batched path to offline extraction --
+        # needing the frames up front -- does not apply here. Both paths
+        # pick the same person the same way and record through the same
+        # getters; this one is roughly an order of magnitude faster per
+        # frame, which on a GPU billed by the second is the whole point.
+        tracking = processor.process_frames_batched(None)
+        pose_finished = time.perf_counter()
+        handedness = _resolve_handedness(tracking, requested_handedness)
+        _populate_dominant_motion(tracking, handedness)
+        backend = self.backends[skill]
+        # The request label is untrusted.  Validate it against expert-only
+        # temporal support after pose/handedness extraction and before the
+        # requested generator can steer itself from an out-of-distribution
+        # phase sequence. The independently frozen label-support bank
+        # retains its EIMD-v3 windows; grading uses its own matched contract.
+        prepared = backend.prepare(tracking, handedness, filename)
+        support_prepared = (
+            backend.prepare_skill_support(tracking, handedness, filename)
+            if hasattr(backend, "prepare_skill_support")
+            else prepared
+        )
+        alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+        try:
+            alternative = self.backends[alternative_skill]
+            support_prepare = getattr(
+                alternative, "prepare_skill_support", alternative.prepare
+            )
+            alternative_prepared = support_prepare(tracking, handedness, filename)
+        except ValueError as exc:
+            # This is a conservative rejection-only guard. If the other
+            # stroke cannot form a valid five-phase hypothesis, it has not
+            # won temporal support and the requested analysis continues.
+            alternative_prepared = None
+            LOGGER.info(
+                "alternative skill hypothesis unavailable requested=%s "
+                "alternative=%s error=%s",
+                skill,
+                alternative_skill,
+                exc,
+            )
+        skill_support = (
+            self.expert_bank.temporal_skill_support(
+                support_prepared[0].pose,
+                alternative_prepared[0].pose,
+                requested_skill=str(skill),
+            )
+            if alternative_prepared is not None
+            else None
+        )
+        if skill_support is not None and skill_support.mismatch:
+            raise SkillMismatchError(
+                f"requested {skill_support.requested_skill} conflicts with "
+                f"{skill_support.alternative_skill} temporal motion support "
+                f"(advantage={skill_support.alternative_advantage:.6f}, "
+                f"margin={skill_support.rejection_margin:.6f})"
+            )
         with self.lock:
-            pose_started = time.perf_counter()
-            processor = VideoProcessor(
-                str(video_path), filename, str(output_path.parent), self.pose_detector
-            )
-            # Batched, so the pose pass runs on the cached TensorRT engine
-            # rather than frame-by-frame in PyTorch. A request arrives with the
-            # whole video already uploaded, so there is nothing to stream: the
-            # constraint that kept the batched path to offline extraction --
-            # needing the frames up front -- does not apply here. Both paths
-            # pick the same person the same way and record through the same
-            # getters; this one is roughly an order of magnitude faster per
-            # frame, which on a GPU billed by the second is the whole point.
-            tracking = processor.process_frames_batched(None)
-            pose_finished = time.perf_counter()
-            handedness = _resolve_handedness(tracking, requested_handedness)
-            _populate_dominant_motion(tracking, handedness)
-            backend = self.backends[skill]
-            # The request label is untrusted.  Validate it against expert-only
-            # temporal support after pose/handedness extraction and before the
-            # requested generator can steer itself from an out-of-distribution
-            # phase sequence. The independently frozen label-support bank
-            # retains its EIMD-v3 windows; grading uses its own matched contract.
-            prepared = backend.prepare(tracking, handedness, filename)
-            support_prepared = (
-                backend.prepare_skill_support(tracking, handedness, filename)
-                if hasattr(backend, "prepare_skill_support")
-                else prepared
-            )
-            alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
-            try:
-                alternative = self.backends[alternative_skill]
-                support_prepare = getattr(
-                    alternative, "prepare_skill_support", alternative.prepare
-                )
-                alternative_prepared = support_prepare(tracking, handedness, filename)
-            except ValueError as exc:
-                # This is a conservative rejection-only guard. If the other
-                # stroke cannot form a valid five-phase hypothesis, it has not
-                # won temporal support and the requested analysis continues.
-                alternative_prepared = None
-                LOGGER.info(
-                    "alternative skill hypothesis unavailable requested=%s "
-                    "alternative=%s error=%s",
-                    skill,
-                    alternative_skill,
-                    exc,
-                )
-            skill_support = (
-                self.expert_bank.temporal_skill_support(
-                    support_prepared[0].pose,
-                    alternative_prepared[0].pose,
-                    requested_skill=str(skill),
-                )
-                if alternative_prepared is not None
-                else None
-            )
-            if skill_support is not None and skill_support.mismatch:
-                raise SkillMismatchError(
-                    f"requested {skill_support.requested_skill} conflicts with "
-                    f"{skill_support.alternative_skill} temporal motion support "
-                    f"(advantage={skill_support.alternative_advantage:.6f}, "
-                    f"margin={skill_support.rejection_margin:.6f})"
-                )
             generated = backend.infer(
                 tracking,
                 handedness,
@@ -584,176 +597,176 @@ class SkeletonAnalysisPipeline:
                 prepared=prepared,
                 fps=source_fps(video_path),
             )
-            correction = generated.correction
-            skeleton = correction.student.pose
-            confidence = correction.student.confidence
-            original_root = correction.student.root
-            corrected = correction.corrected_pose
-            corrected_root = correction.corrected_root
-            window = generated.window
-            phases = correction.student.phase_indices
-            source_phase_frames = [
-                int(generated.source_frame_indices[int(value)]) for value in phases
-            ]
-            preprocessing_finished = time.perf_counter()
-            grade = generated.grade
-            diagnostics = generated.diagnostics
+        correction = generated.correction
+        skeleton = correction.student.pose
+        confidence = correction.student.confidence
+        original_root = correction.student.root
+        corrected = correction.corrected_pose
+        corrected_root = correction.corrected_root
+        window = generated.window
+        phases = correction.student.phase_indices
+        source_phase_frames = [
+            int(generated.source_frame_indices[int(value)]) for value in phases
+        ]
+        preprocessing_finished = time.perf_counter()
+        grade = generated.grade
+        diagnostics = generated.diagnostics
+        diagnostics.update(
+            {
+                "skill_consistency_gate_active": 1.0,
+                "alternative_skill_phase_hypothesis_available": float(
+                    alternative_prepared is not None
+                ),
+            }
+        )
+        if skill_support is not None:
             diagnostics.update(
                 {
-                    "skill_consistency_gate_active": 1.0,
-                    "alternative_skill_phase_hypothesis_available": float(
-                        alternative_prepared is not None
+                    "requested_skill_support_distance": (
+                        skill_support.requested_distance
+                    ),
+                    "alternative_skill_support_distance": (
+                        skill_support.alternative_distance
+                    ),
+                    "alternative_skill_support_advantage": (
+                        skill_support.alternative_advantage
+                    ),
+                    "skill_consistency_rejection_margin": (
+                        skill_support.rejection_margin
                     ),
                 }
             )
-            if skill_support is not None:
-                diagnostics.update(
-                    {
-                        "requested_skill_support_distance": (
-                            skill_support.requested_distance
-                        ),
-                        "alternative_skill_support_distance": (
-                            skill_support.alternative_distance
-                        ),
-                        "alternative_skill_support_advantage": (
-                            skill_support.alternative_advantage
-                        ),
-                        "skill_consistency_rejection_margin": (
-                            skill_support.rejection_margin
-                        ),
-                    }
-                )
-            criterion_values = [
-                (
-                    str(item["name_zh_tw"]),
-                    float(item["combined_distance"]),
-                    float(item["score"]),
-                )
-                for item in generated.score["criteria"]
-            ]
-            # A grade that disagrees with the offline run is invisible in the
-            # response, which carries only the total and the Chinese criterion
-            # names. Log the scorer identity, every criterion, and the gate
-            # state so a divergence can be located from the deploy log alone.
-            LOGGER.info(
-                "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+        criterion_values = [
+            (
+                str(item["name_zh_tw"]),
+                float(item["combined_distance"]),
+                float(item["score"]),
+            )
+            for item in generated.score["criteria"]
+        ]
+        # A grade that disagrees with the offline run is invisible in the
+        # response, which carries only the total and the Chinese criterion
+        # names. Log the scorer identity, every criterion, and the gate
+        # state so a divergence can be located from the deploy log alone.
+        LOGGER.info(
+            "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+            skill,
+            diagnostics.get("scorer", "unknown"),
+            self.pose_detector.execution_provider,
+            float(grade["total_grade"]),
+            [
+                (name, round(distance, 6), round(score, 4))
+                for name, distance, score in criterion_values
+            ],
+            {
+                key: round(float(value), 6)
+                for key, value in sorted(diagnostics.items())
+                if isinstance(value, (int, float))
+            },
+        )
+        dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
+        if dump_prefix:
+            _dump_pose_arrays(
+                dump_prefix,
+                filename,
                 skill,
-                diagnostics.get("scorer", "unknown"),
-                self.pose_detector.execution_provider,
-                float(grade["total_grade"]),
-                [
-                    (name, round(distance, 6), round(score, 4))
-                    for name, distance, score in criterion_values
-                ],
-                {
-                    key: round(float(value), 6)
-                    for key, value in sorted(diagnostics.items())
-                    if isinstance(value, (int, float))
-                },
+                handedness,
+                tracking,
+                skeleton,
+                confidence,
+                original_root,
+                window,
+                phases,
+                generated.source_frame_indices,
             )
-            dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
-            if dump_prefix:
-                _dump_pose_arrays(
-                    dump_prefix,
-                    filename,
-                    skill,
-                    handedness,
-                    tracking,
-                    skeleton,
-                    confidence,
-                    original_root,
-                    window,
-                    phases,
-                    generated.source_frame_indices,
-                )
-            scoring_finished = time.perf_counter()
-            frame_rate = source_frame_rate(video_path)
-            fps = source_fps(video_path)
-            spec: SkillCorrectionSpec = backend.spec
-            correction_grade = _correction_grade_context(
-                grade, diagnostics, spec, criterion_values
+        scoring_finished = time.perf_counter()
+        frame_rate = source_frame_rate(video_path)
+        fps = source_fps(video_path)
+        spec: SkillCorrectionSpec = backend.spec
+        correction_grade = _correction_grade_context(
+            grade, diagnostics, spec, criterion_values
+        )
+        if "checkpoint_evidence" in generated.score:
+            correction_grade["checkpoint_evidence"] = generated.score[
+                "checkpoint_evidence"
+            ]
+            correction_grade["checkpoint_measurements"] = generated.score[
+                "checkpoint_measurements"
+            ]
+            correction_grade["generated_source_window"] = generated.score[
+                "generation_window"
+            ]
+            correction_grade["overlay_padding_policy"] = (
+                "No generated skeleton before coverage; after coverage the final local pose is held for display only."
             )
-            if "checkpoint_evidence" in generated.score:
-                correction_grade["checkpoint_evidence"] = generated.score[
-                    "checkpoint_evidence"
-                ]
-                correction_grade["checkpoint_measurements"] = generated.score[
-                    "checkpoint_measurements"
-                ]
-                correction_grade["generated_source_window"] = generated.score[
-                    "generation_window"
-                ]
-                correction_grade["overlay_padding_policy"] = (
-                    "No generated skeleton before coverage; after coverage the final local pose is held for display only."
-                )
-            render_correction_video(
-                tracking=tracking,
-                original=skeleton,
-                corrected=corrected,
-                original_root=original_root,
-                corrected_root=corrected_root,
-                confidence=confidence,
-                window=window,
-                handedness=handedness,
-                skill=skill,
+        render_correction_video(
+            tracking=tracking,
+            original=skeleton,
+            corrected=corrected,
+            original_root=original_root,
+            corrected_root=corrected_root,
+            confidence=confidence,
+            window=window,
+            handedness=handedness,
+            skill=skill,
+            filename=filename,
+            score=float(grade["total_grade"]),
+            output_path=skeleton_overlay_path,
+            projected_corrected_pixels=generated.corrected_pixels,
+            generated_source_window=generated.score.get("generation_window"),
+            fps=fps,
+            frame_rate=frame_rate,
+            generated_full_body=True,
+            fixed_hierarchical_placement=True,
+        )
+        overlay_finished = time.perf_counter()
+        # Coaching is the only stage that leaves this machine: it uploads
+        # sampled frames of the learner to a third-party model. Skipping it
+        # is therefore not an optimisation but a guarantee -- no image of
+        # this learner is sent anywhere. Everything that decides the grade
+        # has already happened above, and all of it is local.
+        if skip_coaching:
+            coaching_payload = {
+                "analysis": {"problems": [], "overall_feedback": ""},
+                "latency_llm_inference_seconds": 0.0,
+            }
+        else:
+            coaching_payload = self.coaching.generate(
+                video_path=skeleton_overlay_path,
+                working_dir=output_path.parent,
                 filename=filename,
-                score=float(grade["total_grade"]),
-                output_path=skeleton_overlay_path,
-                projected_corrected_pixels=generated.corrected_pixels,
-                generated_source_window=generated.score.get("generation_window"),
-                fps=fps,
-                frame_rate=frame_rate,
-                generated_full_body=True,
-                fixed_hierarchical_placement=True,
+                handedness=str(handedness),
+                phase_indices=tuple(int(value) for value in phases),
+                normalized_sequence_length=len(skeleton),
+                output_frame_count=int(window[2] - window[0] + 1),
+                spec=spec,
+                correction_grade=correction_grade,
             )
-            overlay_finished = time.perf_counter()
-            # Coaching is the only stage that leaves this machine: it uploads
-            # sampled frames of the learner to a third-party model. Skipping it
-            # is therefore not an optimisation but a guarantee -- no image of
-            # this learner is sent anywhere. Everything that decides the grade
-            # has already happened above, and all of it is local.
-            if skip_coaching:
-                coaching_payload = {
-                    "analysis": {"problems": [], "overall_feedback": ""},
-                    "latency_llm_inference_seconds": 0.0,
-                }
-            else:
-                coaching_payload = self.coaching.generate(
-                    video_path=skeleton_overlay_path,
-                    working_dir=output_path.parent,
-                    filename=filename,
-                    handedness=str(handedness),
-                    phase_indices=tuple(int(value) for value in phases),
-                    normalized_sequence_length=len(skeleton),
-                    output_frame_count=int(window[2] - window[0] + 1),
-                    spec=spec,
-                    correction_grade=correction_grade,
-                )
-            coaching_finished = time.perf_counter()
-            problems = coaching_payload["analysis"]["problems"]
-            render_correction_video(
-                tracking=tracking,
-                original=skeleton,
-                corrected=corrected,
-                original_root=original_root,
-                corrected_root=corrected_root,
-                confidence=confidence,
-                window=window,
-                handedness=handedness,
-                skill=skill,
-                filename=filename,
-                score=float(grade["total_grade"]),
-                output_path=output_path,
-                projected_corrected_pixels=generated.corrected_pixels,
-                generated_source_window=generated.score.get("generation_window"),
-                fps=fps,
-                frame_rate=frame_rate,
-                feedback=problems,
-                pause_seconds=self.pause_seconds,
-                generated_full_body=True,
-                fixed_hierarchical_placement=True,
-            )
-            final_render_finished = time.perf_counter()
+        coaching_finished = time.perf_counter()
+        problems = coaching_payload["analysis"]["problems"]
+        render_correction_video(
+            tracking=tracking,
+            original=skeleton,
+            corrected=corrected,
+            original_root=original_root,
+            corrected_root=corrected_root,
+            confidence=confidence,
+            window=window,
+            handedness=handedness,
+            skill=skill,
+            filename=filename,
+            score=float(grade["total_grade"]),
+            output_path=output_path,
+            projected_corrected_pixels=generated.corrected_pixels,
+            generated_source_window=generated.score.get("generation_window"),
+            fps=fps,
+            frame_rate=frame_rate,
+            feedback=problems,
+            pause_seconds=self.pause_seconds,
+            generated_full_body=True,
+            fixed_hierarchical_placement=True,
+        )
+        final_render_finished = time.perf_counter()
 
         diagnostics.update(
             {

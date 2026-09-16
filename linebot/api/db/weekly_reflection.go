@@ -132,7 +132,7 @@ func withWeeklyNotesForSkill(
 	view := make(map[string]Work, len(works))
 	for key, work := range works {
 		view[key] = work
-		at, err := time.Parse("2006-01-02-15-04", work.DateTime)
+		at, err := ParseWorkTime(work.DateTime)
 		if err != nil {
 			continue
 		}

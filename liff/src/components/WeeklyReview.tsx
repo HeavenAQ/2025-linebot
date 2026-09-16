@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageCircleQuestion, Play } from 'lucide-react'
 
 import type { PlaybackResponse, UserData } from '@/types'
@@ -38,6 +38,7 @@ interface WeekEntry {
   workDate: string
   at: Date
   totalGrade: number
+  status: string
 }
 
 interface QuestionPair {
@@ -72,7 +73,8 @@ function entriesByWeek(userData: UserData): Map<string, WeekEntry[]> {
         skill,
         workDate,
         at,
-        totalGrade: work.grading_outcome.total_grade
+        totalGrade: work.grading_outcome.total_grade,
+        status: work.analysis_status
       }
       weeks.set(label, [...(weeks.get(label) ?? []), entry])
     }
@@ -139,6 +141,9 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
 
   const [selectedWeek, setSelectedWeek] = useState('')
   const [openWork, setOpenWork] = useState<WeekEntry | null>(null)
+  const openStatus = openWork
+    ? userData.portfolio[openWork.skill][openWork.workDate]?.analysis_status
+    : ''
   const [playback, setPlayback] = useState<PlaybackResponse | null>(null)
   const [playbackError, setPlaybackError] = useState('')
   const [playbackLoading, setPlaybackLoading] = useState(false)
@@ -228,7 +233,7 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
     return () => {
       cancelled = true
     }
-  }, [openWork, userId])
+  }, [openWork, userId, openStatus])
 
   const onSave = useCallback(async () => {
     if (!week) return
@@ -309,7 +314,11 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
                     <span className="text-sm font-medium">{SkillNameMap[entry.skill]}</span>
                     <span className="text-[13px] text-muted-foreground">{formatDay(entry.at)}</span>
                     <span className="num ml-auto font-data text-sm font-semibold">
-                      {entry.totalGrade.toFixed(1)}
+                      {entry.status === 'pending'
+                        ? '分析中'
+                        : entry.status === 'failed'
+                          ? '未完成'
+                          : entry.totalGrade.toFixed(1)}
                     </span>
                   </button>
 

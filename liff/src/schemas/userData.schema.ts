@@ -72,6 +72,8 @@ const WorkHandednessSchema = z.preprocess(
 )
 
 export const WorkSchema = z.object({
+  analysis_status: z.string().optional().default(''),
+  analysis_error: z.string().optional().default(''),
   date: z.string(),
   handedness: WorkHandednessSchema,
   thumbnail: z.string(),

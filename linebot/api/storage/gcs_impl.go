@@ -22,6 +22,7 @@ type BucketHandle interface {
 }
 
 type ObjectHandle interface {
+	NewReader(ctx context.Context) (io.ReadCloser, error)
 	Attrs(ctx context.Context) (*gcs.ObjectAttrs, error)
 	NewWriter(ctx context.Context) ObjectWriter
 	Delete(ctx context.Context) error
@@ -48,6 +49,10 @@ func (b *gcsBucket) SignedURL(object string, opts *gcs.SignedURLOptions) (string
 }
 
 type gcsObject struct{ *gcs.ObjectHandle }
+
+func (o *gcsObject) NewReader(ctx context.Context) (io.ReadCloser, error) {
+	return o.ObjectHandle.NewReader(ctx)
+}
 
 func (o *gcsObject) NewWriter(ctx context.Context) ObjectWriter {
 	return &gcsWriter{o.ObjectHandle.NewWriter(ctx)}

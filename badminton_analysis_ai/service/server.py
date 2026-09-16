@@ -400,6 +400,9 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     def Health(
         self, request: analysis_pb2.HealthRequest, context: grpc.ServicerContext
     ) -> analysis_pb2.HealthResponse:
+        self._authorize(context)
+        if hasattr(self.pipeline, "warmup"):
+            self.pipeline.warmup()
         return analysis_pb2.HealthResponse(
             status="serving",
             loaded_skills=[
@@ -416,7 +419,8 @@ def serve() -> None:
     settings = Settings.from_env()
     service = BadmintonAnalysisService(settings)
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=2),
+        futures.ThreadPoolExecutor(max_workers=8),
+        maximum_concurrent_rpcs=8,
         options=(
             ("grpc.max_receive_message_length", settings.max_video_bytes + 1024 * 1024),
             ("grpc.max_send_message_length", 8 * 1024 * 1024),

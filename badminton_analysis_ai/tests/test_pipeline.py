@@ -122,6 +122,9 @@ def test_skill_mismatch_stops_before_generation_and_rendering(
     }
     pipeline.expert_bank = Bank()
     pipeline.pose_detector = object()
+    pipeline.pose_batcher = SimpleNamespace(
+        request_detector=lambda: pipeline.pose_detector
+    )
     pipeline.lock = threading.Lock()
     pipeline.coaching = SimpleNamespace(
         generate=lambda **_: (_ for _ in ()).throw(

@@ -117,6 +117,11 @@ jobs:
               exit 1
             }
           candidate_args=(--no-traffic --tag "${candidate_tag}")
+          # Keep scheduled warm capacity across a deploy during Monday class.
+          minimum=0
+          taipei_day=$(TZ=Asia/Taipei date +%u)
+          taipei_time=$(TZ=Asia/Taipei date +%H%M)
+          if [[ "$taipei_day" == 1 && "$taipei_time" > 1344 && "$taipei_time" < 1810 ]]; then minimum=1; fi
           gcloud run deploy badminton-analysis-ai \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
@@ -128,9 +133,9 @@ jobs:
             --gpu-type nvidia-l4 \
             --cpu 4 \
             --memory 16Gi \
-            --concurrency 1 \
+            --concurrency 4 \
             --timeout 3600 \
-            --min 0 \
+            --min "$minimum" \
             --max-instances 1 \
             "${candidate_args[@]}" \
             --clear-volume-mounts \

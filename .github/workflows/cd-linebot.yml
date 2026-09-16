@@ -118,6 +118,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
+            --timeout 1200 \
             --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id}" \
             --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
 

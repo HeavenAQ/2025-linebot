@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"os"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/analysisqueue"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
@@ -13,6 +15,7 @@ import (
 )
 
 type App struct {
+	AnalysisQueue   *analysisqueue.Client
 	Config          *config.Config
 	Logger          *Logger
 	LineBot         *line.Client
@@ -94,7 +97,15 @@ func NewApp(configPath string) *App {
 		panic(err)
 	}
 
+	var queue *analysisqueue.Client
+	if cfg.AnalysisServer.TasksQueue != "" {
+		queue, err = analysisqueue.New(context.Background(), cfg.AnalysisServer.TasksQueue, cfg.AnalysisServer.WorkerURL, cfg.AnalysisServer.TaskServiceAccount)
+		if err != nil {
+			panic(err)
+		}
+	}
 	return &App{
+		AnalysisQueue:   queue,
 		Config:          cfg,
 		Logger:          logger,
 		LineBot:         lineBot,

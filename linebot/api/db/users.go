@@ -64,6 +64,8 @@ func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
 }
 
 type Work struct {
+	AnalysisStatus       string                 `json:"analysis_status" firestore:"analysis_status"`
+	AnalysisError        string                 `json:"analysis_error" firestore:"analysis_error"`
 	DateTime             string                 `json:"date" firestore:"date"`
 	Handedness           string                 `json:"handedness" firestore:"handedness"`
 	Thumbnail            string                 `json:"thumbnail" firestore:"thumbnail"`
@@ -132,20 +134,10 @@ func (client *FirestoreClient) GetUserData(userID string) (*UserData, error) {
 	return user, nil
 }
 
-func (client *FirestoreClient) updateUserData(user *UserData) error {
-	// An older in-flight portfolio write must not erase completed registration.
-	_, err := client.Data.Doc(user.ID).Set(*client.Ctx, *user,
-		firestore.Merge([]string{"portfolio"}, []string{"folder_paths"},
-			[]string{"gpt_conversation_ids"}, []string{"name"}, []string{"id"}, []string{"handedness"}))
-	if err != nil {
-		return fmt.Errorf("error updating user data: %w", err)
-	}
-	return nil
-}
-
 func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness Handedness) error {
 	user.Handedness = handedness
-	return client.updateUserData(user)
+	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{Path: "handedness", Value: handedness}})
+	return err
 }
 
 func (client *FirestoreClient) CreateUserPortfolioVideo(
@@ -178,12 +170,14 @@ func (client *FirestoreClient) CreateUserPortfolioVideo(
 		return fmt.Errorf("error updating user session: %w", err)
 	}
 
-	return client.updateUserData(user)
+	_, err = client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{FieldPath: []string{"portfolio", session.Skill, date}, Value: work}})
+	return err
 }
 
 func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	user *UserData,
 	userPortfolio *map[string]Work,
+	skill string,
 	date string,
 	reflection string,
 ) error {
@@ -191,7 +185,10 @@ func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	targetWork.Reflection = reflection
 	(*userPortfolio)[date] = targetWork
 
-	return client.updateUserData(user)
+	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{
+		FieldPath: []string{"portfolio", skill, date, "reflection"}, Value: reflection,
+	}})
+	return err
 }
 
 func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill string, id string) error {
@@ -205,24 +202,30 @@ func (client *FirestoreClient) UpdateUserGPTConversationID(user *UserData, skill
 	case "lift":
 		user.GPTConversationIDs.Lift = id
 	}
-	return client.updateUserData(user)
+	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{FieldPath: []string{"gpt_conversation_ids", skill}, Value: id}})
+	return err
 }
 
 func (client *FirestoreClient) UpdateUserGPTConversationIDs(user *UserData, ids *GPTConversationIDs) error {
 	user.GPTConversationIDs = *ids
-	return client.updateUserData(user)
+	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{Path: "gpt_conversation_ids", Value: *ids}})
+	return err
 }
 
 func (client *FirestoreClient) UpdateUserPortfolioAINote(
 	user *UserData,
 	userPortfolio *map[string]Work,
+	skill string,
 	date string,
 	aiNote string,
 ) error {
 	targetWork := (*userPortfolio)[date]
 	targetWork.AINote = aiNote
 	(*userPortfolio)[date] = targetWork
-	return client.updateUserData(user)
+	_, err := client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{
+		FieldPath: []string{"portfolio", skill, date, "ai_note"}, Value: aiNote,
+	}})
+	return err
 }
 
 func (client *FirestoreClient) ListUsers() (*[]UserData, error) {

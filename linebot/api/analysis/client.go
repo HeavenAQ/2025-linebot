@@ -24,6 +24,11 @@ import (
 
 const chunkSize = 1024 * 1024
 
+func (c *Client) Warmup(ctx context.Context) error {
+	_, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})
+	return err
+}
+
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
 var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
 

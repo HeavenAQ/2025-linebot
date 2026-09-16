@@ -192,10 +192,43 @@ export default function PersonalPage() {
     [selectedSkill, userData]
   )
 
+  const selectedAnalysisStatus = userData?.portfolio[selectedSkill][selectedDate]?.analysis_status
+
+  // Refresh pending records only while this page is visible. This reads stored
+  // job status; the Go webhook never polls the GPU or reuses LINE's reply token.
+  useEffect(() => {
+    if (!profile?.userId || !userData) return
+    const pending = Object.values(userData.portfolio).some(works =>
+      Object.values(works).some(work => work.analysis_status === 'pending')
+    )
+    if (!pending) return
+    let cancelled = false
+    let inFlight = false
+    const resume = () => {
+      if (!document.hidden && !inFlight) {
+        inFlight = true
+        void fetchUserDataSafe(profile.userId).then(result => {
+          if (!cancelled && result.ok) setUserData(result.data)
+        }).finally(() => { inFlight = false })
+      }
+    }
+    const timer = window.setInterval(resume, 5000)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }, [profile?.userId, userData])
+
   /** Oldest first, for the trend line. Driven by the page's skill, not its own. */
   const trend = useMemo(() => {
     if (!userData) return []
     return Object.keys(userData.portfolio[selectedSkill])
+      .filter(
+        date =>
+          !['pending', 'failed'].includes(userData.portfolio[selectedSkill][date].analysis_status)
+      )
       .sort(chronological)
       .map(date => ({
         date,
@@ -230,7 +263,7 @@ export default function PersonalPage() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, profile?.userId, selectedDate, selectedSkill])
+  }, [activeTab, profile?.userId, selectedDate, selectedSkill, selectedAnalysisStatus])
 
   if (loading) return <Spinner fullscreen />
 
@@ -261,7 +294,8 @@ export default function PersonalPage() {
 
   const outcome = userData.portfolio[selectedSkill][selectedDate]?.grading_outcome
   const details = Array.isArray(outcome?.grading_details) ? outcome.grading_details : []
-  const total = outcome?.total_grade
+  const analysisStatus = userData.portfolio[selectedSkill][selectedDate]?.analysis_status
+  const total = ['pending', 'failed'].includes(analysisStatus) ? undefined : outcome?.total_grade
   const currentIndex = trend.findIndex(t => t.date === selectedDate)
   const previous = currentIndex > 0 ? trend[currentIndex - 1] : undefined
   const delta = previous && total !== undefined ? total - previous.totalGrade : undefined
@@ -303,6 +337,14 @@ export default function PersonalPage() {
 
         {/* The score sits on the page itself, not in a card — it is the answer,
             not one more item in a list of panels. */}
+        {analysisStatus === 'pending' && (
+          <Alert title="影片分析中">影片已安全儲存，完成後此頁會自動顯示結果。</Alert>
+        )}
+        {analysisStatus === 'failed' && (
+          <Alert title="分析未完成">
+            {userData.portfolio[selectedSkill][selectedDate]?.analysis_error}
+          </Alert>
+        )}
         {total !== undefined && (
           <div className="flex items-end gap-4 border-b border-border pb-6">
             <p className="num font-data text-figure">{total.toFixed(1)}</p>
@@ -341,7 +383,7 @@ export default function PersonalPage() {
             {trend.length > 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{SkillNameMap[selectedSkill]}　歷次總分</CardTitle>
+                  <CardTitle>{SkillNameMap[selectedSkill]} 歷次總分</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ChartContainer config={chartConfig}>

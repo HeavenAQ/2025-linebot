@@ -47,9 +47,13 @@ type FirestoreConfig struct {
 }
 
 type AnalysisServerConfig struct {
-	Target   string `env:"ANALYSIS_GRPC_TARGET"`
-	APIKey   string `env:"ANALYSIS_GRPC_API_KEY"`
-	Insecure bool   `env:"ANALYSIS_GRPC_INSECURE"`
+	TasksQueue         string `env:"ANALYSIS_TASKS_QUEUE"`
+	AsyncAccept        bool   `env:"ANALYSIS_ASYNC_ACCEPT"`
+	WorkerURL          string `env:"ANALYSIS_WORKER_URL"`
+	TaskServiceAccount string `env:"ANALYSIS_TASK_SERVICE_ACCOUNT"`
+	Target             string `env:"ANALYSIS_GRPC_TARGET"`
+	APIKey             string `env:"ANALYSIS_GRPC_API_KEY"`
+	Insecure           bool   `env:"ANALYSIS_GRPC_INSECURE"`
 	// SkipCoaching turns off the one stage that leaves the analysis service:
 	// coaching uploads sampled frames of the learner to a third-party model.
 	// A deployment without consent for that sets it, and no image of a learner

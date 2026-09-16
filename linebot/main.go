@@ -55,6 +55,10 @@ func main() {
 		handler(c.Writer, c.Request)
 	})
 	r.GET("/test", func(c *gin.Context) { c.String(http.StatusOK, "Hello, World!") })
+	r.POST("/internal/analysis/task", func(c *gin.Context) { application.HandleAnalysisTask(c.Writer, c.Request) })
+	r.POST("/internal/analysis/outbox", func(c *gin.Context) { application.HandleAnalysisOutbox(c.Writer, c.Request) })
+	r.POST("/internal/analysis/warmup", func(c *gin.Context) { application.HandleAnalysisWarmup(c.Writer, c.Request) })
+	r.POST("/internal/analysis/capacity", func(c *gin.Context) { application.HandleAnalysisCapacity(c.Writer, c.Request) })
 
 	// Every learner-facing route below identifies its caller from a verified
 	// LINE ID token. A user ID in a query string or body proves nothing --
@@ -194,6 +198,15 @@ func main() {
 		work, ok := portfolio[workDate]
 		if !ok {
 			c.JSON(http.StatusNotFound, gin.H{"error": "analysis not found"})
+			return
+		}
+		if work.AnalysisStatus == "pending" {
+			c.Header("Retry-After", "3")
+			c.JSON(http.StatusAccepted, gin.H{"status": "pending", "error": "影片分析中，完成後會自動顯示。"})
+			return
+		}
+		if work.AnalysisStatus == "failed" {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"status": "failed", "error": work.AnalysisError})
 			return
 		}
 		if work.StudentVideo.ObjectPath == "" {

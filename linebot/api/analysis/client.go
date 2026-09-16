@@ -24,6 +24,13 @@ import (
 
 const chunkSize = 1024 * 1024
 
+var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
+
+func (c *Client) Warmup(ctx context.Context) error {
+	_, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})
+	return err
+}
+
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
 
 type Client struct {
@@ -178,6 +185,9 @@ func (c *Client) AnalyzeVideo(
 	}
 	response, err := stream.CloseAndRecv()
 	if err != nil {
+		if status.Code(err) == codes.InvalidArgument && strings.Contains(status.Convert(err).Message(), "conflicts with") {
+			return nil, fmt.Errorf("%w: %s", ErrSkillMismatch, status.Convert(err).Message())
+		}
 		if status.Code(err) == codes.FailedPrecondition &&
 			strings.Contains(status.Convert(err).Message(), "expert reference") {
 			return nil, fmt.Errorf("%w: %s", ErrNoMatchingExpert, status.Convert(err).Message())

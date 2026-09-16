@@ -250,6 +250,7 @@ func (app *App) handleUpdatingNote(event *linebot.Event, user *db.UserData, sess
 	app.FirestoreClient.UpdateUserPortfolioReflection(
 		user,
 		&portfolio,
+		session.Skill,
 		session.UpdatedDate,
 		note.Text,
 	)
@@ -277,6 +278,10 @@ func (app *App) handleWatchPortfolioVideo(
 	}
 
 	if work.StudentVideo.ObjectPath == "" {
+		if work.AnalysisStatus == "pending" {
+			app.LineBot.SendReply(replyToken, "影片仍在分析中，完成後可從學習歷程查看結果，無需重新上傳。")
+			return
+		}
 		app.LineBot.SendReply(replyToken, "這次紀錄沒有可播放的影片，請重新上傳")
 		return
 	}
@@ -324,6 +329,10 @@ func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSessi
 	}
 
 	// Send video to AI server for analysis
+	if app.AnalysisQueue != nil && app.Config.AnalysisServer.AsyncAccept {
+		app.enqueueVideoAnalysis(event, session, user, videoContent, replyToken)
+		return
+	}
 	videoMessage, ok := event.Message.(*linebot.VideoMessage)
 	if !ok {
 		app.handleVideoAnalysisError(errors.New("uploaded message is not a video"), replyToken)

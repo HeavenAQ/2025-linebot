@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"slices"
 	"sort"
-	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
@@ -15,6 +14,15 @@ import (
 
 // getPortfolioRating creates the star rating component
 func (client *Client) getPortfolioRating(work db.Work) *linebot.BoxComponent {
+	if work.AnalysisStatus == "pending" || work.AnalysisStatus == "failed" {
+		text := "影片分析中 · 點擊查看最新結果"
+		if work.AnalysisStatus == "failed" {
+			text = work.AnalysisError
+		}
+		return &linebot.BoxComponent{Type: "box", Layout: "horizontal", Contents: []linebot.FlexComponent{
+			&linebot.TextComponent{Type: "text", Text: text, Wrap: true, Size: "sm"},
+		}}
+	}
 	rating := work.GradingOutcome.TotalGrade
 	contents := []linebot.FlexComponent{}
 	for i := 0; i < 5; i++ {
@@ -152,7 +160,7 @@ func createNotesSection(label string, content string) *linebot.BoxComponent {
 
 // getCarouselItem constructs the carousel item using helper functions
 func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool) *linebot.BubbleContainer {
-	dateTime, _ := time.Parse("2006-01-02-15-04", work.DateTime)
+	dateTime, _ := db.ParseWorkTime(work.DateTime)
 	formattedDate := dateTime.Format("2006-01-02")
 	rating := client.getPortfolioRating(work)
 	buttons, err := client.createButtonActions(work, skill)
@@ -222,8 +230,8 @@ func (client *Client) insertCarousel(carouselItems []*linebot.FlexMessage, items
 func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	workValues := maps.Values(works)
 	sort.Slice(workValues, func(i, j int) bool {
-		dateTimeI, _ := time.Parse("2006-01-02-15-04", workValues[i].DateTime)
-		dateTimeJ, _ := time.Parse("2006-01-02-15-04", workValues[j].DateTime)
+		dateTimeI, _ := db.ParseWorkTime(workValues[i].DateTime)
+		dateTimeJ, _ := db.ParseWorkTime(workValues[j].DateTime)
 		return dateTimeI.After(dateTimeJ)
 	})
 

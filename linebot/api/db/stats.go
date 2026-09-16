@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"time"
 )
 
 // Stats represents aggregate statistics for grades
@@ -70,10 +69,11 @@ func (client *FirestoreClient) GetUserSkillStats(userID string, skill string) (D
 
 	gradesOnDate := make(map[string][]float64)
 	for date, work := range portfolio {
+		if work.AnalysisStatus != "" && work.AnalysisStatus != "completed" {
+			continue
+		}
 		// parse date to use YYYY-MM-DD only
-		parsedDate, err := time.Parse(
-			"2006-01-02-15-04", date,
-		)
+		parsedDate, err := ParseWorkTime(date)
 		if err != nil {
 			return DateStats{}, errors.New("failed to parse the work's key as a date string")
 		}
@@ -106,10 +106,11 @@ func (client *FirestoreClient) GetClassSkillStats(skill string) (DateStats, erro
 			continue
 		}
 		for date, work := range port {
+			if work.AnalysisStatus != "" && work.AnalysisStatus != "completed" {
+				continue
+			}
 			// parse date to use YYYY-MM-DD only
-			parsedDate, err := time.Parse(
-				"2006-01-02-15-04", date,
-			)
+			parsedDate, err := ParseWorkTime(date)
 			if err != nil {
 				return DateStats{}, errors.New("failed to parse the work's key as a date string")
 			}

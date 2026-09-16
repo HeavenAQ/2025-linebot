@@ -3,7 +3,6 @@ import './globals.css'
 import React from 'react'
 import { LiffProvider } from './LiffProvider'
 import Navbar from '@/components/Navbar/Navbar'
-import { mPlusRounded1c } from '@/components/Fonts/M_PLUS_Rounded_1c'
 import Hero from '@/components/Hero'
 
 export const metadata: Metadata = {
@@ -18,7 +17,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-Hant" className={mPlusRounded1c.className} suppressHydrationWarning>
+    <html lang="zh-Hant" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <LiffProvider liffId={process.env.NEXT_PUBLIC_LIFF_ID || ''}>
           <Navbar />

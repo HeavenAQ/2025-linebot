@@ -1,5 +1,4 @@
 export type {
-  AlignmentSample,
   CoachingCue,
   GradingDetail,
   PhaseMarker,

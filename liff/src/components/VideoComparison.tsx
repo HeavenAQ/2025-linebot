@@ -674,8 +674,8 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
 
   useEffect(() => {
     // Metadata changes (especially the expert's exact duration arriving after
-    // Play) also rebuild the alignment anchors. They must not be treated as a
-    // tab switch: doing so paused both videos immediately after playback began.
+    // Play) also recompute the expert motion window. They must not be treated as
+    // a tab switch: doing so paused both videos immediately after playback began.
     if (previousViewModeRef.current === viewMode) return
     previousViewModeRef.current = viewMode
     loop.stop()

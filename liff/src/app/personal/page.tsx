@@ -1,7 +1,7 @@
 'use client'
 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, Columns2, NotebookPen } from 'lucide-react'
 
 import { useLiff } from '../LiffProvider'
@@ -122,19 +122,21 @@ export default function PersonalPage() {
   const { liff, profile, liffError, sessionExpired } = useLiff()
   const aiSummary = useSkillSummary(profile?.userId, selectedSkill)
 
+  const appliedDeepLink = useRef(false)
   // The bot links straight to a tab (?tab=review from 每週回顧), and a portfolio
   // card names the attempt it shows as well, so a student arriving from LINE
   // lands where they were sent rather than on the default. The attempt can only
   // be checked once the portfolio is here, which is why this waits for userData
   // instead of running on mount.
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || appliedDeepLink.current) return
     const search = window.location.search
     const requested = new URLSearchParams(search).get('tab')
     if (TAB_OPTIONS.some(option => option.value === requested)) {
       setActiveTab(requested as TabValue)
     }
     if (!userData) return
+    appliedDeepLink.current = true
     const focus = resolveWorkFocus(search, userData.portfolio)
     if (!focus) return
     setSelectedSkill(focus.skill)

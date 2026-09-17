@@ -45,6 +45,13 @@ const devUserId = process.env.NEXT_PUBLIC_DEV_USER_ID?.trim()
  */
 const devIdToken = process.env.NEXT_PUBLIC_DEV_ID_TOKEN?.trim()
 
+/**
+ * What a learner sees when LINE login cannot be completed. The technical cause
+ * goes to the console; the page never shows SDK errors or credential details.
+ */
+const LOGIN_UNAVAILABLE =
+  '無法完成 LINE 登入，請按下「重新登入 LINE」。已登記的實驗編號與姓名會保留。'
+
 export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ children, liffId }) => {
   const [liff, setLiff] = useState<Liff | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -89,7 +96,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
       }
 
       if (!liffId) {
-        setLiffError('Missing NEXT_PUBLIC_LIFF_ID. Set it to your LIFF app ID.')
+        console.error('Missing NEXT_PUBLIC_LIFF_ID. Set it to your LIFF app ID.')
+        setLiffError(LOGIN_UNAVAILABLE)
         return
       }
       const liffModule = await import('@line/liff')
@@ -118,9 +126,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           return
         } else {
           // We already attempted login but still not logged in; avoid looping
-          setLiffError(
-            'LIFF login could not be completed. Please try again or check LIFF settings.'
-          )
+          console.error('LIFF login could not be completed; check the LIFF settings.')
+          setLiffError(LOGIN_UNAVAILABLE)
         }
       } else {
         // Clear guard once logged in
@@ -152,7 +159,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         if (!liff.getIDToken()) {
           console.warn('LIFF returned no ID token; the openid scope may not be granted')
           if (!liff.getAccessToken()) {
-            setLiffError('LINE 未提供登入憑證，請確認 LIFF 應用已開啟 openid 權限。')
+            console.error('LIFF returned neither an ID token nor an access token')
+            setLiffError(LOGIN_UNAVAILABLE)
           }
         }
 
@@ -167,8 +175,8 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
         initializedRef.current = true
       }
     } catch (error) {
-      console.log('LIFF init failed.')
-      setLiffError((error as Error).toString())
+      console.error('LIFF init failed:', error)
+      setLiffError(LOGIN_UNAVAILABLE)
     }
   }, [liffId])
 

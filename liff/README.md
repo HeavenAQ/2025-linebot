@@ -6,7 +6,10 @@ class averages, and the GPT coaching history.
 
 It is a Next.js static export (`output: 'export'`) served by Netlify. All data
 comes from the Go backend in `../linebot`, authenticated with the learner's LINE
-ID token; learners register in the LINE chat before the app unlocks.
+ID token (`Authorization: Bearer`) while it has more than a minute left, and with
+the LIFF access token (`X-Line-Access-Token`) after that, so a page left open past
+the ID token's hour keeps working; learners register in the LINE chat before the
+app unlocks. Signed video URLs are re-fetched shortly before they expire.
 
 ## Development
 
@@ -14,7 +17,7 @@ ID token; learners register in the LINE chat before the app unlocks.
 npm ci
 npm run dev      # http://localhost:3000
 npm test         # node --test on src/**/*.test.ts
-npm run build    # static export to out/
+npm run build    # static export to out/, then writes out/_headers
 ```
 
 Environment variables (build time, all public):
@@ -31,3 +34,12 @@ Environment variables (build time, all public):
 `.github/workflows/cd-liff.yml` builds with the production backend URL on every
 push to `main` that touches `liff/`, checks the URL was compiled in, and deploys
 `out/` to Netlify.
+
+`npm run build` runs `scripts/write-headers.mjs` as `postbuild`, which writes
+`out/_headers` so Netlify serves a Content-Security-Policy (allowing the backend
+origin from `NEXT_PUBLIC_BACKEND_BASE_URL`, the LIFF SDK's LINE hosts and signed
+video URLs on `storage.googleapis.com`), HSTS, `nosniff`, a referrer policy and a
+permissions policy on every path. The build fails if the backend URL is missing
+or the file is not written. The policy lives in `src/lib/securityHeaders.ts`; add
+any new external host there. No `frame-ancestors`/`X-Frame-Options` is sent,
+because LINE clients may embed the LIFF view.

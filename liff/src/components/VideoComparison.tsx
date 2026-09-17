@@ -9,6 +9,7 @@ import { Segmented } from '@/components/ui/segmented'
 import { expertMotionWindow } from '@/lib/expertAlignment'
 import { useCheckpointLoop } from '@/components/useCheckpointLoop'
 import { checkpointReplayMarker } from '@/lib/checkpointPlayback'
+import { isSameAnalysis } from '@/lib/playbackExpiry'
 import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -21,6 +22,19 @@ const VIEW_OPTIONS = [
 
 interface VideoComparisonProps {
   playback: PlaybackResponse
+  /** A video failed to load, typically because its signed URL expired. */
+  onMediaError?: () => void
+}
+
+/**
+ * Where the players were when their signed URLs were replaced. A new src makes
+ * the element load from scratch at 0 and paused, so each video that changed
+ * is put back here once its metadata arrives.
+ */
+interface RestorePoint {
+  student: number | null
+  expert: number | null
+  resume: boolean
 }
 
 /** What the caption is saying right now: a correction, or the current phase. */
@@ -77,7 +91,7 @@ const formatTime = (seconds: number) => {
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, '0')}`
 }
 
-export default function VideoComparison({ playback }: VideoComparisonProps) {
+export default function VideoComparison({ playback, onMediaError }: VideoComparisonProps) {
   const studentRef = useRef<HTMLVideoElement>(null)
   const expertRef = useRef<HTMLVideoElement>(null)
   const playingRef = useRef(false)
@@ -97,6 +111,52 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   const unpaused =
     (studentOnly || loop.selection !== null) && Boolean(playback.skeleton_overlay_video?.signed_url)
   const studentMedia = unpaused ? playback.skeleton_overlay_video : playback.student_video
+  const studentSrc = studentMedia.signed_url
+  const expertSrc = playback.expert.video.signed_url
+
+  // Playback is re-fetched before its signed URLs expire, which hands back the
+  // same analysis with new URLs. The positions have to be read before React
+  // puts the new src on the elements — by the time any effect runs, loading has
+  // already reset them to 0 — so the swap is noticed here, during render. Only
+  // a re-signed URL counts: a change of attempt starts over, and switching to
+  // the skeleton overlay (same playback, different clip) is handled by the
+  // checkpoint loop.
+  const restoreRef = useRef<RestorePoint | null>(null)
+  // The places saved at the last re-sign. A replacement URL that fails to load
+  // leaves its element at 0, so the next re-sign goes back to these instead.
+  const lastPlaceRef = useRef<RestorePoint | null>(null)
+  const renderedRef = useRef({ playback, unpaused, studentSrc, expertSrc })
+  const rendered = renderedRef.current
+  if (rendered.playback !== playback) {
+    const studentChanged = rendered.studentSrc !== studentSrc
+    const expertChanged = rendered.expertSrc !== expertSrc
+    if (!isSameAnalysis(rendered.playback, playback)) {
+      restoreRef.current = null
+      lastPlaceRef.current = null
+    } else if (rendered.unpaused === unpaused && (studentChanged || expertChanged)) {
+      // A second re-sign before the first finished loading keeps the place
+      // saved the first time; the element itself is still at 0.
+      const pending = restoreRef.current
+      const last = lastPlaceRef.current
+      const place = (
+        track: 'student' | 'expert',
+        changed: boolean,
+        video: HTMLVideoElement | null
+      ) => {
+        const saved = pending?.[track] ?? null
+        if (!changed || saved !== null) return saved
+        if (video && video.readyState > 0) return video.currentTime
+        return last?.[track] ?? video?.currentTime ?? null
+      }
+      restoreRef.current = {
+        student: place('student', studentChanged, studentRef.current),
+        expert: place('expert', expertChanged, expertRef.current),
+        resume: pending?.resume ?? playingRef.current
+      }
+      lastPlaceRef.current = { ...restoreRef.current }
+    }
+  }
+  renderedRef.current = { playback, unpaused, studentSrc, expertSrc }
   const [captionsOn, setCaptionsOn] = useState(true)
   const [caption, setCaption] = useState<Caption | null>(null)
   const [activeCheckpointId, setActiveCheckpointId] = useState<string | null>(null)
@@ -417,6 +477,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
   // throttled separately so re-rendering does not ride at 60fps.
   const followPlayhead = useCallback(
     (force: boolean) => {
+      // A video reloading after its URL was re-signed sits at 0 until it is
+      // restored; following it now would drag the other video back with it.
+      if (restoreRef.current) return
       if (loop.selection) {
         if (studentRef.current)
           setProgress(motionProgressFromStudentTime(studentRef.current.currentTime))
@@ -494,6 +557,51 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     ]
   )
 
+  // Puts a reloaded video back where it was before its URL was re-signed. The
+  // controls stay detached until every replaced video has finished seeking
+  // there — driving the pair mid-seek pauses a play() that has not started yet
+  // and drops the learner out of playback — then the pair is re-synchronized
+  // from those places and, if it was playing, resumes through the ordinary
+  // play path.
+  const restoreResignedVideo = useCallback(
+    (track: 'student' | 'expert', video: HTMLVideoElement) => {
+      const point = restoreRef.current
+      const saved = point?.[track]
+      if (!point || saved === null || saved === undefined) return false
+      video.currentTime = Number.isFinite(video.duration) ? Math.min(video.duration, saved) : saved
+      point[track] = null
+      if (point.student !== null || point.expert !== null) return true
+      const videos = [studentRef.current, expertRef.current].filter(
+        (item): item is HTMLVideoElement => item !== null
+      )
+      const events = ['seeked', 'loadeddata', 'canplay'] as const
+      const settle = () => {
+        const superseded = restoreRef.current !== point
+        if (!superseded && videos.some(item => item.seeking || item.readyState < 2)) return
+        videos.forEach(item => events.forEach(name => item.removeEventListener(name, settle)))
+        if (superseded) return
+        restoreRef.current = null
+        resetBarrierCursor(
+          studentRef.current?.currentTime ?? 0,
+          expertRef.current?.currentTime ?? expertMotionStart
+        )
+        if (point.resume) setPlayback(true)
+        else followPlayhead(true)
+      }
+      videos.forEach(item => events.forEach(name => item.addEventListener(name, settle)))
+      settle()
+      return true
+    },
+    [expertMotionStart, followPlayhead, resetBarrierCursor, setPlayback]
+  )
+
+  // A failed load cannot be restored; stop waiting so the controls follow
+  // playback again, and let the page fetch fresh URLs.
+  const handleMediaError = useCallback(() => {
+    restoreRef.current = null
+    onMediaError?.()
+  }, [onMediaError])
+
   useEffect(() => {
     if (!playing) return
     let frame = requestAnimationFrame(function step() {
@@ -503,7 +611,13 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
     return () => cancelAnimationFrame(frame)
   }, [followPlayhead, playing])
 
+  const resetForAnalysisRef = useRef(playback)
   useEffect(() => {
+    // Re-signed URLs for the attempt already on screen are not a new attempt:
+    // keep the learner's place, loop and captions.
+    const previous = resetForAnalysisRef.current
+    resetForAnalysisRef.current = playback
+    if (previous !== playback && isSameAnalysis(previous, playback)) return
     playingRef.current = false
     stopCheckpointLoop()
     setPlaying(false)
@@ -777,7 +891,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             </span>
             <video
               ref={studentRef}
-              src={studentMedia.signed_url}
+              src={studentSrc}
               className="w-full object-contain"
               style={{ aspectRatio: studentRatio }}
               playsInline
@@ -786,7 +900,9 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               onLoadedMetadata={event => {
                 setStudentDuration(event.currentTarget.duration)
                 setStudentRatio(videoRatio(event.currentTarget, studentRatio))
+                restoreResignedVideo('student', event.currentTarget)
               }}
+              onError={handleMediaError}
               onTimeUpdate={() => {
                 if (!expertOnly) followPlayhead(true)
               }}
@@ -805,7 +921,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
             </span>
             <video
               ref={expertRef}
-              src={playback.expert.video.signed_url}
+              src={expertSrc}
               className="w-full object-contain"
               style={{ aspectRatio: expertRatio }}
               playsInline
@@ -814,6 +930,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               onLoadedMetadata={event => {
                 setExpertDuration(event.currentTarget.duration)
                 setExpertRatio(videoRatio(event.currentTarget, expertRatio))
+                if (restoreResignedVideo('expert', event.currentTarget)) return
                 event.currentTarget.currentTime = Math.min(
                   event.currentTarget.duration,
                   Math.max(0, playback.expert.motion_start_seconds)
@@ -822,6 +939,7 @@ export default function VideoComparison({ playback }: VideoComparisonProps) {
               onTimeUpdate={() => {
                 if (expertOnly) followPlayhead(true)
               }}
+              onError={handleMediaError}
               onEnded={() => {
                 if (expertOnly && !loop.selection) setPlayback(false)
               }}

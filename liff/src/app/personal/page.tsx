@@ -21,7 +21,9 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
+import { RateLimitedError } from '@/lib/api/client'
 import { useSkillSummary } from '@/lib/useSkillSummary'
+import { usePlaybackRefresh } from '@/lib/usePlaybackRefresh'
 import { resolveWorkFocus, type WorkFocus } from '@/lib/workLink'
 import { dailyBestScores } from '@/lib/dailyBest'
 import SkillSummary from '@/components/SkillSummary'
@@ -179,7 +181,10 @@ export default function PersonalPage() {
         }
       } catch (err) {
         if (err instanceof Error) console.error(err.message)
-        setUserDataError('無法讀取帳戶資料，請稍後再試。')
+        // A rate limit says what to wait for; anything else stays generic.
+        setUserDataError(
+          err instanceof RateLimitedError ? err.message : '無法讀取帳戶資料，請稍後再試。'
+        )
       } finally {
         setLoading(false)
       }
@@ -291,6 +296,14 @@ export default function PersonalPage() {
     }
   }, [activeTab, profile?.userId, selectedDate, selectedSkill, selectedAnalysisStatus])
 
+  // The signed video URLs last an hour; re-sign them in place before then so a
+  // comparison left open keeps playing from where the learner was.
+  const onPlaybackMediaError = usePlaybackRefresh(playback, setPlayback, () =>
+    profile?.userId
+      ? fetchPlayback(profile.userId, selectedSkill, selectedDate)
+      : Promise.reject(new Error('Not logged in'))
+  )
+
   if (loading) return <Spinner fullscreen />
 
   if (!userData) {
@@ -301,8 +314,9 @@ export default function PersonalPage() {
           title={sessionExpired ? '登入已逾時' : liffError ? 'LINE 登入失敗' : '無法載入學習資料'}
         >
           {sessionExpired
-            ? // Reloading will not help: LIFF hands back the same expired token
-              // until the app is opened from LINE again.
+            ? // Reloading will not help: LIFF hands back the same expired tokens
+              // (the ID token and the access token it fell back to) until the
+              // app is opened from LINE again.
               '這個頁面開太久了，請從 LINE 重新開啟一次。'
             : userDataError || '請重新整理頁面後再試一次。'}
         </Alert>
@@ -500,7 +514,9 @@ export default function PersonalPage() {
         {activeTab === 'comparison' && (
           <div role="tabpanel" className="space-y-5">
             {playbackLoading && <Spinner />}
-            {!playbackLoading && playback && <VideoComparison playback={playback} />}
+            {!playbackLoading && playback && (
+              <VideoComparison playback={playback} onMediaError={onPlaybackMediaError} />
+            )}
             {!playbackLoading && playbackError && (
               <Alert variant="warning" title="無法載入影片">
                 {playbackError}

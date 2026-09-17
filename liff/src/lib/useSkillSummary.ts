@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 
 import type { Skill } from '@/lib/types'
-import { authorizedFetch } from '@/lib/api/client'
+import { authorizedFetch, RateLimitedError, rateLimitedMessage } from '@/lib/api/client'
 
 /**
  * The label the backend puts where a raw score payload used to be.
@@ -58,7 +58,10 @@ export function useSkillSummary(userId: string | undefined, skill: Skill): Skill
     const run = async () => {
       const query = new URLSearchParams({ user_id: userId, skill })
       const historyResponse = await authorizedFetch(`/api/chat/history?${query.toString()}`)
-      if (!historyResponse.ok) throw new Error(historyResponse.statusText)
+      if (!historyResponse.ok) {
+        const limited = await rateLimitedMessage(historyResponse)
+        throw limited ? new RateLimitedError(limited) : new Error(historyResponse.statusText)
+      }
       const historyJson = await historyResponse.json()
       const history: ChatMessage[] = Array.isArray(historyJson.data) ? historyJson.data : []
       if (cancelled) return
@@ -74,14 +77,20 @@ export function useSkillSummary(userId: string | undefined, skill: Skill): Skill
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content, user_id: userId, skill })
       })
-      if (!summaryResponse.ok) throw new Error(summaryResponse.statusText)
+      if (!summaryResponse.ok) {
+        const limited = await rateLimitedMessage(summaryResponse)
+        throw limited ? new RateLimitedError(limited) : new Error(summaryResponse.statusText)
+      }
       const summaryJson = await summaryResponse.json()
       if (!cancelled) setSummary(summaryJson.summary || '')
     }
 
     run()
-      .catch(() => {
-        if (!cancelled) setError('目前無法取得 AI 總結，請稍後再試。')
+      .catch(error => {
+        if (cancelled) return
+        setError(
+          error instanceof RateLimitedError ? error.message : '目前無法取得 AI 總結，請稍後再試。'
+        )
       })
       .finally(() => {
         if (!cancelled) setLoading(false)

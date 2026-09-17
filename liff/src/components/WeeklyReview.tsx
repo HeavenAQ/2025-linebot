@@ -18,6 +18,7 @@ import {
 } from '@/lib/api/weeklyReflections'
 import { SkillNameMap, type Skill } from '@/lib/types'
 import { authorizedFetch } from '@/lib/api/client'
+import { usePlaybackRefresh } from '@/lib/usePlaybackRefresh'
 import { SCORE_RECORD_LABEL, type ChatMessage } from '@/lib/useSkillSummary'
 import { formatWeekRange, isoWeek, parseWorkDate } from '@/lib/week'
 import type { WorkFocus } from '@/lib/workLink'
@@ -239,6 +240,14 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
     }
   }, [openWork, userId, openStatus])
 
+  // The signed video URLs last an hour; re-sign them in place before then so a
+  // comparison left open keeps playing from where the learner was.
+  const onPlaybackMediaError = usePlaybackRefresh(playback, setPlayback, () =>
+    openWork
+      ? fetchPlayback(userId, openWork.skill, openWork.workDate)
+      : Promise.reject(new Error('No attempt open'))
+  )
+
   const onSave = useCallback(async () => {
     if (!week) return
     setSaving(true)
@@ -329,7 +338,12 @@ export default function WeeklyReview({ userId, userData, focusWork }: WeeklyRevi
                   {isOpen && (
                     <div className="mt-2">
                       {playbackLoading && <Spinner />}
-                      {!playbackLoading && playback && <VideoComparison playback={playback} />}
+                      {!playbackLoading && playback && (
+                        <VideoComparison
+                          playback={playback}
+                          onMediaError={onPlaybackMediaError}
+                        />
+                      )}
                       {!playbackLoading && playbackError && (
                         <Alert variant="warning" title="無法載入影片">
                           {playbackError}

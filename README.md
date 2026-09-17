@@ -288,6 +288,29 @@ Mondays 13:45–18:10 Asia/Taipei. Local Apple Silicon inference can use MPS.
 The Go backend's queue is configured with `ANALYSIS_TASKS_QUEUE`,
 `ANALYSIS_ASYNC_ACCEPT`, `ANALYSIS_WORKER_URL` and
 `ANALYSIS_TASK_SERVICE_ACCOUNT` (see `scripts/configure_async_analysis.sh`).
+Uploads are only ever analyzed through the queue; `ANALYSIS_ASYNC_ACCEPT=false`
+pauses new uploads while queued jobs drain.
+
+## Observability and API protection
+
+- Both services write one JSON object per log line (severity, message, source
+  location, request ID and Cloud Trace fields), which Cloud Run forwards to
+  Cloud Logging as structured logs. The Go backend forwards `x-request-id` (the
+  analysis job ID for queued work) and `x-cloud-trace-context` to the GPU
+  service over gRPC metadata, so both services' logs and request spans join one
+  trace.
+- `scripts/configure_observability.sh` creates log-based metrics for queued job
+  outcomes and duration, GPU latency stages, analysis failures, and learner API
+  rejections.
+- Learner API credentials: an ES256 LIFF ID token is verified locally against
+  LINE's published keys; once it expires the LIFF app sends its access token
+  (`X-Line-Access-Token`), which LINE verifies. Rejected credentials are cached
+  briefly so replays do not reach LINE.
+- Per-instance rate limits cover each client IP, failed authentications per IP,
+  each learner, and GPT summaries per learner; refusals return 429 with
+  `Retry-After`. A global limit would belong at the edge (Cloud Armor).
+- OpenAI calls have explicit timeouts: 45 s with one retry in Go;
+  `OPENAI_TIMEOUT_SECONDS` (90) and `OPENAI_MAX_RETRIES` (1) in Python.
 
 ## Running locally
 

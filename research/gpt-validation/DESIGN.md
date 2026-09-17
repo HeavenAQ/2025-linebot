@@ -12,9 +12,13 @@ the no-LLM variant.
   (Detection precision/recall/F1 against expert consensus; share of cues and
   responses judged correct, with 95% confidence intervals.)
 
-Each item is one original beginner video (serve or smash; mirrored `_left`
-copies are excluded) processed once by the production pipeline, including GPT
-coaching. Two experts rate every eligible item independently and blind.
+The items are the **100 beginner videos the two experts already scored in the
+rubric workbooks** (50 smash, 50 serve), listed in `processing/manifest.csv`
+(written by `processing/build_manifest.py`). A mirrored `_left` copy is used only
+when it is the student's sole recording. Each video is processed once by the
+production pipeline, including GPT coaching, **on a local Mac** (RF-DETR and the
+diffusion model on Apple MPS); no cloud GPU is used. Two experts rate every
+eligible item independently and blind.
 
 ### Per-item form (about one minute)
 
@@ -37,9 +41,9 @@ ratings, or which items were excluded.
 ## Storage
 
 Google Cloud Storage, bucket `nstc-2025-storage`, prefix
-`gpt-validation/<batch_id>/` (temporary; delete after the study):
+`gpt-validation/<batch_id>/` (temporary; delete after the study). Source videos
+stay on the Mac; only renders are uploaded:
 
-- `inputs/<skill>/<source_file>` — uploaded original videos
 - `renders/<item_id>/detected_overlay.mp4` — step 1 video
 - `renders/<item_id>/feedback.mp4` — step 2 video (GPT markers + pauses)
 - `renders/<item_id>/skeleton_overlay.mp4` — detected + generated skeletons
@@ -48,7 +52,7 @@ Firestore, `(default)` database, project `nstc-linebot-2025`.
 
 ### `gpt_validation_items/{item_id}`
 
-Written by the batch job (`badminton_analysis_ai/scripts/gpt_validation_batch.py`).
+Written by `processing/process_videos.py`.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -56,6 +60,7 @@ Written by the batch job (`badminton_analysis_ai/scripts/gpt_validation_batch.py
 | `batch_id` | string | e.g. `beginners-2026-09` |
 | `skill` | string | `serve` or `smash` |
 | `source_file` | string | original filename; **never sent to experts** |
+| `workbook_id` | string | beginner ID in the rubric workbook (e.g. `EG01`); **never sent to experts** |
 | `display_code` | string | neutral label shown to experts, e.g. `SV-017`, `SM-042` |
 | `status` | string | `pending` · `processing` · `ready` · `failed` |
 | `error` | string | failure reason when `failed` |
@@ -112,7 +117,7 @@ Cloud Run service `gpt-validation` (asia-east1, `min-instances 0`), code in
 
 ### CSV columns
 
-- `items.csv`: `item_id, display_code, skill, source_file, status, eligible, coaching_source, coaching_model, handedness, total_grade, n_cues, gpt_flagged_criteria` (`;`-joined)
+- `items.csv`: `item_id, display_code, skill, source_file, workbook_id, status, eligible, coaching_source, coaching_model, handedness, total_grade, n_cues, gpt_flagged_criteria` (`;`-joined)
 - `criteria.csv`: `item_id, skill, expert_id, criterion_id, criterion_name, expert_needs_improvement (0/1), gpt_flagged (0/1)`
 - `cues.csv`: `item_id, skill, expert_id, cue_index, criterion_id, cue_rating (correct/partial/incorrect), cue_score (2/1/0)`
 - `overall.csv`: `item_id, skill, expert_id, overall_score, comment, step1_seconds, step2_seconds, completed`

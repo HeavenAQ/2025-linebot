@@ -1,36 +1,40 @@
-"""Process beginner videos once for the GPT feedback validation study.
+"""Process the study's beginner videos once, on a local Mac, for GPT validation.
 
-Runs as a Cloud Run job on an L4 with the analysis image, entirely outside the
-production analysis service: each task builds its own pipeline, analyzes its
-shard of uploaded videos with GPT coaching on, renders the RF-DETR pose-only
-reference video experts watch before GPT is revealed, uploads every render
-under the study's own prefix, and freezes the result as one Firestore item.
+Runs the production analysis pipeline in-process (RF-DETR pose on Apple MPS,
+EIMD diffusion, grading and GPT coaching) for every video in the manifest,
+renders an RF-DETR pose-only overlay of the full clip for experts to judge
+before GPT is revealed, uploads the renders under the study's Cloud Storage
+prefix, and freezes each result as one Firestore item. No cloud GPU is used.
 
-The study design and the Firestore schema are in
-research/gpt-validation/DESIGN.md at the repository root.
+The study design and Firestore schema are in ../DESIGN.md; `build_manifest.py`
+writes the manifest of the 100 workbook-listed beginner videos.
 
-Configuration (environment):
-  GCP_PROJECT_ID, GCS_BUCKET_NAME    where inputs, renders and items live
-  VALIDATION_BATCH_ID                e.g. beginners-2026-09
-  VALIDATION_PREFIX                  default gpt-validation/<batch id>
-  CLOUD_RUN_TASK_INDEX / _COUNT      set by Cloud Run; each task takes one shard
-  VALIDATION_MAX_ATTEMPTS            default 2; failed items are retried up to it
-  VALIDATION_FORCE=1                 reprocess items that are already ready
-  OPENAI_API_KEY, OPENAI_COACHING_MODEL, COACHING_* as for the service
+Usage (from the repository root, with Application Default Credentials and
+OPENAI_API_KEY set):
 
-Reruns are safe: ready items are skipped, so a job can simply be executed again
-after a partial failure.
+  PYTHONPATH=badminton_analysis_ai:badminton_analysis_ai/generated \
+    python research/gpt-validation/processing/process_videos.py \
+      --manifest research/gpt-validation/processing/manifest.csv \
+      --videos-root ~/dev/badminton-analysis/scoring_videos
+
+Reruns are safe: ready items are skipped and failed ones are retried within
+--max-attempts, so an interrupted run can simply be started again.
 """
 
 from __future__ import annotations
 
+import argparse
+import csv
 import hashlib
 import logging
 import os
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Iterable
 
 LOGGER = logging.getLogger("gpt-validation-batch")
@@ -41,9 +45,10 @@ ITEMS_COLLECTION = "gpt_validation_items"
 
 @dataclass(frozen=True)
 class InputVideo:
-    object_path: str
     skill: str
+    workbook_id: str
     source_file: str
+    source_path: str
 
     @property
     def item_id(self) -> str:
@@ -51,31 +56,40 @@ class InputVideo:
 
 
 def item_id_for(skill: str, source_file: str) -> str:
-    """Stable across reruns and independent of listing order."""
+    """Stable across reruns and independent of manifest order."""
     digest = hashlib.sha1(source_file.encode("utf-8")).hexdigest()[:10]
     return f"{skill}-{digest}"
 
 
-def parse_input(object_path: str, prefix: str) -> InputVideo | None:
-    """`<prefix>/inputs/<skill>/<file>.mp4` → InputVideo; anything else is ignored.
+def read_manifest(path: Path) -> list[InputVideo]:
+    """Rows of `skill, workbook_id, source_file, source_path` (see build_manifest.py)."""
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    videos = []
+    for row in rows:
+        if row["skill"] not in SKILL_CODES:
+            raise ValueError(f"unsupported skill in manifest: {row['skill']!r}")
+        videos.append(
+            InputVideo(
+                skill=row["skill"],
+                workbook_id=row["workbook_id"],
+                source_file=row["source_file"],
+                source_path=row["source_path"],
+            )
+        )
+    ids = [video.item_id for video in videos]
+    if len(ids) != len(set(ids)):
+        raise ValueError("manifest lists the same video twice")
+    return videos
 
-    Mirrored `_left` copies repeat an attempt already in the set, so they are
-    excluded even if they were uploaded.
+
+def recorded_handedness(video: InputVideo) -> str:
+    """The cohort's handedness as recorded in its files.
+
+    A `_left` file with no unmirrored original is the student's own
+    left-handed recording; everything else in the cohort is right-handed.
     """
-    root = PurePosixPath(prefix.strip("/")) / "inputs"
-    path = PurePosixPath(object_path)
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        return None
-    if len(relative.parts) != 2:
-        return None
-    skill, source_file = relative.parts
-    if skill not in SKILL_CODES or path.suffix.lower() != ".mp4":
-        return None
-    if path.stem.endswith("_left"):
-        return None
-    return InputVideo(object_path=object_path, skill=skill, source_file=source_file)
+    return "left" if Path(video.source_file).stem.endswith("_left") else "right"
 
 
 def display_codes(videos: Iterable[InputVideo]) -> dict[str, str]:
@@ -90,13 +104,6 @@ def display_codes(videos: Iterable[InputVideo]) -> dict[str, str]:
         for number, item_id in enumerate(ids, start=1):
             codes[item_id] = f"{code}-{number:03d}"
     return codes
-
-
-def shard(videos: list[InputVideo], task_index: int, task_count: int) -> list[InputVideo]:
-    if task_count < 1 or not 0 <= task_index < task_count:
-        raise ValueError(f"invalid shard {task_index}/{task_count}")
-    ordered = sorted(videos, key=lambda video: video.item_id)
-    return [video for position, video in enumerate(ordered) if position % task_count == task_index]
 
 
 def should_process(existing: dict[str, Any] | None, *, force: bool, max_attempts: int) -> bool:
@@ -155,6 +162,7 @@ def build_item(
         "batch_id": batch_id,
         "skill": video.skill,
         "source_file": video.source_file,
+        "workbook_id": video.workbook_id,
         "display_code": display_code,
         "status": "ready",
         "error": "",
@@ -174,15 +182,42 @@ def build_item(
     }
 
 
-def render_detected_overlay(video_path: Path, output_path: Path, detector: Any) -> None:
+@contextmanager
+def capture_pose_pass() -> Iterator[list[tuple[Path, Any]]]:
+    """Record the analysis's own pose extraction so the overlay can reuse it.
+
+    Running RF-DETR a second time just for the step-1 video would double the
+    slowest stage on a Mac. The pipeline builds exactly one VideoProcessor per
+    analysis (for smash, over its 30 fps copy of the source), so wrapping it
+    yields that video path and its tracking data unchanged.
+    """
+    import service.pipeline as pipeline_module
+
+    captured: list[tuple[Path, Any]] = []
+    original = pipeline_module.VideoProcessor
+
+    class RecordingVideoProcessor(original):  # type: ignore[misc, valid-type]
+        def process_frames_batched(self, handedness):  # noqa: ANN001, ANN202
+            tracking = super().process_frames_batched(handedness)
+            captured.append((Path(self.video_path), tracking))
+            return tracking
+
+    pipeline_module.VideoProcessor = RecordingVideoProcessor
+    try:
+        yield captured
+    finally:
+        pipeline_module.VideoProcessor = original
+
+
+def render_detected_overlay(video_path: Path, output_path: Path, tracking: Any) -> None:
     """The step-1 reference video: RF-DETR's detected skeleton on the full clip.
 
     Deliberately shows nothing else -- no generated expert skeleton, score or
     GPT markers -- so it cannot hint at what the experts are asked to judge.
+    `tracking` is the pose pass over `video_path`.
     """
     import cv2
 
-    from badminton_analysis.services.video_processor import VideoProcessor
     from service.renderer import (
         _draw_skeleton,
         _prepare_detected_pose_for_render,
@@ -191,7 +226,6 @@ def render_detected_overlay(video_path: Path, output_path: Path, detector: Any) 
         source_frame_rate,
     )
 
-    tracking = VideoProcessor(str(video_path), detector).process_frames_batched(None)
     frames = tracking["frames"]
     if not frames:
         raise ValueError("video has no frames")
@@ -225,23 +259,26 @@ def _process(video: InputVideo, *, context: dict[str, Any], display_code: str, a
     storage = context["storage"]
     prefix = context["prefix"]
     skill = Skill.convert_to_enum(video.skill)
+    input_path = Path(context["videos_root"]) / video.source_path
+    if not input_path.is_file():
+        raise FileNotFoundError(f"video not found: {input_path}")
     with tempfile.TemporaryDirectory(prefix="gpt-validation-") as raw_directory:
         directory = Path(raw_directory)
-        input_path = directory / "input.mp4"
-        context["bucket"].blob(video.object_path).download_to_filename(str(input_path))
         feedback_path = directory / "feedback.mp4"
         overlay_path = directory / "skeleton_overlay.mp4"
         detected_path = directory / "detected_overlay.mp4"
 
-        try:
-            result = _analyze(pipeline, input_path, feedback_path, overlay_path, display_code, skill, "auto")
-        except ValueError as exc:
-            if "ambiguous" not in str(exc):
-                raise
-            # The beginner originals are right-handed recordings; mirrored
-            # left-handed copies are excluded from the study.
-            result = _analyze(pipeline, input_path, feedback_path, overlay_path, display_code, skill, "right")
-        render_detected_overlay(input_path, detected_path, pipeline.pose_detector)
+        # Handedness is known for this cohort, exactly as production passes the
+        # learner's chosen hand; estimating it wastes a pose pass and is often
+        # ambiguous on beginner clips.
+        with capture_pose_pass() as pose_passes:
+            result = _analyze(
+                pipeline, input_path, feedback_path, overlay_path, display_code, skill, recorded_handedness(video)
+            )
+        if len(pose_passes) != 1:
+            raise RuntimeError(f"expected one pose pass, captured {len(pose_passes)}")
+        posed_video, tracking = pose_passes[0]
+        render_detected_overlay(posed_video, detected_path, tracking)
 
         renders = f"{prefix}/renders/{video.item_id}"
         media = {
@@ -284,7 +321,19 @@ def _analyze(pipeline: Any, video: Path, feedback: Path, overlay: Path, filename
 
 
 def main() -> int:
-    from google.cloud import firestore, storage as gcs
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--videos-root", type=Path, required=True, help="the scoring_videos directory")
+    parser.add_argument("--batch-id", default="beginners-2026-09")
+    parser.add_argument("--project", default=os.environ.get("GCP_PROJECT_ID", "nstc-linebot-2025"))
+    parser.add_argument("--bucket", default=os.environ.get("GCS_BUCKET_NAME", "nstc-2025-storage"))
+    parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument("--force", action="store_true", help="reprocess items that are already ready")
+    parser.add_argument("--limit", type=int, default=0, help="process at most N videos (0 = all)")
+    parser.add_argument("--only", action="append", default=[], help="process only this item id (repeatable)")
+    arguments = parser.parse_args()
+
+    from google.cloud import firestore
 
     from service.config import Settings
     from service.logging_config import configure_logging
@@ -292,30 +341,21 @@ def main() -> int:
     from service.storage import ObjectStorage
 
     configure_logging(logging.INFO)
-    project = os.environ["GCP_PROJECT_ID"]
-    bucket_name = os.environ["GCS_BUCKET_NAME"]
-    batch_id = os.environ["VALIDATION_BATCH_ID"]
-    prefix = os.environ.get("VALIDATION_PREFIX", f"gpt-validation/{batch_id}").strip("/")
-    task_index = int(os.environ.get("CLOUD_RUN_TASK_INDEX", "0"))
-    task_count = int(os.environ.get("CLOUD_RUN_TASK_COUNT", "1"))
-    max_attempts = int(os.environ.get("VALIDATION_MAX_ATTEMPTS", "2"))
-    force = os.environ.get("VALIDATION_FORCE") == "1"
-
-    client = gcs.Client(project=project)
-    bucket = client.bucket(bucket_name)
-    videos = [
-        video
-        for blob in client.list_blobs(bucket_name, prefix=f"{prefix}/inputs/")
-        if (video := parse_input(blob.name, prefix)) is not None
-    ]
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("OPENAI_API_KEY is required: GPT coaching is what this study evaluates")
+    videos = read_manifest(arguments.manifest)
+    videos_root = arguments.videos_root.expanduser().resolve()
     codes = display_codes(videos)
-    mine = shard(videos, task_index, task_count)
-    LOGGER.info(
-        "validation shard starting",
-        extra={"json_fields": {"batch_id": batch_id, "task_index": task_index, "task_count": task_count, "videos_total": len(videos), "videos_in_shard": len(mine)}},
-    )
+    selected = [video for video in videos if not arguments.only or video.item_id in arguments.only]
+    prefix = f"gpt-validation/{arguments.batch_id}"
 
-    items = firestore.Client(project=project).collection(ITEMS_COLLECTION)
+    items = firestore.Client(project=arguments.project).collection(ITEMS_COLLECTION)
+    # The pipeline reads its model paths relative to badminton_analysis_ai/.
+    service_root = Path(__file__).resolve().parents[3] / "badminton_analysis_ai"
+    os.chdir(service_root)
+    os.environ.setdefault("ANALYSIS_GRPC_API_KEY", "local-validation-run")
+    os.environ.setdefault("GCP_PROJECT_ID", arguments.project)
+    os.environ.setdefault("GCS_BUCKET_NAME", arguments.bucket)
     settings = Settings.from_env()
     context = {
         "pipeline": SkeletonAnalysisPipeline(
@@ -324,27 +364,35 @@ def main() -> int:
             openai_model=settings.openai_model,
             pause_seconds=settings.coaching_pause_seconds,
         ),
-        "storage": ObjectStorage(project, bucket_name),
-        "bucket": bucket,
+        "storage": ObjectStorage(arguments.project, arguments.bucket),
+        "videos_root": videos_root,
         "prefix": prefix,
-        "batch_id": batch_id,
+        "batch_id": arguments.batch_id,
     }
+    LOGGER.info(
+        "validation run starting",
+        extra={"json_fields": {"batch_id": arguments.batch_id, "videos_total": len(videos), "videos_selected": len(selected)}},
+    )
 
-    failures = 0
-    for video in mine:
+    processed = failures = 0
+    for video in selected:
+        if arguments.limit and processed >= arguments.limit:
+            break
         reference = items.document(video.item_id)
         snapshot = reference.get()
         existing = snapshot.to_dict() if snapshot.exists else None
-        if not should_process(existing, force=force, max_attempts=max_attempts):
+        if not should_process(existing, force=arguments.force, max_attempts=arguments.max_attempts):
             continue
+        processed += 1
         attempts = int((existing or {}).get("attempts", 0)) + 1
         now = datetime.now(timezone.utc)
         reference.set(
             {
                 "item_id": video.item_id,
-                "batch_id": batch_id,
+                "batch_id": arguments.batch_id,
                 "skill": video.skill,
                 "source_file": video.source_file,
+                "workbook_id": video.workbook_id,
                 "display_code": codes[video.item_id],
                 "status": "processing",
                 "eligible": False,
@@ -354,9 +402,10 @@ def main() -> int:
             },
             merge=True,
         )
+        started = time.perf_counter()
         try:
             item = _process(video, context=context, display_code=codes[video.item_id], attempts=attempts)
-        except Exception as exc:  # noqa: BLE001 - one bad video must not stop the shard
+        except Exception as exc:  # noqa: BLE001 - one bad video must not stop the run
             failures += 1
             LOGGER.exception(
                 "validation item failed",
@@ -371,10 +420,10 @@ def main() -> int:
         reference.set(item, merge=True)
         LOGGER.info(
             "validation item ready",
-            extra={"json_fields": {"item_id": video.item_id, "skill": video.skill, "eligible": item["eligible"], "coaching_source": item["coaching_source"], "n_cues": len(item["gpt_cues"])}},
+            extra={"json_fields": {"item_id": video.item_id, "display_code": item["display_code"], "eligible": item["eligible"], "coaching_source": item["coaching_source"], "n_cues": len(item["gpt_cues"]), "seconds": round(time.perf_counter() - started, 1)}},
         )
-    LOGGER.info("validation shard finished", extra={"json_fields": {"task_index": task_index, "failures": failures}})
-    return 0
+    LOGGER.info("validation run finished", extra={"json_fields": {"processed": processed, "failures": failures}})
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

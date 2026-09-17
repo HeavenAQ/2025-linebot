@@ -1,4 +1,4 @@
-import { authorizedFetch } from '@/lib/api/client'
+import { authorizedFetch, RateLimitedError, rateLimitedMessage } from '@/lib/api/client'
 
 export interface WeeklyReflection {
   user_id: string
@@ -24,7 +24,10 @@ export async function fetchWeeklyReflections(
 ): Promise<Record<string, WeeklyReflection>> {
   const query = new URLSearchParams({ user_id: userId })
   const response = await authorizedFetch(`/api/db/weekly-reflections?${query}`)
-  if (!response.ok) throw new Error(`無法讀取每週紀錄 (${response.status})`)
+  if (!response.ok) {
+    const limited = await rateLimitedMessage(response)
+    throw limited ? new RateLimitedError(limited) : new Error(`無法讀取每週紀錄 (${response.status})`)
+  }
   const json = await response.json()
   return (json.data ?? {}) as Record<string, WeeklyReflection>
 }
@@ -46,6 +49,8 @@ export async function saveWeeklyNote(
     body: JSON.stringify({ user_id: userId, week, [field]: text })
   })
   if (!response.ok) {
+    const limited = await rateLimitedMessage(response)
+    if (limited) throw new RateLimitedError(limited)
     if (response.status === 413) throw new Error(`${NOTE_LABEL[field]}內容太長，請精簡後再儲存。`)
     throw new Error(`儲存失敗 (${response.status})`)
   }

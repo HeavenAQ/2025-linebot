@@ -7,9 +7,11 @@ import signal
 import tempfile
 import time
 import uuid
+from collections.abc import Iterator
 from concurrent import futures
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, NoReturn
 
 import grpc
 
@@ -17,9 +19,19 @@ from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.models.types import Handedness, Skill
 
 from service.config import Settings
+from service.coaching_timeline import coaching_video_frame
+from service.logging_config import (
+    configure_logging,
+    parse_cloud_trace_context,
+    request_context,
+    sanitize_request_id,
+    set_analysis_id,
+    set_request_id_if_absent,
+)
 from service.pipeline import (
     expert_phase_results,
     AnalysisResult,
+    SkillMismatchError,
     SkeletonAnalysisPipeline,
 )
 from service.renderer import probe_video
@@ -47,6 +59,31 @@ _HANDEDNESS_TO_PROTO = {
 def _safe_segment(value: str, fallback: str) -> str:
     cleaned = _SAFE_SEGMENT.sub("_", value).strip("._")
     return cleaned[:96] or fallback
+
+
+def _completion_fields(result: AnalysisResult) -> dict[str, Any]:
+    """The per-analysis record that log-based metrics are built from."""
+    diagnostics = result.diagnostics
+    fields: dict[str, Any] = {
+        "skill": str(result.skill),
+        "handedness": str(result.handedness),
+        "total_grade": float(result.grade["total_grade"]),
+    }
+    source = diagnostics.get("coaching_source")
+    if isinstance(source, str) and source:
+        fields["coaching_source"] = source
+    if "pose_tensorrt_active" in diagnostics:
+        fields["pose_tensorrt_active"] = bool(diagnostics["pose_tensorrt_active"])
+    if "input_video_bytes" in diagnostics:
+        fields["input_video_bytes"] = int(diagnostics["input_video_bytes"])
+    fields.update(
+        (key, float(value))
+        for key, value in diagnostics.items()
+        if key.startswith("latency_")
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+    )
+    return fields
 
 
 def _analysis_root(storage_prefix: str, user_segment: str, request_segment: str) -> str:
@@ -78,10 +115,59 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             pause_seconds=settings.coaching_pause_seconds,
         )
 
-    def _authorize(self, context: grpc.ServicerContext) -> None:
+    @staticmethod
+    @contextmanager
+    def _request_scope(context: grpc.ServicerContext) -> Iterator[None]:
+        """Correlate this RPC's log lines with the caller's request and trace.
+
+        Cloud Run forwards its own x-cloud-trace-context under the same key,
+        so reading the key takes the client's value when it sent one and the
+        platform's otherwise.
+        """
+        metadata = dict(context.invocation_metadata())
+        trace_id, span_id = parse_cloud_trace_context(
+            metadata.get("x-cloud-trace-context")
+        )
+        with request_context(
+            request_id=sanitize_request_id(metadata.get("x-request-id")),
+            trace_id=trace_id,
+            span_id=span_id,
+        ):
+            yield
+
+    @staticmethod
+    def _abort(
+        context: grpc.ServicerContext,
+        code: grpc.StatusCode,
+        details: str,
+        *,
+        error_type: str,
+        message: str = "analysis failed",
+        error: object | None = None,
+    ) -> NoReturn:
+        fields: dict[str, Any] = {"grpc_code": code.name, "error_type": error_type}
+        if error is not None:
+            fields["error"] = str(error)
+        if code == grpc.StatusCode.INTERNAL:
+            # Called from an except block, so the traceback rides along.
+            LOGGER.exception(message, extra={"json_fields": fields})
+        else:
+            LOGGER.warning(message, extra={"json_fields": fields})
+        context.abort(code, details)
+        raise AssertionError("unreachable")
+
+    def _authorize(
+        self, context: grpc.ServicerContext, *, failure_message: str
+    ) -> None:
         supplied = dict(context.invocation_metadata()).get("x-api-key", "")
         if not secrets.compare_digest(supplied, self.settings.grpc_api_key):
-            context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid API key")
+            self._abort(
+                context,
+                grpc.StatusCode.UNAUTHENTICATED,
+                "invalid API key",
+                error_type="invalid_api_key",
+                message=failure_message,
+            )
 
     @staticmethod
     def _stored_video(
@@ -103,11 +189,20 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         request_iterator: Iterable[analysis_pb2.AnalyzeVideoChunk],
         context: grpc.ServicerContext,
     ) -> analysis_pb2.AnalyzeVideoResponse:
-        self._authorize(context)
+        with self._request_scope(context):
+            return self._analyze_video(request_iterator, context)
+
+    def _analyze_video(
+        self,
+        request_iterator: Iterable[analysis_pb2.AnalyzeVideoChunk],
+        context: grpc.ServicerContext,
+    ) -> analysis_pb2.AnalyzeVideoResponse:
         service_started = time.perf_counter()
         header = None
         total_bytes = 0
         analysis_id = uuid.uuid4().hex
+        set_analysis_id(analysis_id)
+        self._authorize(context, failure_message="analysis failed")
         with tempfile.TemporaryDirectory(prefix="badminton-analysis-") as temp_value:
             temp_dir = Path(temp_value)
             input_path = temp_dir / "input.mp4"
@@ -116,37 +211,63 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     payload = chunk.WhichOneof("payload")
                     if payload == "header":
                         if header is not None or total_bytes:
-                            context.abort(
+                            self._abort(
+                                context,
                                 grpc.StatusCode.INVALID_ARGUMENT,
                                 "header must be the first and only header chunk",
+                                error_type="duplicate_header",
                             )
                         header = chunk.header
+                        # Older clients send no x-request-id metadata; their
+                        # header id is the same job id, so correlate on it.
+                        set_request_id_if_absent(header.request_id)
                     elif payload == "data":
                         if header is None:
-                            context.abort(
+                            self._abort(
+                                context,
                                 grpc.StatusCode.INVALID_ARGUMENT,
                                 "video header must be sent first",
+                                error_type="missing_header",
                             )
                         total_bytes += len(chunk.data)
                         if total_bytes > self.settings.max_video_bytes:
-                            context.abort(
+                            self._abort(
+                                context,
                                 grpc.StatusCode.RESOURCE_EXHAUSTED,
                                 "video exceeds configured size limit",
+                                error_type="video_too_large",
                             )
                         handle.write(chunk.data)
                     else:
-                        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "empty chunk")
+                        self._abort(
+                            context,
+                            grpc.StatusCode.INVALID_ARGUMENT,
+                            "empty chunk",
+                            error_type="empty_chunk",
+                        )
             if header is None or total_bytes == 0:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "video is empty")
+                self._abort(
+                    context,
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "video is empty",
+                    error_type="empty_video",
+                )
             skill = _PROTO_TO_SKILL.get(header.skill)
             handedness = _PROTO_TO_HANDEDNESS.get(header.handedness)
             if skill is None:
-                context.abort(
+                self._abort(
+                    context,
                     grpc.StatusCode.INVALID_ARGUMENT,
                     "only serve and smash are currently supported",
+                    error_type="unsupported_skill",
                 )
             if handedness is None:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported handedness")
+                self._abort(
+                    context,
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    "unsupported handedness",
+                    error_type="unsupported_handedness",
+                )
 
             output_path = temp_dir / "student_corrected.mp4"
             skeleton_overlay_path = temp_dir / "student_skeleton_overlay.mp4"
@@ -170,9 +291,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 student_signed = self.storage.upload_file(
                     output_path, object_path, content_type="video/mp4"
                 )
-                overlay_object_path = (
-                    f"{analysis_root}/student_skeleton_overlay.mp4"
-                )
+                overlay_object_path = f"{analysis_root}/student_skeleton_overlay.mp4"
                 overlay_signed = self.storage.upload_file(
                     skeleton_overlay_path,
                     overlay_object_path,
@@ -186,7 +305,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                         "input_video_bytes": float(total_bytes),
                     }
                 )
-                return self._response(
+                response = self._response(
                     analysis_id,
                     result,
                     student_signed,
@@ -194,12 +313,34 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     probe_video(output_path),
                     probe_video(skeleton_overlay_path),
                 )
+                LOGGER.info(
+                    "analysis completed",
+                    extra={"json_fields": _completion_fields(result)},
+                )
+                return response
+            except SkillMismatchError as exc:
+                self._abort(
+                    context,
+                    grpc.StatusCode.INVALID_ARGUMENT,
+                    str(exc),
+                    error_type=type(exc).__name__,
+                    error=exc,
+                )
             except (ValueError, KeyError) as exc:
-                LOGGER.warning("analysis rejected id=%s error=%s", analysis_id, exc)
-                context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-            except Exception:
-                LOGGER.exception("analysis failed id=%s", analysis_id)
-                context.abort(grpc.StatusCode.INTERNAL, "analysis failed")
+                self._abort(
+                    context,
+                    grpc.StatusCode.FAILED_PRECONDITION,
+                    str(exc),
+                    error_type=type(exc).__name__,
+                    error=exc,
+                )
+            except Exception as exc:
+                self._abort(
+                    context,
+                    grpc.StatusCode.INTERNAL,
+                    "analysis failed",
+                    error_type=type(exc).__name__,
+                )
         raise AssertionError("unreachable")
 
     def _expert_timeline(self, spec, reference) -> list[analysis_pb2.PhaseMarker]:
@@ -220,7 +361,13 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
         except ValueError as exc:
             LOGGER.warning(
-                "expert checkpoints unusable expert=%s error=%s", reference.subject_id, exc
+                "expert checkpoints unusable",
+                extra={
+                    "json_fields": {
+                        "expert_id": reference.subject_id,
+                        "error": str(exc),
+                    }
+                },
             )
             return []
         return [
@@ -230,6 +377,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 normalized_frame=marker.normalized_frame,
                 normalized_position=marker.normalized_position,
                 timestamp_seconds=marker.timestamp_seconds,
+                start_seconds=marker.start_seconds,
+                end_seconds=marker.end_seconds,
             )
             for marker in markers
         ]
@@ -257,43 +406,33 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
         ]
         problems_by_frame: dict[int, list[dict[str, object]]] = {}
+        window_start = int(result.diagnostics.get("analysis_window_start_frame", 0))
+        window_end = int(result.diagnostics.get("analysis_window_end_frame", 63))
+        normalized_length = int(result.diagnostics.get("normalized_sequence_length", 0))
         for problem in result.coaching_problems:
-            problems_by_frame.setdefault(int(problem["frame_index"]), []).append(problem)
+            local_frame = coaching_video_frame(
+                problem, normalized_length, window_end - window_start + 1
+            )
+            problems_by_frame.setdefault(local_frame, []).append(problem)
         fps = float(student_metadata["fps"])
         pause_frames = round(fps * result.pause_seconds)
         cues: list[analysis_pb2.CoachingCue] = []
         pauses_before = 0
         for frame in sorted(problems_by_frame):
-            window_start = int(
-                result.diagnostics.get("analysis_window_start_frame", 0)
-            )
-            window_end = int(
-                result.diagnostics.get("analysis_window_end_frame", frame)
-            )
-            normalized_length = int(
-                result.diagnostics.get("normalized_sequence_length", 0)
-            )
-            source_frame_count = int(
-                result.diagnostics.get("source_frame_count", 0)
-            )
-            if normalized_length > 1 and source_frame_count > 0:
-                progress = min(max(frame, 0), normalized_length - 1) / (
-                    normalized_length - 1
-                )
-                source_frame = round(
-                    window_start + progress * (window_end - window_start)
-                )
-                normalized_position = source_frame / max(1, source_frame_count - 1)
-            else:
-                source_frame = frame
-                normalized_position = frame / 63.0
-            start_time = (source_frame + pauses_before) / fps
+            local_frame = frame
+            normalized_position = local_frame / max(1, window_end - window_start)
+            # Both returned student videos contain only the inclusive analysis
+            # window.  Their clock starts at zero, not at the source upload's
+            # window_start frame.  Include earlier inserted coaching pauses in
+            # the feedback-video timestamp while keeping normalized_position
+            # on the pause-free motion axis used by the frontend.
+            start_time = (local_frame + pauses_before) / fps
             for problem in problems_by_frame[frame]:
                 cues.append(
                     analysis_pb2.CoachingCue(
                         title=str(problem["title"]),
                         feedback=str(problem["feedback"]),
-                        normalized_frame=frame,
+                        normalized_frame=int(problem["frame_index"]),
                         normalized_position=normalized_position,
                         student_timestamp_seconds=start_time,
                         pause_duration_seconds=result.pause_seconds,
@@ -365,6 +504,8 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                     normalized_frame=phase.normalized_frame,
                     normalized_position=phase.normalized_position,
                     timestamp_seconds=phase.timestamp_seconds,
+                    start_seconds=phase.start_seconds,
+                    end_seconds=phase.end_seconds,
                 )
                 for phase in result.phases
             ],
@@ -378,34 +519,58 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         request: analysis_pb2.RefreshPlaybackUrlsRequest,
         context: grpc.ServicerContext,
     ) -> analysis_pb2.RefreshPlaybackUrlsResponse:
-        self._authorize(context)
+        with self._request_scope(context):
+            return self._refresh_playback_urls(request, context)
+
+    def _refresh_playback_urls(
+        self,
+        request: analysis_pb2.RefreshPlaybackUrlsRequest,
+        context: grpc.ServicerContext,
+    ) -> analysis_pb2.RefreshPlaybackUrlsResponse:
+        self._authorize(context, failure_message="refresh playback urls failed")
         if not request.object_paths or len(request.object_paths) > 8:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "request one to eight objects"
+            )
         videos = []
         for object_path in request.object_paths:
-            if ".." in object_path or not object_path.startswith(("analyses/", "experts/")):
-                context.abort(grpc.StatusCode.PERMISSION_DENIED, "object path is not playable")
+            if ".." in object_path or not object_path.startswith(
+                ("analyses/", "experts/", "noai/analyses/", "no-ai/analyses/")
+            ):
+                context.abort(
+                    grpc.StatusCode.PERMISSION_DENIED, "object path is not playable"
+                )
             videos.append(self._stored_video(self.storage.sign(object_path), {}))
         return analysis_pb2.RefreshPlaybackUrlsResponse(videos=videos)
 
     def Health(
         self, request: analysis_pb2.HealthRequest, context: grpc.ServicerContext
     ) -> analysis_pb2.HealthResponse:
-        return analysis_pb2.HealthResponse(
-            status="serving",
-            loaded_skills=[_SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills],
-        )
+        with self._request_scope(context):
+            self._authorize(context, failure_message="health check failed")
+            if hasattr(self.pipeline, "warmup"):
+                self.pipeline.warmup()
+            return analysis_pb2.HealthResponse(
+                status="serving",
+                loaded_skills=[
+                    _SKILL_TO_PROTO[value] for value in self.pipeline.loaded_skills
+                ],
+            )
 
 
 def serve() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    settings = Settings.from_env()
-    service = BadmintonAnalysisService(settings)
+    configure_logging(logging.INFO)
+    try:
+        settings = Settings.from_env()
+        service = BadmintonAnalysisService(settings)
+    except Exception:
+        # Logged rather than left to the interpreter so the startup traceback
+        # is one structured ERROR entry instead of many plain stderr lines.
+        LOGGER.exception("server failed to start")
+        raise SystemExit(1) from None
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=2),
+        futures.ThreadPoolExecutor(max_workers=8),
+        maximum_concurrent_rpcs=8,
         options=(
             ("grpc.max_receive_message_length", settings.max_video_bytes + 1024 * 1024),
             ("grpc.max_send_message_length", 8 * 1024 * 1024),
@@ -414,7 +579,7 @@ def serve() -> None:
     analysis_pb2_grpc.add_BadmintonAnalysisServicer_to_server(service, server)
     server.add_insecure_port(f"[::]:{settings.port}")
     server.start()
-    LOGGER.info("gRPC server listening port=%d", settings.port)
+    LOGGER.info("gRPC server listening", extra={"json_fields": {"port": settings.port}})
 
     def stop(*_: object) -> None:
         LOGGER.info("stopping gRPC server")

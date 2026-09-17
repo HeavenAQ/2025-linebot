@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent infrastructure setup. Run after both bot workers are deployed.
-# Existing URLs, branches, collections and storage prefixes stay compatible;
-# llm/no-llm are the new queue and scheduler names, not a data migration.
+# llm/no-llm name the queues and schedulers; service URLs, Firestore collections
+# and storage prefixes are unchanged.
 set -euo pipefail
 
 project="${GCP_PROJECT_ID:-nstc-linebot-2025}"
@@ -45,6 +45,11 @@ for variant in llm no-llm; do
   upsert_scheduler "analysis-${variant}-outbox" --schedule='* * * * *' \
     --uri="${worker_url}/internal/analysis/outbox" --http-method=POST \
     --oidc-service-account-email="$account" --oidc-token-audience="$worker_url" --attempt-deadline=180s
+  # Completed analyses update the class chart aggregates as they finish; the
+  # nightly rebuild (outside class) corrects anything that drifted.
+  upsert_scheduler "class-stats-${variant}-rebuild" --schedule='30 3 * * *' \
+    --uri="${worker_url}/internal/stats/rebuild" --http-method=POST \
+    --oidc-service-account-email="$account" --oidc-token-audience="$worker_url" --attempt-deadline=600s
   if [[ "$variant" == llm ]]; then
     llm_worker_url="$worker_url"
     # Monday class is 14:00–18:00 Taiwan; reserve at 13:45 and load the actual

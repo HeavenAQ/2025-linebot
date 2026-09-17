@@ -50,6 +50,15 @@ class ObjectStorage:
             "version": "v4",
             "expiration": expires_at,
             "method": "GET",
+            # Older expert objects have no GCS Content-Type. LIFF's embedded
+            # browser does not reliably sniff an octet-stream as video.
+            "query_parameters": {
+                "response-content-type": (
+                    "video/quicktime"
+                    if object_path.lower().endswith(".mov")
+                    else "video/mp4"
+                )
+            },
         }
         credentials, _ = google.auth.default()
         if hasattr(credentials, "sign_bytes"):

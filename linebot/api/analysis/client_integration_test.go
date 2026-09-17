@@ -2,6 +2,7 @@ package analysis_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -51,6 +52,43 @@ func TestLiveAnalysisRejectsOppositeHandFallback(t *testing.T) {
 	require.True(t, errors.Is(err, analysis.ErrNoMatchingExpert), err)
 }
 
+func TestLiveAnalysisRejectsSkillMismatch(t *testing.T) {
+	if os.Getenv("RUN_LIVE_ANALYSIS_SKILL_MISMATCH") != "1" {
+		t.Skip("set RUN_LIVE_ANALYSIS_SKILL_MISMATCH=1 to verify wrong-skill rejection")
+	}
+	_ = godotenv.Load("../../.env")
+	target := os.Getenv("ANALYSIS_GRPC_TARGET")
+	apiKey := os.Getenv("ANALYSIS_GRPC_API_KEY")
+	videoPath := os.Getenv("LIVE_ANALYSIS_VIDEO")
+	skill := os.Getenv("LIVE_ANALYSIS_SKILL")
+	handedness := os.Getenv("LIVE_ANALYSIS_HANDEDNESS")
+	require.NotEmpty(t, target)
+	require.NotEmpty(t, apiKey)
+	require.NotEmpty(t, videoPath)
+	require.NotEmpty(t, skill)
+	require.NotEmpty(t, handedness)
+
+	video, err := os.ReadFile(videoPath)
+	require.NoError(t, err)
+	// A mismatch must stop before coaching and storage. The unique prefix also
+	// makes an accidental upload straightforward to identify during a live
+	// candidate audit.
+	client, err := analysis.NewClient(
+		target, apiKey, false, true,
+		fmt.Sprintf("verification/wrong-skill/%d", time.Now().UnixNano()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	_, err = client.AnalyzeVideo(
+		context.Background(),
+		fmt.Sprintf("go-live-wrong-skill-%d", time.Now().UnixNano()),
+		"integration-test", filepath.Base(videoPath), skill, handedness, video,
+	)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, analysis.ErrSkillMismatch), err)
+}
+
 func TestLiveAnalysisService(t *testing.T) {
 	if os.Getenv("RUN_LIVE_ANALYSIS") != "1" {
 		t.Skip("set RUN_LIVE_ANALYSIS=1 to exercise the deployed GPU service")
@@ -88,15 +126,50 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.Equal(t, skill, result.Skill)
 	require.Equal(t, handedness, result.Handedness)
 	require.InDelta(t, 50, result.Grade.TotalGrade, 50)
+	if rawExpected := os.Getenv("LIVE_ANALYSIS_EXPECT_GRADE"); rawExpected != "" {
+		expected, parseErr := strconv.ParseFloat(rawExpected, 64)
+		require.NoError(t, parseErr)
+		tolerance := 0.05
+		if rawTolerance := os.Getenv("LIVE_ANALYSIS_GRADE_TOLERANCE"); rawTolerance != "" {
+			tolerance, parseErr = strconv.ParseFloat(rawTolerance, 64)
+			require.NoError(t, parseErr)
+		}
+		require.InDelta(t, expected, result.Grade.TotalGrade, tolerance)
+	}
 	if rawMinimum := os.Getenv("LIVE_ANALYSIS_MIN_GRADE"); rawMinimum != "" {
 		minimum, parseErr := strconv.ParseFloat(rawMinimum, 64)
 		require.NoError(t, parseErr)
 		require.GreaterOrEqual(t, result.Grade.TotalGrade, minimum)
 	}
 	require.NotEmpty(t, result.Grade.GradingDetails)
+	if rawDetails := os.Getenv("LIVE_ANALYSIS_EXPECT_DETAILS_JSON"); rawDetails != "" {
+		expected := map[string]float64{}
+		require.NoError(t, json.Unmarshal([]byte(rawDetails), &expected))
+		actual := make(map[string]float64, len(result.Grade.GradingDetails))
+		for _, detail := range result.Grade.GradingDetails {
+			actual[detail.CriterionID] = detail.Grade
+		}
+		require.Equal(t, len(expected), len(actual))
+		for criterionID, expectedGrade := range expected {
+			require.Contains(t, actual, criterionID)
+			require.InDelta(t, expectedGrade, actual[criterionID], 0.05)
+		}
+	}
 	require.NotEmpty(t, result.StudentVideo.ObjectPath)
 	require.Equal(t, result.StudentVideo.ObjectPath, result.FeedbackVideo.ObjectPath)
 	require.NotEmpty(t, result.SkeletonOverlayVideo.ObjectPath)
+	if rawFPS := os.Getenv("LIVE_ANALYSIS_EXPECT_FPS"); rawFPS != "" {
+		expectedFPS, parseErr := strconv.ParseFloat(rawFPS, 64)
+		require.NoError(t, parseErr)
+		require.InDelta(t, expectedFPS, result.StudentVideo.FPS, 0.01)
+		require.InDelta(t, expectedFPS, result.SkeletonOverlayVideo.FPS, 0.01)
+	}
+	if rawDuration := os.Getenv("LIVE_ANALYSIS_EXPECT_DURATION"); rawDuration != "" {
+		expectedDuration, parseErr := strconv.ParseFloat(rawDuration, 64)
+		require.NoError(t, parseErr)
+		require.InDelta(t, expectedDuration, result.StudentVideo.DurationSeconds, 0.035)
+		require.InDelta(t, expectedDuration, result.SkeletonOverlayVideo.DurationSeconds, 0.035)
+	}
 	require.NotEmpty(t, result.Expert.ExpertID)
 	if prefix := os.Getenv("LIVE_ANALYSIS_EXPERT_PREFIX"); prefix != "" {
 		require.True(t, len(result.Expert.ExpertID) >= len(prefix))
@@ -143,12 +216,15 @@ func TestLiveAnalysisService(t *testing.T) {
 	require.Positive(t, result.Diagnostics["latency_pipeline_seconds"])
 	require.Positive(t, result.Diagnostics["latency_service_seconds"])
 	require.Equal(t, 1.0, result.Diagnostics["pose_tensorrt_active"])
-	// Pose detection runs on a TensorRT engine; the diffusion prior that
-	// replaced the skeleton corrector runs in torch and reports no engine.
-	require.Equal(t, 0.0, result.Diagnostics["skeleton_tensorrt_active"])
 	t.Logf("analysis latency: client=%s service=%.3fs stages=%v", time.Since(analysisStarted), result.Diagnostics["latency_service_seconds"], result.Diagnostics)
 	t.Logf("grade=%.2f expert=%q distance=%.4f",
 		result.Grade.TotalGrade, result.Expert.ExpertID, result.Expert.CorrectionDistance)
+	t.Logf("criteria=%v", result.Grade.GradingDetails)
+	t.Logf(
+		"media input(fps=%.3f duration=%.6f) overlay(fps=%.3f duration=%.6f)",
+		result.StudentVideo.FPS, result.StudentVideo.DurationSeconds,
+		result.SkeletonOverlayVideo.FPS, result.SkeletonOverlayVideo.DurationSeconds,
+	)
 
 	playbackPaths := []string{
 		result.FeedbackVideo.ObjectPath,

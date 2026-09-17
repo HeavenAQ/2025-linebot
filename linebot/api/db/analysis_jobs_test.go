@@ -38,6 +38,8 @@ func TestLiveAsyncJobTransactions(t *testing.T) {
 		require.NoError(t, e)
 		_, e = c.AnalysisJobs().Doc(id).Delete(ctx)
 		require.NoError(t, e)
+		_, e = c.ClassStats().Doc(classStatID("smash", "2026-09-16")).Delete(ctx)
+		require.NoError(t, e)
 	})
 	job := AnalysisJob{ID: id, UserID: id, Skill: "smash", WorkDate: "2026-09-16-14-00-00-test", Status: "queued", CreatedAt: time.Now()}
 	created, err := c.CreateAnalysisJob(ctx, job)
@@ -62,4 +64,17 @@ func TestLiveAsyncJobTransactions(t *testing.T) {
 	require.NoError(t, doc.DataTo(&user))
 	require.Equal(t, "learner note", user.Portfolio.Smash[created.WorkDate].Reflection)
 	require.Equal(t, 88.0, user.Portfolio.Smash[created.WorkDate].GradingOutcome.TotalGrade)
+
+	// Completion joins the class aggregate exactly once, even if finish is retried.
+	require.NoError(t, c.FinishAnalysisJob(ctx, lease, &commons.AnalysisOutcome{AnalysisID: "result", Grade: commons.GradingOutcome{TotalGrade: 88}}, "", false))
+	stats, err := c.GetClassSkillStats("smash")
+	require.NoError(t, err)
+	require.Equal(t, Stats{Avg: 88, Max: 88, Min: 88, Std: 0}, stats["2026-09-16"])
+
+	rebuilt, err := c.RebuildClassStats(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, rebuilt)
+	stats, err = c.GetClassSkillStats("smash")
+	require.NoError(t, err)
+	require.Equal(t, 88.0, stats["2026-09-16"].Avg)
 }

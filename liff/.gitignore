@@ -1,0 +1,59 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+node_modules/
+
+# Build output
+.next/
+out/
+
+# Static files cache
+**/.next/cache
+**/.vercel/cache
+
+# Testing
+coverage/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor directories and files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# macOS system files
+.DS_Store
+
+# Linux system files
+*.pid
+
+# Windows system files
+Thumbs.db
+
+# Temporary files
+*.temp
+*.tmp
+
+# Git-related files
+*.orig
+
+# Optional: Ignore output from static export
+out/
+
+# Next.js TypeScript specific
+*.tsbuildinfo
+
+# Local Netlify folder
+.netlify

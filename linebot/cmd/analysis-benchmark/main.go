@@ -18,7 +18,6 @@ import (
 
 var diagnosticColumns = []string{
 	"pose_tensorrt_active",
-	"skeleton_tensorrt_active",
 	"latency_pose_seconds",
 	"latency_preprocessing_seconds",
 	"latency_scoring_seconds",

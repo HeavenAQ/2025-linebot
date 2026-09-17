@@ -20,6 +20,21 @@ const PlaybackURLTTL = 60 * time.Minute
 // private corners.
 var playablePrefixes = []string{"analyses/", "experts/", "noai/analyses/", "no-ai/analyses/"}
 
+func playbackContentType(objectPath string) string {
+	switch strings.ToLower(objectPath[strings.LastIndex(objectPath, ".")+1:]) {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "webp":
+		return "image/webp"
+	}
+	if strings.HasSuffix(strings.ToLower(objectPath), ".mov") {
+		return "video/quicktime"
+	}
+	return "video/mp4"
+}
+
 // PlayableObject reports whether a path may be signed for playback.
 func PlayableObject(objectPath string) bool {
 	if objectPath == "" || strings.Contains(objectPath, "..") {
@@ -33,24 +48,6 @@ func PlayableObject(objectPath string) bool {
 	return false
 }
 
-// SignPlaybackURL mints a read URL for one stored object.
-//
-// Go signs these itself rather than asking the analysis service to, so opening
-// a video never depends on a GPU instance being awake. That service scales to
-// zero; routing playback through it would make the first view after an idle
-// period wait for a cold start.
-//
-// Signing uses whatever credentials the process has: a key file signs locally,
-// while on Cloud Run the metadata credentials sign through IAM, which needs the
-// service account to hold roles/iam.serviceAccountTokenCreator on itself.
-// BucketFromGCSURI returns the bucket named by a "gs://bucket/object" URI, or
-// "" when the URI is empty or malformed.
-//
-// Analyses are written by the analysis service into whichever bucket that
-// service is configured with, which is not necessarily this deployment's own:
-// a deployment that shares the analysis service shares its output bucket too.
-// The bucket that actually holds an object is therefore a property of the
-// stored media reference, not of the bot's configuration.
 func BucketFromGCSURI(uri string) string {
 	rest, found := strings.CutPrefix(strings.TrimSpace(uri), "gs://")
 	if !found {
@@ -60,22 +57,22 @@ func BucketFromGCSURI(uri string) string {
 	return bucket
 }
 
-// SignPlaybackURL signs against this client's own bucket.
-func (c *BucketClient) SignPlaybackURL(objectPath string, serviceAccountEmail string) (commons.MediaRef, error) {
-	return c.SignPlaybackURLIn(c.bucketName, objectPath, serviceAccountEmail)
-}
-
-// SignPlaybackURLIn signs an object in an explicit bucket. Callers pass the
-// bucket recorded alongside the object so playback still works for analyses
-// written elsewhere; an empty bucket falls back to this client's own.
-func (c *BucketClient) SignPlaybackURLIn(
-	bucketName string, objectPath string, serviceAccountEmail string,
-) (commons.MediaRef, error) {
-	if !PlayableObject(objectPath) {
-		return commons.MediaRef{}, fmt.Errorf("object path is not playable: %q", objectPath)
-	}
+// SignPlaybackURLIn mints a read URL for one stored object, in the bucket the
+// analysis recorded (an empty name means this client's bucket).
+//
+// Go signs these itself rather than asking the analysis service to, so opening
+// a video never depends on the GPU service being awake; its minimum capacity is
+// scheduled and is zero outside class.
+//
+// Signing uses whatever credentials the process has: a key file signs locally,
+// while on Cloud Run the metadata credentials sign through IAM, which needs the
+// service account to hold roles/iam.serviceAccountTokenCreator on itself.
+func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	if strings.TrimSpace(bucketName) == "" {
 		bucketName = c.bucketName
+	}
+	if !PlayableObject(objectPath) {
+		return commons.MediaRef{}, fmt.Errorf("object path is not playable: %q", objectPath)
 	}
 	return c.signObjectURL(bucketName, objectPath, serviceAccountEmail)
 }
@@ -84,10 +81,15 @@ func (c *BucketClient) SignPlaybackURLIn(
 func (c *BucketClient) signObjectURL(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	expires := time.Now().Add(PlaybackURLTTL)
 	opts := &gcs.SignedURLOptions{
-		Method:          "GET",
-		Expires:         expires,
-		Scheme:          gcs.SigningSchemeV4,
-		QueryParameters: url.Values{"response-content-type": []string{playbackContentType(objectPath)}},
+		Method:  "GET",
+		Expires: expires,
+		Scheme:  gcs.SigningSchemeV4,
+		// Older expert objects have no GCS Content-Type. LIFF's embedded browser
+		// does not consistently sniff an octet-stream as video, so make the
+		// signed response explicitly playable.
+		QueryParameters: url.Values{
+			"response-content-type": []string{playbackContentType(objectPath)},
+		},
 	}
 	if trimmed := strings.TrimSpace(serviceAccountEmail); trimmed != "" {
 		opts.GoogleAccessID = trimmed

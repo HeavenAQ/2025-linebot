@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
 from badminton_analysis.ml.expert_reference_bank import (
     ExpertReference,
@@ -34,9 +36,13 @@ from badminton_analysis.services.video_processor import VideoProcessor
 
 from service.renderer import render_correction_video, source_fps, source_frame_rate
 from service.coaching import CoachingGenerator
-
+from service.pose_batcher import PoseBatcher
 
 LOGGER = logging.getLogger("badminton-analysis")
+
+
+class SkillMismatchError(ValueError):
+    """The requested stroke contradicts the detected temporal motion support."""
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,8 @@ class PhaseResult:
     normalized_frame: int
     normalized_position: float
     timestamp_seconds: float
+    start_seconds: float | None = None
+    end_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -60,8 +68,6 @@ class AnalysisResult:
     overall_feedback: str
     coaching_problems: tuple[dict[str, Any], ...]
     pause_seconds: float
-    output_path: Path
-    skeleton_overlay_path: Path
     # The real demonstration closest to this learner's corrected motion, or
     # None when no expert clip exists for the skill.
     expert_reference: ExpertReference | None = None
@@ -77,34 +83,24 @@ def _correction_grade_context(
     spec: SkillCorrectionSpec,
     criterion_values: list[tuple[str, float, float]],
 ) -> dict[str, Any]:
-    component_names = (
-        "position_distance",
-        "angle_distance",
-        "velocity_distance",
-        "bone_length_distance",
-        "support_transition_distance",
-        "torso_lean_transition_distance",
-        "lunge_direction_distance",
-        "transition_distance",
-    )
-    generated_expert = (
-        diagnostics.get("scorer") == "continuous_generated_expert_distribution_v1"
-    )
-    score_status = (
-        "expert_only_generated_distribution"
-        if generated_expert
-        else "diagnostic_group_calibrated"
-    )
+    component_names = ("position_distance", "angle_distance")
+    # Every supported scorer is fitted from expert data only; learner recordings
+    # never calibrate a tolerance, so the prompt must not say otherwise.
+    score_status = "expert_only_generated_distribution"
     score_method = (
         "學生骨架與依其身形、站位座標及動作階段生成的專家全身骨架，逐項比較歐氏距離與目標關節角；"
         "分數容許範圍只由保留身分的專家動作分布校準"
-        if generated_expert
-        else (
-            "學生原始骨架與專家化修正骨架之加權差距，經專家與學生群組分布校準；"
-            "發球重心轉移另比較完整下肢支撐軌跡與軀幹前傾變化；"
-            "挑球另比較持拍腳由預備至擊球的跨步方向"
-        )
     )
+    if spec.skill == Skill.SERVE:
+        score_method += "；發球重心轉移另比較預備至完成的下肢支撐與軀幹前傾變化"
+    if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
+        score_status = "frozen_checkpoint_calibration"
+        score_method = (
+            "殺球按指定檢核區間評分，權重為5/20/5/20/30/20。預備與平衡採凍結骨架圖模型，"
+            "再以手腕高度及連續五幀的持拍手過低限制得分；轉體比較下肢、軀幹及肩軸角度變化；"
+            "手肘與手腕沿用凍結語意及軌跡評分；收拍保留最佳終點，並以起終肩寬變化限制得分。"
+            "只根據所附實際評分區間與量測解釋分數，不得以未觀察到的幀推斷動作。"
+        )
     return {
         "score_method_zh_tw": score_method,
         "score_status": score_status,
@@ -168,6 +164,22 @@ def _rule_anchor_frames(
     ]
 
 
+def _checkpoint_phase_range(spec, rule, phase_indices, phase_times, sequence_length):
+    """Map a semantic window to the source clock, including its display anchor.
+
+    Anchor indices locate checkpoint buttons; they are not interval bounds.
+    Explicit scored evidence takes precedence over this phase-window fallback.
+    """
+    window = next(item for item in spec.phase_windows if item.name == rule.phase)
+    last = max(1, sequence_length - 1)
+    anchor = phase_indices[rule.allowed_anchor_indices[-1]]
+    start = min(window.start_fraction * last, anchor)
+    end = max(window.end_fraction * last, anchor)
+    return tuple(
+        float(value) for value in np.interp([start, end], phase_indices, phase_times)
+    )
+
+
 def expert_phase_results(
     spec: SkillCorrectionSpec,
     *,
@@ -193,32 +205,13 @@ def expert_phase_results(
             label=rule.name_zh_tw,
             normalized_frame=frame,
             normalized_position=float(frame) / max(1, last_frame),
-            timestamp_seconds=float(
-                phase_seconds[rule.allowed_anchor_indices[-1]]
-            ),
-        )
-        for rule, frame in zip(spec.rules, frames, strict=True)
-    )
-
-
-def _qualitative_phase_results(
-    spec: SkillCorrectionSpec,
-    *,
-    phase_indices: tuple[int, ...] = (0, 16, 32, 48, 63),
-    sequence_length: int,
-    fps: float,
-) -> tuple[PhaseResult, ...]:
-    if sequence_length <= 0 or fps <= 0:
-        raise ValueError("checkpoint timeline requires a positive length and fps")
-    last_frame = sequence_length - 1
-    frames = _rule_anchor_frames(spec, phase_indices, last_frame)
-    return tuple(
-        PhaseResult(
-            id=rule.id,
-            label=rule.name_zh_tw,
-            normalized_frame=frame,
-            normalized_position=float(frame) / max(1, last_frame),
-            timestamp_seconds=float(frame) / fps,
+            timestamp_seconds=float(phase_seconds[rule.allowed_anchor_indices[-1]]),
+            start_seconds=_checkpoint_phase_range(
+                spec, rule, phase_indices, phase_seconds, sequence_length
+            )[0],
+            end_seconds=_checkpoint_phase_range(
+                spec, rule, phase_indices, phase_seconds, sequence_length
+            )[1],
         )
         for rule, frame in zip(spec.rules, frames, strict=True)
     )
@@ -231,7 +224,11 @@ def _source_qualitative_phase_results(
     source_phase_frames: list[int],
     normalized_sequence_length: int,
     source_sequence_length: int,
+    analysis_window_start_frame: int,
+    analysis_window_end_frame: int,
     fps: float,
+    checkpoint_source_frames: dict[str, int] | None = None,
+    checkpoint_evidence: dict | None = None,
 ) -> tuple[PhaseResult, ...]:
     if source_sequence_length <= 0 or normalized_sequence_length <= 0 or fps <= 0:
         raise ValueError("source checkpoint timeline requires positive dimensions")
@@ -240,20 +237,62 @@ def _source_qualitative_phase_results(
     normalized_frames = _rule_anchor_frames(
         spec, phase_indices, normalized_sequence_length - 1
     )
-    last_source_frame = source_sequence_length - 1
+    if not 0 <= analysis_window_start_frame <= analysis_window_end_frame:
+        raise ValueError("analysis window must be an ordered inclusive range")
+    if analysis_window_end_frame >= source_sequence_length:
+        raise ValueError("analysis window exceeds the source sequence")
+    last_local_frame = analysis_window_end_frame - analysis_window_start_frame
+
+    def evidence_range(rule):
+        item = (checkpoint_evidence or {}).get(rule.id)
+        if item:
+            start, end = item.get("replay_source_interval", item["source_interval"])
+        else:
+            start, end = _checkpoint_phase_range(
+                spec,
+                rule,
+                phase_indices,
+                source_phase_frames,
+                normalized_sequence_length,
+            )
+        start = max(analysis_window_start_frame, min(start, analysis_window_end_frame))
+        end = max(start, min(end, analysis_window_end_frame))
+        return (
+            (start - analysis_window_start_frame) / fps,
+            (end - analysis_window_start_frame) / fps,
+        )
+
     return tuple(
         PhaseResult(
             id=rule.id,
             label=rule.name_zh_tw,
             normalized_frame=normalized_frame,
-            normalized_position=float(source_frame) / max(1, last_source_frame),
-            timestamp_seconds=float(source_frame) / fps,
+            start_seconds=evidence_range(rule)[0],
+            end_seconds=evidence_range(rule)[1],
+            normalized_position=float(
+                min(
+                    max(source_frame - analysis_window_start_frame, 0),
+                    last_local_frame,
+                )
+            )
+            / max(1, last_local_frame),
+            timestamp_seconds=float(
+                min(
+                    max(source_frame - analysis_window_start_frame, 0),
+                    last_local_frame,
+                )
+            )
+            / fps,
         )
         for rule, normalized_frame, source_frame in zip(
             spec.rules,
             normalized_frames,
             (
-                source_phase_frames[rule.allowed_anchor_indices[-1]]
+                (
+                    checkpoint_source_frames[rule.id]
+                    if checkpoint_source_frames is not None
+                    else source_phase_frames[rule.allowed_anchor_indices[-1]]
+                )
                 for rule in spec.rules
             ),
             strict=True,
@@ -274,17 +313,27 @@ def _resolve_handedness(tracking: TrackingData, requested: str) -> Handedness:
     return estimate.handedness
 
 
-def _populate_dominant_motion(
-    tracking: TrackingData, handedness: Handedness
-) -> None:
+def _populate_dominant_motion(tracking: TrackingData, handedness: Handedness) -> None:
     body_2d = tracking.get("body_landmarks_2d")
     if not body_2d:
         raise ValueError("2D landmarks are required for motion analysis")
     skeleton, confidence = tracking_body_arrays(tracking)
-    wrist = COCOKeypoints.RIGHT_WRIST if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_WRIST
-    elbow = COCOKeypoints.RIGHT_ELBOW if handedness == Handedness.RIGHT else COCOKeypoints.LEFT_ELBOW
-    tracking["hand_positions"] = list(interpolated_keypoint(skeleton, confidence, wrist))
-    tracking["elbow_positions"] = list(interpolated_keypoint(skeleton, confidence, elbow))
+    wrist = (
+        COCOKeypoints.RIGHT_WRIST
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_WRIST
+    )
+    elbow = (
+        COCOKeypoints.RIGHT_ELBOW
+        if handedness == Handedness.RIGHT
+        else COCOKeypoints.LEFT_ELBOW
+    )
+    tracking["hand_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, wrist)
+    )
+    tracking["elbow_positions"] = list(
+        interpolated_keypoint(skeleton, confidence, elbow)
+    )
 
 
 def _dump_pose_arrays(
@@ -299,6 +348,7 @@ def _dump_pose_arrays(
     window: Any,
     phase_indices: Any,
     source_frame_indices: Any,
+    pose_backend: str,
 ) -> None:
     """Write this run's pose arrays to GCS for an offline joint-by-joint diff.
 
@@ -312,35 +362,35 @@ def _dump_pose_arrays(
     request: this exists to explain a bad grade, not to cause one.
     """
     try:
-        import numpy as _np
-
         from service.storage import ObjectStorage
 
         with tempfile.TemporaryDirectory() as raw_directory:
             local = Path(raw_directory) / "pose.npz"
             payload: dict[str, Any] = {
-                "skeleton": _np.asarray(skeleton, dtype=_np.float32),
-                "confidence": _np.asarray(confidence, dtype=_np.float32),
-                "root_trajectory": _np.asarray(root, dtype=_np.float32),
-                "phase_indices": _np.asarray(phase_indices, dtype=_np.int64),
-                "analysis_window": _np.asarray(window, dtype=_np.int64),
-                "source_frame_indices": _np.asarray(
-                    source_frame_indices, dtype=_np.int64
+                "skeleton": np.asarray(skeleton, dtype=np.float32),
+                "confidence": np.asarray(confidence, dtype=np.float32),
+                "root_trajectory": np.asarray(root, dtype=np.float32),
+                "phase_indices": np.asarray(phase_indices, dtype=np.int64),
+                "analysis_window": np.asarray(window, dtype=np.int64),
+                "source_frame_indices": np.asarray(
+                    source_frame_indices, dtype=np.int64
                 ),
-                "skill": str(getattr(skill, "value", skill)),
-                "handedness": str(getattr(handedness, "value", handedness)),
+                # Names ("serve", "right"), as the offline extraction cache and
+                # Skill/Handedness.convert_to_enum expect -- not IntEnum values.
+                "skill": str(skill),
+                "handedness": str(handedness),
                 "video_name": filename,
-                "pose_backend": "tensorrt",
+                "pose_backend": pose_backend,
             }
             keypoints = tracking.get("body_keypoints_2d")
             if keypoints is not None:
-                payload["source_skeleton_2d"] = _np.asarray(
-                    keypoints, dtype=_np.float32
+                payload["source_skeleton_2d"] = np.asarray(
+                    keypoints, dtype=np.float32
                 )
             scores = tracking.get("body_confidence_2d")
             if scores is not None:
-                payload["source_confidence"] = _np.asarray(scores, dtype=_np.float32)
-            _np.savez_compressed(local, **payload)
+                payload["source_confidence"] = np.asarray(scores, dtype=np.float32)
+            np.savez_compressed(local, **payload)
 
             bucket = os.getenv("GCS_BUCKET_NAME", "")
             storage = ObjectStorage(os.getenv("GCP_PROJECT_ID", ""), bucket)
@@ -367,30 +417,47 @@ class SkeletonAnalysisPipeline:
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
+        self.pose_batcher = PoseBatcher(self.pose_detector, self.lock)
         self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
         self.pause_seconds = pause_seconds
         # The prior generates an idealised movement rather than copying an
         # expert, so the clip shown beside it is chosen by similarity instead.
         bank_path = expert_reference_bank or Path("models/expert_reference_bank.npz")
-        self.expert_bank = ExpertReferenceBank(bank_path) if bank_path.exists() else None
-        if self.expert_bank is None:
-            LOGGER.warning("no expert reference bank at %s; comparison will have no video", bank_path)
+        if not bank_path.exists():
+            raise FileNotFoundError(
+                "expert reference bank is required for temporal skill validation: "
+                f"{bank_path}"
+            )
+        self.expert_bank = ExpertReferenceBank(bank_path)
         for skill in (Skill.SERVE, Skill.SMASH):
             self.backends[skill] = ExpertMotionGeneratorBackend(
                 expert_motion_model_root,
                 skill,
                 device=device,
-                # Serve and smash share the same camera-frame contract. Apply
-                # the ankle–spine projection before both scoring and rendering;
-                # the renderer then rigidly grounds the generated full body on
-                # the detected support ankle in pixel space.
+                # This is part of the frozen EIMD-v3 inference contract.  Keep
+                # it explicit here so a helper's default cannot silently make
+                # serving diverge from calibration or the review cohort.
+                candidates=8,
+                seed=19,
+                current_smash=(skill == Skill.SMASH),
+                # Serve retains its preparation-window view alignment. The
+                # current smash path instead projects once at its first source
+                # frame and supplies scored pixels directly to the renderer.
                 align_ankle_spine_view=True,
             )
 
     @property
     def loaded_skills(self) -> tuple[Skill, ...]:
         return tuple(self.backends)
+
+    def warmup(self):
+        with self.lock:
+            if not getattr(self, "_warmed", False):
+                self.pose_detector.get_poses_batch(
+                    [np.zeros((480, 640, 3), dtype=np.uint8)]
+                )
+                self._warmed = True
 
     def analyze(
         self,
@@ -406,143 +473,245 @@ class SkeletonAnalysisPipeline:
         if skill not in self.backends:
             raise ValueError("only serve and smash are currently supported")
         pipeline_started = time.perf_counter()
-        with self.lock:
-            pose_started = time.perf_counter()
-            processor = VideoProcessor(
-                str(video_path), filename, str(output_path.parent), self.pose_detector
+        if skill == Skill.SMASH:
+            from service.smash_source import normalize_smash_source
+
+            video_path = normalize_smash_source(
+                video_path,
+                output_path.with_name(output_path.stem + ".source-30fps.mp4"),
             )
-            # Batched, so the pose pass runs on the cached TensorRT engine
-            # rather than frame-by-frame in PyTorch. A request arrives with the
-            # whole video already uploaded, so there is nothing to stream: the
-            # constraint that kept the batched path to offline extraction --
-            # needing the frames up front -- does not apply here. Both paths
-            # pick the same person the same way and record through the same
-            # getters; this one is roughly an order of magnitude faster per
-            # frame, which on a GPU billed by the second is the whole point.
-            tracking = processor.process_frames_batched(None)
-            pose_finished = time.perf_counter()
-            handedness = _resolve_handedness(tracking, requested_handedness)
-            _populate_dominant_motion(tracking, handedness)
-            backend = self.backends[skill]
-            generated = backend.infer(tracking, handedness, filename)
-            correction = generated.correction
-            skeleton = correction.student.pose
-            confidence = correction.student.confidence
-            original_root = correction.student.root
-            corrected = correction.corrected_pose
-            corrected_root = correction.corrected_root
-            window = generated.window
-            phases = correction.student.phase_indices
-            source_phase_frames = [
-                int(generated.source_frame_indices[int(value)]) for value in phases
-            ]
-            preprocessing_finished = time.perf_counter()
-            grade = generated.grade
-            diagnostics = generated.diagnostics
-            criterion_values = [
-                (
-                    str(item["name_zh_tw"]),
-                    float(item["combined_distance"]),
-                    float(item["score"]),
-                )
-                for item in generated.score["criteria"]
-            ]
-            # A grade that disagrees with the offline run is invisible in the
-            # response, which carries only the total and the Chinese criterion
-            # names. Log the scorer identity, every criterion, and the gate
-            # state so a divergence can be located from the deploy log alone.
+        pose_started = time.perf_counter()
+        processor = VideoProcessor(
+            str(video_path),
+            self.pose_batcher.request_detector(),
+        )
+        # The whole upload is available, so poses are extracted in batches:
+        # the cached TensorRT engine on CUDA, RF-DETR predict() on MPS/CPU.
+        # The pose batcher may merge frames from concurrent requests.
+        tracking = processor.process_frames_batched(None)
+        pose_finished = time.perf_counter()
+        handedness = _resolve_handedness(tracking, requested_handedness)
+        _populate_dominant_motion(tracking, handedness)
+        backend = self.backends[skill]
+        # The request label is untrusted.  Validate it against expert-only
+        # temporal support after pose/handedness extraction and before the
+        # requested generator can steer itself from an out-of-distribution
+        # phase sequence. The independently frozen label-support bank
+        # retains its EIMD-v3 windows; grading uses its own matched contract.
+        prepared = backend.prepare(tracking, handedness, filename)
+        support_prepared = (
+            backend.prepare_skill_support(tracking, handedness, filename)
+            if hasattr(backend, "prepare_skill_support")
+            else prepared
+        )
+        alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+        try:
+            alternative = self.backends[alternative_skill]
+            support_prepare = getattr(
+                alternative, "prepare_skill_support", alternative.prepare
+            )
+            alternative_prepared = support_prepare(tracking, handedness, filename)
+        except ValueError as exc:
+            # This is a conservative rejection-only guard. If the other
+            # stroke cannot form a valid five-phase hypothesis, it has not
+            # won temporal support and the requested analysis continues.
+            alternative_prepared = None
             LOGGER.info(
-                "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+                "alternative skill hypothesis unavailable requested=%s "
+                "alternative=%s error=%s",
                 skill,
-                diagnostics.get("scorer", "unknown"),
-                self.pose_detector.execution_provider,
-                float(grade["total_grade"]),
-                [
-                    (name, round(distance, 6), round(score, 4))
-                    for name, distance, score in criterion_values
-                ],
+                alternative_skill,
+                exc,
+            )
+        skill_support = (
+            self.expert_bank.temporal_skill_support(
+                support_prepared[0].pose,
+                alternative_prepared[0].pose,
+                requested_skill=str(skill),
+            )
+            if alternative_prepared is not None
+            else None
+        )
+        if skill_support is not None and skill_support.mismatch:
+            raise SkillMismatchError(
+                f"requested {skill_support.requested_skill} conflicts with "
+                f"{skill_support.alternative_skill} temporal motion support "
+                f"(advantage={skill_support.alternative_advantage:.6f}, "
+                f"margin={skill_support.rejection_margin:.6f})"
+            )
+        with self.lock:
+            generated = backend.infer(
+                tracking,
+                handedness,
+                filename,
+                prepared=prepared,
+                fps=source_fps(video_path),
+            )
+        correction = generated.correction
+        skeleton = correction.student.pose
+        confidence = correction.student.confidence
+        original_root = correction.student.root
+        corrected = correction.corrected_pose
+        corrected_root = correction.corrected_root
+        window = generated.window
+        phases = correction.student.phase_indices
+        source_phase_frames = [
+            int(generated.source_frame_indices[int(value)]) for value in phases
+        ]
+        preprocessing_finished = time.perf_counter()
+        grade = generated.grade
+        diagnostics = generated.diagnostics
+        diagnostics.update(
+            {
+                "skill_consistency_gate_active": 1.0,
+                "alternative_skill_phase_hypothesis_available": float(
+                    alternative_prepared is not None
+                ),
+            }
+        )
+        if skill_support is not None:
+            diagnostics.update(
                 {
-                    key: round(float(value), 6)
-                    for key, value in sorted(diagnostics.items())
-                    if isinstance(value, (int, float))
-                },
-            )
-            dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
-            if dump_prefix:
-                _dump_pose_arrays(
-                    dump_prefix, filename, skill, handedness,
-                    tracking, skeleton, confidence, original_root, window,
-                    phases, generated.source_frame_indices,
-                )
-            scoring_finished = time.perf_counter()
-            frame_rate = source_frame_rate(video_path)
-            fps = source_fps(video_path)
-            spec: SkillCorrectionSpec = backend.spec
-            correction_grade = _correction_grade_context(
-                grade, diagnostics, spec, criterion_values
-            )
-            render_correction_video(
-                tracking=tracking,
-                original=skeleton,
-                corrected=corrected,
-                original_root=original_root,
-                corrected_root=corrected_root,
-                confidence=confidence,
-                window=window,
-                handedness=handedness,
-                skill=skill,
-                filename=filename,
-                score=float(grade["total_grade"]),
-                output_path=skeleton_overlay_path,
-                fps=fps,
-                frame_rate=frame_rate,
-                generated_full_body=True,
-                fixed_hierarchical_placement=True,
-            )
-            overlay_finished = time.perf_counter()
-            # Coaching is the only stage that leaves this machine: it uploads
-            # sampled frames of the learner to a third-party model. Skipping it
-            # is therefore not an optimisation but a guarantee -- no image of
-            # this learner is sent anywhere. Everything that decides the grade
-            # has already happened above, and all of it is local.
-            if skip_coaching:
-                coaching_payload = {
-                    "analysis": {"problems": [], "overall_feedback": ""},
-                    "latency_llm_inference_seconds": 0.0,
+                    "requested_skill_support_distance": (
+                        skill_support.requested_distance
+                    ),
+                    "alternative_skill_support_distance": (
+                        skill_support.alternative_distance
+                    ),
+                    "alternative_skill_support_advantage": (
+                        skill_support.alternative_advantage
+                    ),
+                    "skill_consistency_rejection_margin": (
+                        skill_support.rejection_margin
+                    ),
                 }
-            else:
-                coaching_payload = self.coaching.generate(
-                    video_path=skeleton_overlay_path,
-                    working_dir=output_path.parent,
-                    filename=filename,
-                    handedness=str(handedness),
-                    phase_indices=tuple(int(value) for value in phases),
-                    spec=spec,
-                    correction_grade=correction_grade,
-                )
-            coaching_finished = time.perf_counter()
-            problems = coaching_payload["analysis"]["problems"]
-            render_correction_video(
-                tracking=tracking,
-                original=skeleton,
-                corrected=corrected,
-                original_root=original_root,
-                corrected_root=corrected_root,
-                confidence=confidence,
-                window=window,
-                handedness=handedness,
-                skill=skill,
-                filename=filename,
-                score=float(grade["total_grade"]),
-                output_path=output_path,
-                fps=fps,
-                frame_rate=frame_rate,
-                feedback=problems,
-                pause_seconds=self.pause_seconds,
-                generated_full_body=True,
-                fixed_hierarchical_placement=True,
             )
-            final_render_finished = time.perf_counter()
+        criterion_values = [
+            (
+                str(item["name_zh_tw"]),
+                float(item["combined_distance"]),
+                float(item["score"]),
+            )
+            for item in generated.score["criteria"]
+        ]
+        # A grade that disagrees with the offline run is invisible in the
+        # response, which carries only the total and the Chinese criterion
+        # names. Log the scorer identity, every criterion, and the gate
+        # state so a divergence can be located from the deploy log alone.
+        LOGGER.info(
+            "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
+            skill,
+            diagnostics.get("scorer", "unknown"),
+            self.pose_detector.execution_provider,
+            float(grade["total_grade"]),
+            [
+                (name, round(distance, 6), round(score, 4))
+                for name, distance, score in criterion_values
+            ],
+            {
+                key: round(float(value), 6)
+                for key, value in sorted(diagnostics.items())
+                if isinstance(value, (int, float))
+            },
+        )
+        dump_prefix = os.getenv("ANALYSIS_POSE_DUMP_PREFIX", "").strip()
+        if dump_prefix:
+            _dump_pose_arrays(
+                dump_prefix,
+                filename,
+                skill,
+                handedness,
+                tracking,
+                skeleton,
+                confidence,
+                original_root,
+                window,
+                phases,
+                generated.source_frame_indices,
+                self.pose_detector.execution_provider,
+            )
+        scoring_finished = time.perf_counter()
+        frame_rate = source_frame_rate(video_path)
+        fps = source_fps(video_path)
+        spec: SkillCorrectionSpec = backend.spec
+        correction_grade = _correction_grade_context(
+            grade, diagnostics, spec, criterion_values
+        )
+        if "checkpoint_evidence" in generated.score:
+            correction_grade["checkpoint_evidence"] = generated.score[
+                "checkpoint_evidence"
+            ]
+            correction_grade["checkpoint_measurements"] = generated.score[
+                "checkpoint_measurements"
+            ]
+            correction_grade["generated_source_window"] = generated.score[
+                "generation_window"
+            ]
+            correction_grade["overlay_padding_policy"] = (
+                "No generated skeleton before coverage; after coverage the final local pose is held for display only."
+            )
+        render_correction_video(
+            tracking=tracking,
+            original=skeleton,
+            corrected=corrected,
+            original_root=original_root,
+            corrected_root=corrected_root,
+            confidence=confidence,
+            window=window,
+            handedness=handedness,
+            filename=filename,
+            score=float(grade["total_grade"]),
+            output_path=skeleton_overlay_path,
+            projected_corrected_pixels=generated.corrected_pixels,
+            generated_source_window=generated.score.get("generation_window"),
+            fps=fps,
+            frame_rate=frame_rate,
+        )
+        overlay_finished = time.perf_counter()
+        # Coaching is the only stage that leaves this machine: it uploads
+        # sampled frames of the learner to a third-party model. Skipping it
+        # is therefore not an optimisation but a guarantee -- no image of
+        # this learner is sent anywhere. Everything that decides the grade
+        # has already happened above, and all of it is local.
+        if skip_coaching:
+            coaching_payload = {
+                "analysis": {"problems": [], "overall_feedback": ""},
+                "latency_llm_inference_seconds": 0.0,
+            }
+        else:
+            coaching_payload = self.coaching.generate(
+                video_path=skeleton_overlay_path,
+                working_dir=output_path.parent,
+                filename=filename,
+                handedness=str(handedness),
+                phase_indices=tuple(int(value) for value in phases),
+                normalized_sequence_length=len(skeleton),
+                output_frame_count=int(window[2] - window[0] + 1),
+                spec=spec,
+                correction_grade=correction_grade,
+            )
+        coaching_finished = time.perf_counter()
+        problems = coaching_payload["analysis"]["problems"]
+        render_correction_video(
+            tracking=tracking,
+            original=skeleton,
+            corrected=corrected,
+            original_root=original_root,
+            corrected_root=corrected_root,
+            confidence=confidence,
+            window=window,
+            handedness=handedness,
+            filename=filename,
+            score=float(grade["total_grade"]),
+            output_path=output_path,
+            projected_corrected_pixels=generated.corrected_pixels,
+            generated_source_window=generated.score.get("generation_window"),
+            fps=fps,
+            frame_rate=frame_rate,
+            feedback=problems,
+            pause_seconds=self.pause_seconds,
+        )
+        final_render_finished = time.perf_counter()
 
         diagnostics.update(
             {
@@ -558,9 +727,6 @@ class SkeletonAnalysisPipeline:
                 "latency_preprocessing_seconds": preprocessing_finished - pose_finished,
                 "latency_scoring_seconds": scoring_finished - preprocessing_finished,
                 "latency_preview_render_seconds": overlay_finished - scoring_finished,
-                "latency_skeleton_overlay_render_seconds": (
-                    overlay_finished - scoring_finished
-                ),
                 "latency_coaching_total_seconds": coaching_finished - overlay_finished,
                 "latency_llm_inference_seconds": float(
                     coaching_payload["latency_llm_inference_seconds"]
@@ -570,15 +736,16 @@ class SkeletonAnalysisPipeline:
                     - overlay_finished
                     - float(coaching_payload["latency_llm_inference_seconds"])
                 ),
-                "latency_final_render_seconds": final_render_finished - coaching_finished,
+                "latency_final_render_seconds": final_render_finished
+                - coaching_finished,
                 "latency_pipeline_seconds": final_render_finished - pipeline_started,
-                "pose_execution_provider": self.pose_detector.execution_provider,
-                "pose_active_execution_providers": (
-                    self.pose_detector.active_execution_providers
-                ),
                 # Whether the compiled TensorRT engine served this run, as
                 # opposed to falling back to PyTorch.
                 "pose_tensorrt_active": float(self.pose_detector.tensorrt_active),
+                # Which path wrote the feedback (openai, deterministic_fallback,
+                # score_gate, or skipped). A string, so it reaches the service
+                # log but not the numeric diagnostics in the response.
+                "coaching_source": str(coaching_payload.get("source", "skipped")),
             }
         )
 
@@ -592,26 +759,28 @@ class SkeletonAnalysisPipeline:
             source_phase_frames=source_phase_frames,
             normalized_sequence_length=len(skeleton),
             source_sequence_length=len(tracking["frames"]),
+            analysis_window_start_frame=int(window[0]),
+            analysis_window_end_frame=int(window[2]),
+            checkpoint_source_frames=generated.score.get("checkpoint_source_frames"),
+            checkpoint_evidence=generated.score.get("checkpoint_evidence"),
             fps=fps,
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:
             raise RuntimeError("phase timeline exceeds rendered video duration")
         # Match on the canonical-space correction, which is the space the bank
         # was built in, so no renormalization is needed.
-        expert_reference = None
         expert_alignment: tuple[tuple[float, float], ...] = ()
-        if self.expert_bank is not None:
-            expert_reference = self.expert_bank.select(
-                correction.aligned_corrected_pose,
-                skill=str(skill),
-                handedness=str(handedness),
+        expert_reference = self.expert_bank.select(
+            correction.aligned_corrected_pose,
+            skill=str(skill),
+            handedness=str(handedness),
+        )
+        if expert_reference is not None:
+            diagnostics["expert_reference_similarity"] = expert_reference.similarity
+            diagnostics["expert_reference_pose_distance"] = expert_reference.distance
+            expert_alignment = _expert_alignment(
+                expert_reference, correction.aligned_corrected_pose
             )
-            if expert_reference is not None:
-                diagnostics["expert_reference_similarity"] = expert_reference.similarity
-                diagnostics["expert_reference_pose_distance"] = expert_reference.distance
-                expert_alignment = _expert_alignment(
-                    expert_reference, correction.aligned_corrected_pose
-                )
 
         return AnalysisResult(
             skill=skill,
@@ -624,8 +793,6 @@ class SkeletonAnalysisPipeline:
             overall_feedback=str(coaching_payload["analysis"]["overall_feedback"]),
             coaching_problems=tuple(problems),
             pause_seconds=self.pause_seconds,
-            output_path=output_path,
-            skeleton_overlay_path=skeleton_overlay_path,
             expert_reference=expert_reference,
             expert_alignment=expert_alignment,
         )

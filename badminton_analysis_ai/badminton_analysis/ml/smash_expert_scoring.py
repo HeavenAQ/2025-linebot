@@ -5,8 +5,8 @@ The generator supplies an articulated correction for visualization.  This
 module grades observable checkpoint evidence in the detected motion itself so
 that a valid performer is not penalized for choosing a different expert style.
 
-All calibration statistics are fitted from expert RF-DETR skeletons.  Student
-poses and ratings are accepted only by the evaluation script, never here.
+The frozen distribution loaded here was calibrated from expert RF-DETR
+skeletons only; learner poses are scored against it but never fitted.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-
 
 _EPS = 1e-8
 
@@ -80,7 +79,10 @@ def allocate_smash_total_to_weighted_criteria(
     """
     checkpoint_ratios = np.clip(np.asarray(ratios, dtype=np.float64), 0.0, 1.0)
     checkpoint_maxima = np.asarray(maxima, dtype=np.float64)
-    if checkpoint_ratios.ndim != 1 or checkpoint_maxima.shape != checkpoint_ratios.shape:
+    if (
+        checkpoint_ratios.ndim != 1
+        or checkpoint_maxima.shape != checkpoint_ratios.shape
+    ):
         raise ValueError("smash criterion ratios and maxima must be matching vectors")
     if np.any(checkpoint_maxima < 0.0):
         raise ValueError("smash criterion maxima must be non-negative")
@@ -220,9 +222,7 @@ def extract_smash_evidence(
     downward_acceleration = -(acceleration @ vertical)
     wrist_start, wrist_end = wrist_window
     speed_slice = slice(wrist_start, max(wrist_start + 1, wrist_end - 1))
-    acceleration_slice = slice(
-        wrist_start, max(wrist_start + 1, wrist_end - 2)
-    )
+    acceleration_slice = slice(wrist_start, max(wrist_start + 1, wrist_end - 2))
     peak = wrist_start + int(
         np.argmax(relative_wrist[wrist_start:wrist_end] @ vertical)
     )
@@ -265,11 +265,11 @@ def extract_smash_evidence(
     downstroke_index = downstroke_search.start + int(
         np.argmax(downward_velocity[downstroke_search])
     )
-    upper_arm_speed = np.abs(np.diff(_smooth(upper_arm_angle[:, None].repeat(2, axis=1))[:, 0]))
-    elbow_search = slice(*_bounds(0.3125, 0.6875, length - 1))
-    elbow_index = elbow_search.start + int(
-        np.argmax(upper_arm_speed[elbow_search])
+    upper_arm_speed = np.abs(
+        np.diff(_smooth(upper_arm_angle[:, None].repeat(2, axis=1))[:, 0])
     )
+    elbow_search = slice(*_bounds(0.3125, 0.6875, length - 1))
+    elbow_index = elbow_search.start + int(np.argmax(upper_arm_speed[elbow_search]))
 
     evidence = np.asarray(
         (
@@ -281,20 +281,14 @@ def extract_smash_evidence(
                 np.abs(local_pose[16][:, 1] - local_pose[15][:, 1]),
                 rotation,
             ),
-            upper_quantile(
-                local_pose[8][:, 1] - local_pose[6][:, 1], arm_window
-            ),
-            upper_quantile(
-                local_pose[7][:, 1] - local_pose[5][:, 1], arm_window
-            ),
+            upper_quantile(local_pose[8][:, 1] - local_pose[6][:, 1], arm_window),
+            upper_quantile(local_pose[7][:, 1] - local_pose[5][:, 1], arm_window),
             upper_quantile(
                 np.linalg.norm(local_pose[8] - local_pose[7], axis=-1),
                 arm_window,
             ),
             excursion(upper_arm_angle, contact),
-            upper_quantile(
-                local_pose[8][:, 1] - local_pose[6][:, 1], contact
-            ),
+            upper_quantile(local_pose[8][:, 1] - local_pose[6][:, 1], contact),
             upper_quantile(
                 np.linalg.norm(local_pose[8] - local_pose[6], axis=-1),
                 contact,
@@ -310,9 +304,7 @@ def extract_smash_evidence(
             abs(upper_arm_signed_change),
             abs(forearm_signed_change),
             elbow_phase_displacement,
-            upper_quantile(
-                local_pose[9][:, 1] - local_pose[5][:, 1], arm_window
-            ),
+            upper_quantile(local_pose[9][:, 1] - local_pose[5][:, 1], arm_window),
             upper_quantile(
                 np.linalg.norm(local_pose[10] - local_pose[9], axis=-1),
                 arm_window,
@@ -373,57 +365,6 @@ def aligned_smash_evidence(
     return extract_smash_evidence(
         phase_align_sequence(pose, phase_indices),
         phase_align_sequence(confidence, phase_indices),
-    )
-
-
-def fit_smash_distribution(
-    evidence: NDArray[np.floating],
-    subject_ids: Sequence[str],
-    *,
-    policy: str = "identity_p10",
-) -> SmashDistribution:
-    matrix = np.asarray(evidence, dtype=np.float64)
-    subjects = np.asarray(subject_ids, dtype=np.str_)
-    if matrix.ndim != 2 or matrix.shape[1] != len(FEATURE_NAMES):
-        raise ValueError("smash evidence matrix has the wrong shape")
-    if len(subjects) != len(matrix) or not len(matrix):
-        raise ValueError("one expert subject id is required per evidence row")
-    identities = np.asarray(sorted(set(subjects.tolist())), dtype=np.str_)
-    subject_values = np.stack(
-        [np.median(matrix[subjects == identity], axis=0) for identity in identities]
-    )
-    clip_median = np.median(matrix, axis=0)
-    within_take_scale = 1.4826 * np.median(
-        np.abs(matrix - clip_median[None]), axis=0
-    )
-    if policy == "identity_p10":
-        lower = np.quantile(subject_values, 0.10, axis=0) - within_take_scale
-        upper = np.quantile(subject_values, 0.90, axis=0) + within_take_scale
-    elif policy == "identity_support":
-        lower = np.min(subject_values, axis=0) - within_take_scale
-        upper = np.max(subject_values, axis=0) + within_take_scale
-    elif policy == "clip_support":
-        lower = np.min(matrix, axis=0) - within_take_scale
-        upper = np.max(matrix, axis=0) + within_take_scale
-    else:
-        raise ValueError(f"unknown smash expert-envelope policy: {policy}")
-    identity_median = np.median(subject_values, axis=0)
-    scale = np.maximum.reduce(
-        (
-            identity_median - lower,
-            upper - identity_median,
-            within_take_scale,
-            0.10 * np.maximum(np.abs(identity_median), 0.30),
-            np.full(len(FEATURE_NAMES), 1e-3),
-        )
-    )
-    return SmashDistribution(
-        lower=lower,
-        upper=upper,
-        scale=scale,
-        subject_ids=identities,
-        subject_values=subject_values,
-        calibration_policy=policy,
     )
 
 
@@ -510,9 +451,7 @@ def score_smash_evidence(
         "semantic_occlusion_robust",
         "semantic_bounded_temporal",
     }:
-        bounded_temporal = (
-            variant.checkpoint_profile == "semantic_bounded_temporal"
-        )
+        bounded_temporal = variant.checkpoint_profile == "semantic_bounded_temporal"
         elbow_distance = (
             np.sqrt(0.5 * (bounded[24] ** 2 + lower[21] ** 2))
             if bounded_temporal
@@ -532,9 +471,7 @@ def score_smash_evidence(
             if bounded_temporal
             else np.sqrt(0.5 * (lower[11] ** 2 + lower[20] ** 2))
         )
-        follow_arm_completion = np.sqrt(
-            0.5 * (lower[15] ** 2 + lower[18] ** 2)
-        )
+        follow_arm_completion = np.sqrt(0.5 * (lower[15] ** 2 + lower[18] ** 2))
         distances = np.asarray(
             (
                 min(lower[0], lower[1]),
@@ -550,9 +487,11 @@ def score_smash_evidence(
                 max(cue_reliability[0], cue_reliability[1]),
                 max(cue_reliability[2], cue_reliability[3]),
                 max(cue_reliability[6], cue_reliability[22]),
-                min(cue_reliability[24], cue_reliability[21])
-                if bounded_temporal
-                else max(cue_reliability[19], cue_reliability[21]),
+                (
+                    min(cue_reliability[24], cue_reliability[21])
+                    if bounded_temporal
+                    else max(cue_reliability[19], cue_reliability[21])
+                ),
                 min(
                     cue_reliability[11],
                     cue_reliability[25] if bounded_temporal else cue_reliability[20],
@@ -580,7 +519,9 @@ def score_smash_evidence(
             "shoulder_rotation_or_wrist_drop_cross_body_completion",
         )
     else:
-        raise ValueError(f"unknown smash checkpoint profile: {variant.checkpoint_profile}")
+        raise ValueError(
+            f"unknown smash checkpoint profile: {variant.checkpoint_profile}"
+        )
 
     raw_ratios = np.exp(-distances / max(float(variant.decay), 1e-3))
     # An unobserved elbow is not evidence of an incorrect elbow. Blend toward
@@ -594,13 +535,9 @@ def score_smash_evidence(
     elif variant.aggregation == "harmonic":
         total_ratio = float(len(ratios) / np.sum(1.0 / np.maximum(ratios, 0.03)))
     elif variant.aggregation == "power_minus_half":
-        total_ratio = float(
-            np.mean(np.maximum(ratios, 0.03) ** -0.5) ** -2.0
-        )
+        total_ratio = float(np.mean(np.maximum(ratios, 0.03) ** -0.5) ** -2.0)
     elif variant.aggregation == "power_minus_two":
-        total_ratio = float(
-            np.mean(np.maximum(ratios, 0.03) ** -2.0) ** -0.5
-        )
+        total_ratio = float(np.mean(np.maximum(ratios, 0.03) ** -2.0) ** -0.5)
     elif variant.aggregation == "rubric_weighted_geometric":
         rubric_weights = np.asarray((1.0, 1.0, 2.0, 2.0, 2.0, 2.0))
         total_ratio = float(
@@ -611,9 +548,7 @@ def score_smash_evidence(
         )
     elif variant.aggregation == "rubric_weighted_arithmetic":
         rubric_weights = np.asarray((1.0, 1.0, 2.0, 2.0, 2.0, 2.0))
-        total_ratio = float(
-            np.sum(rubric_weights * ratios) / np.sum(rubric_weights)
-        )
+        total_ratio = float(np.sum(rubric_weights * ratios) / np.sum(rubric_weights))
     else:
         raise ValueError(f"unknown smash checkpoint aggregation: {variant.aggregation}")
 
@@ -639,41 +574,20 @@ def score_smash_evidence(
         "student_data_used_for_training_or_calibration": False,
         "criteria": criteria,
         "evidence": {
-            name: float(value) for name, value in zip(FEATURE_NAMES, values, strict=True)
+            name: float(value)
+            for name, value in zip(FEATURE_NAMES, values, strict=True)
         },
     }
-
-
-def save_smash_distribution(
-    distribution: SmashDistribution, variant: SmashVariant, path: str | Path
-) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        destination,
-        format_version=np.asarray(1, dtype=np.int64),
-        method=np.asarray("smash_expert_only_semantic_distribution_v1"),
-        feature_names=np.asarray(FEATURE_NAMES),
-        criterion_ids=np.asarray(CRITERION_IDS),
-        lower=distribution.lower,
-        upper=distribution.upper,
-        scale=distribution.scale,
-        subject_ids=distribution.subject_ids,
-        subject_values=distribution.subject_values,
-        calibration_policy=np.asarray(distribution.calibration_policy),
-        variant_name=np.asarray(variant.name),
-        decay=np.asarray(variant.decay, dtype=np.float64),
-        aggregation=np.asarray(variant.aggregation),
-        checkpoint_profile=np.asarray(variant.checkpoint_profile),
-        student_data_used_for_training_or_calibration=np.asarray(False),
-    )
 
 
 def load_smash_distribution(
     path: str | Path,
 ) -> tuple[SmashDistribution, SmashVariant]:
     with np.load(path, allow_pickle=False) as archive:
-        if str(archive["method"].item()) != "smash_expert_only_semantic_distribution_v1":
+        if (
+            str(archive["method"].item())
+            != "smash_expert_only_semantic_distribution_v1"
+        ):
             raise ValueError("not a smash semantic distribution artifact")
         if tuple(archive["feature_names"].tolist()) != FEATURE_NAMES:
             raise ValueError("smash semantic feature contract mismatch")

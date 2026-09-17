@@ -124,38 +124,6 @@ func (client *FirestoreClient) UpdateUserHandedness(user *UserData, handedness H
 	return err
 }
 
-func (client *FirestoreClient) CreateUserPortfolioVideo(
-	user *UserData,
-	userPortfolio *map[string]Work,
-	date string,
-	session *UserSession,
-	thumbnailFile *storage.UploadedFile,
-	analysis commons.AnalysisOutcome,
-) error {
-	work := Work{
-		DateTime:             date,
-		Handedness:           analysis.Handedness,
-		GradingOutcome:       analysis.Grade,
-		Reflection:           "尚未填寫心得",
-		Thumbnail:            thumbnailFile.Path,
-		AnalysisID:           analysis.AnalysisID,
-		StudentVideo:         analysis.StudentVideo,
-		FeedbackVideo:        analysis.FeedbackVideo,
-		SkeletonOverlayVideo: analysis.SkeletonOverlayVideo,
-		Expert:               analysis.Expert,
-		Timeline:             analysis.Timeline,
-		Diagnostics:          analysis.Diagnostics,
-	}
-	(*userPortfolio)[date] = work
-	err := client.UpdateUserSession(user.ID, *session)
-	if err != nil {
-		return fmt.Errorf("error updating user session: %w", err)
-	}
-
-	_, err = client.Data.Doc(user.ID).Update(*client.Ctx, []firestore.Update{{FieldPath: []string{"portfolio", session.Skill, date}, Value: work}})
-	return err
-}
-
 func (client *FirestoreClient) UpdateUserPortfolioReflection(
 	user *UserData,
 	userPortfolio *map[string]Work,

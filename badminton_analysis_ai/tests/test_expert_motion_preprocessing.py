@@ -4,11 +4,33 @@ import numpy as np
 
 from badminton_analysis.ml.expert_motion_preprocessing import (
     _serve_hip_minimum_start,
+    _serve_eimd_v3_phases,
     _serve_motion_onset_interval,
-    _serve_preparation_was_truncated,
     _serve_shoulder_completion_phases,
 )
 from badminton_analysis.models.types import Handedness
+
+
+def test_serve_eimd_v3_contract_ends_at_post_acceleration_shoulder_maximum() -> None:
+    frames = 48
+    skeleton = np.zeros((frames, 17, 2), dtype=np.float32)
+    skeleton[:, 12] = (0.0, 2.0)
+    skeleton[:, 6] = (0.0, 0.0)
+    skeleton[:, 8] = (0.0, 1.0)
+    skeleton[:, 10, 0] = np.concatenate(
+        (np.zeros(16), np.linspace(0.0, 12.0, 8), np.full(24, 12.0))
+    )
+    # The elbow opens furthest after wrist acceleration.
+    skeleton[:, 8, 0] = np.concatenate(
+        (np.zeros(25), np.linspace(0.0, 8.0, 10), np.full(13, 8.0))
+    )
+
+    phases = _serve_eimd_v3_phases((4, 12, 20, 30, 42), skeleton, Handedness.RIGHT)
+
+    assert phases[0] == 4
+    assert phases[2] < phases[-1]
+    assert phases[-1] >= 25
+    assert all(a < b for a, b in zip(phases, phases[1:]))
 
 
 def test_serve_start_uses_minimum_smoothed_pelvis_x_before_acceleration() -> None:
@@ -19,9 +41,7 @@ def test_serve_start_uses_minimum_smoothed_pelvis_x_before_acceleration() -> Non
     skeleton[:, 11, 0] = pelvis_x - 0.2
     skeleton[:, 12, 0] = pelvis_x + 0.2
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=2, acceleration=16
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=2, acceleration=16)
 
     assert start == 8
 
@@ -32,9 +52,7 @@ def test_serve_start_uses_visible_hip_when_other_hip_is_missing() -> None:
     skeleton[:, 11, 0] = np.nan
     skeleton[:, 12, 0] = pelvis_x
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=1, acceleration=14
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=1, acceleration=14)
 
     assert start == 6
 
@@ -66,7 +84,9 @@ def test_left_serve_start_uses_minimum_x_after_handedness_canonicalization() -> 
     assert left_start == right_start
 
 
-def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation() -> None:
+def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation() -> (
+    None
+):
     frames = 24
     skeleton = np.zeros((frames, 17, 2), dtype=np.float32)
     pelvis_x = np.full(frames, 8.0, dtype=np.float32)
@@ -75,9 +95,7 @@ def test_serve_start_rejects_late_secondary_minimum_that_collapses_preparation()
     skeleton[:, 11, 0] = pelvis_x - 0.2
     skeleton[:, 12, 0] = pelvis_x + 0.2
 
-    start = _serve_hip_minimum_start(
-        skeleton, detected_start=2, acceleration=18
-    )
+    start = _serve_hip_minimum_start(skeleton, detected_start=2, acceleration=18)
 
     # At least the final quarter of detected preparation remains before the
     # acceleration event, so the late swing minimum cannot become the start.
@@ -130,32 +148,6 @@ def test_serve_motion_onset_is_mirror_invariant() -> None:
     assert left_interval == right_interval
 
 
-def test_serve_truncation_gate_requires_raw_and_interpolated_evidence() -> None:
-    # Long preparation is visible both before and after interpolation.
-    assert _serve_preparation_was_truncated(
-        detected_start=90,
-        detected_peak=120,
-        raw_onset_start=67,
-        interpolated_onset_start=67,
-    )
-    # A detector gap hides part of the preparation, but raw motion still
-    # supplies a four-frame minimum of independent evidence.
-    assert _serve_preparation_was_truncated(
-        detected_start=64,
-        detected_peak=94,
-        raw_onset_start=56,
-        interpolated_onset_start=27,
-    )
-    # Do not replace a valid legacy contact anchor when a complete clip starts
-    # exactly at the detected preparation boundary.
-    assert not _serve_preparation_was_truncated(
-        detected_start=32,
-        detected_peak=62,
-        raw_onset_start=32,
-        interpolated_onset_start=32,
-    )
-
-
 def test_serve_contact_uses_across_body_direction_beyond_legacy_window() -> None:
     frames = 80
     right = np.zeros((frames, 17, 2), dtype=np.float32)
@@ -175,17 +167,13 @@ def test_serve_contact_uses_across_body_direction_beyond_legacy_window() -> None
     right[:, 10, 1] = 1.0
     detected = (5, 10, 20, 25, 30)
 
-    right_phases = _serve_shoulder_completion_phases(
-        detected, right, Handedness.RIGHT
-    )
+    right_phases = _serve_shoulder_completion_phases(detected, right, Handedness.RIGHT)
 
     left = right.copy()
     left[..., 0] *= -1.0
     for first, second in ((5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16)):
         left[:, (first, second)] = left[:, (second, first)]
-    left_phases = _serve_shoulder_completion_phases(
-        detected, left, Handedness.LEFT
-    )
+    left_phases = _serve_shoulder_completion_phases(detected, left, Handedness.LEFT)
 
     assert right_phases[2] > detected[-1]
     assert right_phases[-1] > right_phases[2]

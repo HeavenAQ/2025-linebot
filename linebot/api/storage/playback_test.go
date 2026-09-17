@@ -19,7 +19,7 @@ func TestSignPlaybackURLReturnsATimeLimitedLink(t *testing.T) {
 	t.Parallel()
 
 	client, bucket := playbackClient(t)
-	media, err := client.SignPlaybackURL(
+	media, err := client.SignPlaybackURLIn("",
 		"analyses/v1/U123/req/student_corrected.mp4",
 		"svc@project.iam.gserviceaccount.com",
 	)
@@ -31,6 +31,20 @@ func TestSignPlaybackURLReturnsATimeLimitedLink(t *testing.T) {
 	require.Equal(t, "gs://nstc-2025-storage/analyses/v1/U123/req/student_corrected.mp4", media.GCSURI)
 	require.Positive(t, media.SignedURLExpires)
 	require.Equal(t, []string{"analyses/v1/U123/req/student_corrected.mp4"}, bucket.signed)
+	require.Equal(t, "video/mp4", bucket.signedOptions[0].QueryParameters.Get("response-content-type"))
+}
+
+func TestSignPlaybackURLMarksMovExpertAsQuickTimeVideo(t *testing.T) {
+	t.Parallel()
+
+	client, bucket := playbackClient(t)
+	_, err := client.SignPlaybackURLIn("",
+		"experts/v3/serve/videos/expert.mov",
+		"svc@project.iam.gserviceaccount.com",
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "video/quicktime", bucket.signedOptions[0].QueryParameters.Get("response-content-type"))
 }
 
 // Signing is a capability: only the trees that hold playable output may be
@@ -43,7 +57,7 @@ func TestSignPlaybackURLRefusesPathsOutsidePlayableTrees(t *testing.T) {
 		"", "secrets/key.json", "analyses/../secrets/key.json",
 		"U123/thumbnail.jpeg", "/analyses/v1/x.mp4",
 	} {
-		_, err := client.SignPlaybackURL(path, "svc@project.iam.gserviceaccount.com")
+		_, err := client.SignPlaybackURLIn("", path, "svc@project.iam.gserviceaccount.com")
 		require.Error(t, err, path)
 	}
 	require.Empty(t, bucket.signed, "nothing outside a playable tree should reach the signer")
@@ -63,7 +77,7 @@ func TestSignPlaybackURLSurfacesSignerFailures(t *testing.T) {
 	client, bucket := playbackClient(t)
 	bucket.signErr = errors.New("iam: permission denied")
 
-	_, err := client.SignPlaybackURL("analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
+	_, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
 	require.ErrorContains(t, err, "iam: permission denied")
 }
 
@@ -73,30 +87,9 @@ func TestSignPlaybackURLOmitsAnEmptyServiceAccount(t *testing.T) {
 	t.Parallel()
 
 	client, _ := playbackClient(t)
-	media, err := client.SignPlaybackURL("analyses/v1/U1/r/student_corrected.mp4", "  ")
+	media, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "  ")
 
 	require.NoError(t, err)
 	require.Contains(t, media.SignedURL, "as=")
 	require.NotContains(t, media.SignedURL, "as=  ")
-}
-
-// An analysis written by a shared analysis service lives in that service's
-// bucket, not the calling deployment's. Signing against the wrong bucket
-// produces a URL that 404s in the browser rather than an error here, so the
-// bucket recorded with the object is what must be used.
-func TestBucketFromGCSURI(t *testing.T) {
-	for _, testCase := range []struct {
-		uri  string
-		want string
-	}{
-		{"gs://nstc-2025-storage/analyses/v1/U1/req/student_corrected.mp4", "nstc-2025-storage"},
-		{"gs://bucket-only", "bucket-only"},
-		{"  gs://spaced/object.mp4  ", "spaced"},
-		{"https://example.com/not-gcs.mp4", ""},
-		{"", ""},
-	} {
-		if got := BucketFromGCSURI(testCase.uri); got != testCase.want {
-			t.Errorf("BucketFromGCSURI(%q) = %q, want %q", testCase.uri, got, testCase.want)
-		}
-	}
 }

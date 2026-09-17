@@ -1,16 +1,15 @@
-"""Conditional full-body expert motion generators.
+"""Diffusion building blocks shared by the EIMD denoiser.
 
-The diffusion model is the primary model.  A compact Wasserstein GAN is kept
-as an explicit fallback for very small expert banks where the diffusion
-validation criterion is not met.  Both models consume only static morphology,
-preparation stance and handedness; a learner's moving pose is never an input.
+Phase features, the sinusoidal timestep embedding, and the linear noise
+schedule used when sampling a frozen expert-motion checkpoint.
 """
+
 from __future__ import annotations
 
 import math
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 
 
 def _phase_features(frames: int) -> Tensor:
@@ -39,14 +38,6 @@ def timestep_embedding(timesteps: Tensor, dimension: int) -> Tensor:
     if dimension % 2:
         embedding = torch.nn.functional.pad(embedding, (0, 1))
     return embedding
-
-
-
-
-
-
-
-
 
 
 def linear_diffusion_schedule(

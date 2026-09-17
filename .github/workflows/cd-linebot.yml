@@ -44,23 +44,56 @@ jobs:
 
       - name: Build and push Docker image
         run: |-
-          gcloud builds submit \
-            --timeout=1800s \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_PROJECT_ID }}
+          # `gcloud builds submit` waits by polling the build once a second. Both
+          # CD workflows run on a push to main, so two waits share the project's
+          # 60-get-requests-per-minute quota; once they exceed it the wait dies on a
+          # 429 while the build carries on and succeeds unnoticed, leaving the job
+          # hanging until its own timeout. Submit asynchronously and poll slowly, so
+          # a rejected poll costs one interval rather than the whole deploy.
+          build_id="$(gcloud builds submit --async \
+              --timeout=1800s \
+              --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_PROJECT_ID }} \
+              --format='value(id)')"
+          test -n "${build_id}" || { echo "build was not submitted" >&2; exit 1; }
+          echo "build ${build_id} submitted"
+          reported=""
+          for _ in $(seq 1 90); do
+            sleep 20
+            # A describe that fails is a lost poll, not a failed build: keep waiting.
+            status="$(gcloud builds describe "${build_id}" --format='value(status)' 2>/dev/null)" || continue
+            if [ "${status}" != "${reported}" ]; then
+              echo "  ${status}"
+              reported="${status}"
+            fi
+            case "${status}" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                gcloud builds log "${build_id}" 2>/dev/null | tail -60
+                echo "build ${build_id} ended ${status}" >&2
+                exit 1 ;;
+            esac
+          done
+          echo "build ${build_id} still running after 30 minutes" >&2
+          exit 1
 
       - name: Deploy to Cloud Run
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           LIFF_ID: ${{ secrets.NEXT_PUBLIC_LIFF_ID }}
         run: |
-          # The GPU analysis service is deployed and torn down on its own
-          # schedule, so it may not exist right now. --update-env-vars only
-          # touches the keys it is given, so when the service is missing the
-          # target is left at whatever the running revision already has rather
-          # than being blanked -- and this deploy is not blocked on it.
+          # If the GPU analysis service cannot be described, leave
+          # ANALYSIS_GRPC_TARGET out: --update-env-vars only touches the keys it
+          # is given, so the running revision keeps its target rather than
+          # having it blanked, and this deploy is not blocked on it.
           env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
           env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
           env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          # The primary learner deployment must request the GPT feedback
+          # render. Set this explicitly because --update-env-vars preserves an
+          # old value, and a stale true would make LIFF receive the no-coaching
+          # video despite using the AI product. The separate no-AI deployment
+          # owns its own configuration.
+          env_vars="${env_vars},ANALYSIS_SKIP_COACHING=false"
           if analysis_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format='value(status.url)' 2>/dev/null)"; then
             env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"
@@ -84,6 +117,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
+            --timeout 1200 \
             --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id}" \
             --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
 

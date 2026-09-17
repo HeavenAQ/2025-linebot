@@ -60,16 +60,6 @@ func (client *FirestoreClient) UpdateSessionUserState(userID string, state UserS
 	return client.UpdateUserSession(userID, *userSession)
 }
 
-func (client *FirestoreClient) UpdateSessionUserSkill(userID string, skill string) error {
-	userSession, err := client.GetUserSession(userID)
-	if err != nil {
-		return err
-	}
-
-	userSession.Skill = skill
-	return client.UpdateUserSession(userID, *userSession)
-}
-
 func (client *FirestoreClient) ResetSession(userID string) error {
 	userSession := UserSession{
 		Skill:       "",
@@ -83,26 +73,6 @@ func (client *FirestoreClient) ResetSession(userID string) error {
 		return err
 	}
 	return nil
-}
-
-func (client *FirestoreClient) UpdateSessionActionStep(userID string, step ActionStep) error {
-	userSession, err := client.GetUserSession(userID)
-	if err != nil {
-		return err
-	}
-
-	userSession.ActionStep = step
-	return client.UpdateUserSession(userID, *userSession)
-}
-
-func (client *FirestoreClient) UpdateSessionUpdatingDate(userID string, date string) error {
-	userSession, err := client.GetUserSession(userID)
-	if err != nil {
-		return err
-	}
-
-	userSession.UpdatedDate = date
-	return client.UpdateUserSession(userID, *userSession)
 }
 
 func (client *FirestoreClient) UpdateSessionHandedness(userID string, handedness string) error {

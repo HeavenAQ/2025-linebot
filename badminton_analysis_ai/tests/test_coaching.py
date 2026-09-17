@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from badminton_analysis.ml.clear_feedback import (
+from badminton_analysis.ml.coaching_feedback import (
     RawSkillFeedbackAnalysis,
     SampledFrame,
     phase_for_frame,
@@ -14,10 +14,28 @@ from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Skill
 
 import service.coaching as coaching_module
-from service.coaching import CoachingGenerator
-
+from service.coaching import (
+    CoachingGenerator,
+    _normalized_to_output_frame_indices,
+)
 
 PHASES = (0, 20, 39, 51, 63)
+
+
+@pytest.mark.parametrize(
+    ("skill", "output_frames"),
+    ((Skill.SERVE, 42), (Skill.SMASH, 37)),
+)
+def test_coaching_maps_canonical_phases_to_analysis_local_frames(
+    skill: Skill, output_frames: int
+) -> None:
+    mapping = _normalized_to_output_frame_indices(64, output_frames)
+
+    assert len(mapping) == 64
+    assert mapping[0] == 0
+    assert mapping[-1] == output_frames - 1
+    assert mapping[52] < output_frames
+    assert all(first <= second for first, second in zip(mapping, mapping[1:]))
 
 
 def _sample(frame_index: int, spec) -> SampledFrame:
@@ -47,21 +65,22 @@ def _correction_grade(spec, scores: tuple[float, ...]) -> dict:
     }
 
 
-def test_fallback_coaching_uses_lowest_normalized_criterion() -> None:
-    spec = get_skill_spec(Skill.LIFT)
-    correction_grade = _correction_grade(spec, (12.0, 24.0, 7.0, 16.0))
+def test_fallback_coaching_uses_largest_weighted_point_deficit() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    # arms_raised has the lowest ratio, weight_transfer the largest deficit.
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 18.0, 10.0, 30.0, 20.0))
 
     analysis = CoachingGenerator._fallback_analysis(spec, correction_grade)
 
-    assert analysis["skill"] == "lift"
+    assert analysis["skill"] == "serve"
     assert analysis["language"] == "zh-TW"
     assert len(analysis["problems"]) == 1
     problem = analysis["problems"][0]
-    assert problem["rule_reference"] == "stable_contact"
-    assert problem["joint_ids"] == [8, 10, 12, 14, 16]
-    assert problem["feedback"] == spec.rule("stable_contact").calculation_zh_tw
+    assert problem["rule_reference"] == "weight_transfer"
+    assert problem["joint_ids"] == [5, 6, 11, 12, 15, 16]
+    assert problem["feedback"] == spec.rule("weight_transfer").calculation_zh_tw
     assert "度" not in problem["feedback"]
-    assert "7.0/35.0" in problem["evidence"]
+    assert "18.0/30.0" in problem["evidence"]
 
 
 def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
@@ -75,10 +94,12 @@ def test_fallback_coaching_can_cover_three_distinct_criteria() -> None:
     references = [problem["rule_reference"] for problem in analysis["problems"]]
     assert len(references) == 3
     assert len(set(references)) == 3
-    assert references == ["weight_transfer", "arms_raised", "racket_foot_weight"]
+    assert references == ["weight_transfer", "wrist_flick", "arms_raised"]
 
 
-def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> None:
+def test_low_score_normalization_rejects_one_problem_and_missing_major_deficit() -> (
+    None
+):
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     rule = spec.rules[0]
@@ -105,20 +126,125 @@ def test_low_score_normalization_accepts_fewer_visually_verified_problems() -> N
         ],
     }
 
-    normalized = CoachingGenerator._normalize_analysis(
-        analysis,
-        spec=spec,
-        correction_grade=correction_grade,
-        phase_indices=PHASES,
-        samples=[_sample(rule_frame, spec)],
-    )
+    with pytest.raises(ValueError, match="at least 2 problems"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[_sample(rule_frame, spec)],
+        )
 
-    assert [problem["rule_reference"] for problem in normalized["problems"]] == [
-        rule.id
+
+def test_low_score_feedback_must_cover_every_priority_that_fits() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 0.0, 10.0, 0.0, 20.0))
+    chosen_rules = (spec.rule("arms_raised"), spec.rule("wrist_flick"))
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "準備動作與手腕發力仍需改善，請依照關鍵畫面調整。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生動作與修正骨架有明顯差距。",
+                "frame_index": PHASES[rule.allowed_anchor_indices[-1]],
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+            for rule in chosen_rules
+        ],
+    }
+    samples = [
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec) for rule in chosen_rules
     ]
 
+    with pytest.raises(ValueError, match="weight_transfer"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=samples,
+        )
 
-def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
+
+def test_mid_score_feedback_cannot_stop_after_only_one_low_criterion() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(spec, (5.0, 5.0, 15.0, 10.0, 15.0, 20.0))
+    rule = spec.rule("weight_transfer")
+    frame = PHASES[rule.allowed_anchor_indices[-1]]
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心轉移與手腕發力都需要依照關鍵畫面進一步修正。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生重心轉移與修正骨架有明顯差距。",
+                "frame_index": frame,
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="wrist_flick"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[_sample(frame, spec)],
+        )
+
+
+def test_feedback_rejects_a_criterion_that_already_passed() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    correction_grade = _correction_grade(spec, (0.0, 5.0, 5.0, 4.0, 12.0, 20.0))
+    chosen_rules = (spec.rule("weight_transfer"), spec.rule("shoulder_rotation"))
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心轉移與隨揮收拍動作仍需依照關鍵畫面改善。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "關鍵畫面顯示學生動作與修正骨架仍有明顯差距。",
+                "frame_index": PHASES[rule.allowed_anchor_indices[-1]],
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+            for rule in chosen_rules
+        ],
+    }
+    samples = [
+        _sample(PHASES[rule.allowed_anchor_indices[-1]], spec) for rule in chosen_rules
+    ]
+
+    with pytest.raises(ValueError, match="shoulder_rotation"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=samples,
+        )
+
+
+def test_normalization_rejects_empty_response_when_rubric_requires_feedback() -> None:
     spec = get_skill_spec(Skill.SERVE)
     correction_grade = _correction_grade(spec, (1.0, 2.0, 5.0, 10.0, 12.0, 20.0))
     analysis = {
@@ -128,15 +254,141 @@ def test_normalization_accepts_no_problem_when_images_show_good_form() -> None:
         "problems": [],
     }
 
+    with pytest.raises(ValueError, match="weight_transfer"):
+        CoachingGenerator._normalize_analysis(
+            analysis,
+            spec=spec,
+            correction_grade=correction_grade,
+            phase_indices=PHASES,
+            samples=[],
+        )
+
+
+def test_generate_reasks_gpt_with_validator_error_and_previous_answer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    failed_rule = spec.rules[0]
+    scores = (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
+    correction_grade = _correction_grade(spec, scores)
+    frame = PHASES[failed_rule.allowed_anchor_indices[-1]]
+    empty = RawSkillFeedbackAnalysis.model_validate(
+        {
+            "skill": spec.slug,
+            "language": "zh-TW",
+            "overall_feedback": "本次動作不需要修正。",
+            "problems": [],
+        }
+    )
+    corrected = RawSkillFeedbackAnalysis.model_validate(
+        {
+            "skill": spec.slug,
+            "language": "zh-TW",
+            "overall_feedback": "請先修正準備階段的雙手位置。",
+            "problems": [
+                {
+                    "priority": "高",
+                    "title": failed_rule.name_zh_tw,
+                    "feedback": failed_rule.calculation_zh_tw,
+                    "evidence": "準備畫面顯示雙手高度低於修正骨架。",
+                    "frame_index": frame,
+                    "phase": failed_rule.phase,
+                    "joint_ids": list(failed_rule.coaching_joints),
+                    "rule_reference": failed_rule.id,
+                    "confidence": 0.9,
+                }
+            ],
+        }
+    )
+    calls: list[dict] = []
+
+    def parse(**kwargs):
+        calls.append(kwargs)
+        parsed = empty if len(calls) == 1 else corrected
+        return SimpleNamespace(output_parsed=parsed, id=f"response-{len(calls)}")
+
+    monkeypatch.setattr(
+        coaching_module, "sample_video_frames", lambda *_, **__: [_sample(frame, spec)]
+    )
+    monkeypatch.setattr(coaching_module, "prompt_context", lambda *_, **__: {})
+    monkeypatch.setattr(
+        coaching_module,
+        "build_response_input",
+        lambda *_, **__: [{"role": "user", "content": "original request"}],
+    )
+    generator = CoachingGenerator.__new__(CoachingGenerator)
+    generator.client = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+    generator.model = "test-model"
+    generator.max_attempts = 2
+
+    payload = generator.generate(
+        video_path=tmp_path / "input.mp4",
+        working_dir=tmp_path,
+        filename="student.mp4",
+        handedness="right",
+        phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
+        spec=spec,
+        correction_grade=correction_grade,
+    )
+
+    assert len(calls) == 2
+    assert len(calls[0]["input"]) == 1
+    assert len(calls[1]["input"]) == 3
+    assert calls[1]["input"][1]["role"] == "assistant"
+    retry_text = calls[1]["input"][2]["content"][0]["text"]
+    assert "驗證錯誤" in retry_text
+    assert failed_rule.id in retry_text
+    assert payload["source"] == "openai"
+    assert payload["attempts"] == 2
+    assert payload["response_id"] == "response-2"
+    assert payload["analysis"]["problems"][0]["rule_reference"] == failed_rule.id
+
+
+def test_weight_transfer_allows_contact_display_anchor() -> None:
+    spec = get_skill_spec(Skill.SERVE)
+    phases = (0, 23, 55, 58, 63)
+    rule = spec.rule("weight_transfer")
+    display_frame = phases[rule.allowed_anchor_indices[-1]]
+    sample = SampledFrame(
+        frame_index=display_frame,
+        source_frame_index=36,
+        timestamp_seconds=1.2,
+        phase=phase_for_frame(display_frame, phases, spec),
+        checkpoint_role_zh_tw="重心轉移檢查",
+        image_path=Path("frame-55.jpg"),
+        data_url="data:image/jpeg;base64,test",
+    )
+    assert sample.phase == "contact"
+    analysis = {
+        "skill": spec.slug,
+        "language": "zh-TW",
+        "overall_feedback": "重心沒有由持拍腳轉移至非持拍腳。",
+        "problems": [
+            {
+                "priority": "高",
+                "title": rule.name_zh_tw,
+                "feedback": rule.calculation_zh_tw,
+                "evidence": "最後畫面仍維持原本的下肢支撐。",
+                "frame_index": display_frame,
+                "phase": rule.phase,
+                "joint_ids": list(rule.coaching_joints),
+                "rule_reference": rule.id,
+                "confidence": 0.9,
+            }
+        ],
+    }
+
     normalized = CoachingGenerator._normalize_analysis(
         analysis,
         spec=spec,
-        correction_grade=correction_grade,
-        phase_indices=PHASES,
-        samples=[],
+        correction_grade=_correction_grade(spec, (5.0, 5.0, 3.0, 10.0, 30.0, 20.0)),
+        phase_indices=phases,
+        samples=[sample],
     )
 
-    assert normalized["problems"] == []
+    assert normalized["problems"][0]["phase"] == "weight_transfer"
 
 
 def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
@@ -166,6 +418,8 @@ def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
         filename="expert.mp4",
         handedness="right",
         phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
         spec=spec,
         correction_grade=correction_grade,
     )
@@ -179,9 +433,9 @@ def test_generate_skips_gpt_and_returns_no_suggestions_for_good_performance(
 
 
 def test_normalize_analysis_accepts_exact_criterion_title_as_rule_reference() -> None:
-    spec = get_skill_spec(Skill.CLEAR)
+    spec = get_skill_spec(Skill.SMASH)
     correction_grade = _correction_grade(
-        spec, tuple(rule.maximum for rule in spec.rules)
+        spec, (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
     )
     rule = spec.rules[0]
     analysis = {
@@ -221,7 +475,7 @@ def test_normalize_analysis_accepts_exact_criterion_title_as_rule_reference() ->
 def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
     monkeypatch, tmp_path: Path
 ) -> None:
-    spec = get_skill_spec(Skill.CLEAR)
+    spec = get_skill_spec(Skill.SMASH)
     scores = (0.0,) + tuple(rule.maximum for rule in spec.rules[1:])
     correction_grade = _correction_grade(spec, scores)
     parsed = RawSkillFeedbackAnalysis.model_validate(
@@ -245,11 +499,11 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
         }
     )
     response = SimpleNamespace(output_parsed=parsed, id="invalid-response")
-    client = SimpleNamespace(
-        responses=SimpleNamespace(parse=lambda **_: response)
-    )
+    client = SimpleNamespace(responses=SimpleNamespace(parse=lambda **_: response))
     samples = [_sample(0, spec)]
-    monkeypatch.setattr(coaching_module, "sample_video_frames", lambda *_, **__: samples)
+    monkeypatch.setattr(
+        coaching_module, "sample_video_frames", lambda *_, **__: samples
+    )
     monkeypatch.setattr(coaching_module, "prompt_context", lambda *_, **__: {})
     monkeypatch.setattr(coaching_module, "build_response_input", lambda *_, **__: [])
     generator = CoachingGenerator.__new__(CoachingGenerator)
@@ -263,6 +517,8 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
         filename="student.mp4",
         handedness="right",
         phase_indices=PHASES,
+        normalized_sequence_length=64,
+        output_frame_count=42,
         spec=spec,
         correction_grade=correction_grade,
     )
@@ -271,3 +527,38 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
     assert payload["response_id"] == ""
     assert payload["fallback_error"] == "KeyError"
     assert payload["analysis"]["problems"][0]["rule_reference"] == spec.rules[0].id
+
+
+class _RecordingOpenAI:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+def test_openai_client_gets_explicit_timeout_and_retries(monkeypatch) -> None:
+    monkeypatch.setattr(coaching_module, "OpenAI", _RecordingOpenAI)
+    monkeypatch.delenv("OPENAI_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("OPENAI_MAX_RETRIES", raising=False)
+
+    assert CoachingGenerator().client.kwargs == {"timeout": 120.0, "max_retries": 1}
+
+    monkeypatch.setenv("OPENAI_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("OPENAI_MAX_RETRIES", "0")
+    assert CoachingGenerator().client.kwargs == {"timeout": 30.0, "max_retries": 0}
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OPENAI_TIMEOUT_SECONDS", "0"),
+        ("OPENAI_TIMEOUT_SECONDS", "-5"),
+        ("OPENAI_TIMEOUT_SECONDS", "1.5"),
+        ("OPENAI_MAX_RETRIES", "-1"),
+        ("OPENAI_MAX_RETRIES", "many"),
+    ],
+)
+def test_invalid_openai_client_settings_fail_fast(monkeypatch, name, value) -> None:
+    monkeypatch.setattr(coaching_module, "OpenAI", _RecordingOpenAI)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        CoachingGenerator()

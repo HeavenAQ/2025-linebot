@@ -21,12 +21,15 @@ import { SelectField } from '@/components/ui/select'
 import { Skill, SkillNameMap } from '@/lib/types'
 import { fetchUserDataSafe } from '@/lib/api/fetchUserDataSafe'
 import { fetchPlayback } from '@/lib/api/fetchPlayback'
+import { RateLimitedError } from '@/lib/api/client'
+import { usePlaybackRefresh } from '@/lib/usePlaybackRefresh'
 import {
   resolveReviewSection,
   resolveWorkFocus,
   type ReviewSection,
   type WorkFocus
 } from '@/lib/workLink'
+import { dailyBestScores } from '@/lib/dailyBest'
 import WeeklyReview from '@/components/WeeklyReview'
 import VideoComparison from '@/components/VideoComparison'
 
@@ -39,8 +42,18 @@ const TAB_OPTIONS = [
 type TabValue = (typeof TAB_OPTIONS)[number]['value']
 
 const chartConfig = {
-  totalGrade: { label: '總分', color: 'hsl(var(--chart-1))' }
+  totalGrade: { label: '最高分', color: 'hsl(var(--chart-1))' }
 } satisfies ChartConfig
+
+/**
+ * Horizontal room each day gets on the trend chart. Past a phone screen's worth
+ * of days the chart grows wider than its card and scrolls instead of squeezing
+ * a semester of points into unreadable ticks.
+ */
+const TREND_DAY_WIDTH = 56
+/** Shared by the pinned score axis and the scrolling chart so the scales align. */
+const TREND_MARGIN = { top: 8, right: 0, bottom: 0, left: 0 }
+const TREND_X_AXIS_HEIGHT = 30
 
 /** Sort the "YYYY-MM-DD-HH-mm" keys chronologically. */
 const chronological = (a: string, b: string) => {
@@ -66,6 +79,10 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
   // would say the opposite.
   const share = (d: GradingDetail) => d.grade / (d.maximum > 0 ? d.maximum : 20)
   const weakest = details.reduce((low, d) => (share(d) < share(low) ? d : low), details[0])
+  // "Weakest" is only useful coaching language when the criterion actually
+  // needs work.  Without this gate an all-perfect attempt still painted one
+  // row red and called it 最需改進 merely because it was first in the list.
+  const weakestNeedsImprovement = share(weakest) < 0.8
 
   return (
     <ul className="space-y-4">
@@ -75,7 +92,7 @@ const Criteria = ({ details }: { details: readonly GradingDetail[] }) => {
         // impossible scores like 30.0/20.
         const maximum = detail.maximum > 0 ? detail.maximum : 20
         const ratio = Math.max(0, Math.min(1, detail.grade / maximum))
-        const isWeakest = details.length > 1 && detail === weakest
+        const isWeakest = details.length > 1 && detail === weakest && weakestNeedsImprovement
         return (
           <li key={`${detail.description}-${i}`}>
             <div className="flex items-baseline justify-between gap-3">
@@ -170,7 +187,10 @@ export default function PersonalPage() {
         }
       } catch (err) {
         if (err instanceof Error) console.error(err.message)
-        setUserDataError('無法讀取帳戶資料，請稍後再試。')
+        // A rate limit says what to wait for; anything else stays generic.
+        setUserDataError(
+          err instanceof RateLimitedError ? err.message : '無法讀取帳戶資料，請稍後再試。'
+        )
       } finally {
         setLoading(false)
       }
@@ -209,9 +229,13 @@ export default function PersonalPage() {
     const resume = () => {
       if (!document.hidden && !inFlight) {
         inFlight = true
-        void fetchUserDataSafe(profile.userId).then(result => {
-          if (!cancelled && result.ok) setUserData(result.data)
-        }).finally(() => { inFlight = false })
+        void fetchUserDataSafe(profile.userId)
+          .then(result => {
+            if (!cancelled && result.ok) setUserData(result.data)
+          })
+          .finally(() => {
+            inFlight = false
+          })
       }
     }
     const timer = window.setInterval(resume, 5000)
@@ -240,6 +264,17 @@ export default function PersonalPage() {
       }))
   }, [selectedSkill, userData])
 
+  /** The trend chart plots each practice day once, at that day's best score. */
+  const dailyTrend = useMemo(() => dailyBestScores(trend), [trend])
+
+  // Open the chart on the most recent days, where a student looks first; the
+  // older ones stay a swipe to the left.
+  const trendScroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const scroller = trendScroller.current
+    if (scroller) scroller.scrollLeft = scroller.scrollWidth
+  }, [activeTab, dailyTrend])
+
   useEffect(() => {
     if (activeTab !== 'comparison' || !profile?.userId || !selectedDate) {
       setPlayback(null)
@@ -267,6 +302,14 @@ export default function PersonalPage() {
     }
   }, [activeTab, profile?.userId, selectedDate, selectedSkill, selectedAnalysisStatus])
 
+  // The signed video URLs last an hour; re-sign them in place before then so a
+  // comparison left open keeps playing from where the learner was.
+  const onPlaybackMediaError = usePlaybackRefresh(playback, setPlayback, () =>
+    profile?.userId
+      ? fetchPlayback(profile.userId, selectedSkill, selectedDate)
+      : Promise.reject(new Error('Not logged in'))
+  )
+
   if (loading) return <Spinner fullscreen />
 
   if (!userData) {
@@ -277,8 +320,9 @@ export default function PersonalPage() {
           title={sessionExpired ? '登入已逾時' : liffError ? 'LINE 登入失敗' : '無法載入學習資料'}
         >
           {sessionExpired
-            ? // Reloading will not help: LIFF hands back the same expired token
-              // until the app is opened from LINE again.
+            ? // Reloading will not help: LIFF hands back the same expired tokens
+              // (the ID token and the access token it fell back to) until the
+              // app is opened from LINE again.
               '這個頁面開太久了，請從 LINE 重新開啟一次。'
             : userDataError || '請重新整理頁面後再試一次。'}
         </Alert>
@@ -382,42 +426,84 @@ export default function PersonalPage() {
               <Criteria details={details} />
             </section>
 
-            {trend.length > 1 && (
+            {dailyTrend.length > 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{SkillNameMap[selectedSkill]} 歷次總分</CardTitle>
+                  <CardTitle>{SkillNameMap[selectedSkill]} 每日最高分</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig}>
-                    <LineChart
-                      accessibilityLayer
-                      data={trend}
-                      width={500}
-                      height={500}
-                      margin={{ left: -16, right: 10, top: 6 }}
+                  {/* The score axis stays put while the days scroll beside it,
+                      so a point far back in the semester can still be read. Both
+                      charts share a height and margins so their scales line up. */}
+                  <div className="flex">
+                    <ChartContainer config={chartConfig} className="aspect-auto h-56 w-9 shrink-0">
+                      <LineChart data={dailyTrend} margin={TREND_MARGIN}>
+                        <XAxis
+                          dataKey="day"
+                          tick={false}
+                          tickLine={false}
+                          axisLine={false}
+                          height={TREND_X_AXIS_HEIGHT}
+                        />
+                        <YAxis
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          domain={[0, 100]}
+                          fontSize={11}
+                        />
+                      </LineChart>
+                    </ChartContainer>
+                    <div
+                      ref={trendScroller}
+                      className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain pb-1"
+                      aria-label="每日最高分趨勢，可左右滑動"
                     >
-                      <CartesianGrid vertical={false} strokeDasharray="3 4" />
-                      <XAxis
-                        dataKey="date"
-                        type="category"
-                        tickLine={false}
-                        axisLine={false}
-                        tickMargin={10}
-                        tickFormatter={(value: string) => value.slice(5, 10).replace('-', '/')}
-                        fontSize={11}
-                      />
-                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} fontSize={11} />
-                      <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                      <Line
-                        dataKey="totalGrade"
-                        type="monotone"
-                        stroke="var(--color-totalGrade)"
-                        strokeWidth={2}
-                        dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
-                        activeDot={{ r: 5 }}
-                      />
-                    </LineChart>
-                  </ChartContainer>
+                      <div
+                        style={{
+                          width: `max(100%, ${dailyTrend.length * TREND_DAY_WIDTH}px)`
+                        }}
+                      >
+                        <ChartContainer config={chartConfig} className="aspect-auto h-56 w-full">
+                          <LineChart accessibilityLayer data={dailyTrend} margin={TREND_MARGIN}>
+                            <CartesianGrid vertical={false} strokeDasharray="3 4" />
+                            <XAxis
+                              dataKey="day"
+                              type="category"
+                              interval={0}
+                              height={TREND_X_AXIS_HEIGHT}
+                              padding={{ left: 16, right: 16 }}
+                              tickLine={false}
+                              axisLine={false}
+                              tickMargin={10}
+                              tickFormatter={(value: string) => value.slice(5).replace('-', '/')}
+                              fontSize={11}
+                            />
+                            <YAxis hide domain={[0, 100]} />
+                            <ChartTooltip
+                              cursor={false}
+                              content={
+                                <ChartTooltipContent
+                                  labelFormatter={(_, payload) =>
+                                    String(payload?.[0]?.payload?.day ?? '').replaceAll('-', '/')
+                                  }
+                                />
+                              }
+                            />
+                            <Line
+                              dataKey="totalGrade"
+                              type="monotone"
+                              stroke="var(--color-totalGrade)"
+                              strokeWidth={2}
+                              dot={{ r: 3, strokeWidth: 0, fill: 'var(--color-totalGrade)' }}
+                              activeDot={{ r: 5 }}
+                              isAnimationActive={false}
+                            />
+                          </LineChart>
+                        </ChartContainer>
+                      </div>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -427,7 +513,9 @@ export default function PersonalPage() {
         {activeTab === 'comparison' && (
           <div role="tabpanel" className="space-y-5">
             {playbackLoading && <Spinner />}
-            {!playbackLoading && playback && <VideoComparison playback={playback} />}
+            {!playbackLoading && playback && (
+              <VideoComparison playback={playback} onMediaError={onPlaybackMediaError} />
+            )}
             {!playbackLoading && playbackError && (
               <Alert variant="warning" title="無法載入影片">
                 {playbackError}

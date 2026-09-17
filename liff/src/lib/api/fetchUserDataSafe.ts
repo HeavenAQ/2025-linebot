@@ -1,5 +1,5 @@
 import { UserDataSchema, type UserData } from '@/schemas/userData.schema'
-import { authorizedFetch } from '@/lib/api/client'
+import { authorizedFetch, RateLimitedError, rateLimitedMessage } from '@/lib/api/client'
 import type { Result } from './result'
 import { err, ok } from './result'
 import { ErrorResponseSchema } from '@/schemas/error.schema'
@@ -11,6 +11,8 @@ export async function fetchUserDataSafe(userId: string): Promise<Result<UserData
 
     // Handle none 2XX errors
     if (!res.ok) {
+      const limited = await rateLimitedMessage(res)
+      if (limited) return err(new RateLimitedError(limited))
       let message = "Unknown error occured"
       const raw = await res.json()
       const parsed = ErrorResponseSchema.safeParse(raw)

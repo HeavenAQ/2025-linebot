@@ -2,11 +2,9 @@ package db_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/HeavenAQ/nstc-linebot-2025/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -103,73 +101,6 @@ func TestUpdateUserHandedness(t *testing.T) {
 	updatedUser, err := firestoreClient.GetUserData(testUserID)
 	require.NoError(t, err)
 	require.Equal(t, db.Left, updatedUser.Handedness)
-
-	// Clean up the created data after the test
-	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)
-	require.NoError(t, err)
-}
-
-// TestCreateUserPortfolioVideo verifies that a video can be added to the user's portfolio
-func TestCreateUserPortfolioVideo(t *testing.T) {
-	requireLive(t)
-	t.Parallel()
-
-	// Create a test user with RandomAlphabetString
-	testUserID := utils.RandomAlphabetString(10)
-	testUser := &db.UserData{
-		Name: utils.RandomAlphabetString(10),
-		ID:   testUserID,
-		Portfolio: db.Portfolios{
-			Smash: map[string]db.Work{},
-			Serve: map[string]db.Work{},
-			Clear: map[string]db.Work{},
-			Lift:  map[string]db.Work{},
-		},
-	}
-	_, err := firestoreClient.Data.Doc(testUserID).Set(*firestoreClient.Ctx, testUser)
-	require.NoError(t, err)
-
-	// Define test data for video creation.
-	thumbnailFile := &storage.UploadedFile{
-		Name: "thumbnail/serve.jpg",
-		Path: "thumbnail/serve.jpg",
-	}
-	session := &db.UserSession{
-		UserState: db.WritingReflectionNote,
-	}
-	analysis := commons.AnalysisOutcome{
-		AnalysisID: "analysis-live-test",
-		Handedness: "left",
-		Grade: commons.GradingOutcome{GradingDetails: []commons.GradingDetail{
-			{
-				CriterionID: "serve.contact",
-				Description: "Form",
-				Grade:       0.5,
-				Maximum:     20,
-			},
-		}},
-		StudentVideo: commons.MediaRef{ObjectPath: "analyses/live/student.mp4", SignedURL: "https://example.test/student"},
-		Expert:       commons.ExpertMatch{ExpertID: "ES01", Video: commons.MediaRef{ObjectPath: "experts/v1/serve/video.mp4"}},
-	}
-	// Call the method to add video to portfolio
-	today := time.Now().Format("2006-01-02-15-04")
-	err = firestoreClient.CreateUserPortfolioVideo(
-		testUser,
-		&testUser.Portfolio.Serve,
-		today,
-		session,
-		thumbnailFile,
-		analysis,
-	)
-	require.NoError(t, err)
-
-	// Verify that the video was added to the portfolio
-	updatedUser, err := firestoreClient.GetUserData(testUserID)
-	require.NoError(t, err)
-	require.NotNil(t, updatedUser.Portfolio.Serve[today])
-	require.Equal(t, analysis.Grade, updatedUser.Portfolio.Serve[today].GradingOutcome)
-	require.Equal(t, analysis.Handedness, updatedUser.Portfolio.Serve[today].Handedness)
-	require.Equal(t, analysis.StudentVideo.ObjectPath, updatedUser.Portfolio.Serve[today].StudentVideo.ObjectPath)
 
 	// Clean up the created data after the test
 	_, err = firestoreClient.Data.Doc(testUserID).Delete(*firestoreClient.Ctx)

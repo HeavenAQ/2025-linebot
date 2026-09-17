@@ -1,0 +1,199 @@
+{
+  "version": "smash_local_20260913",
+  "maxima": [
+    5,
+    20,
+    5,
+    20,
+    30,
+    20
+  ],
+  "calibration": {
+    "rotation_lower": [
+      16.54993786153834,
+      12.080278247060392,
+      9.733690713060184
+    ],
+    "rotation_full": [
+      22.174065363253355,
+      15.571921932003937,
+      11.66147870105216
+    ],
+    "preparation_height": 0.6144953731522653,
+    "balance_gap": 0.2181602239139287,
+    "shoulder_span_reference": 0.4574250079855335,
+    "legacy_rotation_reference": 0.1946909109341543,
+    "endpoint_map": [
+      0.12836685957777402,
+      0.02
+    ]
+  },
+  "graph_support": [
+    0.9077707529067993,
+    null,
+    0.9153305292129517,
+    null,
+    null,
+    null
+  ],
+  "graph_rules": [
+    {
+      "id": "preparation",
+      "maximum": 10,
+      "anchors": [
+        0
+      ],
+      "measured_joints": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "id": "body_rotation",
+      "maximum": 10,
+      "anchors": [
+        1
+      ],
+      "measured_joints": [
+        5,
+        6,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "id": "arm_balance",
+      "maximum": 20,
+      "anchors": [
+        1
+      ],
+      "measured_joints": [
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "id": "elbow_forward",
+      "maximum": 20,
+      "anchors": [
+        2
+      ],
+      "measured_joints": [
+        0,
+        6,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "wrist_flick",
+      "maximum": 20,
+      "anchors": [
+        2
+      ],
+      "measured_joints": [
+        6,
+        8,
+        10
+      ]
+    },
+    {
+      "id": "follow_through",
+      "maximum": 20,
+      "anchors": [
+        3,
+        4
+      ],
+      "measured_joints": [
+        5,
+        6,
+        8,
+        10,
+        11,
+        12
+      ]
+    }
+  ],
+  "intervals": {
+    "preparation": {
+      "start": 20,
+      "end": 52,
+      "anchor": 26,
+      "reviewed": false,
+      "note": ""
+    },
+    "body_rotation": {
+      "start": 54,
+      "end": 69,
+      "anchor": 65,
+      "reviewed": false,
+      "note": ""
+    },
+    "arm_balance": {
+      "start": 64,
+      "end": 81,
+      "anchor": 81,
+      "reviewed": false,
+      "note": ""
+    },
+    "elbow_forward": {
+      "start": 83,
+      "end": 89,
+      "anchor": 88,
+      "reviewed": false,
+      "note": ""
+    },
+    "wrist_flick": {
+      "start": 88,
+      "end": 91,
+      "anchor": 88,
+      "reviewed": false,
+      "note": ""
+    },
+    "follow_through": {
+      "start": 94,
+      "end": 104,
+      "anchor": 96,
+      "reviewed": false,
+      "note": ""
+    }
+  },
+  "source_sha256": {
+    ".artifacts/smash-ankle-shoulder-rotation-20260913/calibration.json": "8871cdd3bb359832678c663eafbcf4eb25ec492e6aad6f010985a6f2fe174137",
+    ".artifacts/smash-preparation-height-20260913/calibration.json": "b2ae03cf90874889489bda82f1a46f154c11d8e9e2feea6c46686c6d9ee8f8eb",
+    ".artifacts/smash-arm-balance-height-20260913/calibration.json": "0555911045f299a823a1379c8e8808c9d63ad5a03a4852d9edc6ebf1d198b439",
+    ".artifacts/smash-endpoint-shoulder-span-20260913/calibration.json": "e393a5cbcad1131ed745f6a88ce786b31a9b030c50a0e56d2482b2ac6bbdf1fd",
+    ".artifacts/smash-historical-overlay-intervals-20260912/calibration_before_learners.json": "f806625b6275f6fc05d1fb7735046166848ffb768d7cd319ba74e4c4e6cca919",
+    ".artifacts/smash-directional-torso-progress-20260913/calibration.json": "770224e65893713d977be3fa294ab80154c40459771e0715127fb9c25d68658c",
+    ".artifacts/smash-marked-interval-historical-pairs-20260912/annotations.snapshot.json": "40bd1acbb1efaf6bca9f3c753e4290f673c9aff68fb6aa44b9f4ec74045ec4e2",
+    ".artifacts/smash-torso-anchored-training-inputs-20260908/samples/smash/expert/張宸愷1.npz": "a14a6c4a18fafd0b8099e14f55427f42495ce0a85ff3ea5f7c221f2c89b02cea",
+    ".artifacts/smash-two-state-heads-nonwang-global-20260906/metric_graph.pt": "c4cef078b3082584130e10d5bc189b88270b2f30ffeb5fc410ce305ce23b90f2",
+    ".artifacts/smash-two-state-heads-nonwang-global-20260906/evidence.npz": "eb99158116812f88881fb9fe5d6160990e663a1cedf793b921e13e098aff91c2",
+    ".artifacts/smash-two-state-heads-nonwang-global-20260906/contract.json": "b4592b022c8cb4d7639ed0cc3b3d91fbd256d22414426d668efefb4dd0581af8",
+    ".artifacts/smash-published-scorer-matched-refit-20260905/expert_semantic_score_model.npz": "e7006472527ff2e253535afd80ef93c749114972edf914cc51cae16d621ab212"
+  },
+  "trajectory_sha256": "1ed6ee9aa4218f05fdd60e8e0ccdd833ce7163ac2cb75666532ac83f653af027",
+  "generation": {
+    "device": "mps",
+    "candidates": 8,
+    "seed": 19,
+    "checkpoint_sha256": "956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977"
+  },
+  "limitations": [
+    "Cached local evidence is not live CUDA parity.",
+    "Image-right-forward reference convention; do not select a view by maximizing grades.",
+    "Calibration support is full-fit, not unseen-person validation."
+  ]
+}

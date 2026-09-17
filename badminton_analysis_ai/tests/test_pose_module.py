@@ -40,33 +40,6 @@ class TestPoseDetector:
         assert self.detector._model is None
         assert hasattr(self.detector, "logger")
 
-    def test_fps_calculation_zero_diff(self):
-        with patch("time.time", return_value=1.0):
-            self.detector.fps
-            fps2 = self.detector.fps
-            assert fps2 > 0
-
-    def test_compute_angle_valid_points(self):
-        point_a = (0, 1)
-        point_b = (0, 0)
-        point_c = (1, 0)
-        angle = self.detector.compute_angle(point_a, point_b, point_c)
-        assert angle == pytest.approx(90.0, rel=1e-2)
-
-    def test_compute_angle_straight_line(self):
-        point_a = (0, 0)
-        point_b = (1, 0)
-        point_c = (2, 0)
-        angle = self.detector.compute_angle(point_a, point_b, point_c)
-        assert angle == pytest.approx(180.0, rel=1e-2)
-
-    def test_compute_angle_zero_vector(self):
-        point_a = (0, 0)
-        point_b = (0, 0)
-        point_c = (1, 0)
-        angle = self.detector.compute_angle(point_a, point_b, point_c)
-        assert angle is None
-
     def test_get_2d_landmarks_no_results(self):
         assert self.detector.get_2d_landmarks(None) is None
         assert self.detector.get_2d_landmarks([]) is None
@@ -133,64 +106,46 @@ class TestPoseDetector:
 
     def test_get_wholebody_2d_keypoints_no_predictions(self):
         assert self.detector.get_wholebody_2d_keypoints() is None
-        assert self.detector.get_wholebody_2d_landmarks() is None
 
-    def test_get_pose_prefers_largest_person_and_ignores_other_classes(self):
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
+    def test_prediction_prefers_largest_person_and_ignores_other_classes(self):
         keypoints = np.zeros((3, 17, 2), dtype=np.float64)
         keypoints[2, 0] = (55.0, 60.0)  # nose of the larger person
-        self.detector._model = MagicMock(
-            predict=MagicMock(
-                return_value=_fake_keypoints_result(
-                    boxes_xyxy=[
-                        [0.0, 0.0, 20.0, 20.0],  # small person
-                        [100.0, 100.0, 500.0, 500.0],  # large, but a bench
-                        [50.0, 50.0, 250.0, 350.0],  # larger person
-                    ],
-                    class_ids=[1, 15, 1],
-                    keypoints=keypoints,
-                )
+        result = self.detector._largest_person_prediction(
+            _fake_keypoints_result(
+                boxes_xyxy=[
+                    [0.0, 0.0, 20.0, 20.0],  # small person
+                    [100.0, 100.0, 500.0, 500.0],  # large, but a bench
+                    [50.0, 50.0, 250.0, 350.0],  # larger person
+                ],
+                class_ids=[1, 15, 1],
+                keypoints=keypoints,
             )
         )
-
-        result = self.detector.get_pose(img)
 
         assert len(result) == 1
         assert result[0]["bbox"] == pytest.approx([50.0, 50.0, 250.0, 350.0])
         np.testing.assert_allclose(result[0]["keypoints"][0], (55.0, 60.0))
 
-    def test_get_pose_returns_empty_list_when_no_person_found(self):
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
-        self.detector._model = MagicMock(
-            predict=MagicMock(
-                return_value=_fake_keypoints_result(
-                    boxes_xyxy=[[0.0, 0.0, 20.0, 20.0]], class_ids=[15]
-                )
-            )
+    def test_prediction_is_empty_when_no_person_found(self):
+        result = self.detector._largest_person_prediction(
+            _fake_keypoints_result(boxes_xyxy=[[0.0, 0.0, 20.0, 20.0]], class_ids=[15])
         )
-
-        result = self.detector.get_pose(img)
 
         assert result == []
         assert self.detector.get_2d_landmarks(result) is None
 
-    def test_get_pose_runs_end_to_end_with_no_hand_keypoints(self):
-        img = np.zeros((480, 640, 3), dtype=np.uint8)
+    def test_prediction_pads_body_keypoints_into_wholebody_slots(self):
         keypoints = np.zeros((1, 17, 2), dtype=np.float64)
         keypoints[0] = np.arange(34, dtype=np.float64).reshape(17, 2)
         confidence = np.full((1, 17), 0.9, dtype=np.float64)
-        self.detector._model = MagicMock(
-            predict=MagicMock(
-                return_value=_fake_keypoints_result(
-                    boxes_xyxy=[[10.0, 20.0, 210.0, 320.0]],
-                    class_ids=[1],
-                    keypoints=keypoints,
-                    keypoint_confidence=confidence,
-                )
+        result = self.detector._largest_person_prediction(
+            _fake_keypoints_result(
+                boxes_xyxy=[[10.0, 20.0, 210.0, 320.0]],
+                class_ids=[1],
+                keypoints=keypoints,
+                keypoint_confidence=confidence,
             )
         )
-
-        result = self.detector.get_pose(img)
 
         assert len(result) == 1
         assert result[0]["keypoints"].shape == (17, 2)
@@ -206,14 +161,10 @@ class TestPoseDetector:
             result[0]["wholebody_keypoints"][:17], result[0]["keypoints"]
         )
         assert np.all(result[0]["wholebody_scores"][17:] == 0.0)
-        assert len(self.detector._last_predictions) == 1
-        self.detector._model.predict.assert_called_once()
 
     def test_reset_tracking_clears_cached_state(self):
         self.detector._last_predictions = [{"keypoints": np.zeros((17, 2))}]
-        self.detector._target_bbox_center = np.array((1.0, 2.0))
 
         self.detector.reset_tracking()
 
         assert self.detector._last_predictions == []
-        assert self.detector._target_bbox_center is None

@@ -1,4 +1,4 @@
-"""Skeleton-correction training and inference utilities."""
+"""Expert-motion correction, scoring, and coaching utilities for serve and smash."""
 
 from badminton_analysis.ml.skeleton_normalization import (
     COCO_JOINT_COUNT,

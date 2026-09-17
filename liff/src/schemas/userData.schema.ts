@@ -1,5 +1,13 @@
 import { z } from 'zod'
 
+/**
+ * A repeated field that may arrive as null. The Go Firestore client reads a
+ * stored empty array back as a nil slice, and JSON writes that as null -- so an
+ * empty list is routinely null on the wire, not a malformed record.
+ */
+const listOf = <T extends z.ZodTypeAny>(item: T) =>
+  z.preprocess(value => value ?? [], z.array(item))
+
 export const GradingDetailSchema = z.object({
   criterion_id: z.string().optional().default(''),
   description: z.string(),
@@ -8,7 +16,8 @@ export const GradingDetailSchema = z.object({
 })
 
 export const GradingOutcomeSchema = z.object({
-  grading_details: z.array(GradingDetailSchema),
+  // Empty while a video is still queued for analysis.
+  grading_details: listOf(GradingDetailSchema),
   total_grade: z.number(),
   score_status: z.string().optional().default('')
 })
@@ -78,7 +87,23 @@ export const WorkSchema = z.object({
 })
 
 const EmptyPortfolio = z.record(z.string(), WorkSchema)
-const NullablePortfolio = z.preprocess(value => value ?? {}, EmptyPortfolio)
+
+/**
+ * One skill's attempts, keeping every attempt that reads. A single record the
+ * app cannot read -- a shape written by a newer backend, or a half-written
+ * attempt -- would otherwise fail the whole user document and take every other
+ * score, video and note on the page down with it.
+ */
+const NullablePortfolio = z.preprocess(value => {
+  if (!value || typeof value !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(value).filter(([key, work]) => {
+      const readable = WorkSchema.safeParse(work).success
+      if (!readable) console.warn(`Skipping unreadable portfolio attempt ${key}`)
+      return readable
+    })
+  )
+}, EmptyPortfolio)
 
 export const PortfoliosSchema = z.object({
   serve: NullablePortfolio,

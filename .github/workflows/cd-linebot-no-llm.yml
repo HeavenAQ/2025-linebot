@@ -1,0 +1,207 @@
+# Deploys the no-LLM variant's Go LINE bot to Cloud Run.
+#
+# Every name here is deliberately distinct from production's. This workflow
+# fires only on the variant branch and production's cd-linebot.yml fires only on
+# main, so neither can ever deploy over the other.
+name: LINE Bot Server CD (no-LLM variant)
+
+on:
+  push:
+    branches: [variant/no-llm]
+    paths:
+      - 'linebot/**'
+      - '.github/workflows/cd-linebot-no-llm.yml'
+  workflow_dispatch:
+
+env:
+  # The variant's own Cloud Run service and image. Production runs
+  # nstc-linebot-2025; nothing here may name that.
+  SERVICE_NAME: nstc-linebot-2025-noai
+  IMAGE_NAME: nstc-linebot-2025-noai
+  REGION: asia-east1
+  # The analysis service is deliberately shared with production. What makes this
+  # deployment GPT-free is ANALYSIS_SKIP_COACHING below: the service branches
+  # before coaching, the only stage that sends learner frames to a third party.
+  ANALYSIS_SERVICE_NAME: badminton-analysis-ai
+  ANALYSIS_REGION: asia-southeast1
+
+jobs:
+  deploy:
+    defaults:
+      run:
+        working-directory: ./linebot
+    runs-on: ubuntu-latest
+    environment: nstc-linebot-2025-noai
+    permissions:
+      contents: read
+      id-token: write # for OIDC
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Authorize Google Cloud SDK
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Refuse to deploy over production
+        run: |
+          # A copied workflow is one careless edit away from redeploying the
+          # live bot. These names are the variant's; assert it before building.
+          for name in "${SERVICE_NAME}" "${IMAGE_NAME}"; do
+            case "${name}" in
+              *-noai) ;;
+              *) echo "${name} is not a variant name" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Build and push Docker image
+        run: |-
+          # `gcloud builds submit` waits by polling the build once a second. Several
+          # CD workflows can be in flight at once, so their waits share the project's
+          # 60-get-requests-per-minute quota; once they exceed it the wait dies on a
+          # 429 while the build carries on and succeeds unnoticed, leaving the job
+          # hanging until its own timeout. Submit asynchronously and poll slowly, so
+          # a rejected poll costs one interval rather than the whole deploy.
+          build_id="$(gcloud builds submit --async \
+              --timeout=1800s \
+              --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }} \
+              --format='value(id)')"
+          test -n "${build_id}" || { echo "build was not submitted" >&2; exit 1; }
+          echo "build ${build_id} submitted"
+          reported=""
+          for _ in $(seq 1 90); do
+            sleep 20
+            # A describe that fails is a lost poll, not a failed build: keep waiting.
+            status="$(gcloud builds describe "${build_id}" --format='value(status)' 2>/dev/null)" || continue
+            if [ "${status}" != "${reported}" ]; then
+              echo "  ${status}"
+              reported="${status}"
+            fi
+            case "${status}" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                gcloud builds log "${build_id}" 2>/dev/null | tail -60
+                echo "build ${build_id} ended ${status}" >&2
+                exit 1 ;;
+            esac
+          done
+          echo "build ${build_id} still running after 30 minutes" >&2
+          exit 1
+
+      - name: Deploy to Cloud Run
+        env:
+          LIFF_ID: ${{ secrets.NOAI_NEXT_PUBLIC_LIFF_ID }}
+        run: |
+          # The GPU analysis service is deployed and torn down on its own
+          # schedule, so it may not exist right now. --update-env-vars only
+          # touches the keys it is given, so when the service is missing the
+          # target is left at whatever the running revision already has rather
+          # than being blanked -- and this deploy is not blocked on it.
+          env_vars="GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
+          env_vars="${env_vars},GCP_SERVICE_ACCOUNT_EMAIL=${{ secrets.GCP_SA_EMAIL }}"
+          env_vars="${env_vars},GCP_ENV_SECRET_NAME=${{ secrets.NOAI_ENV_SECRET_NAME }}"
+          env_vars="${env_vars},ANALYSIS_GRPC_INSECURE=false"
+          # The one setting that makes this deployment GPT-free. It is asserted
+          # after the deploy, because a silent loss of it would send learner
+          # imagery to a third party with nothing else failing.
+          env_vars="${env_vars},ANALYSIS_SKIP_COACHING=true"
+          # The analysis service is shared, so its bucket is too, and the login
+          # channel is shared as well -- learner ids are identical in both
+          # products. This is the only thing that says which one a stored
+          # recording belongs to.
+          env_vars="${env_vars},ANALYSIS_STORAGE_PREFIX=noai"
+          if analysis_url="$(gcloud run services describe "${ANALYSIS_SERVICE_NAME}" \
+            --region "${ANALYSIS_REGION}" --format='value(status.url)' 2>/dev/null)"; then
+            env_vars="${env_vars},ANALYSIS_GRPC_TARGET=${analysis_url#https://}"
+          else
+            echo "${ANALYSIS_SERVICE_NAME} is not deployed; keeping the existing ANALYSIS_GRPC_TARGET"
+          fi
+          # Learner endpoints authenticate callers by verifying their LINE ID
+          # token against the channel that issued it, so the server needs that
+          # channel's ID. A LIFF ID is "<login channel id>-<suffix>", which
+          # makes the deployed web app and the server it calls impossible to
+          # point at different channels by accident.
+          login_channel_id="${LIFF_ID%%-*}"
+          if ! [[ "${login_channel_id}" =~ ^[0-9]+$ ]]; then
+            echo "NOAI_NEXT_PUBLIC_LIFF_ID does not start with a channel ID" >&2
+            exit 1
+          fi
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }} \
+            --platform managed \
+            --region "${REGION}" \
+            --allow-unauthenticated \
+            --service-account ${{ secrets.GCP_SA_EMAIL }} \
+            --memory 2Gi \
+            --timeout 1200 \
+            --update-env-vars "${env_vars},LINE_LOGIN_CHANNEL_ID=${login_channel_id},LIFF_REVIEW_URL=${{ secrets.NOAI_LIFF_REVIEW_URL }}" \
+            --update-secrets ANALYSIS_GRPC_API_KEY=analysis-grpc-api-key:latest
+
+      - name: Verify the deployed service is the variant's own
+        run: |
+          # One service account and one project serve both deployments, so
+          # nothing but these env vars keeps this variant out of production's
+          # bucket and databases. Read them back rather than trusting the
+          # deploy: a wrong value mixes two products' learner data silently.
+          deployed="$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${REGION}" --format=json | jq -r \
+            '.spec.template.spec.containers[0].env[]? | "\(.name)=\(.value // "")"')"
+          echo "${deployed}"
+          echo "${deployed}" | grep -qx 'ANALYSIS_SKIP_COACHING=true' \
+            || { echo "ANALYSIS_SKIP_COACHING is not true; coaching would run" >&2; exit 1; }
+          secret_name="$(echo "${deployed}" | sed -n 's/^GCP_ENV_SECRET_NAME=//p')"
+          test -n "${secret_name}" || { echo "GCP_ENV_SECRET_NAME is unset" >&2; exit 1; }
+          if [ "${secret_name}" = "2025-linebot-env" ]; then
+            echo "GCP_ENV_SECRET_NAME is production's secret" >&2
+            exit 1
+          fi
+          # And the bucket and database inside that secret must be the
+          # variant's too -- that is where the data plane is actually chosen.
+          # FIREBASE_DATABASE_ID is the one that matters for Firestore: the
+          # collection names below cannot separate the deployments on their own,
+          # because weekly_reflections is not configurable.
+          env_body="$(gcloud secrets versions access latest --secret "${secret_name}")"
+          for pair in "GCS_BUCKET_NAME=nstc-2025-storage" "FIREBASE_DATABASE_ID=(default)"; do
+            key="${pair%%=*}"; forbidden="${pair#*=}"
+            value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
+            test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }
+            if [ "${value}" = "${forbidden}" ]; then
+              echo "${key} is production's ${forbidden}" >&2
+              exit 1
+            fi
+            echo "${key} is ${value}"
+          done
+          # Reported for the record; they are collection names within the
+          # database asserted above, so they may match production's safely.
+          for key in FIREBASE_DATA_DB FIREBASE_SESSION_DB; do
+            value="$(echo "${env_body}" | sed -n "s/^${key}=//p" | tr -d '\r')"
+            test -n "${value}" || { echo "${key} is unset in ${secret_name}" >&2; exit 1; }
+            echo "${key} is ${value}"
+          done
+
+      - name: Verify deployed backend health
+        run: |
+          service_url="$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${REGION}" --format='value(status.url)')"
+          curl --fail --silent --show-error "${service_url}/test"
+
+          # Learner routes refuse a bad token with 401 and refuse everything
+          # with 503 when LINE_LOGIN_CHANNEL_ID is missing. Asserting 401 is how
+          # this catches a deploy that silently lost the channel ID and would
+          # have locked every student out of their own history.
+          status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Authorization: Bearer not-a-real-token' \
+            "${service_url}/api/db/user")"
+          echo "learner route answered ${status} for an invalid token"
+          if [ "${status}" != "401" ]; then
+            echo "expected 401; 503 means LINE_LOGIN_CHANNEL_ID is not configured" >&2
+            exit 1
+          fi

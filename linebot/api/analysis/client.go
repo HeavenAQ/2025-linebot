@@ -10,6 +10,7 @@ import (
 	"time"
 
 	analysisv1 "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/obs"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/idtoken"
@@ -24,14 +25,13 @@ import (
 
 const chunkSize = 1024 * 1024
 
-var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
-
 func (c *Client) Warmup(ctx context.Context) error {
 	_, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})
 	return err
 }
 
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
+var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
 
 type Client struct {
 	connection   *grpc.ClientConn
@@ -106,8 +106,18 @@ func identityTokens(audience string) (oauth2.TokenSource, error) {
 
 func (c *Client) Close() error { return c.connection.Close() }
 
+// authorizedContext attaches the API key and the caller's correlation IDs, so
+// the analysis service logs under the same request ID and Cloud Trace joins its
+// request span to this one.
 func (c *Client) authorizedContext(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, "x-api-key", c.apiKey)
+	pairs := []string{"x-api-key", c.apiKey}
+	if request, ok := obs.RequestFrom(ctx); ok && request.ID != "" {
+		pairs = append(pairs, "x-request-id", request.ID)
+	}
+	if trace := obs.OutgoingTraceHeader(ctx); trace != "" {
+		pairs = append(pairs, "x-cloud-trace-context", trace)
+	}
+	return metadata.AppendToOutgoingContext(ctx, pairs...)
 }
 
 func skillValue(skill string) (analysisv1.Skill, error) {
@@ -185,12 +195,13 @@ func (c *Client) AnalyzeVideo(
 	}
 	response, err := stream.CloseAndRecv()
 	if err != nil {
-		if status.Code(err) == codes.InvalidArgument && strings.Contains(status.Convert(err).Message(), "conflicts with") {
-			return nil, fmt.Errorf("%w: %s", ErrSkillMismatch, status.Convert(err).Message())
-		}
 		if status.Code(err) == codes.FailedPrecondition &&
 			strings.Contains(status.Convert(err).Message(), "expert reference") {
 			return nil, fmt.Errorf("%w: %s", ErrNoMatchingExpert, status.Convert(err).Message())
+		}
+		if status.Code(err) == codes.InvalidArgument &&
+			strings.Contains(status.Convert(err).Message(), "conflicts with") {
+			return nil, fmt.Errorf("%w: %s", ErrSkillMismatch, status.Convert(err).Message())
 		}
 		return nil, fmt.Errorf("receive analysis: %w", err)
 	}
@@ -255,10 +266,9 @@ func outcome(response *analysisv1.AnalyzeVideoResponse) *commons.AnalysisOutcome
 	}
 }
 
-// refreshTimeout has to survive a cold start. The analysis service scales to
-// zero, so the first playback request after an idle period waits for an L4 to
-// boot and load its pose engines. It stays under the HTTP server's 100s write
-// timeout, which is the real ceiling on this path.
+// refreshTimeout bounds RefreshPlaybackUrls, which the benchmark and live
+// integration tests use (production playback is signed in Go). It allows for a
+// cold start, since the GPU service scales to zero outside scheduled class hours.
 const refreshTimeout = 90 * time.Second
 
 func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string) ([]commons.MediaRef, error) {
@@ -276,8 +286,8 @@ func (c *Client) RefreshPlaybackURLs(ctx context.Context, objectPaths ...string)
 }
 
 func (c *Client) Health(ctx context.Context) error {
-	// Also sized for a cold start: a health check that fires while the service
-	// is scaling up from zero should wait for it, not report it down.
+	// Sized for a cold start: outside scheduled class hours the service scales
+	// to zero, and a check that wakes it should wait rather than report it down.
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	response, err := c.service.Health(c.authorizedContext(ctx), &analysisv1.HealthRequest{})

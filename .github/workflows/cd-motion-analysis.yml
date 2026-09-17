@@ -7,11 +7,13 @@
 # public access and its IAM policy names that one service account as the sole
 # run.invoker, so an unauthenticated caller never reaches a container.
 #
-# The service scales to zero (--min 0): an L4 is billed by the second, and
-# analyses arrive in bursts around class, so keeping an instance warm all week
-# costs far more than it saves. The trade is a cold start on the first request
-# after an idle period, which loads the TensorRT pose engines and the diffusion
-# prior; the Go client's per-analysis deadline already covers that.
+# The service scales to zero (--min 0) outside class: an L4 is billed by the
+# second and analyses arrive in bursts. Cloud Scheduler raises min instances to 1
+# on Mondays 13:45-18:10 Asia/Taipei, and a deploy inside that window keeps it.
+# One instance (--max-instances 1) admits 4 concurrent requests; pose frames are
+# microbatched across them. Outside the window the first request pays a cold
+# start (TensorRT engine and diffusion prior load), which the queued analysis
+# job's retries and deadline absorb.
 name: Motion Analysis Service CD
 
 on:
@@ -57,39 +59,81 @@ jobs:
 
       - name: Download and verify the RF-DETR TensorRT engine
         run: |
-          # Built once on an L4 by build_rfdetr_engine.py and kept in GCS. The
-          # engine is tied to that GPU, and the detector looks it up by GPU
-          # name, so it is baked in at exactly the path it expects rather than
-          # rebuilt per cold start on a service that scales to zero.
-          mkdir -p badminton_analysis_ai/models/trt-engines
-          gcloud storage rsync --recursive \
-            gs://${{ env.GCS_BUCKET_NAME }}/models/rfdetr-trt-engines \
-            badminton_analysis_ai/models/trt-engines
+          # Built once on an L4 by build_rfdetr_engine.py and published to
+          # Artifact Registry as the generic artifact named in
+          # models/trt-engine.env. The engine is tied to that GPU, and the
+          # detector looks it up by GPU name, so it is baked in at exactly the
+          # path it expects rather than rebuilt per cold start on a service
+          # that scales to zero.
+          set -a
+          . badminton_analysis_ai/models/trt-engine.env
+          set +a
+          destination="badminton_analysis_ai/models/trt-engines/${TRT_ENGINE_SUBDIR}"
+          mkdir -p "${destination}"
+          gcloud artifacts generic download \
+            --location "${TRT_ENGINE_LOCATION}" \
+            --repository "${TRT_ENGINE_REPOSITORY}" \
+            --package "${TRT_ENGINE_PACKAGE}" \
+            --version "${TRT_ENGINE_VERSION}" \
+            --name "${TRT_ENGINE_FILENAME}" \
+            --destination "${destination}"
           cd badminton_analysis_ai/models/trt-engines
           sha256sum --check ../trt-engines.sha256
 
       - name: Build GPU analysis image
         working-directory: badminton_analysis_ai
         run: |
-          gcloud builds submit \
-            --timeout=3600s \
-            --machine-type=e2-highcpu-8 \
-            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }}
+          # `gcloud builds submit` waits by polling the build once a second. Both
+          # CD workflows run on a push to main, so two waits share the project's
+          # 60-get-requests-per-minute quota; once they exceed it the wait dies on a
+          # 429 while the build carries on and succeeds unnoticed, leaving the job
+          # hanging until its own timeout. Submit asynchronously and poll slowly, so
+          # a rejected poll costs one interval rather than the whole deploy.
+          build_id="$(gcloud builds submit --async \
+              --timeout=3600s \
+              --machine-type=e2-highcpu-8 \
+              --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
+              --format='value(id)')"
+          test -n "${build_id}" || { echo "build was not submitted" >&2; exit 1; }
+          echo "build ${build_id} submitted"
+          reported=""
+          for _ in $(seq 1 180); do
+            sleep 20
+            # A describe that fails is a lost poll, not a failed build: keep waiting.
+            status="$(gcloud builds describe "${build_id}" --format='value(status)' 2>/dev/null)" || continue
+            if [ "${status}" != "${reported}" ]; then
+              echo "  ${status}"
+              reported="${status}"
+            fi
+            case "${status}" in
+              SUCCESS) exit 0 ;;
+              FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                gcloud builds log "${build_id}" 2>/dev/null | tail -60
+                echo "build ${build_id} ended ${status}" >&2
+                exit 1 ;;
+            esac
+          done
+          echo "build ${build_id} still running after 60 minutes" >&2
+          exit 1
 
       - name: Deploy gRPC analysis service
         run: |
           candidate_tag="candidate-${GITHUB_RUN_ID}"
-          # The candidate pattern needs a service to add a revision to. On the
-          # very first deploy — or after the service has been deleted — there
-          # is nothing to hold traffic back from, and Cloud Run rejects
-          # --no-traffic outright, so bootstrap the service instead.
-          if gcloud run services describe badminton-analysis-ai \
-            --region asia-southeast1 >/dev/null 2>&1; then
-            candidate_args=(--no-traffic --tag "${candidate_tag}")
-          else
-            echo "badminton-analysis-ai does not exist yet; creating it"
-            candidate_args=()
-          fi
+          # A release verification must never bootstrap a missing service:
+          # that would make an unverified first revision live. Provisioning is
+          # a separate, explicit operation; CD only creates no-traffic
+          # candidates behind an already-serving revision.
+          gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 >/dev/null 2>&1 || {
+              echo "badminton-analysis-ai is absent; refusing an unverified bootstrap" >&2
+              exit 1
+            }
+          candidate_args=(--no-traffic --tag "${candidate_tag}")
+          # Keep scheduled warm capacity across a deploy during Monday class.
+          minimum=0
+          taipei_day=$(TZ=Asia/Taipei date +%u)
+          taipei_time=$(TZ=Asia/Taipei date +%H%M)
+          if [[ "$taipei_day" == 1 && "$taipei_time" > 1344 && "$taipei_time" < 1810 ]]; then minimum=1; fi
           gcloud run deploy badminton-analysis-ai \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/badminton-analysis:${{ github.sha }} \
             --platform managed \
@@ -101,9 +145,9 @@ jobs:
             --gpu-type nvidia-l4 \
             --cpu 4 \
             --memory 16Gi \
-            --concurrency 1 \
+            --concurrency 4 \
             --timeout 3600 \
-            --min 0 \
+            --min "$minimum" \
             --max-instances 1 \
             "${candidate_args[@]}" \
             --clear-volume-mounts \
@@ -115,13 +159,6 @@ jobs:
           candidate_url="$(gcloud run services describe badminton-analysis-ai \
             --region asia-southeast1 --format=json | jq -r \
             --arg tag "${candidate_tag}" '.status.traffic[] | select(.tag == $tag) | .url')"
-          if [ -z "${candidate_url}" ]; then
-            # Bootstrapped: the revision is already serving, so verify it on the
-            # service URL rather than a candidate tag.
-            candidate_url="$(gcloud run services describe badminton-analysis-ai \
-              --region asia-southeast1 --format='value(status.url)')"
-            candidate_tag=""
-          fi
           test -n "${candidate_revision}"
           test -n "${candidate_url}"
           echo "ANALYSIS_CANDIDATE_TAG=${candidate_tag}" >> "${GITHUB_ENV}"
@@ -157,7 +194,7 @@ jobs:
         run: |
           mkdir -p /tmp/analysis-e2e
           gcloud storage cp \
-            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/張宸愷6.mp4' \
+            'gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/smash/videos/戚佑仁7.mp4' \
             /tmp/analysis-e2e/smash-expert.mp4
           gcloud storage cp \
             gs://${{ env.GCS_BUCKET_NAME }}/experts/v3/serve/videos/expert-4-1_left.mov \
@@ -165,33 +202,33 @@ jobs:
           export ANALYSIS_GRPC_TARGET="${ANALYSIS_CANDIDATE_URL#https://}"
           export ANALYSIS_GRPC_API_KEY="$(gcloud secrets versions access latest \
             --secret analysis-grpc-api-key)"
-          # The service now requires an invoker identity. This runner is
+          # The service requires an invoker identity. This runner is
           # authenticated by workload identity federation, which cannot mint an
           # audience-bound token from ambient credentials, so impersonate the
           # service account the bot backend runs as and hand the token over.
-          # Audienced to the service URL, not the candidate tag URL that the
-          # request actually goes to. Cloud Run validates an identity token
-          # against the service, so a token minted for a tag URL is refused with
-          # a bare 401 -- which is why this passed while the service was being
-          # bootstrapped, when the two URLs were the same, and failed as soon as
-          # a candidate revision got its own tag.
-          export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
-            --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
-            --audiences "${ANALYSIS_SERVICE_URL}")"
-          test -n "${ANALYSIS_IDENTITY_TOKEN}"
-          # Check the claims here, with a reason, rather than letting a video
-          # analysis fail on a bare 401 twenty minutes into the job.
-          claims="$(echo "${ANALYSIS_IDENTITY_TOKEN}" | cut -d. -f2)"
-          while [ $(( ${#claims} % 4 )) -ne 0 ]; do claims="${claims}="; done
-          payload="$(echo "${claims}" | tr '_-' '/+' | base64 -d 2>/dev/null)"
-          token_aud="$(echo "${payload}" | jq -r '.aud // empty')"
-          if [ "${token_aud}" != "${ANALYSIS_SERVICE_URL}" ]; then
-            echo "identity token audience ${token_aud} is not ${ANALYSIS_SERVICE_URL}" >&2
-            exit 1
-          fi
-          echo "identity token audience: ${token_aud}"
+          # The token is audienced to the service URL, not the candidate tag URL
+          # the request goes to: Cloud Run validates identity tokens against the
+          # service and refuses one minted for a tag URL with a bare 401.
           export RUN_LIVE_ANALYSIS=1
           cd linebot
+          refresh_identity_token() {
+            # A cold L4 plus two 30-minute analyses can outlive one token. Mint
+            # a fresh token for every attempt and keep its audience bound to
+            # the stable service URL even though requests use the candidate
+            # tag host.
+            export ANALYSIS_IDENTITY_TOKEN="$(gcloud auth print-identity-token \
+              --impersonate-service-account "${{ secrets.GCP_SA_EMAIL }}" \
+              --audiences "${ANALYSIS_SERVICE_URL}")"
+            test -n "${ANALYSIS_IDENTITY_TOKEN}"
+            claims="$(echo "${ANALYSIS_IDENTITY_TOKEN}" | cut -d. -f2)"
+            while [ $(( ${#claims} % 4 )) -ne 0 ]; do claims="${claims}="; done
+            payload="$(echo "${claims}" | tr '_-' '/+' | base64 -d 2>/dev/null)"
+            token_aud="$(echo "${payload}" | jq -r '.aud // empty')"
+            if [ "${token_aud}" != "${ANALYSIS_SERVICE_URL}" ]; then
+              echo "identity token audience ${token_aud} is not ${ANALYSIS_SERVICE_URL}" >&2
+              return 1
+            fi
+          }
           run_fixture() {
             export LIVE_ANALYSIS_VIDEO="$1"
             export LIVE_ANALYSIS_SKILL="$2"
@@ -201,7 +238,9 @@ jobs:
             export LIVE_ANALYSIS_EXPECT_NO_CUES="${6:-}"
             export LIVE_ANALYSIS_EXPECT_EXPERT_VIDEO="${7:-}"
             for attempt in 1 2 3; do
-              if go test -count=1 -v ./api/analysis -run TestLiveAnalysisService; then
+              refresh_identity_token
+              if go test -timeout 40m -count=1 -v ./api/analysis \
+                -run '^TestLiveAnalysisService$'; then
                 return 0
               fi
               if [[ "$attempt" != "3" ]]; then
@@ -211,6 +250,32 @@ jobs:
             done
             return 1
           }
+          run_wrong_skill_fixture() {
+            export LIVE_ANALYSIS_VIDEO="$1"
+            export LIVE_ANALYSIS_SKILL="$2"
+            export LIVE_ANALYSIS_HANDEDNESS="$3"
+            export RUN_LIVE_ANALYSIS_SKILL_MISMATCH=1
+            for attempt in 1 2 3; do
+              refresh_identity_token
+              if go test -timeout 40m -count=1 -v ./api/analysis \
+                -run '^TestLiveAnalysisRejectsSkillMismatch$'; then
+                unset RUN_LIVE_ANALYSIS_SKILL_MISMATCH
+                return 0
+              fi
+              if [[ "$attempt" != "3" ]]; then
+                echo "GPU service was not ready; retrying after the current request drains"
+                sleep 180
+              fi
+            done
+            unset RUN_LIVE_ANALYSIS_SKILL_MISMATCH
+            return 1
+          }
+          # The smash fixture is 戚佑仁7 rather than 張宸愷6 because the endpoint
+          # detector is not stable on that clip: its wrist-relative acceleration
+          # peak has two near-equal candidates, and a pose difference of 0.3% of
+          # torso length moves the peak 12 frames, the analysis window end from
+          # 121 to 107, and the grade from 99 to 65. A gate whose verdict turns
+          # on that reports the extractor's coin flip rather than a regression.
           # Both fixtures are demonstrations that are themselves in the expert
           # reference bank, so each must grade at the top of the rubric, draw no
           # coaching cues, and come back paired with a real expert clip. The
@@ -222,13 +287,13 @@ jobs:
             smash right 99 '' 1 1
           run_fixture /tmp/analysis-e2e/serve-expert-left.mov \
             serve left 99 '' 1 1
+          # These are deliberately submitted under the opposite requested
+          # skill. The pose-derived support gate must reject them rather than
+          # grading or silently relabelling them.
+          run_wrong_skill_fixture /tmp/analysis-e2e/smash-expert.mp4 serve right
+          run_wrong_skill_fixture /tmp/analysis-e2e/serve-expert-left.mov smash left
 
       - name: Promote verified GPU revision
-        # Only the candidate pattern needs promoting. A bootstrapped service is
-        # already serving its first revision at 100%, and switching its traffic
-        # block from "latest" to a pinned revision makes Cloud Run materialise a
-        # second, identical revision -- which then blocks the cleanup below,
-        # because the latest-created revision cannot be deleted.
         if: env.ANALYSIS_CANDIDATE_TAG != ''
         run: |
           gcloud run services update-traffic badminton-analysis-ai \

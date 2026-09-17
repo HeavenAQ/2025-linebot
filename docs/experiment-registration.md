@@ -1,4 +1,4 @@
-# Required experiment registration (AI and no-AI)
+# Required experiment registration (LLM and no-LLM)
 
 Before any learner feature can be used, the student sends one message to the
 bot's **one-to-one LINE chat**:
@@ -28,7 +28,7 @@ colon, comma, or multi-step form is needed.
 ## Firestore
 
 The user document remains at the existing configured user-data collection,
-keyed by the verified LINE user ID. The no-AI branch retains its own configured
+keyed by the verified LINE user ID. The no-LLM branch retains its own configured
 Firestore database/collection; it does not read registration from the AI one.
 
 New fields:
@@ -76,6 +76,6 @@ no real student records, LINE messages, or production credentials are used.
 They verify persistence, untouched portfolios, server timestamp, safe retries,
 conflict rejection, and preservation across stale portfolio writes.
 
-Deploy only the registration commits to AI `main` and `variant/no-ai`; do not
+Deploy only the registration commits to LLM `main` and `variant/no-llm`; do not
 include the separate unfinished smash scoring/coaching candidate. Both bot and
 LIFF deployments are needed.

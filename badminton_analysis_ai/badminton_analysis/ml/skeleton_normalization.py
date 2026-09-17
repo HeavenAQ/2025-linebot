@@ -149,13 +149,16 @@ def _interpolate_missing(
 # parent/child relationship, and the torso connectors ((5, 11), (6, 12)) whose
 # "child" is a normalization anchor rather than a joint this should touch.
 _PARENT_CHILD_BONES = (
-    (5, 7), (7, 9), (6, 8), (8, 10),
-    (11, 13), (13, 15), (12, 14), (14, 16),
+    (5, 7),
+    (7, 9),
+    (6, 8),
+    (8, 10),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
 )
 _STABILIZED_CHILD_CONFIDENCE = 0.5
-EXPERT_RECONSTRUCTED_CONFIDENCE = 0.2
-
-
 
 
 def _raise_confidence_for_bone_stabilized_joints(
@@ -344,7 +347,9 @@ def stabilize_left_right_joint_labels(
                         ]
                     )
                     transition = float(
-                        np.average(np.sum(delta * delta, axis=-1), weights=weights[valid])
+                        np.average(
+                            np.sum(delta * delta, axis=-1), weights=weights[valid]
+                        )
                         / (scale * scale)
                     )
                 else:
@@ -398,9 +403,7 @@ def _body_scale(
 ) -> float:
     starts = _NORMALIZATION_BONES[:, 0]
     ends = _NORMALIZATION_BONES[:, 1]
-    lengths = np.linalg.norm(
-        coordinates[:, starts] - coordinates[:, ends], axis=-1
-    )
+    lengths = np.linalg.norm(coordinates[:, starts] - coordinates[:, ends], axis=-1)
     observed = (confidence[:, starts] > 0) & (confidence[:, ends] > 0)
     valid = lengths[observed & np.isfinite(lengths) & (lengths > _EPS)]
     return float(np.median(valid)) if len(valid) else 1.0
@@ -438,8 +441,7 @@ def normalize_skeleton_motion(
     # bone's detected length can drift tens of percent frame-to-frame from
     # coordinate noise alone; smooth the jitter, then project onto stable
     # per-clip bone lengths so the stored skeleton (and anything trained
-    # against it) treats bone length as the anatomical constant it is. This
-    # mirrors the same fix in `tracking_to_normalized_sequence`'s live path.
+    # against it) treats bone length as the anatomical constant it is.
     from badminton_analysis.ml.skeleton_scoring import (
         TORSO_WIDTH_BONES,
         project_stable_bone_lengths,
@@ -534,7 +536,8 @@ def estimate_foot_contacts(
 
 
 def resample_sequence(
-    sequence: NDArray[np.floating], target_frames: int,
+    sequence: NDArray[np.floating],
+    target_frames: int,
 ) -> NDArray[np.float32]:
     """Linearly resample the time axis to exactly ``target_frames``."""
     values = np.asarray(sequence, dtype=np.float64)
@@ -566,9 +569,7 @@ def _sample_sequence(
     flattened = values.reshape(len(values), -1)
     sampled = np.empty((len(sample_positions), flattened.shape[1]), dtype=np.float64)
     for column in range(flattened.shape[1]):
-        sampled[:, column] = np.interp(
-            sample_positions, timeline, flattened[:, column]
-        )
+        sampled[:, column] = np.interp(sample_positions, timeline, flattened[:, column])
     return sampled.reshape((len(sample_positions), *values.shape[1:])).astype(
         np.float32
     )
@@ -591,14 +592,8 @@ def phase_align_sequence(
     if np.any(np.diff(source_phases) <= 0) or np.any(np.diff(target_phases) <= 0):
         raise ValueError("phase indices must be strictly increasing")
     canonical_timeline = np.arange(len(values), dtype=np.float64)
-    source_positions = np.interp(
-        canonical_timeline, target_phases, source_phases
-    )
+    source_positions = np.interp(canonical_timeline, target_phases, source_phases)
     return _sample_sequence(values, source_positions)
-
-
-
-
 
 
 def restore_phase_timing(
@@ -618,9 +613,7 @@ def restore_phase_timing(
     if np.any(np.diff(target_phases) <= 0) or np.any(np.diff(source_phases) <= 0):
         raise ValueError("phase indices must be strictly increasing")
     target_timeline = np.arange(len(values), dtype=np.float64)
-    aligned_positions = np.interp(
-        target_timeline, target_phases, source_phases
-    )
+    aligned_positions = np.interp(target_timeline, target_phases, source_phases)
     return _sample_sequence(values, aligned_positions)
 
 
@@ -684,59 +677,16 @@ def _dtw_segment_positions(
     return np.maximum.accumulate(positions)
 
 
-def restore_phase_timing_dtw(
-    aligned_sequence: NDArray[np.floating],
-    aligned_source: NDArray[np.floating],
-    source_sequence: NDArray[np.floating],
-    phase_indices: NDArray[np.integer],
-    *,
-    joint_weights: NDArray[np.floating] | None = None,
-    canonical_indices: NDArray[np.integer] = CANONICAL_PHASE_INDICES,
-) -> NDArray[np.float32]:
-    """Restore timing with DTW inside each detected phase interval."""
-    values = np.asarray(aligned_sequence)
-    aligned = np.asarray(aligned_source)
-    source = np.asarray(source_sequence)
-    target_phases = np.asarray(phase_indices, dtype=np.int64)
-    canonical = np.asarray(canonical_indices, dtype=np.int64)
-    if values.shape != aligned.shape or aligned.shape != source.shape:
-        raise ValueError("aligned, source, and corrected sequences must have equal shapes")
-    if target_phases.shape != (5,) or canonical.shape != (5,):
-        raise ValueError("phase indices must contain five anchors")
-    if np.any(np.diff(target_phases) <= 0) or np.any(np.diff(canonical) <= 0):
-        raise ValueError("phase indices must be strictly increasing")
-    weights = (
-        np.ones(values.shape[1], dtype=np.float64)
-        if joint_weights is None
-        else np.asarray(joint_weights, dtype=np.float64)
-    )
-    sample_positions = np.zeros(len(values), dtype=np.float64)
-    for segment in range(4):
-        aligned_start, aligned_end = canonical[segment : segment + 2]
-        source_start, source_end = target_phases[segment : segment + 2]
-        local = _dtw_segment_positions(
-            aligned[aligned_start : aligned_end + 1],
-            source[source_start : source_end + 1],
-            weights,
-        )
-        sample_positions[source_start : source_end + 1] = aligned_start + local
-    sample_positions[target_phases] = canonical.astype(np.float64)
-    sample_positions = np.maximum.accumulate(sample_positions)
-    return _sample_sequence(values, sample_positions)
-
-
-
-
 def resample_detected_phase_indices(
     phase_frames: tuple[int, int, int, int, int], target_frames: int
 ) -> NDArray[np.int64]:
     """Map five detected source-frame anchors into a resampled sequence."""
     raw = np.asarray(phase_frames, dtype=np.float64)
     if target_frames < 5 or raw.shape != (5,) or np.any(np.diff(raw) <= 0):
-        raise ValueError("five ordered phase frames and at least five targets are required")
-    mapped = np.rint(
-        (raw - raw[0]) * (target_frames - 1) / (raw[-1] - raw[0])
-    )
+        raise ValueError(
+            "five ordered phase frames and at least five targets are required"
+        )
+    mapped = np.rint((raw - raw[0]) * (target_frames - 1) / (raw[-1] - raw[0]))
     result: NDArray[np.int64] = np.asarray(
         np.clip(mapped, 0, target_frames - 1), dtype=np.int64
     )
@@ -801,9 +751,7 @@ def refine_delayed_overhead_contact_phase_indices(
     search_stop = completion
     if search_stop - search_start < 3:
         return phases.copy()
-    later_speed_index = search_start + int(
-        np.argmax(speed[search_start:search_stop])
-    )
+    later_speed_index = search_start + int(np.argmax(speed[search_start:search_stop]))
     old_speed = float(
         np.median(speed[max(0, contact - 1) : min(len(speed), contact + 2)])
     )

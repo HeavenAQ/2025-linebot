@@ -1,7 +1,11 @@
 'use client'
 
 import React, { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { authorizedFetch, setRegistrationRequiredHandler } from '@/lib/api/client'
+import {
+  authorizedFetch,
+  rateLimitedMessage,
+  setRegistrationRequiredHandler
+} from '@/lib/api/client'
 import { hasExperimentRegistration } from '@/lib/registration'
 
 type Status = 'checking' | 'required' | 'ready' | 'error'
@@ -36,10 +40,12 @@ export default function ExperimentGate({
         setStatus('required')
         return
       }
+      const limited = await rateLimitedMessage(response)
       setError(
-        response.status === 401
-          ? 'LINE 登入驗證未通過，請重新登入。'
-          : '暫時無法確認登記資料，請稍後再試。'
+        limited ??
+          (response.status === 401
+            ? 'LINE 登入驗證未通過，請重新登入。'
+            : '暫時無法確認登記資料，請稍後再試。')
       )
       setStatus('error')
     } catch {

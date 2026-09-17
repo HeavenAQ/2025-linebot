@@ -9,7 +9,6 @@ has PyTorch/CUDA initialized.
 
 from __future__ import annotations
 
-import time
 from typing import Final
 
 import tensorrt as trt
@@ -64,13 +63,3 @@ class TorchTRTEngine:
             self.context.execute_async_v3(self.stream.cuda_stream)
         self.stream.synchronize()
         return outputs
-
-    def speed(self, inputs: dict[str, torch.Tensor], n: int = 30) -> float:
-        for _ in range(5):
-            self(inputs)
-        torch.cuda.synchronize()
-        start = time.time()
-        for _ in range(n):
-            self(inputs)
-        torch.cuda.synchronize()
-        return 1000.0 * (time.time() - start) / n

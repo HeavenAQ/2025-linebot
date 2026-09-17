@@ -13,14 +13,18 @@ badminton_analysis_ai/uploads/
 badminton_analysis_ai/validation/
 badminton_analysis_ai/expert_videos/
 badminton_analysis_ai/test_videos/
-badminton_analysis_ai/models/trt-engines/
 # Fetched from GCS during deploy; never belongs in git.
-badminton_analysis_ai/models/tensorrt-cache/
+badminton_analysis_ai/models/trt-engines/
 linebot/tmp*/
-generated_videos/
 
-# Local toolchains and build output.
-liff/node_modules/
-liff/.next/
+# Installed dependencies. Never tracked; `npm ci` restores them from the
+# lockfile, and a stray `git add -A` in liff/ otherwise sweeps in tens of
+# thousands of files.
+node_modules/
+
+# The web app's static export, its Next.js cache and the TypeScript build
+# cache. Netlify builds from source on every deploy, so a committed copy is
+# only ever a stale one.
 liff/out/
+liff/.next/
 liff/tsconfig.tsbuildinfo

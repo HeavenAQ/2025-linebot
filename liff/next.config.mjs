@@ -14,7 +14,7 @@ const nextConfig = {
     ignoreDuringBuilds: true
   },
   images: {
-    remotePatterns: [{ hostname: 'profile.line-scdn.net' }], // Add the required hostname here
+    remotePatterns: [{ hostname: 'profile.line-scdn.net' }],
     unoptimized: true
   }
 }

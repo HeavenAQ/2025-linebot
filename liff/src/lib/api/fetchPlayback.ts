@@ -1,5 +1,5 @@
 import { PlaybackResponseSchema, type PlaybackResponse } from '@/schemas/userData.schema'
-import { authorizedFetch } from '@/lib/api/client'
+import { authorizedFetch, RateLimitedError, rateLimitedMessage } from '@/lib/api/client'
 import type { Skill } from '@/lib/types'
 
 export async function fetchPlayback(
@@ -10,6 +10,8 @@ export async function fetchPlayback(
   const query = new URLSearchParams({ user_id: userId, skill, work_date: workDate })
   const response = await authorizedFetch(`/api/db/playback?${query.toString()}`)
   if (!response.ok || response.status === 202) {
+    const limited = await rateLimitedMessage(response)
+    if (limited) throw new RateLimitedError(limited)
     const body = (await response.json().catch(() => null)) as { error?: string } | null
     if (response.status === 409) {
       throw new Error('此筆舊版分析沒有同步比較影片，請重新上傳影片以產生新的比較結果。')

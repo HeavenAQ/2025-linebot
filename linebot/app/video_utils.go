@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,8 +8,6 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	"github.com/HeavenAQ/nstc-linebot-2025/commons"
-	linebotsdk "github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
 const tmpFolder = "/tmp/"
@@ -18,21 +15,6 @@ const thumbnailStorageRoot = "no-ai/analyses/thumbnail"
 
 func thumbnailObjectPath(userID, timestamp string) string {
 	return fmt.Sprintf("%s/%s/%s.jpeg", thumbnailStorageRoot, userID, timestamp)
-}
-
-func (app *App) analyzeVideo(
-	video []byte,
-	requestID, userID, skill, handedness string,
-) (*commons.AnalysisOutcome, error) {
-	app.Logger.Info.Printf(
-		"streaming video to analysis service request_id=%s skill=%s bytes=%d",
-		requestID,
-		skill,
-		len(video),
-	)
-	return app.AnalysisClient.AnalyzeVideo(
-		context.Background(), requestID, userID, "line-upload.mp4", skill, handedness, video,
-	)
 }
 
 func (app *App) createVideoThumbnail(video []byte, userID string) (string, error) {
@@ -62,36 +44,4 @@ func (app *App) uploadThumbnail(
 	fileInfo.Bucket.ThumbnailPath = thumbnailObjectPath(user.ID, timestamp)
 	fileInfo.Local.ThumbnailPath = thumbnailPath
 	return app.StorageClient.UploadThumbnail(&fileInfo)
-}
-
-func (app *App) updateUserPortfolioVideo(
-	user *db.UserData,
-	session *db.UserSession,
-	date string,
-	analysis commons.AnalysisOutcome,
-	thumbnail *storage.UploadedFile,
-) error {
-	portfolio := app.getUserPortfolio(user, session.Skill)
-	thumbnailURL := "https://storage.googleapis.com/" + app.Config.GCP.Storage.BucketName + "/" + thumbnail.Path
-	return app.FirestoreClient.CreateUserPortfolioVideo(
-		user,
-		portfolio,
-		date,
-		session,
-		&storage.UploadedFile{Name: thumbnail.Name, Path: thumbnailURL},
-		analysis,
-	)
-}
-
-func (app *App) sendVideoUploadedReply(
-	event *linebotsdk.Event, session *db.UserSession, user *db.UserData,
-) error {
-	return app.sendPortfolio(
-		event,
-		user,
-		db.SkillStrToEnum(session.Skill),
-		session.UserState,
-		"影片分析完成，已加入學習歷程。",
-		true,
-	)
 }

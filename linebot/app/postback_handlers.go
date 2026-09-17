@@ -2,11 +2,7 @@ package app
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
-	"time"
 
-	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
@@ -311,80 +307,34 @@ func (app *App) handleWatchPortfolioVideo(
 	}
 }
 
-// handleUploadingVideo processes video uploads, calls AI analysis, and updates the portfolio.
+// handleUploadingVideo accepts a learner's video and records a durable
+// analysis job, replying at once with a pending portfolio card. Analysis never
+// runs inside the webhook request: it can take minutes, which would hold the
+// request (and a Cloud Run instance) open and outlive LINE's reply token.
+//
+// Without a configured queue, or with ANALYSIS_ASYNC_ACCEPT=false (the
+// operational switch that pauses new uploads while queued jobs drain), the
+// learner is told to try again later before the video is even downloaded.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
-	// Last line of defence before the analysis call: a video message routes
-	// straight here on the session's stored skill, which may have been chosen
-	// before the skill was withdrawn.
+	// A video message routes straight here on the session's stored skill, which
+	// may have been chosen before the skill was withdrawn.
 	if !db.IsSupportedSkill(session.Skill) {
 		app.rejectUnsupportedSkill(user.ID, session.Skill, replyToken)
 		return
 	}
+	if app.AnalysisQueue == nil || !app.Config.AnalysisServer.AsyncAccept {
+		app.Logger.Warn.Printf("video upload refused: analysis queue unavailable or paused user_id=%s", user.ID)
+		_, err := app.LineBot.SendReply(replyToken, "動作分析暫時暫停中，影片未被接收。請稍後再上傳一次。")
+		handleLineMessageResponseError(err)
+		return
+	}
 
-	// Get video content
 	videoContent, err := app.getVideoContent(event, user.ID)
 	if err != nil {
 		app.handleGetVideoError(err, replyToken)
 		return
 	}
-
-	// Send video to AI server for analysis
-	if app.AnalysisQueue != nil && app.Config.AnalysisServer.AsyncAccept {
-		app.enqueueVideoAnalysis(event, session, user, videoContent, replyToken)
-		return
-	}
-	videoMessage, ok := event.Message.(*linebot.VideoMessage)
-	if !ok {
-		app.handleVideoAnalysisError(errors.New("uploaded message is not a video"), replyToken)
-		return
-	}
-	resp, err := app.analyzeVideo(
-		videoContent,
-		videoMessage.ID,
-		user.ID,
-		session.Skill,
-		session.Handedness,
-	)
-	if err != nil {
-		if errors.Is(err, analysis.ErrNoMatchingExpert) {
-			app.Logger.Warn.Printf("same-handed expert unavailable: %v", err)
-			_, replyErr := app.LineBot.SendReply(
-				replyToken,
-				"目前沒有同慣用手的專家影片可供比較，本次不會跨左右手評分。請聯絡教練新增同手別的專家資料。",
-			)
-			handleLineMessageResponseError(replyErr)
-			return
-		}
-		app.handleVideoAnalysisError(err, replyToken)
-		return
-	}
-	app.Logger.Info.Println("AI total grade: ", resp.Grade.TotalGrade)
-
-	// Create thumbnail
-	thumbnailPath, err := app.createVideoThumbnail(videoContent, user.ID)
-	if err != nil {
-		app.handleThumbnailCreationError(err, replyToken)
-		return
-	}
-	defer os.RemoveAll(filepath.Dir(thumbnailPath))
-
-	timestamp := time.Now().Format("2006-01-02-15-04")
-	thumbnail, err := app.uploadThumbnail(user, thumbnailPath, timestamp)
-	if err != nil {
-		app.handleUploadToDriveError(err, replyToken)
-		return
-	}
-	if err := app.updateUserPortfolioVideo(user, session, timestamp, *resp, thumbnail); err != nil {
-		app.handleUpdateUserPortfolioError(err, replyToken)
-		return
-	}
-	if err := app.FirestoreClient.ResetSession(user.ID); err != nil {
-		app.Logger.Error.Printf("failed to reset session after completed analysis: %v", err)
-	}
-	if err := app.sendVideoUploadedReply(event, session, user); err != nil {
-		app.Logger.Error.Printf("failed to send completed analysis through LINE: %v", err)
-		return
-	}
+	app.enqueueVideoAnalysis(event, session, user, videoContent, replyToken)
 }
 
 // ============================================================================

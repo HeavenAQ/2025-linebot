@@ -1,22 +1,17 @@
-"""Expert-only phase-manifold baseline for personalized motion correction.
+"""Frozen expert phase model: motion samples, view alignment, and scoring.
 
-This module is the deterministic M0 baseline for the unified expert-motion
-coach.  It deliberately trains on expert archives only.  At inference it uses
-the learner's preparation stance, stable body proportions, handedness, and five
-phase anchors to construct a personalized expert target.  The learner's faulty
-dynamic motion is never used to select what the expert movement should be.
-
-The baseline is intentionally non-generative: it is a retrieval-weighted local
-expert manifold followed by exact bone-length retargeting.  It is useful as an
-auditable lower bound for later PAN/transformer/diffusion models and as a way to
-validate data identity, phase alignment, scoring, and visualization plumbing.
+Loads motion archives and the expert-only ``expert_score_model.npz``, projects
+an EIMD-generated correction into the learner's ankle--spine view with one
+clip-level hierarchical placement, and scores that correction per criterion
+against identity-held-out expert tolerances.  No learner data enters the model.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Any, Literal, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -24,14 +19,8 @@ from numpy.typing import NDArray
 from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     phase_align_sequence,
-    restore_phase_timing,
 )
-from badminton_analysis.ml.skeleton_scoring import (
-    ANGLE_TRIPLETS,
-    BONES,
-    TORSO_WIDTH_BONES,
-    project_stable_bone_lengths,
-)
+from badminton_analysis.ml.skeleton_scoring import ANGLE_TRIPLETS
 from badminton_analysis.ml.skill_specs import (
     SkillCorrectionSpec,
     get_skill_spec,
@@ -39,10 +28,7 @@ from badminton_analysis.ml.skill_specs import (
 )
 from badminton_analysis.ml.video_annotations import expert_subject_identity
 
-
 _EPS = 1e-8
-_FEATURE_JOINTS = np.asarray((0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16))
-_PREPARATION_END = int(CANONICAL_PHASE_INDICES[1]) + 1
 
 
 @dataclass(frozen=True)
@@ -89,11 +75,6 @@ class ExpertPhaseModel:
     def spec(self) -> SkillCorrectionSpec:
         return get_skill_spec(self.skill)
 
-    @property
-    def has_global_root_motion(self) -> bool:
-        deltas = self.expert_root - self.expert_root[:, :1]
-        return bool(float(np.max(np.abs(deltas))) > 1e-7)
-
     @cached_property
     def serve_angle_manifold(self):
         if self.skill != "serve":
@@ -102,9 +83,7 @@ class ExpertPhaseModel:
             fit_serve_angle_manifold,
         )
 
-        return fit_serve_angle_manifold(
-            self.expert_pose, self.expert_subject_ids
-        )
+        return fit_serve_angle_manifold(self.expert_pose, self.expert_subject_ids)
 
 
 @dataclass(frozen=True)
@@ -143,9 +122,7 @@ def _ankle_spine_frame(
     hip_center = 0.5 * (values[:, 11] + values[:, 12])
     shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
     ankle_axis = np.median(values[start:end, 16] - values[start:end, 15], axis=0)
-    spine_axis = np.median(
-        shoulder_center[start:end] - hip_center[start:end], axis=0
-    )
+    spine_axis = np.median(shoulder_center[start:end] - hip_center[start:end], axis=0)
     frame = np.column_stack((ankle_axis, spine_axis))
     if not np.all(np.isfinite(frame)) or abs(float(np.linalg.det(frame))) <= 1e-6:
         return np.eye(2, dtype=np.float64)
@@ -256,234 +233,6 @@ def shift_expert_body_chain_to_student_knee(
     return np.asarray(shifted, dtype=np.float32)
 
 
-def _placement_body_scale(
-    pose: NDArray[np.floating], *, start: int, end: int
-) -> float:
-    values = np.asarray(pose, dtype=np.float64)
-    shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
-    hip_center = 0.5 * (values[:, 11] + values[:, 12])
-    torso = np.linalg.norm(shoulder_center[start:end] - hip_center[start:end], axis=-1)
-    shoulder_width = np.linalg.norm(
-        values[start:end, 6] - values[start:end, 5], axis=-1
-    )
-    candidates = np.concatenate((torso, shoulder_width))
-    candidates = candidates[np.isfinite(candidates) & (candidates > 1e-6)]
-    return float(np.median(candidates)) if len(candidates) else 1.0
-
-
-def _interpolate_translation(
-    values: NDArray[np.floating], valid: NDArray[np.bool_]
-) -> NDArray[np.float64]:
-    result = np.asarray(values, dtype=np.float64).copy()
-    observed = np.asarray(valid, dtype=bool) & np.all(np.isfinite(result), axis=1)
-    if not np.any(observed):
-        return np.zeros_like(result)
-    timeline = np.arange(len(result), dtype=np.float64)
-    for axis in range(2):
-        result[:, axis] = np.interp(
-            timeline, timeline[observed], result[observed, axis]
-        )
-    return result
-
-
-def constrain_translation_trajectory(
-    translation: NDArray[np.floating],
-    *,
-    valid: NDArray[np.bool_] | None,
-    preparation_end: int,
-    body_scale: float,
-    max_excursion_ratio: float,
-    max_velocity_ratio: float,
-    max_acceleration_ratio: float,
-) -> NDArray[np.float32]:
-    """Create a smooth, bounded per-frame rigid translation.
-
-    The robust preparation offset supplies the static placement. Only the
-    residual trajectory is rate-limited, so a large initial image-space
-    mismatch can still be corrected without being mistaken for body motion.
-    Velocity limits are expressed per 1/64 of motion completeness, making the
-    result independent of source FPS and analysis-window frame count.
-    """
-    raw = np.asarray(translation, dtype=np.float64)
-    if raw.ndim != 2 or raw.shape[1] != 2 or not len(raw):
-        raise ValueError("translation must have shape (T, 2)")
-    if not 0 < preparation_end <= len(raw):
-        raise ValueError("invalid translation preparation window")
-    observed = (
-        np.ones(len(raw), dtype=bool)
-        if valid is None
-        else np.asarray(valid, dtype=bool)
-    )
-    if observed.shape != (len(raw),):
-        raise ValueError("translation validity must have shape (T,)")
-    values = _interpolate_translation(raw, observed)
-    prep_valid = observed[:preparation_end]
-    baseline_values = values[:preparation_end][prep_valid]
-    if not len(baseline_values):
-        baseline_values = values[:preparation_end]
-    baseline = np.median(baseline_values, axis=0)
-    residual = values - baseline
-
-    # A short symmetric filter rejects detector jitter without introducing the
-    # abrupt lag produced by a causal frame-by-frame correction.
-    radius = max(1, min(3, int(round(len(raw) * 0.035))))
-    padded = np.pad(residual, ((radius, radius), (0, 0)), mode="edge")
-    kernel = np.arange(1, radius + 2, dtype=np.float64)
-    kernel = np.concatenate((kernel, kernel[-2::-1]))
-    kernel /= np.sum(kernel)
-    residual = np.stack(
-        [np.convolve(padded[:, axis], kernel, mode="valid") for axis in range(2)],
-        axis=-1,
-    )
-
-    scale = max(float(body_scale), 1e-6)
-    maximum_excursion = max_excursion_ratio * scale
-    norms = np.linalg.norm(residual, axis=1)
-    outside = norms > maximum_excursion
-    residual[outside] *= (maximum_excursion / norms[outside])[:, None]
-
-    progress_step = 64.0 / max(len(raw) - 1, 1)
-    maximum_velocity = max_velocity_ratio * scale * progress_step
-    maximum_acceleration = max_acceleration_ratio * scale * progress_step**2
-    constrained = residual.copy()
-    velocity = np.zeros(2, dtype=np.float64)
-    for frame in range(1, len(constrained)):
-        requested_velocity = constrained[frame] - constrained[frame - 1]
-        acceleration = requested_velocity - velocity
-        acceleration_norm = float(np.linalg.norm(acceleration))
-        if acceleration_norm > maximum_acceleration:
-            requested_velocity = velocity + acceleration * (
-                maximum_acceleration / acceleration_norm
-            )
-        velocity_norm = float(np.linalg.norm(requested_velocity))
-        if velocity_norm > maximum_velocity:
-            requested_velocity *= maximum_velocity / velocity_norm
-        constrained[frame] = constrained[frame - 1] + requested_velocity
-        velocity = requested_velocity
-    return np.asarray(baseline + constrained, dtype=np.float32)
-
-
-def _limit_chain_translation_by_bone_length(
-    pose: NDArray[np.floating],
-    translation: NDArray[np.floating],
-    boundary_bones: tuple[tuple[int, int], ...],
-    *,
-    minimum_ratio: float = 0.85,
-    maximum_ratio: float = 1.15,
-) -> NDArray[np.float32]:
-    """Reduce a chain shift if it would imply an impossible limb stretch."""
-    values = np.asarray(pose, dtype=np.float64)
-    requested = np.asarray(translation, dtype=np.float64)
-    limited = requested.copy()
-    for frame in range(len(values)):
-        def feasible(fraction: float) -> bool:
-            delta = requested[frame] * fraction
-            for moving, fixed in boundary_bones:
-                original = float(np.linalg.norm(values[frame, moving] - values[frame, fixed]))
-                if original <= 1e-6:
-                    continue
-                candidate = float(
-                    np.linalg.norm(values[frame, moving] + delta - values[frame, fixed])
-                )
-                if not minimum_ratio * original <= candidate <= maximum_ratio * original:
-                    return False
-            return True
-
-        if feasible(1.0):
-            continue
-        low, high = 0.0, 1.0
-        for _ in range(16):
-            middle = 0.5 * (low + high)
-            if feasible(middle):
-                low = middle
-            else:
-                high = middle
-        limited[frame] *= low
-    return np.asarray(limited, dtype=np.float32)
-
-
-def apply_constrained_hierarchical_pose_placement(
-    student_pose: NDArray[np.floating],
-    corrected_pose: NDArray[np.floating],
-    *,
-    start: int,
-    end: int,
-    confidence: NDArray[np.floating] | None = None,
-) -> NDArray[np.float32]:
-    """Follow grounded body placement per frame without copying pose errors."""
-    student = np.asarray(student_pose, dtype=np.float64)
-    corrected = np.asarray(corrected_pose, dtype=np.float64)
-    if student.shape != corrected.shape or student.ndim != 3:
-        raise ValueError("student and corrected poses must share shape (T, J, 2)")
-    if not 0 <= start < end <= len(student):
-        raise ValueError("invalid hierarchical-placement preparation window")
-    weights = (
-        np.ones(student.shape[:2], dtype=np.float64)
-        if confidence is None
-        else np.asarray(confidence, dtype=np.float64)
-    )
-    if weights.shape != student.shape[:2]:
-        raise ValueError("placement confidence must have shape (T, J)")
-    scale = _placement_body_scale(student, start=start, end=end)
-    prep = slice(start, end)
-    ankle_scores = []
-    for joint in (15, 16):
-        visible = weights[prep, joint] > 0.05
-        if np.any(visible):
-            ankle_scores.append(
-                (float(np.median(student[prep, joint, 1][visible])), joint)
-            )
-    if not ankle_scores:
-        return np.asarray(corrected, dtype=np.float32)
-    support_ankle = max(ankle_scores)[1]
-    ankle_valid = weights[:, support_ankle] > 0.05
-    ankle_translation = constrain_translation_trajectory(
-        student[:, support_ankle] - corrected[:, support_ankle],
-        valid=ankle_valid,
-        preparation_end=end,
-        body_scale=scale,
-        max_excursion_ratio=0.45,
-        max_velocity_ratio=0.045,
-        max_acceleration_ratio=0.0225,
-    )
-    placed = corrected + ankle_translation[:, None]
-
-    knee_valid = np.minimum(weights[:, 13], weights[:, 14]) > 0.05
-    student_knees = 0.5 * (student[:, 13] + student[:, 14])
-    placed_knees = 0.5 * (placed[:, 13] + placed[:, 14])
-    knee_translation = constrain_translation_trajectory(
-        student_knees - placed_knees,
-        valid=knee_valid,
-        preparation_end=end,
-        body_scale=scale,
-        max_excursion_ratio=0.20,
-        max_velocity_ratio=0.030,
-        max_acceleration_ratio=0.015,
-    )
-    knee_translation = _limit_chain_translation_by_bone_length(
-        placed, knee_translation, ((13, 15), (14, 16))
-    )
-    placed[:, :15] += knee_translation[:, None]
-
-    hip_valid = np.minimum(weights[:, 11], weights[:, 12]) > 0.05
-    student_hips = 0.5 * (student[:, 11] + student[:, 12])
-    placed_hips = 0.5 * (placed[:, 11] + placed[:, 12])
-    hip_translation = constrain_translation_trajectory(
-        student_hips - placed_hips,
-        valid=hip_valid,
-        preparation_end=end,
-        body_scale=scale,
-        max_excursion_ratio=0.15,
-        max_velocity_ratio=0.025,
-        max_acceleration_ratio=0.0125,
-    )
-    hip_translation = _limit_chain_translation_by_bone_length(
-        placed, hip_translation, ((11, 13), (12, 14))
-    )
-    placed[:, :13] += hip_translation[:, None]
-    return np.asarray(placed, dtype=np.float32)
-
-
 def apply_fixed_hierarchical_pose_placement(
     student_pose: NDArray[np.floating],
     corrected_pose: NDArray[np.floating],
@@ -498,22 +247,17 @@ def apply_fixed_hierarchical_pose_placement(
         raise ValueError("student and corrected poses must share shape (T, J, 2)")
     if not 0 <= start < end <= len(student):
         raise ValueError("invalid hierarchical-placement preparation window")
-    ankle_y = [
-        float(np.median(student[start:end, joint, 1])) for joint in (15, 16)
-    ]
+    ankle_y = [float(np.median(student[start:end, joint, 1])) for joint in (15, 16)]
     support_ankle = (15, 16)[int(np.argmax(ankle_y))]
     ankle_delta = np.median(
-        student[start:end, support_ankle]
-        - corrected[start:end, support_ankle],
+        student[start:end, support_ankle] - corrected[start:end, support_ankle],
         axis=0,
     )
     placed = np.asarray(corrected + ankle_delta, dtype=np.float32)
     placed = shift_expert_body_chain_to_student_knee(
         student, placed, start=start, end=end
     )
-    return shift_expert_body_chain_to_student_hip(
-        student, placed, start=start, end=end
-    )
+    return shift_expert_body_chain_to_student_hip(student, placed, start=start, end=end)
 
 
 def align_expert_correction_to_ankle_spine_view(
@@ -521,11 +265,8 @@ def align_expert_correction_to_ankle_spine_view(
     *,
     start: int,
     end: int,
-    placement_mode: Literal["fixed", "constrained"] = "constrained",
 ) -> tuple[ExpertCorrection, NDArray[np.float32]]:
-    """Rotate, then apply fixed or bounded per-frame hierarchical placement."""
-    if placement_mode not in {"fixed", "constrained"}:
-        raise ValueError(f"unsupported hierarchical placement mode: {placement_mode}")
+    """Rotate, then apply one clip-level hierarchical placement."""
     rotation = ankle_spine_view_rotation(
         correction.aligned_student_pose,
         correction.aligned_corrected_pose,
@@ -542,36 +283,18 @@ def align_expert_correction_to_ankle_spine_view(
         correction.corrected_pose,
         rotation,
     )
-    if placement_mode == "fixed":
-        aligned_corrected = apply_fixed_hierarchical_pose_placement(
-            correction.aligned_student_pose,
-            aligned_corrected,
-            start=start,
-            end=end,
-        )
-        corrected = apply_fixed_hierarchical_pose_placement(
-            correction.student.pose,
-            corrected,
-            start=start,
-            end=end,
-        )
-    else:
-        aligned_corrected = apply_constrained_hierarchical_pose_placement(
-            correction.aligned_student_pose,
-            aligned_corrected,
-            start=start,
-            end=end,
-            confidence=phase_align_sequence(
-                correction.student.confidence, correction.student.phase_indices
-            ),
-        )
-        corrected = apply_constrained_hierarchical_pose_placement(
-            correction.student.pose,
-            corrected,
-            start=start,
-            end=end,
-            confidence=correction.student.confidence,
-        )
+    aligned_corrected = apply_fixed_hierarchical_pose_placement(
+        correction.aligned_student_pose,
+        aligned_corrected,
+        start=start,
+        end=end,
+    )
+    corrected = apply_fixed_hierarchical_pose_placement(
+        correction.student.pose,
+        corrected,
+        start=start,
+        end=end,
+    )
     aligned_root_delta = (
         correction.aligned_corrected_root - correction.aligned_corrected_root[:1]
     ) @ rotation.T
@@ -694,27 +417,6 @@ def load_motion_sample(path: str | Path, *, dimensions: int = 2) -> MotionSample
     )
 
 
-def discover_motion_samples(
-    root: str | Path,
-    *,
-    dimensions: int = 2,
-    expected_skill: str | None = None,
-) -> list[MotionSample]:
-    samples = [
-        load_motion_sample(path, dimensions=dimensions)
-        for path in sorted(Path(root).glob("*.npz"))
-    ]
-    if expected_skill is not None:
-        mismatches = [sample.path.name for sample in samples if sample.skill != expected_skill]
-        if mismatches:
-            raise ValueError(
-                f"expected {expected_skill} archives, found mismatches: {mismatches[:5]}"
-            )
-    if not samples:
-        raise ValueError(f"no motion archives found under {root}")
-    return samples
-
-
 def _aligned(sample: MotionSample) -> tuple[NDArray[np.float32], ...]:
     return (
         phase_align_sequence(sample.pose, sample.phase_indices),
@@ -725,144 +427,6 @@ def _aligned(sample: MotionSample) -> tuple[NDArray[np.float32], ...]:
         ),
         phase_align_sequence(sample.root, sample.phase_indices),
     )
-
-
-def _masked_median(
-    values: NDArray[np.floating], mask: NDArray[np.floating]
-) -> NDArray[np.float64]:
-    result = np.empty(values.shape[1:], dtype=np.float64)
-    flattened = np.asarray(values, dtype=np.float64).reshape(len(values), -1)
-    flattened_mask = np.asarray(mask, dtype=np.float64).reshape(len(mask), -1)
-    output = result.reshape(-1)
-    for column in range(flattened.shape[1]):
-        visible = flattened_mask[:, column] > 0.05
-        finite = np.isfinite(flattened[:, column])
-        selected = flattened[visible & finite, column]
-        if not len(selected):
-            selected = flattened[finite, column]
-        output[column] = float(np.median(selected)) if len(selected) else 0.0
-    return result
-
-
-def stance_feature(
-    aligned_pose: NDArray[np.floating],
-    aligned_confidence: NDArray[np.floating],
-) -> NDArray[np.float32]:
-    """Encode only preparation stance and stable apparent body proportions."""
-    pose = np.asarray(aligned_pose, dtype=np.float64)
-    confidence = np.asarray(aligned_confidence, dtype=np.float64)
-    if pose.shape != (64, 17, 2) or confidence.shape != (64, 17):
-        raise ValueError("aligned pose/confidence must have shapes (64,17,2)/(64,17)")
-    prep_pose = pose[:_PREPARATION_END]
-    prep_confidence = confidence[:_PREPARATION_END]
-    pelvis = 0.5 * (prep_pose[:, 11] + prep_pose[:, 12])
-    shoulder_width = np.linalg.norm(prep_pose[:, 6] - prep_pose[:, 5], axis=-1)
-    torso = 0.5 * (prep_pose[:, 5] + prep_pose[:, 6]) - pelvis
-    body_scale_values = np.concatenate(
-        (shoulder_width, np.linalg.norm(torso, axis=-1))
-    )
-    valid_scale = body_scale_values[np.isfinite(body_scale_values) & (body_scale_values > 1e-6)]
-    scale = float(np.median(valid_scale)) if len(valid_scale) else 1.0
-
-    centered = (prep_pose[:, _FEATURE_JOINTS] - pelvis[:, None]) / scale
-    joint_mask = np.repeat(
-        prep_confidence[:, _FEATURE_JOINTS, None], 2, axis=-1
-    )
-    stance = _masked_median(centered, joint_mask).reshape(-1)
-
-    bone_features = []
-    for start, end in BONES:
-        lengths = np.linalg.norm(prep_pose[:, end] - prep_pose[:, start], axis=-1)
-        visible = (
-            (prep_confidence[:, start] > 0.05)
-            & (prep_confidence[:, end] > 0.05)
-            & np.isfinite(lengths)
-        )
-        selected = lengths[visible]
-        bone_features.append(
-            (float(np.median(selected)) if len(selected) else 0.0) / scale
-        )
-    return np.asarray((*stance, *bone_features), dtype=np.float32)
-
-
-def _standardize_features(
-    features: NDArray[np.floating],
-) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
-    values = np.asarray(features, dtype=np.float64)
-    mean = values.mean(axis=0)
-    scale = values.std(axis=0)
-    scale = np.where(scale > 1e-5, scale, 1.0)
-    return (
-        ((values - mean) / scale).astype(np.float32),
-        mean.astype(np.float32),
-        scale.astype(np.float32),
-    )
-
-
-def _reference_weights(
-    model: ExpertPhaseModel,
-    aligned_pose: NDArray[np.floating],
-    aligned_confidence: NDArray[np.floating],
-    handedness: str,
-    *,
-    allowed_indices: NDArray[np.integer] | None = None,
-) -> tuple[NDArray[np.int64], NDArray[np.float32], NDArray[np.float32]]:
-    feature = stance_feature(aligned_pose, aligned_confidence)
-    standardized = (feature - model.feature_mean) / model.feature_scale
-    candidates = (
-        np.arange(len(model.expert_pose), dtype=np.int64)
-        if allowed_indices is None
-        else np.asarray(allowed_indices, dtype=np.int64)
-    )
-    same_hand = candidates[model.expert_handedness[candidates] == handedness]
-    if len(same_hand):
-        candidates = same_hand
-    if not len(candidates):
-        raise ValueError("expert model contains no eligible references")
-    distances = np.linalg.norm(
-        model.expert_features[candidates] - standardized[None], axis=-1
-    ) / np.sqrt(model.expert_features.shape[1])
-    count = min(model.top_k, len(candidates))
-    order = np.argsort(distances, kind="stable")[:count]
-    selected = candidates[order]
-    selected_distances = distances[order]
-    positive = selected_distances[selected_distances > _EPS]
-    bandwidth = float(np.median(positive)) if len(positive) else 1.0
-    bandwidth = max(bandwidth, 1e-3)
-    weights = np.exp(-0.5 * np.square(selected_distances / bandwidth))
-    weights /= max(float(weights.sum()), _EPS)
-    return (
-        selected.astype(np.int64),
-        weights.astype(np.float32),
-        selected_distances.astype(np.float32),
-    )
-
-
-def _weighted_prototype(
-    values: NDArray[np.floating],
-    confidence: NDArray[np.floating],
-    indices: NDArray[np.integer],
-    weights: NDArray[np.floating],
-) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    selected_values = np.asarray(values[indices], dtype=np.float64)
-    selected_confidence = np.asarray(confidence[indices], dtype=np.float64)
-    weighted_confidence = selected_confidence * np.asarray(weights)[:, None, None]
-    denominator = weighted_confidence.sum(axis=0)
-    prototype = np.divide(
-        (selected_values * weighted_confidence[..., None]).sum(axis=0),
-        denominator[..., None],
-        out=np.average(selected_values, axis=0, weights=weights).astype(np.float64),
-        where=denominator[..., None] > _EPS,
-    )
-    return prototype.astype(np.float32), np.clip(denominator, 0.0, 1.0).astype(np.float32)
-
-
-def _weighted_root(
-    values: NDArray[np.floating],
-    indices: NDArray[np.integer],
-    weights: NDArray[np.floating],
-) -> NDArray[np.float32]:
-    return np.average(values[indices], axis=0, weights=weights).astype(np.float32)
 
 
 def _retarget_root_with_contacts(
@@ -909,76 +473,10 @@ def _retarget_root_with_contacts(
                 np.asarray(candidates), axis=0, weights=np.asarray(active_weights)
             )
             influence = min(float(np.sum(active_weights)), 1.0)
-            output[frame_index] = (
-                (1.0 - influence) * prior_root[frame_index]
-                + influence * constrained
-            )
+            output[frame_index] = (1.0 - influence) * prior_root[
+                frame_index
+            ] + influence * constrained
     return output.astype(np.float32)
-
-
-def _predict_aligned(
-    model: ExpertPhaseModel,
-    aligned_pose: NDArray[np.float32],
-    aligned_confidence: NDArray[np.float32],
-    aligned_root: NDArray[np.float32],
-    handedness: str,
-    *,
-    allowed_indices: NDArray[np.integer] | None = None,
-) -> tuple[NDArray[np.float32], ...]:
-    indices, weights, distances = _reference_weights(
-        model,
-        aligned_pose,
-        aligned_confidence,
-        handedness,
-        allowed_indices=allowed_indices,
-    )
-    prototype, prototype_confidence = _weighted_prototype(
-        model.expert_pose,
-        model.expert_confidence,
-        indices,
-        weights,
-    )
-    prototype_root = _weighted_root(model.expert_root, indices, weights)
-    prototype_contacts = np.average(
-        model.expert_foot_contacts[indices], axis=0, weights=weights
-    ).astype(np.float32)
-    corrected = project_stable_bone_lengths(
-        aligned_pose,
-        prototype,
-        np.minimum(aligned_confidence, prototype_confidence),
-        iterations=80,
-        expert_length_bones=TORSO_WIDTH_BONES,
-        preserve_direction_chains=(
-            (6, 8, 10),
-            (5, 7, 9),
-            (12, 14, 16),
-            (11, 13, 15),
-        ),
-    )
-    # Root motion is represented as displacement from the preparation stance.
-    # Legacy root-centred archives contain zeros, in which case the student's
-    # observed root is retained until world-grounded re-extraction is available.
-    root_delta = prototype_root - prototype_root[:1]
-    if float(np.max(np.abs(root_delta))) <= 1e-7:
-        corrected_root = aligned_root.copy()
-    else:
-        corrected_root = aligned_root[:1] + root_delta
-    corrected_root = _retarget_root_with_contacts(
-        corrected,
-        corrected_root,
-        prototype_contacts,
-        prototype,
-    )
-    return (
-        corrected,
-        corrected_root.astype(np.float32),
-        prototype,
-        prototype_root,
-        indices,
-        weights,
-        distances,
-        prototype_contacts,
-    )
 
 
 def _angles(
@@ -1070,8 +568,6 @@ def _robust_window_value(
     return float(np.median(finite)) if len(finite) else 0.0
 
 
-
-
 def _serve_weight_transfer_components(
     source_pose: NDArray[np.floating],
     source_root: NDArray[np.floating],
@@ -1086,9 +582,7 @@ def _serve_weight_transfer_components(
     preparation_start, preparation_end = motion_completion_bounds(
         len(source), 0.125, 0.34375
     )
-    transfer_start, transfer_end = motion_completion_bounds(
-        len(source), 0.25, 1.0
-    )
+    transfer_start, transfer_end = motion_completion_bounds(len(source), 0.25, 1.0)
     completion_start, completion_end = motion_completion_bounds(
         len(source), 0.71875, 1.0
     )
@@ -1101,12 +595,12 @@ def _serve_weight_transfer_components(
     ) / np.pi
     trajectory_distance = float(np.sqrt(np.mean(trajectory_delta**2)))
 
-    def window(values: NDArray[np.floating], start: int, end: int) -> NDArray[np.float64]:
+    def window(
+        values: NDArray[np.floating], start: int, end: int
+    ) -> NDArray[np.float64]:
         return np.asarray(
             [
-                _robust_window_value(
-                    values[:, column], observed, start=start, end=end
-                )
+                _robust_window_value(values[:, column], observed, start=start, end=end)
                 for column in range(values.shape[1])
             ],
             dtype=np.float64,
@@ -1193,14 +687,9 @@ def _serve_qualitative_pose_evidence(
     )
     hip_center = 0.5 * (values[:, 11] + values[:, 12])
     shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
-    torso = np.maximum(
-        np.linalg.norm(shoulder_center - hip_center, axis=-1), _EPS
-    )
+    torso = np.maximum(np.linalg.norm(shoulder_center - hip_center, axis=-1), _EPS)
     arm_elevation = np.stack(
-        [
-            (values[:, joint, 1] - hip_center[:, 1]) / torso
-            for joint in (7, 8, 9, 10)
-        ],
+        [(values[:, joint, 1] - hip_center[:, 1]) / torso for joint in (7, 8, 9, 10)],
         axis=-1,
     )
     # Both elbows and wrists must be raised together. A high quantile tolerates
@@ -1214,23 +703,17 @@ def _serve_qualitative_pose_evidence(
         np.max(arm_elevation[:, (1, 3)], axis=-1),
     )
     arms_raised = float(
-        np.quantile(
-            simultaneous_elevation[preparation_start:preparation_end], 0.70
-        )
+        np.quantile(simultaneous_elevation[preparation_start:preparation_end], 0.70)
     )
-    stance_width = (
-        np.linalg.norm(values[:, 16] - values[:, 15], axis=-1) / torso
-    )
+    stance_width = np.linalg.norm(values[:, 16] - values[:, 15], axis=-1) / torso
     preparation_stance = float(
         np.median(stance_width[preparation_start:preparation_end])
     )
     ankle_axis = values[:, 16] - values[:, 15]
-    ankle_denominator = np.maximum(
-        np.sum(ankle_axis * ankle_axis, axis=-1), _EPS
+    ankle_denominator = np.maximum(np.sum(ankle_axis * ankle_axis, axis=-1), _EPS)
+    pelvis_loading = (
+        np.sum((hip_center - values[:, 15]) * ankle_axis, axis=-1) / ankle_denominator
     )
-    pelvis_loading = np.sum(
-        (hip_center - values[:, 15]) * ankle_axis, axis=-1
-    ) / ankle_denominator
     loading_shift = abs(
         float(np.median(pelvis_loading[completion_start:completion_end]))
         - float(np.median(pelvis_loading[preparation_start:preparation_end]))
@@ -1239,32 +722,21 @@ def _serve_qualitative_pose_evidence(
     preparation_chain = np.median(
         chain_angles[preparation_start:preparation_end], axis=0
     )
-    completion_chain = np.median(
-        chain_angles[completion_start:completion_end], axis=0
-    )
-    chain_change = float(
-        np.linalg.norm(completion_chain - preparation_chain) / np.pi
-    )
-    chain_baseline = np.median(
-        chain_angles[preparation_start:preparation_end], axis=0
-    )
+    completion_chain = np.median(chain_angles[completion_start:completion_end], axis=0)
+    chain_change = float(np.linalg.norm(completion_chain - preparation_chain) / np.pi)
+    chain_baseline = np.median(chain_angles[preparation_start:preparation_end], axis=0)
     chain_excursion = _smooth_trajectory(
         np.linalg.norm(chain_angles - chain_baseline[None], axis=1)[:, None]
     )[:, 0]
-    transfer_start, transfer_end = motion_completion_bounds(
-        len(values), 0.25, 1.0
-    )
+    transfer_start, transfer_end = motion_completion_bounds(len(values), 0.25, 1.0)
     dominant_chain_excursion = float(
-        np.quantile(chain_excursion[transfer_start:transfer_end], 0.80)
-        / np.pi
+        np.quantile(chain_excursion[transfer_start:transfer_end], 0.80) / np.pi
     )
     hip_vector = values[:, 12] - values[:, 11]
     hip_rotation = _smooth_trajectory(
         np.unwrap(np.arctan2(hip_vector[:, 1], hip_vector[:, 0]))[:, None]
     )[:, 0]
-    hip_rotation -= float(
-        np.median(hip_rotation[preparation_start:preparation_end])
-    )
+    hip_rotation -= float(np.median(hip_rotation[preparation_start:preparation_end]))
     transfer_rotation = np.abs(hip_rotation[transfer_start:transfer_end])
     transfer_chain = chain_excursion[transfer_start:transfer_end]
     centred_rotation = transfer_rotation - np.mean(transfer_rotation)
@@ -1275,13 +747,9 @@ def _serve_qualitative_pose_evidence(
     transfer_rotation_correlation = (
         0.0
         if coupling_denominator <= _EPS
-        else float(
-            np.dot(centred_rotation, centred_chain) / coupling_denominator
-        )
+        else float(np.dot(centred_rotation, centred_chain) / coupling_denominator)
     )
-    hip_rotation_excursion = float(
-        np.quantile(transfer_rotation, 0.80) / np.pi
-    )
+    hip_rotation_excursion = float(np.quantile(transfer_rotation, 0.80) / np.pi)
     coordinated_hip_rotation = float(
         hip_rotation_excursion * max(transfer_rotation_correlation, 0.0)
     )
@@ -1292,12 +760,8 @@ def _serve_qualitative_pose_evidence(
     )
     if root_values.shape != (len(values), 2):
         raise ValueError("serve root evidence must have shape (T, 2)")
-    preparation_root = np.median(
-        root_values[preparation_start:preparation_end], axis=0
-    )
-    completion_root = np.median(
-        root_values[completion_start:completion_end], axis=0
-    )
+    preparation_root = np.median(root_values[preparation_start:preparation_end], axis=0)
+    completion_root = np.median(root_values[completion_start:completion_end], axis=0)
     preparation_torso = max(
         float(np.median(torso[preparation_start:preparation_end])), _EPS
     )
@@ -1342,10 +806,7 @@ def _serve_expert_qualitative_envelope(
             dtype=np.float64,
         )
         repeated_subject_median = np.asarray(
-            [
-                np.median(clip_values[subjects == subject_id])
-                for subject_id in subjects
-            ],
+            [np.median(clip_values[subjects == subject_id]) for subject_id in subjects],
             dtype=np.float64,
         )
         within_take_scale = 1.4826 * float(
@@ -1374,9 +835,60 @@ def _serve_expert_qualitative_envelope(
     return output
 
 
-def _serve_qualitative_factor(
-    value: float, calibration: dict[str, float]
-) -> float:
+def _serve_arms_at_corrected_shoulder_evidence(
+    source_pose: NDArray[np.floating],
+    corrected_pose: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+) -> dict[str, float | bool]:
+    """Check whether both hands reach the corrected shoulder level.
+
+    Serve preparation is a threshold skill, not an exact imitation of the
+    expert's lateral hand spacing.  The wrist supplies the hand height when it
+    is observed and the elbow is an occlusion fallback.  A 20%-of-torso margin
+    implements "about level" while keeping waist-height hands below standard.
+    """
+    source = np.asarray(source_pose, dtype=np.float64)
+    corrected = np.asarray(corrected_pose, dtype=np.float64)
+    observed = np.asarray(confidence, dtype=np.float64)
+    if source.shape != corrected.shape or source.ndim != 3:
+        raise ValueError("serve arm evidence requires matching (T, J, 2) poses")
+    start, end = motion_completion_bounds(len(source), 0.125, 0.34375)
+    corrected_shoulders = 0.5 * (corrected[:, 5] + corrected[:, 6])
+    corrected_hips = 0.5 * (corrected[:, 11] + corrected[:, 12])
+    torso = np.maximum(
+        np.linalg.norm(corrected_shoulders - corrected_hips, axis=-1), _EPS
+    )
+    margins: list[float] = []
+    for shoulder, elbow, wrist in ((5, 7, 9), (6, 8, 10)):
+        # Normalized pose y points from the pelvis toward the shoulders, so a
+        # larger y is visually higher.
+        distal_y = np.where(
+            observed[:, wrist] > 0.05,
+            source[:, wrist, 1],
+            source[:, elbow, 1],
+        )
+        distal_confidence = np.maximum(observed[:, wrist], observed[:, elbow])
+        relative_height = (distal_y - corrected[:, shoulder, 1]) / torso
+        margins.append(
+            _robust_window_value(
+                relative_height,
+                distal_confidence,
+                start=start,
+                end=end,
+            )
+        )
+    weaker_margin = float(min(margins))
+    tolerance = 0.20
+    return {
+        "left_hand_corrected_shoulder_margin": float(margins[0]),
+        "right_hand_corrected_shoulder_margin": float(margins[1]),
+        "weaker_hand_corrected_shoulder_margin": weaker_margin,
+        "corrected_shoulder_level_tolerance": tolerance,
+        "passes_corrected_shoulder_height": weaker_margin >= -tolerance,
+    }
+
+
+def _serve_qualitative_factor(value: float, calibration: dict[str, float]) -> float:
     expert_scale = max(float(calibration["expert_scale"]), 1e-3)
     # Half an expert robust scale is a no-penalty detector/view margin. Beyond
     # it, decay over five percent of torso scale so narrow-but-valid expert
@@ -1386,14 +898,10 @@ def _serve_qualitative_factor(
         float(calibration["expert_lower"]) - 0.5 * expert_scale - value,
         0.0,
     )
-    return float(
-        np.exp(-shortfall / min(expert_scale, 0.05))
-    )
+    return float(np.exp(-shortfall / min(expert_scale, 0.05)))
 
 
-def _serve_required_motion_factor(
-    value: float, calibration: dict[str, float]
-) -> float:
+def _serve_required_motion_factor(value: float, calibration: dict[str, float]) -> float:
     """Score an absolute movement prerequisite against experts only.
 
     Unlike stance width, motion magnitude does not receive a half-scale view
@@ -1417,9 +925,7 @@ def _serve_projected_rotation_features(
     hip_width = np.maximum(np.linalg.norm(hip_vector, axis=-1), _EPS)
     shoulder_width = np.maximum(np.linalg.norm(shoulder_vector, axis=-1), _EPS)
     hip_angle = np.unwrap(np.arctan2(hip_vector[:, 1], hip_vector[:, 0]))
-    shoulder_angle = np.unwrap(
-        np.arctan2(shoulder_vector[:, 1], shoulder_vector[:, 0])
-    )
+    shoulder_angle = np.unwrap(np.arctan2(shoulder_vector[:, 1], shoulder_vector[:, 0]))
     hip_confidence = np.min(observed[:, (11, 12)], axis=1)
     shoulder_confidence = np.min(observed[:, (5, 6)], axis=1)
     torso_confidence = np.minimum(hip_confidence, shoulder_confidence)
@@ -1441,9 +947,7 @@ def _serve_projected_rotation_features(
     prep_hip_width = window(
         hip_width, hip_confidence, preparation_start, preparation_end
     )
-    end_hip_width = window(
-        hip_width, hip_confidence, completion_start, completion_end
-    )
+    end_hip_width = window(hip_width, hip_confidence, completion_start, completion_end)
     prep_shoulder_width = window(
         shoulder_width, shoulder_confidence, preparation_start, preparation_end
     )
@@ -1453,16 +957,12 @@ def _serve_projected_rotation_features(
     prep_hip_angle = window(
         hip_angle, hip_confidence, preparation_start, preparation_end
     )
-    end_hip_angle = window(
-        hip_angle, hip_confidence, completion_start, completion_end
-    )
+    end_hip_angle = window(hip_angle, hip_confidence, completion_start, completion_end)
     torso_twist = np.unwrap(shoulder_angle - hip_angle)
     prep_twist = window(
         torso_twist, torso_confidence, preparation_start, preparation_end
     )
-    end_twist = window(
-        torso_twist, torso_confidence, completion_start, completion_end
-    )
+    end_twist = window(torso_twist, torso_confidence, completion_start, completion_end)
     return np.asarray(
         (
             np.log(end_hip_width / max(prep_hip_width, _EPS)),
@@ -1496,9 +996,7 @@ def _serve_hip_rotation_components(
         hip_vector = pose[:, 12] - pose[:, 11]
         rotation = np.unwrap(np.arctan2(hip_vector[:, 1], hip_vector[:, 0]))
         rotation -= float(np.median(rotation[preparation_start:preparation_end]))
-        angle_baseline = np.median(
-            angles[preparation_start:preparation_end], axis=0
-        )
+        angle_baseline = np.median(angles[preparation_start:preparation_end], axis=0)
         transfer = np.linalg.norm(angles - angle_baseline[None], axis=1)
         rotation = _smooth_trajectory(rotation[:, None])[:, 0]
         transfer = _smooth_trajectory(transfer[:, None])[:, 0]
@@ -1510,9 +1008,7 @@ def _serve_hip_rotation_components(
     target_rotation, target_transfer = coupled_trajectories(
         target_values, target_angles
     )
-    observed = np.min(
-        np.asarray(confidence)[:, (6, 11, 12, 14, 16)], axis=1
-    )
+    observed = np.min(np.asarray(confidence)[:, (6, 11, 12, 14, 16)], axis=1)
     valid = observed[transfer_start:transfer_end] >= 0.20
     if not np.any(valid):
         valid = np.ones(transfer_end - transfer_start, dtype=bool)
@@ -1587,9 +1083,7 @@ def _serve_wrist_motion_features(
     wrist_to_elbow = _smooth_trajectory(values[:, 10] - values[:, 8])
     shoulder_speed = np.linalg.norm(np.diff(wrist_to_shoulder, axis=0), axis=-1)
     forearm_speed = np.linalg.norm(np.diff(wrist_to_elbow, axis=0), axis=-1)
-    acceleration = np.linalg.norm(
-        np.diff(wrist_to_shoulder, n=2, axis=0), axis=-1
-    )
+    acceleration = np.linalg.norm(np.diff(wrist_to_shoulder, n=2, axis=0), axis=-1)
     joint_confidence = np.min(observed[:, (6, 8, 10)], axis=1)
     speed_confidence = np.minimum(joint_confidence[:-1], joint_confidence[1:])
     acceleration_confidence = np.minimum(
@@ -1645,12 +1139,8 @@ def _serve_wrist_action_components(
     start: int,
     end: int,
 ) -> dict[str, float]:
-    source = _serve_wrist_motion_features(
-        source_pose, confidence, start=start, end=end
-    )
-    target = _serve_wrist_motion_features(
-        target_pose, confidence, start=start, end=end
-    )
+    source = _serve_wrist_motion_features(source_pose, confidence, start=start, end=end)
+    target = _serve_wrist_motion_features(target_pose, confidence, start=start, end=end)
     delta = source - target
     # Sustained wrist-to-shoulder speed is weighted above isolated peaks,
     # which are easily inflated by detector jitter. The remaining distal-arm
@@ -1682,9 +1172,7 @@ def _serve_semantic_evidence(
     if rule_id == "arms_raised":
         evidence = _serve_qualitative_pose_evidence(pose, root)
         return (
-            np.asarray(
-                (evidence["simultaneous_arm_elevation"],), dtype=np.float64
-            ),
+            np.asarray((evidence["simultaneous_arm_elevation"],), dtype=np.float64),
             ("simultaneous_arm_elevation",),
             np.asarray((1.0,), dtype=np.float64),
         )
@@ -1694,24 +1182,18 @@ def _serve_semantic_evidence(
         start, end = motion_completion_bounds(len(values), 0.125, 0.34375)
         hip_center = 0.5 * (values[:, 11] + values[:, 12])
         shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
-        torso = np.maximum(
-            np.linalg.norm(shoulder_center - hip_center, axis=-1), _EPS
-        )
+        torso = np.maximum(np.linalg.norm(shoulder_center - hip_center, axis=-1), _EPS)
         ankle_axis = values[:, 16] - values[:, 15]
-        ankle_squared = np.maximum(
-            np.sum(ankle_axis * ankle_axis, axis=-1), _EPS
-        )
+        ankle_squared = np.maximum(np.sum(ankle_axis * ankle_axis, axis=-1), _EPS)
         # Canonical joint 16 is the racket-side ankle. A value near one means
         # the pelvis begins above that side; the stance term prevents a
         # feet-together pose from earning this checkpoint through an unstable
         # near-zero projection denominator.
-        racket_side_loading = np.sum(
-            (hip_center - values[:, 15]) * ankle_axis, axis=-1
-        ) / ankle_squared
-        stance_width = np.linalg.norm(ankle_axis, axis=-1) / torso
-        loading_confidence = np.min(
-            observed[:, (11, 12, 15, 16)], axis=1
+        racket_side_loading = (
+            np.sum((hip_center - values[:, 15]) * ankle_axis, axis=-1) / ankle_squared
         )
+        stance_width = np.linalg.norm(ankle_axis, axis=-1) / torso
+        loading_confidence = np.min(observed[:, (11, 12, 15, 16)], axis=1)
         return (
             np.asarray(
                 (
@@ -1796,17 +1278,11 @@ def _serve_semantic_evidence(
         shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
         hip_center = 0.5 * (values[:, 11] + values[:, 12])
         torso_scale = max(
-            float(
-                np.median(
-                    np.linalg.norm(shoulder_center - hip_center, axis=-1)
-                )
-            ),
+            float(np.median(np.linalg.norm(shoulder_center - hip_center, axis=-1))),
             _EPS,
         )
         relative_wrist = _smooth_trajectory(values[:, 10] - values[:, 6])
-        acceleration = np.linalg.norm(
-            np.diff(relative_wrist, n=2, axis=0), axis=-1
-        )
+        acceleration = np.linalg.norm(np.diff(relative_wrist, n=2, axis=0), axis=-1)
         event_displacement = float(
             np.linalg.norm(relative_wrist[end - 1] - relative_wrist[start])
             / torso_scale
@@ -1814,20 +1290,16 @@ def _serve_semantic_evidence(
         event_acceleration = float(
             np.quantile(acceleration[start : max(start + 1, end - 2)], 0.90)
         )
-        baseline_acceleration = max(
-            float(np.quantile(acceleration, 0.50)), 1e-4
-        )
+        baseline_acceleration = max(float(np.quantile(acceleration, 0.50)), 1e-4)
         acceleration_prominence = event_acceleration / baseline_acceleration
         contact_impulse = float(
             np.sqrt(max(event_displacement * acceleration_prominence, 0.0))
         )
-        forward_axis = np.median(
-            values[start:end, 5] - values[start:end, 6], axis=0
-        )
+        forward_axis = np.median(values[start:end, 5] - values[start:end, 6], axis=0)
         forward_axis /= max(float(np.linalg.norm(forward_axis)), _EPS)
-        projected_acceleration = (
-            np.diff(relative_wrist, n=2, axis=0) @ forward_axis
-        )[start : max(start + 1, end - 2)]
+        projected_acceleration = (np.diff(relative_wrist, n=2, axis=0) @ forward_axis)[
+            start : max(start + 1, end - 2)
+        ]
         directional_acceleration_ratio = float(
             np.sum(np.maximum(projected_acceleration, 0.0))
             / max(float(np.sum(np.abs(projected_acceleration))), _EPS)
@@ -1862,9 +1334,7 @@ def _serve_semantic_evidence(
         )
         confidence_mask = np.min(observed[:, (5, 6, 8, 10)], axis=1)
         forearm_offset = (
-            0.75 * values[:, 8, 0]
-            + 0.25 * values[:, 10, 0]
-            - shoulder_center[:, 0]
+            0.75 * values[:, 8, 0] + 0.25 * values[:, 10, 0] - shoulder_center[:, 0]
         ) / torso_scale
         elbow_drop = (values[:, 8, 1] - shoulder_center[:, 1]) / torso_scale
         wrist_drop = (values[:, 10, 1] - shoulder_center[:, 1]) / torso_scale
@@ -1946,9 +1416,7 @@ def _serve_expert_envelope(
         subject_ids = sorted(set(selected_subjects.tolist()))
         subject_values = np.stack(
             [
-                np.median(
-                    matrix[selected_subjects == subject_id], axis=0
-                )
+                np.median(matrix[selected_subjects == subject_id], axis=0)
                 for subject_id in subject_ids
             ]
         )
@@ -2000,9 +1468,7 @@ def _serve_expert_envelope_components(
     confidence: NDArray[np.floating],
     envelope: dict[str, dict[str, Any]],
 ) -> dict[str, float]:
-    evidence, names, _ = _serve_semantic_evidence(
-        rule_id, pose, root, confidence
-    )
+    evidence, names, _ = _serve_semantic_evidence(rule_id, pose, root, confidence)
     calibration = envelope[rule_id]
     lower = np.asarray(calibration["lower_envelope"], dtype=np.float64)
     scale = np.asarray(calibration["feature_scale"], dtype=np.float64)
@@ -2022,13 +1488,12 @@ def _serve_expert_envelope_components(
         aggregation = "either_impulse_or_directional_acceleration"
     elif rule_id == "weight_transfer":
         # The dominant shoulder-hip-knee and hip-knee-ankle chain is the
-        # camera-robust primary evidence.  A pelvis-over-ankle displacement is
-        # only one 2D projection of loading: a transfer with depth can leave
-        # that value small even while the articulated chain and whole-body
-        # root move correctly.  Require both chain summaries, plus either the
-        # pelvis loading proxy, root transfer, or hip-rotation/chain coupling.
-        # No supporting cue can pass the checkpoint by itself because the
-        # chain distance remains mandatory.
+        # camera-robust primary evidence. Pelvis, root, and coordinated hip
+        # motion are alternative supporting views because any one can become
+        # unreliable under occlusion or a different camera azimuth. Keep the
+        # stricter all-cues distance in the diagnostics; the runtime rubric
+        # attribution uses it to avoid assigning the full 30 points when the
+        # aggregate model passes on root translation alone.
         chain_weights = weights[:2]
         chain_distance = float(
             np.sqrt(
@@ -2154,13 +1619,10 @@ def _criterion_components_for_spec(
                 joints=joints,
                 joint_weights=spec.joint_weights_array,
             )
-        if (
-            detail.metric == "serve_follow_through_cross_body"
-            and not (
-                spec.slug == "serve"
-                and serve_expert_envelope is not None
-                and rule.id in serve_expert_envelope
-            )
+        if detail.metric == "serve_follow_through_cross_body" and not (
+            spec.slug == "serve"
+            and serve_expert_envelope is not None
+            and rule.id in serve_expert_envelope
         ):
             # Endpoint detection is noisy, especially across pose backends.
             # Evaluate the last 12.5% of motion instead of making one selected
@@ -2202,8 +1664,7 @@ def _criterion_components_for_spec(
                 cross_body_deficiency = float(
                     np.median(
                         np.maximum(
-                            source_forearm_offset[valid]
-                            - target_forearm_offset[valid],
+                            source_forearm_offset[valid] - target_forearm_offset[valid],
                             0.0,
                         )
                     )
@@ -2219,9 +1680,7 @@ def _criterion_components_for_spec(
                     cross_body_deficiency,
                     terminal_euclidean + 0.5 * terminal_angle,
                 ),
-                "window_euclidean_distance": float(
-                    components["euclidean_distance"]
-                ),
+                "window_euclidean_distance": float(components["euclidean_distance"]),
                 "window_target_angle_distance": float(
                     components["target_angle_distance"]
                 ),
@@ -2231,277 +1690,6 @@ def _criterion_components_for_spec(
             }
         output.append(components)
     return output
-
-
-def train_expert_phase_model(
-    samples: Sequence[MotionSample],
-    *,
-    skill: str,
-    top_k: int = 5,
-) -> tuple[ExpertPhaseModel, dict[str, Any]]:
-    """Fit an expert-only local manifold and identity-held-out tolerances.
-
-    Current archives carry a real ``subject_id``.  Legacy archives fall back
-    to one identity per archive, which is recorded in the report rather than
-    being overstated as a subject-disjoint evaluation.
-    """
-    if top_k < 1:
-        raise ValueError("top_k must be positive")
-    if skill == "serve" and top_k != 1:
-        raise ValueError(
-            "serve full-body correction requires one coherent expert trajectory"
-        )
-    if not samples:
-        raise ValueError("expert training requires at least one sample")
-    if any(sample.skill != skill for sample in samples):
-        raise ValueError("all training samples must match the requested skill")
-    spec = get_skill_spec(skill)
-    aligned = [_aligned(sample) for sample in samples]
-    poses = np.stack([item[0] for item in aligned]).astype(np.float32)
-    confidence = np.stack([item[1] for item in aligned]).astype(np.float32)
-    roots = np.stack([item[2] for item in aligned]).astype(np.float32)
-    contacts = np.stack(
-        [
-            phase_align_sequence(sample.foot_contacts, sample.phase_indices)
-            for sample in samples
-        ]
-    ).astype(np.float32)
-    raw_features = np.stack(
-        [stance_feature(pose, conf) for pose, conf, _ in aligned]
-    )
-    features, feature_mean, feature_scale = _standardize_features(raw_features)
-    empty_tolerances = np.zeros(len(spec.rules), dtype=np.float32)
-    empty_scales = np.ones(len(spec.rules), dtype=np.float32)
-    provisional = ExpertPhaseModel(
-        skill=skill,
-        expert_pose=poses,
-        expert_confidence=confidence,
-        expert_root=roots,
-        expert_foot_contacts=contacts,
-        expert_features=features,
-        feature_mean=feature_mean,
-        feature_scale=feature_scale,
-        expert_handedness=np.asarray([sample.handedness for sample in samples]),
-        expert_files=np.asarray([sample.path.name for sample in samples]),
-        expert_subject_ids=np.asarray([sample.subject_id for sample in samples]),
-        expert_identity_levels=np.asarray(
-            [sample.identity_level for sample in samples]
-        ),
-        expert_alignment_contracts=np.asarray(
-            [sample.alignment_contract for sample in samples]
-        ),
-        criterion_ids=np.asarray([rule.id for rule in spec.rules]),
-        criterion_tolerances=empty_tolerances,
-        criterion_scales=empty_scales,
-        top_k=top_k,
-        criterion_metric_version=(
-            "serve_expert_distribution_v6"
-            if skill == "serve"
-            else "generic_joint_distance_v1"
-        ),
-    )
-    if skill == "serve" and not provisional.has_global_root_motion:
-        raise ValueError(
-            "serve expert training requires current-schema global root motion; "
-            "legacy pelvis-centred archives cannot supervise full-body correction"
-        )
-    serve_envelope = (
-        _serve_expert_envelope(provisional) if skill == "serve" else None
-    )
-
-    fold_rows: list[dict[str, Any]] = []
-    fold_distances: list[list[float]] = []
-    subject_ids = provisional.expert_subject_ids
-    for index, sample in enumerate(samples):
-        allowed = np.flatnonzero(subject_ids != sample.subject_id)
-        if not len(allowed):
-            continue
-        prediction = _predict_aligned(
-            provisional,
-            poses[index],
-            confidence[index],
-            roots[index],
-            sample.handedness,
-            allowed_indices=allowed,
-        )
-        corrected, corrected_root = prediction[:2]
-        # Serve scoring is a separate one-class expert distribution model.
-        # The generator remains responsible for producing the visualization,
-        # but a valid student is not penalized merely because a diffusion
-        # sample chose a different expert style.  Each calibration row is
-        # evaluated against an envelope that excludes its entire identity.
-        fold_envelope = (
-            _serve_expert_envelope(provisional, allowed_indices=allowed)
-            if skill == "serve"
-            else None
-        )
-        components = _criterion_components_for_spec(
-            spec,
-            poses[index],
-            roots[index],
-            poses[index] if skill == "serve" else corrected,
-            roots[index] if skill == "serve" else corrected_root,
-            confidence[index],
-            serve_expert_envelope=fold_envelope,
-        )
-        distances = [item["combined_distance"] for item in components]
-        fold_distances.append(distances)
-        fold_rows.append(
-            {
-                "file": sample.path.name,
-                "subject_id": sample.subject_id,
-                "identity_level": sample.identity_level,
-                "references": [
-                    provisional.expert_files[value] for value in prediction[4]
-                ],
-                "criteria": {
-                    rule.id: component
-                    for rule, component in zip(spec.rules, components, strict=True)
-                },
-            }
-        )
-    if fold_distances:
-        matrix = np.asarray(fold_distances, dtype=np.float64)
-        tolerances = np.quantile(matrix, 0.90, axis=0)
-        median = np.median(matrix, axis=0)
-        mad = np.median(np.abs(matrix - median[None]), axis=0)
-        scales = np.maximum(1.4826 * mad, np.maximum(0.10 * tolerances, 1e-3))
-        if skill == "serve":
-            # Preparation stance and wrist impulse retain the central expert
-            # tolerance because their extreme held-out residuals can be
-            # inflated by monocular foot/wrist localization. The remaining
-            # qualitative motion checkpoints must cover every valid
-            # identity-held-out expert residual. This avoids falsely grading
-            # a demonstrated camera/style variant as an error while keeping
-            # the boundary entirely expert-only.
-            pattern_ids = set(str(value) for value in provisional.criterion_ids)
-            p75 = np.quantile(matrix, 0.75, axis=0)
-            for criterion_index, rule in enumerate(spec.rules):
-                if rule.id not in pattern_ids:
-                    continue
-                # Distances are already expressed in robust expert feature
-                # scales. Use the central identity-held-out expert range as a
-                # no-penalty uncertainty margin, then decay over a fixed
-                # fraction of one standardized unit. Using the p90-p75 spread
-                # as the decay scale made heterogeneous camera identities
-                # produce enormous scales and let motions missing an entire
-                # checkpoint retain nearly full credit.
-                tolerance_quantile = (
-                    p75[criterion_index]
-                    if rule.id in {"racket_foot_weight", "wrist_flick"}
-                    else np.max(matrix[:, criterion_index])
-                )
-                tolerances[criterion_index] = tolerance_quantile
-                scales[criterion_index] = max(
-                    float(0.25 * tolerance_quantile),
-                    0.10,
-                )
-    else:
-        tolerances = np.full(len(spec.rules), 0.05, dtype=np.float64)
-        scales = np.full(len(spec.rules), 0.01, dtype=np.float64)
-    model = ExpertPhaseModel(
-        **{
-            **provisional.__dict__,
-            "criterion_tolerances": tolerances.astype(np.float32),
-            "criterion_scales": scales.astype(np.float32),
-        }
-    )
-    report = {
-        "method": "expert_only_stance_conditioned_phase_manifold_baseline_v1",
-        "skill": skill,
-        "expert_samples": len(samples),
-        "expert_subjects": len(set(subject_ids.tolist())),
-        "identity_levels": sorted(set(sample.identity_level for sample in samples)),
-        "alignment_contracts": sorted(
-            set(sample.alignment_contract for sample in samples)
-        ),
-        "handedness_counts": {
-            value: int(np.sum(model.expert_handedness == value))
-            for value in ("right", "left")
-        },
-        "top_k": top_k,
-        "phase_indices": CANONICAL_PHASE_INDICES.tolist(),
-        "criterion_metric_version": model.criterion_metric_version,
-        "serve_expert_envelope": (
-            {
-                rule_id: {
-                    "feature_names": list(values["feature_names"]),
-                    "lower_envelope": np.asarray(
-                        values["lower_envelope"]
-                    ).tolist(),
-                    "feature_scale": np.asarray(
-                        values["feature_scale"]
-                    ).tolist(),
-                    "feature_weights": np.asarray(
-                        values["feature_weights"]
-                    ).tolist(),
-                    "subject_values": np.asarray(
-                        values["subject_values"]
-                    ).tolist(),
-                }
-                for rule_id, values in serve_envelope.items()
-            }
-            if serve_envelope is not None
-            else None
-        ),
-        "criterion_tolerances": {
-            rule.id: {
-                "combined_distance_p90": float(tolerance),
-                "robust_scale": float(scale),
-            }
-            for rule, tolerance, scale in zip(
-                spec.rules,
-                model.criterion_tolerances,
-                model.criterion_scales,
-                strict=True,
-            )
-        },
-        "held_out_expert_folds": fold_rows,
-    }
-    return model, report
-
-
-def correct_student_motion(
-    model: ExpertPhaseModel, sample: MotionSample
-) -> ExpertCorrection:
-    if sample.skill != model.skill:
-        raise ValueError(
-            f"student skill {sample.skill!r} does not match model {model.skill!r}"
-        )
-    aligned_pose, aligned_confidence, aligned_root = _aligned(sample)
-    prediction = _predict_aligned(
-        model,
-        aligned_pose,
-        aligned_confidence,
-        aligned_root,
-        sample.handedness,
-    )
-    (
-        corrected,
-        corrected_root,
-        prototype,
-        prototype_root,
-        indices,
-        weights,
-        distances,
-        contacts,
-    ) = prediction
-    return ExpertCorrection(
-        student=sample,
-        aligned_student_pose=aligned_pose,
-        aligned_student_root=aligned_root,
-        aligned_corrected_pose=corrected,
-        aligned_corrected_root=corrected_root,
-        corrected_pose=restore_phase_timing(corrected, sample.phase_indices),
-        corrected_root=restore_phase_timing(corrected_root, sample.phase_indices),
-        aligned_corrected_contacts=contacts,
-        corrected_contacts=restore_phase_timing(contacts, sample.phase_indices),
-        expert_prototype_pose=prototype,
-        expert_prototype_root=prototype_root,
-        reference_indices=indices,
-        reference_weights=weights,
-        reference_distances=distances,
-    )
 
 
 def _aggregate_qualitative_checkpoint_ratios(
@@ -2557,8 +1745,7 @@ def _serve_checklist_aggregation(
     isolated_preparation_deviation = bool(
         ratios[0] < 0.20
         and float(np.min(ratios[1:])) >= 0.90
-        and float(preparation["generated_target_distance"])
-        <= support_limit
+        and float(preparation["generated_target_distance"]) <= support_limit
     )
     if isolated_preparation_deviation:
         return (
@@ -2608,10 +1795,7 @@ def _serve_corrected_residual_checklist(
     tolerances = model.criterion_residual_tolerances
     scales = model.criterion_residual_scales
     semantic_ratios = np.asarray(
-        [
-            float(item["score"]) / max(float(item["maximum"]), _EPS)
-            for item in criteria
-        ],
+        [float(item["score"]) / max(float(item["maximum"]), _EPS) for item in criteria],
         dtype=np.float64,
     )
     if (
@@ -2668,11 +1852,7 @@ def _serve_corrected_residual_checklist(
     manifold = model.serve_angle_manifold
     assert manifold is not None
     manifold_distance = serve_angle_manifold_distance(
-        (
-            correction.aligned_student_pose
-            if manifold_pose is None
-            else manifold_pose
-        ),
+        (correction.aligned_student_pose if manifold_pose is None else manifold_pose),
         manifold,
     )
     low = np.flatnonzero(semantic_ratios < 0.20)
@@ -2682,9 +1862,7 @@ def _serve_corrected_residual_checklist(
         and float(np.min(semantic_ratios[[0, 1, 2, 3, 5]])) >= 0.40
     )
     isolated_preparation_style = bool(
-        len(low) == 1
-        and low[0] == 0
-        and manifold_distance <= manifold.expert_q80
+        len(low) == 1 and low[0] == 0 and manifold_distance <= manifold.expert_q80
     )
     diagnostics: dict[str, Any] = {
         "corrected_residual_fusion_active": True,
@@ -2722,17 +1900,14 @@ def _serve_corrected_residual_checklist(
     floor = 1e-3
     checklist = float(
         100.0
-        * _aggregate_qualitative_checkpoint_ratios(
-            effective, power=power, floor=floor
-        )
+        * _aggregate_qualitative_checkpoint_ratios(effective, power=power, floor=floor)
     )
     structural_indices = np.asarray((0, 1, 2, 3, 5), dtype=np.int64)
     novelty_factor = 1.0
     if float(np.min(effective[structural_indices])) < 0.20:
         standardized_novelty = max(
             0.0,
-            (manifold_distance - manifold.expert_q80)
-            / manifold.expert_scale,
+            (manifold_distance - manifold.expert_q80) / manifold.expert_scale,
         )
         novelty_factor = float(np.exp(-0.75 * standardized_novelty))
         checklist *= novelty_factor
@@ -2779,9 +1954,7 @@ def score_expert_correction(
         # current serve checkpoint uses 0/21/46/54/63), while this scorer's
         # frozen expert bank uses the grading contract 0/16/32/48/63. Absolute
         # expert evidence must be measured in the scorer's own time basis.
-        semantic_pose, semantic_confidence, semantic_root = _aligned(
-            correction.student
-        )
+        semantic_pose, semantic_confidence, semantic_root = _aligned(correction.student)
         semantic_components = _criterion_components_for_spec(
             spec,
             semantic_pose,
@@ -2805,9 +1978,7 @@ def score_expert_correction(
                 components[index] = {
                     **semantic,
                     "generated_target_distance": generated_distance,
-                    "semantic_envelope_distance": float(
-                        semantic["combined_distance"]
-                    ),
+                    "semantic_envelope_distance": float(semantic["combined_distance"]),
                     "selected_expert_evidence": (
                         "expert_only_identity_distribution"
                         if model.criterion_metric_version
@@ -2824,9 +1995,7 @@ def score_expert_correction(
             correction.aligned_student_root,
         )
         qualitative_envelope = _serve_expert_qualitative_envelope(model)
-    for index, (rule, component) in enumerate(
-        zip(spec.rules, components, strict=True)
-    ):
+    for index, (rule, component) in enumerate(zip(spec.rules, components, strict=True)):
         tolerance = float(model.criterion_tolerances[index])
         scale = float(model.criterion_scales[index])
         distance = component["combined_distance"]
@@ -2872,9 +2041,7 @@ def score_expert_correction(
                 )
                 qualitative_factor = stance_factor * transfer_magnitude_factor
                 qualitative_diagnostics = {
-                    "qualitative_evidence": (
-                        "coordinated_absolute_weight_transfer"
-                    ),
+                    "qualitative_evidence": ("coordinated_absolute_weight_transfer"),
                     "qualitative_evidence_factor": qualitative_factor,
                     "preparation_stance_factor": stance_factor,
                     "pelvis_loading_shift": float(
@@ -2896,9 +2063,7 @@ def score_expert_correction(
                         qualitative_evidence["hip_rotation_excursion"]
                     ),
                     "transfer_rotation_correlation": float(
-                        qualitative_evidence[
-                            "transfer_rotation_correlation"
-                        ]
+                        qualitative_evidence["transfer_rotation_correlation"]
                     ),
                     "coordinated_hip_rotation": float(
                         qualitative_evidence["coordinated_hip_rotation"]
@@ -2948,6 +2113,24 @@ def score_expert_correction(
             }
         )
     if model.criterion_metric_version == "serve_expert_distribution_v6":
+        arm_evidence = _serve_arms_at_corrected_shoulder_evidence(
+            correction.aligned_student_pose,
+            correction.aligned_corrected_pose,
+            confidence,
+        )
+        arms_item = next(
+            item for item in criteria if item["rule_reference"] == "arms_raised"
+        )
+        arms_item.update(arm_evidence)
+        if bool(arm_evidence["passes_corrected_shoulder_height"]):
+            arms_item["score_before_corrected_shoulder_height_pass"] = float(
+                arms_item["score"]
+            )
+            arms_item["score"] = float(arms_item["maximum"])
+            arms_item["arms_raised_policy"] = (
+                "both_hands_at_or_near_corrected_shoulder_height"
+            )
+    if model.criterion_metric_version == "serve_expert_distribution_v6":
         by_rule = {item["rule_reference"]: item for item in criteria}
         dynamic_completion_gate = min(
             float(by_rule[rule_id]["score"])
@@ -2967,19 +2150,12 @@ def score_expert_correction(
             tolerance = float(item["expert_tolerance"])
             scale = max(float(item["expert_robust_scale"]), 1e-3)
             strict_distance = float(item["strict_required_cue_distance"])
-            strict_ratio = float(
-                np.exp(-max(0.0, strict_distance - tolerance) / scale)
-            )
-            alternative_ratio = float(item["score"]) / max(
-                float(item["maximum"]), _EPS
-            )
+            strict_ratio = float(np.exp(-max(0.0, strict_distance - tolerance) / scale))
+            alternative_ratio = float(item["score"]) / max(float(item["maximum"]), _EPS)
             generated_distance = float(item["generated_target_distance"])
             generated_tolerance = max(tolerance, 0.5 * scale)
             generated_ratio = float(
-                np.exp(
-                    -max(0.0, generated_distance - generated_tolerance)
-                    / scale
-                )
+                np.exp(-max(0.0, generated_distance - generated_tolerance) / scale)
             )
             supported_alternative_ratio = max(
                 alternative_ratio,
@@ -2993,23 +2169,16 @@ def score_expert_correction(
             item["camera_robust_alternative_ratio"] = alternative_ratio
             item["generated_agreement_ratio"] = generated_ratio
             item["generated_agreement_tolerance"] = generated_tolerance
-            item["supported_camera_evidence_ratio"] = (
-                supported_alternative_ratio
-            )
+            item["supported_camera_evidence_ratio"] = supported_alternative_ratio
             item["strict_required_cue_ratio"] = strict_ratio
-            item["serve_motion_completeness_gate"] = (
-                dynamic_completion_gate
-            )
+            item["serve_motion_completeness_gate"] = dynamic_completion_gate
             item["motion_completeness_gate_policy"] = (
                 "weight_transfer_and_wrist_dynamic_completion"
             )
             item["selected_camera_evidence_ratio"] = selected_ratio
     weighted_total = float(sum(item["score"] for item in criteria))
     criterion_ratios = np.asarray(
-        [
-            float(item["score"]) / max(float(item["maximum"]), _EPS)
-            for item in criteria
-        ],
+        [float(item["score"]) / max(float(item["maximum"]), _EPS) for item in criteria],
         dtype=np.float64,
     )
     arithmetic_checklist_total = float(100.0 * np.mean(criterion_ratios))
@@ -3052,9 +2221,7 @@ def score_expert_correction(
             )
         else:
             transformed = bounded**aggregation_power
-            contribution_weights = transformed / max(
-                float(np.sum(transformed)), _EPS
-            )
+            contribution_weights = transformed / max(float(np.sum(transformed)), _EPS)
         for index, (item, ratio) in enumerate(
             zip(criteria, criterion_ratios, strict=True)
         ):
@@ -3064,9 +2231,7 @@ def score_expert_correction(
             # equal-item attribution separately instead of changing every
             # product checkpoint to 16.67 points.
             item["raw_checkpoint_ratio"] = float(ratio)
-            item["effective_checklist_ratio"] = float(
-                effective_checklist_ratios[index]
-            )
+            item["effective_checklist_ratio"] = float(effective_checklist_ratios[index])
             item["checklist_score_contribution"] = float(
                 checklist_total * contribution_weights[index]
             )
@@ -3086,8 +2251,7 @@ def score_expert_correction(
             == "expert_generated_projection_residual_v4"
             else (
                 "expert_only_coordinated_transfer_coupled_v4"
-                if model.criterion_metric_version
-                == "serve_dominant_chain_coupled_v5"
+                if model.criterion_metric_version == "serve_dominant_chain_coupled_v5"
                 else (
                     (
                         "expert_only_identity_distribution_v6"
@@ -3121,8 +2285,7 @@ def score_expert_correction(
             == "expert_generated_projection_residual_v4"
             else (
                 "generated_expert_dominant_chain_and_rotation_coupling"
-                if model.criterion_metric_version
-                == "serve_dominant_chain_coupled_v5"
+                if model.criterion_metric_version == "serve_dominant_chain_coupled_v5"
                 else (
                     (
                         "expert_identity_held_out_checkpoint_distribution"
@@ -3141,7 +2304,8 @@ def score_expert_correction(
         ),
         "limitations": (
             ["wrist_action_uses_coco17_distal_arm_motion_proxy"]
-            if model.criterion_metric_version in {
+            if model.criterion_metric_version
+            in {
                 "serve_subject_pattern_trajectory_v4",
                 "serve_dominant_chain_coupled_v5",
                 "serve_expert_distribution_v6",
@@ -3169,9 +2333,7 @@ def score_expert_correction(
                 "file": str(model.expert_files[index]),
                 "subject_id": str(model.expert_subject_ids[index]),
                 "identity_level": str(model.expert_identity_levels[index]),
-                "alignment_contract": str(
-                    model.expert_alignment_contracts[index]
-                ),
+                "alignment_contract": str(model.expert_alignment_contracts[index]),
                 "weight": float(weight),
                 "stance_distance": float(distance),
             }
@@ -3183,47 +2345,6 @@ def score_expert_correction(
             )
         ],
     }
-
-
-def save_expert_phase_model(model: ExpertPhaseModel, path: str | Path) -> None:
-    destination = Path(path)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        destination,
-        format_version=np.asarray(1, dtype=np.int64),
-        method=np.asarray("expert_only_stance_conditioned_phase_manifold_baseline_v1"),
-        skill=np.asarray(model.skill),
-        expert_pose=model.expert_pose,
-        expert_confidence=model.expert_confidence,
-        expert_root=model.expert_root,
-        expert_foot_contacts=model.expert_foot_contacts,
-        expert_features=model.expert_features,
-        feature_mean=model.feature_mean,
-        feature_scale=model.feature_scale,
-        expert_handedness=model.expert_handedness,
-        expert_files=model.expert_files,
-        expert_subject_ids=model.expert_subject_ids,
-        expert_identity_levels=model.expert_identity_levels,
-        expert_alignment_contracts=model.expert_alignment_contracts,
-        criterion_ids=model.criterion_ids,
-        criterion_tolerances=model.criterion_tolerances,
-        criterion_scales=model.criterion_scales,
-        top_k=np.asarray(model.top_k, dtype=np.int64),
-        criterion_metric_version=np.asarray(model.criterion_metric_version),
-        criterion_residual_tolerances=np.asarray(
-            ()
-            if model.criterion_residual_tolerances is None
-            else model.criterion_residual_tolerances,
-            dtype=np.float32,
-        ),
-        criterion_residual_scales=np.asarray(
-            ()
-            if model.criterion_residual_scales is None
-            else model.criterion_residual_scales,
-            dtype=np.float32,
-        ),
-        canonical_phase_indices=CANONICAL_PHASE_INDICES,
-    )
 
 
 def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
@@ -3262,9 +2383,7 @@ def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
             criterion_tolerances=np.asarray(
                 archive["criterion_tolerances"], dtype=np.float32
             ),
-            criterion_scales=np.asarray(
-                archive["criterion_scales"], dtype=np.float32
-            ),
+            criterion_scales=np.asarray(archive["criterion_scales"], dtype=np.float32),
             top_k=int(archive["top_k"].item()),
             criterion_metric_version=_scalar_string(
                 archive,
@@ -3272,21 +2391,15 @@ def load_expert_phase_model(path: str | Path) -> ExpertPhaseModel:
                 "generic_joint_distance_v1",
             ),
             criterion_residual_tolerances=(
-                np.asarray(
-                    archive["criterion_residual_tolerances"], dtype=np.float32
-                )
+                np.asarray(archive["criterion_residual_tolerances"], dtype=np.float32)
                 if "criterion_residual_tolerances" in archive
                 and archive["criterion_residual_tolerances"].size
                 else None
             ),
             criterion_residual_scales=(
-                np.asarray(
-                    archive["criterion_residual_scales"], dtype=np.float32
-                )
+                np.asarray(archive["criterion_residual_scales"], dtype=np.float32)
                 if "criterion_residual_scales" in archive
                 and archive["criterion_residual_scales"].size
                 else None
             ),
         )
-
-

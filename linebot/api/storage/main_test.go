@@ -31,10 +31,10 @@ func (c *fakeClient) Bucket(name string) BucketHandle {
 func (c *fakeClient) Close() error { return nil }
 
 type fakeBucket struct {
-	signedOptions []*gcs.SignedURLOptions
 	name          string
 	objects       map[string]*fakeObject
 	signed        []string
+	signedOptions []*gcs.SignedURLOptions
 	signErr       error
 }
 
@@ -44,8 +44,8 @@ func (b *fakeBucket) Object(name string) ObjectHandle {
 
 // signedCalls records what the playback path asked to sign.
 func (b *fakeBucket) SignedURL(object string, opts *gcs.SignedURLOptions) (string, error) {
-	b.signedOptions = append(b.signedOptions, opts)
 	b.signed = append(b.signed, object)
+	b.signedOptions = append(b.signedOptions, opts)
 	if b.signErr != nil {
 		return "", b.signErr
 	}
@@ -167,28 +167,4 @@ func TestUploadThumbnail(t *testing.T) {
 	obj := fake.buckets["test-bucket"].objects[fi.Bucket.ThumbnailPath]
 	require.Equal(t, len(disk), len(obj.data))
 	require.Equal(t, "image/jpeg", obj.contentType)
-}
-
-func TestDeleteFile(t *testing.T) {
-	fake := newFakeClient()
-	bc := NewBucketClientWithClient(context.Background(), fake, "test-bucket")
-
-	// Seed an object via upload
-	fi := &FileInfo{}
-	fi.Bucket.VideoPath = "user123/videos/v2.mp4"
-	fi.Local.VideoBlob = []byte{9, 9, 9}
-	_, err := bc.UploadVideo(fi)
-	require.NoError(t, err)
-
-	// Delete it
-	err = bc.DeleteFile(fi.Bucket.VideoPath)
-	require.NoError(t, err)
-
-	// Verify it no longer exists
-	_, ok := fake.buckets["test-bucket"].objects[fi.Bucket.VideoPath]
-	require.False(t, ok)
-
-	// Delete again should error
-	err = bc.DeleteFile(fi.Bucket.VideoPath)
-	require.Error(t, err)
 }

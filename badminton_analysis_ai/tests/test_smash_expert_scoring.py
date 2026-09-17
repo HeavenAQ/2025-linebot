@@ -8,11 +8,16 @@ import pytest
 from badminton_analysis.ml.smash_expert_scoring import (
     SmashVariant,
     allocate_smash_total_to_weighted_criteria,
+    FEATURE_NAMES,
     extract_smash_evidence,
-    fit_smash_distribution,
     load_smash_distribution,
-    save_smash_distribution,
     score_smash_evidence,
+)
+
+SMASH_DISTRIBUTION = (
+    Path(__file__).resolve().parents[1]
+    / "models/error_isolated_motion/smash/checkpoint_scorer_v1"
+    / "expert_semantic_score_model.npz"
 )
 
 
@@ -34,10 +39,22 @@ def _smash_pose(*, complete: bool = True) -> np.ndarray:
     pose = np.zeros((64, 17, 2), dtype=np.float32)
     pose[:] = np.asarray(
         [
-            (0.0, 2.1), (-0.1, 2.15), (0.1, 2.15), (-0.2, 2.05),
-            (0.2, 2.05), (-0.4, 1.45), (0.4, 1.45), (-0.7, 0.9),
-            (0.7, 0.9), (-0.8, 0.35), (0.8, 0.35), (-0.3, 0.0),
-            (0.3, 0.0), (-0.3, -1.0), (0.3, -1.0), (-0.3, -2.0),
+            (0.0, 2.1),
+            (-0.1, 2.15),
+            (0.1, 2.15),
+            (-0.2, 2.05),
+            (0.2, 2.05),
+            (-0.4, 1.45),
+            (0.4, 1.45),
+            (-0.7, 0.9),
+            (0.7, 0.9),
+            (-0.8, 0.35),
+            (0.8, 0.35),
+            (-0.3, 0.0),
+            (0.3, 0.0),
+            (-0.3, -1.0),
+            (0.3, -1.0),
+            (-0.3, -2.0),
             (0.3, -2.0),
         ],
         dtype=np.float32,
@@ -58,16 +75,6 @@ def _smash_pose(*, complete: bool = True) -> np.ndarray:
     return pose
 
 
-def _variant() -> SmashVariant:
-    return SmashVariant(
-        name="test",
-        envelope_policy="identity_support",
-        decay=0.75,
-        aggregation="geometric",
-        checkpoint_profile="semantic_base",
-    )
-
-
 def test_smash_evidence_is_invariant_to_fixed_camera_similarity() -> None:
     pose = _smash_pose()
     confidence = np.ones((64, 17), dtype=np.float32)
@@ -86,14 +93,7 @@ def test_smash_evidence_is_invariant_to_fixed_camera_similarity() -> None:
 
 def test_expert_only_distribution_scores_incomplete_phase_sequence_lower() -> None:
     confidence = np.ones((64, 17), dtype=np.float32)
-    experts = []
-    for scale in (0.95, 1.0, 1.05):
-        evidence, _ = extract_smash_evidence(scale * _smash_pose(), confidence)
-        experts.append(evidence)
-    distribution = fit_smash_distribution(
-        np.stack(experts), ("coach-a", "coach-b", "coach-c"),
-        policy="identity_support",
-    )
+    distribution, variant = load_smash_distribution(SMASH_DISTRIBUTION)
     valid_evidence, valid_reliability = extract_smash_evidence(
         _smash_pose(), confidence
     )
@@ -102,34 +102,27 @@ def test_expert_only_distribution_scores_incomplete_phase_sequence_lower() -> No
     )
 
     valid = score_smash_evidence(
-        valid_evidence, valid_reliability, distribution, _variant()
+        valid_evidence, valid_reliability, distribution, variant
     )
     incomplete = score_smash_evidence(
-        incomplete_evidence, incomplete_reliability, distribution, _variant()
+        incomplete_evidence, incomplete_reliability, distribution, variant
     )
 
     assert valid["total_score"] > incomplete["total_score"]
     assert valid["student_data_used_for_training_or_calibration"] is False
     elbow = next(
-        item for item in incomplete["criteria"]
+        item
+        for item in incomplete["criteria"]
         if item["rule_reference"] == "elbow_forward"
     )
     assert elbow["ratio"] < 1.0
 
 
-def test_smash_distribution_round_trip(tmp_path: Path) -> None:
-    confidence = np.ones((64, 17), dtype=np.float32)
-    evidence, _ = extract_smash_evidence(_smash_pose(), confidence)
-    distribution = fit_smash_distribution(
-        np.stack((evidence, evidence)), ("coach-a", "coach-b"),
-        policy="identity_support",
-    )
-    destination = tmp_path / "smash_distribution.npz"
+def test_frozen_smash_distribution_loads_expert_only_envelope() -> None:
+    distribution, variant = load_smash_distribution(SMASH_DISTRIBUTION)
 
-    save_smash_distribution(distribution, _variant(), destination)
-    loaded_distribution, loaded_variant = load_smash_distribution(destination)
-
-    np.testing.assert_allclose(loaded_distribution.lower, distribution.lower)
-    np.testing.assert_allclose(loaded_distribution.upper, distribution.upper)
-    np.testing.assert_allclose(loaded_distribution.scale, distribution.scale)
-    assert loaded_variant == _variant()
+    assert distribution.lower.shape == (len(FEATURE_NAMES),)
+    assert distribution.upper.shape == (len(FEATURE_NAMES),)
+    assert np.all(distribution.scale > 0.0)
+    assert isinstance(variant, SmashVariant)
+    assert variant.aggregation == "geometric"

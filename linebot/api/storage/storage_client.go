@@ -108,7 +108,7 @@ func (c *BucketClient) UploadVideo(fileInfo *FileInfo) (*UploadedFile, error) {
 }
 
 func (c *BucketClient) UploadThumbnail(fileInfo *FileInfo) (*UploadedFile, error) {
-	// upload video thumbnail to google drive
+	// read the local thumbnail and upload it to Cloud Storage
 	thumbnailData, err := os.ReadFile(fileInfo.Local.ThumbnailPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read thumbnail file: %w", err)
@@ -137,14 +137,4 @@ func (c *BucketClient) UploadThumbnail(fileInfo *FileInfo) (*UploadedFile, error
 		Name: obj.ObjectName(),
 		Path: fileInfo.Bucket.ThumbnailPath,
 	}, nil
-}
-
-func (c *BucketClient) DeleteFile(filePath string) error {
-	bucket := c.client.Bucket(c.bucketName)
-	obj := bucket.Object(filePath)
-
-	if err := obj.Delete(c.ctx); err != nil {
-		return fmt.Errorf("failed to delete file %s: %w", filePath, err)
-	}
-	return nil
 }

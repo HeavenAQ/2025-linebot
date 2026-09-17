@@ -150,14 +150,6 @@ func (client *Client) ReplyMessage(
 	return res, nil
 }
 
-func (client *Client) SendTypeErrorReply(replyToken string) (*linebot.BasicResponse, error) {
-	res, err := client.bot.ReplyMessage(replyToken, linebot.NewTextMessage("抱歉，您所輸入的訊息格式目前並未支援，請重試一次！")).Do()
-	if err != nil {
-		return nil, fmt.Errorf("failed to reply message: %w", err)
-	}
-	return res, nil
-}
-
 func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse, error) {
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
@@ -250,23 +242,10 @@ func (client *Client) SendPortfolio(
 		return &NoPortfolioError{Skill: skill, Err: errors.New("No portfolio found")}
 	}
 
-	// generate carousels from works
-	carousels, err := client.getCarousels(works, skill.String(), showBtns)
-	if err != nil {
-		client.SendDefaultErrorReply(event.ReplyToken)
-		return errors.New("Error getting carousels: " + err.Error())
-	}
-
-	// turn carousels into sending messages
-	var sendMsgs []linebot.SendingMessage
-	sendMsgs = append(sendMsgs, linebot.NewTextMessage(textMsg))
-	for _, msg := range carousels {
-		sendMsgs = append(sendMsgs, msg)
-	}
-
-	_, err = client.bot.ReplyMessage(
+	_, err := client.bot.ReplyMessage(
 		event.ReplyToken,
-		sendMsgs...,
+		linebot.NewTextMessage(textMsg),
+		client.portfolioCarousel(works, skill.String(), showBtns),
 	).Do()
 	if err != nil {
 		client.SendDefaultErrorReply(event.ReplyToken)

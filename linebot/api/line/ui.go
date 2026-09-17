@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"slices"
 	"sort"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
@@ -216,17 +215,6 @@ func (client *Client) getCarouselItem(work db.Work, skill string, showBtns bool)
 	return item
 }
 
-func (client *Client) insertCarousel(carouselItems []*linebot.FlexMessage, items []*linebot.BubbleContainer) []*linebot.FlexMessage {
-	return append(carouselItems,
-		linebot.NewFlexMessage("portfolio",
-			&linebot.CarouselContainer{
-				Type:     "carousel",
-				Contents: items,
-			},
-		),
-	)
-}
-
 func (client *Client) sortWorks(works map[string]db.Work) []db.Work {
 	workValues := maps.Values(works)
 	sort.Slice(workValues, func(i, j int) bool {
@@ -255,28 +243,14 @@ func (client *Client) latestPortfolioWorks(works map[string]db.Work) []db.Work {
 	return sortedWorks
 }
 
-func (client *Client) getCarousels(works map[string]db.Work, skill string, showBtns bool) ([]*linebot.FlexMessage, error) {
+// portfolioCarousel shows the latest works as one Flex carousel; the work limit
+// keeps it within the ten bubbles LINE allows in a carousel.
+func (client *Client) portfolioCarousel(works map[string]db.Work, skill string, showBtns bool) *linebot.FlexMessage {
 	items := []*linebot.BubbleContainer{}
-	carouselItems := []*linebot.FlexMessage{}
-	sortedWorks := client.latestPortfolioWorks(works)
-	for _, work := range sortedWorks {
+	for _, work := range client.latestPortfolioWorks(works) {
 		items = append(items, client.getCarouselItem(work, skill, showBtns))
-
-		// since the carousel can only contain 10 items, we need to split the works into multiple carousels in order to display all of them
-		if len(items) == 10 {
-			carouselItems = client.insertCarousel(carouselItems, items)
-			items = []*linebot.BubbleContainer{}
-		}
 	}
-
-	// insert the last carousel
-	if len(items) > 0 {
-		carouselItems = client.insertCarousel(carouselItems, items)
-	}
-
-	// latest work will be displayed last
-	slices.Reverse(carouselItems)
-	return carouselItems, nil
+	return linebot.NewFlexMessage("portfolio", &linebot.CarouselContainer{Type: "carousel", Contents: items})
 }
 
 // PortfolioWorksForDisplay shares the card limit/order with media signing, so

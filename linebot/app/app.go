@@ -110,3 +110,17 @@ func NewApp(configPath string) *App {
 		AnalysisClient:  analysisClient,
 	}
 }
+
+// Close releases the long-lived clients during graceful shutdown.
+func (a *App) Close() {
+	if a.AnalysisClient != nil {
+		if err := a.AnalysisClient.Close(); err != nil {
+			a.Logger.Warn.Printf("close analysis client: %v", err)
+		}
+	}
+	if a.FirestoreClient != nil && a.FirestoreClient.Client != nil {
+		if err := a.FirestoreClient.Client.Close(); err != nil {
+			a.Logger.Warn.Printf("close firestore client: %v", err)
+		}
+	}
+}

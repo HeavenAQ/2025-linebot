@@ -13,7 +13,7 @@ import React, {
 import { Profile } from '@liff/get-profile'
 import { Liff } from '@line/liff'
 
-import { setExpiredTokenHandler, setIdTokenSource } from '@/lib/api/client'
+import { setExpiredTokenHandler, setTokenSources } from '@/lib/api/client'
 import ExperimentGate from '@/components/ExperimentGate'
 import { recoverLiffLogin } from '@/lib/liffRecovery'
 
@@ -82,7 +82,7 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           displayName: process.env.NEXT_PUBLIC_DEV_DISPLAY_NAME || '開發測試帳號'
         } as Profile)
         setLiff({ isLoggedIn: () => true, login: () => undefined } as unknown as Liff)
-        setIdTokenSource(() => devIdToken ?? null)
+        setTokenSources({ idToken: () => devIdToken ?? null, accessToken: () => null })
         initializedRef.current = true
         console.info('LIFF bypassed for local development; user:', devUserId)
         return
@@ -137,20 +137,30 @@ export const LiffProvider: FC<PropsWithChildren<{ liffId: string }>> = ({ childr
           console.warn('Failed to get LIFF profile:', e)
           setLiffError('無法確認 LINE 登入身分，請按下「重新登入 LINE」。')
         }
-        // Every backend call proves who is asking with this token, so hand over
-        // the getter rather than the string it returns right now.
-        setIdTokenSource(() => liff.getIDToken())
-        // getIDToken() needs the openid scope, and returns null without it. The
-        // backend then sees an anonymous caller and refuses everything, which
-        // looks like a login failure rather than a missing scope — so say which
-        // it is.
+        // Every backend call proves who is asking with one of these tokens, so
+        // hand over the getters rather than the strings they return right now.
+        // The ID token is sent while fresh; within a minute of its hourly
+        // expiry calls switch to the longer-lived access token.
+        setTokenSources({
+          idToken: () => liff.getIDToken(),
+          accessToken: () => liff.getAccessToken()
+        })
+        // getIDToken() needs the openid scope, and returns null without it.
+        // The access token still identifies the learner, but with neither the
+        // backend sees an anonymous caller and refuses everything, which looks
+        // like a login failure rather than a missing scope — so say which it is.
         if (!liff.getIDToken()) {
           console.warn('LIFF returned no ID token; the openid scope may not be granted')
-          setLiffError('LINE 未提供登入憑證，請確認 LIFF 應用已開啟 openid 權限。')
+          if (!liff.getAccessToken()) {
+            setLiffError('LINE 未提供登入憑證，請確認 LIFF 應用已開啟 openid 權限。')
+          }
         }
 
-        // A rejection does not prove expiry. Keep registration intact and
-        // offer explicit SDK reauthentication instead of a reload loop.
+        // The access token outlives the hour-long ID token, but it expires too,
+        // and LIFF refreshes neither. A rejection of the credential we hold does
+        // not prove expiry either, so nothing logs the learner back in here:
+        // registration stays intact and the gate offers explicit SDK
+        // reauthentication instead of a reload loop.
         setExpiredTokenHandler(() => setSessionExpired(true))
 
         setLiff(liff)

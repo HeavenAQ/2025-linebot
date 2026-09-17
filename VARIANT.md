@@ -1,14 +1,25 @@
-# The no-AI variant
+# The no-LLM variant
 
-`variant/no-ai` is the badminton coaching product with every large-language-model
+`variant/no-llm` is the badminton coaching product with every large-language-model
 layer removed, so it can run beside the original and be compared against it.
+It is not an "AI-free" product: every non-LLM model -- pose estimation, the EIMD
+diffusion correction, grading, checkpoints and expert matching -- is kept. Apart
+from the coaching guidance, the two products are meant to behave the same, so
+`main`'s non-LLM improvements are merged into this branch as they land.
+
+(The branch and its workflows used to carry a "no-AI" name. Cloud resources
+created under that name -- the `nstc-linebot-2025-noai` service and image, the
+`nstc-linebot-2025-noai` GitHub environment, the `NOAI_*` secrets, the
+`nstc-2025-storage-noai` bucket, the `noai` storage prefix and the
+`2025-linebot-noai-env` secret -- keep their names; only the branch, the
+workflow files and the prose were renamed.)
 
 **Nothing has been provisioned.** No bucket, no Firestore database, no Cloud Run
 service, no Netlify site and no GitHub secret was created. Everything below is a
 command for you to run deliberately, once you have decided you want the resource
 and the bill that comes with it.
 
-**Never merge `variant/no-ai` into `main`.** It is a parallel product line.
+**Never merge `variant/no-llm` into `main`.** It is a parallel product line.
 
 ## Topology
 
@@ -45,14 +56,61 @@ Removed:
 
 | Area | Gone |
 |---|---|
-| Go | `api/gpt/` in full; the `ChattingWithGPT` state and its rich-menu, postback and quick-reply entries; chat history (`api/db/chat_history.go`) and `daily_summaries` (`api/db/daily_summary.go`); the weekly 課前預習 push (`app/weekly_preview.go`, `api/db/weekly_preview.go`, `PushWeeklyPreview`); `/api/chat/history`, `/api/chat/summarize` and `/api/preview/weekly`; `OPENAI_*` and `WEEKLY_PREVIEW_TOKEN` config; `gpt_conversation_ids` and `ai_note` on the user record; the 詢問AI建議 portfolio button |
+| Go | `api/gpt/` in full; the `ChattingWithGPT` state and its rich-menu, postback and quick-reply entries; chat history (`api/db/chat_history.go`) and `daily_summaries` (`api/db/daily_summary.go`); the score history that fed GPT prompts (`api/db/scores.go`); the weekly 課前預習 push and its on-demand 產生課前預習 button (`app/weekly_preview.go`, `api/db/weekly_preview.go`, `PushWeeklyPreview`, `ReplyWeeklyPreview`, `WeeklyPreviewPostback`); `/api/chat/history`, `/api/chat/summarize` and `/api/preview/weekly`, and with them `main`'s per-learner summary rate limiter; `OPENAI_*` and `WEEKLY_PREVIEW_TOKEN` config; `gpt_conversation_ids`, `ai_note` and `coaching_cues` on the user record and on `/api/db/playback`; the 詢問AI建議 portfolio button |
 | Python | Nothing. `badminton_analysis_ai/` is identical to `main`; the coaching stage is switched off per deployment by `ANALYSIS_SKIP_COACHING` rather than deleted, so one GPU service serves both products |
-| Web app | `SkillSummary.tsx`, `useSkillSummary.ts`, the `gpt-chat` page and its menu entry; the chat-history panel in `WeeklyReview.tsx`; the coaching-cue markers, cue list and pause legend in `VideoComparison.tsx` |
+| Web app | `SkillSummary.tsx`, `useSkillSummary.ts`, the `gpt-chat` page and its menu entry; the AI summary on the personal page; the chat-history panel in `WeeklyReview.tsx`; the coaching-cue markers, cue list, pause intervals and pause legend in `VideoComparison.tsx`, whose captions show only the current technical checkpoint; `CoachingCue` in the schemas |
 
-Kept, deliberately: uploads, grading and the score charts, the checkpoint
-timeline, the expert comparison with checkpoint alignment and segmental warping,
-weekly reflections, stats, the portfolio carousel, and both `student_video` and
-`skeleton_overlay_video` fields on the response.
+Kept, deliberately: uploads, grading and the score charts (including `main`'s
+scrollable daily-best trend), the checkpoint timeline and checkpoint loops, the
+expert comparison with checkpoint alignment, weekly reflections and the
+student's own 課前檢視要點, stats, the portfolio carousel, experiment
+registration, and both `student_video` and `skeleton_overlay_video` fields on the
+response.
+
+## Shared with `main`
+
+Everything that is not an LLM feature comes across from `main` unchanged apart
+from the variant's configuration:
+
+- **Queue-only uploads.** A LINE video is stored, a durable Firestore job and a
+  pending portfolio entry are written in one transaction, and a named Cloud Task
+  runs the analysis on `/internal/analysis/task`. There is no synchronous upload
+  fallback any more: without `ANALYSIS_TASKS_QUEUE`, or with
+  `ANALYSIS_ASYNC_ACCEPT=false`, the bot refuses the upload before downloading
+  it. The variant's queue is `analysis-no-llm` and its outbox scheduler is
+  `analysis-no-llm-outbox` (`scripts/configure_async_analysis.sh`).
+- **Class statistics aggregates.** A completed job adds its grade to a per-skill,
+  per-day aggregate in the same transaction that finishes it, and the class chart
+  reads those instead of scanning every portfolio. Cloud Scheduler job
+  `class-stats-no-llm-rebuild` calls `/internal/stats/rebuild` nightly (03:30
+  Asia/Taipei) to correct drift; like the other `/internal/*` routes it accepts
+  only the task service account's OIDC token.
+- **Structured logs and tracing** (`api/obs`). Every request gets a request ID
+  (echoed as `X-Request-Id`) and joins the caller's Cloud Trace; both travel to
+  the analysis service as gRPC metadata, so one learner's attempt can be followed
+  across the bot and the GPU service. `scripts/configure_observability.sh`
+  creates the log-based metrics.
+- **Learner API protection.** LIFF ID tokens are verified locally against LINE's
+  ES256 keys; once the hour-long ID token is about to expire the web app sends
+  the LIFF access token in `X-Line-Access-Token` instead, which LINE verifies
+  remotely. CORS allows that header and exposes `Retry-After` and
+  `X-Request-Id`. Per-instance rate limits apply per client IP, per failed
+  authentication and per learner (HTTP 429 with `Retry-After`, shown to the
+  learner as a wait message), and learner request bodies are capped at 64 KB.
+  The variant keeps its own recovery flow: a rejected credential offers an
+  explicit 重新登入 LINE button and never asks for registration again.
+- **Graceful shutdown and a non-root image.** The bot drains in-flight requests
+  on SIGTERM and runs as an unprivileged user.
+- **Web app security headers.** `npm run build` writes Netlify's `out/_headers`
+  with a CSP whose `connect-src` is `NEXT_PUBLIC_BACKEND_BASE_URL`, so the build
+  must be given the variant's own bot URL. Playback signed URLs are re-signed in
+  place before they expire, keeping the learner's position.
+
+What stays variant-specific in that shared code: the CORS origin is derived from
+`LIFF_REVIEW_URL` rather than hard-coded; thumbnails live under
+`no-ai/analyses/thumbnail`; `LIFF_REVIEW_URL` and `GCP_ENV_SECRET_NAME` have no
+defaults; the rich menu is split (below); and no route, limiter or schema field
+exists for chat, summaries or coaching cues.
 
 The rich menu differs too. `main` keeps one **預習及反思** entry whose card offers
 both the review page and a GPT-written 課前預習 note on demand. This variant has
@@ -287,20 +345,23 @@ variant's CD workflows use an environment named `nstc-linebot-2025-noai`.
 
 ## CD
 
-Three workflows are added, all firing only on `variant/no-ai` and each with the
+Three workflows are added, all firing only on `variant/no-llm` and each with the
 narrowest path filter that can change what it deploys:
 
-- `.github/workflows/ci-noai.yml` — build, vet, tests, `staticcheck -checks U1000`,
-  a check that refuses a reintroduced `openai`/`gpt` reference in variant-owned
-  code, and a check that the deploy still sets `ANALYSIS_SKIP_COACHING=true`.
-- `.github/workflows/cd-linebot-noai.yml` — `linebot/**`; Cloud Run service
+- `.github/workflows/ci-no-llm.yml` — build, vet, tests, `staticcheck -checks U1000`,
+  the web app's tests and build (against a placeholder backend origin, checking
+  that `out/_headers` names it), a check that refuses a reintroduced
+  `openai`/`gpt` reference in variant-owned code, and a check that the deploy
+  still sets `ANALYSIS_SKIP_COACHING=true`.
+- `.github/workflows/cd-linebot-no-llm.yml` — `linebot/**`; Cloud Run service
   `nstc-linebot-2025-noai`, image `gcr.io/<project>/nstc-linebot-2025-noai`. After
   deploying it reads the running revision's env back and fails unless
   `ANALYSIS_SKIP_COACHING` is `true`, `GCP_ENV_SECRET_NAME` is not production's,
   and the bucket and database names inside that secret are the variant's own.
-- `.github/workflows/cd-liff-noai.yml` — `liff/**`; Netlify site
-  `NOAI_NETLIFY_SITE_ID`, and it refuses to ship a build that has production's bot
-  URL compiled into it.
+- `.github/workflows/cd-liff-no-llm.yml` — `liff/**`; Netlify site
+  `NOAI_NETLIFY_SITE_ID`. It runs the web app's tests, and refuses to ship a build
+  that has production's bot URL compiled into it or written into the
+  `out/_headers` CSP, which must name `NOAI_BACKEND_BASE_URL`.
 
 No GPU deploy workflow is added: the analysis service is shared, so the variant
 has nothing to build or deploy there. `cd-motion-analysis.yml` stays production's
@@ -320,8 +381,9 @@ cd linebot && go build ./... && go vet ./... && go test ./...
 cd linebot && PATH="$PATH:$(go env GOPATH)/bin" staticcheck -checks 'U1000' ./...
 cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -m pytest -q tests
 cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -c "import service.server"
-cd liff && npx tsc --noEmit    # three pre-existing TS5097 errors are expected
-cd liff && npm test && npm run build
+cd liff && npx tsc --noEmit
+cd liff && npm test
+cd liff && NEXT_PUBLIC_BACKEND_BASE_URL=https://<variant bot> npm run build   # writes out/_headers
 
 # Variant-owned code carries no LLM reference. badminton_analysis_ai/ and the
 # generated stubs under api/analysis/v1 are the shared contract and do, correctly.

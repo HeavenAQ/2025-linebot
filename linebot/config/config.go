@@ -18,22 +18,17 @@ type LineConfig struct {
 }
 
 type GCPConfig struct {
-	ProjectID   string `env:"GCP_PROJECT_ID"`
-	Credentials string `env:"GCP_CREDENTIALS"`
+	ProjectID string `env:"GCP_PROJECT_ID"`
 	// ServiceAccountEmail names the signer for playback URLs. On Cloud Run the
 	// metadata credentials carry no private key, so signing goes through IAM
 	// and needs to be told which account it is signing as.
 	ServiceAccountEmail string `env:"GCP_SERVICE_ACCOUNT_EMAIL"`
 	Storage             StorageConfig
-	Secrets             SecretManagerConfig
 	Database            FirestoreConfig
 }
 
 type StorageConfig struct {
 	BucketName string `env:"GCS_BUCKET_NAME"`
-}
-type SecretManagerConfig struct {
-	SecretVersion string `env:"GCP_SECRET_VERSION"`
 }
 
 type FirestoreConfig struct {
@@ -93,9 +88,7 @@ func (c *Config) isConfigEmpty() bool {
 		c.Line.ChannelSecret == "" &&
 		c.Line.ChannelToken == "" &&
 		c.GCP.ProjectID == "" &&
-		c.GCP.Credentials == "" &&
 		c.GCP.Storage.BucketName == "" &&
-		c.GCP.Secrets.SecretVersion == "" &&
 		c.GCP.Database.DataDB == "" &&
 		c.GCP.Database.SessionDB == "" &&
 		c.AnalysisServer.Target == "" &&

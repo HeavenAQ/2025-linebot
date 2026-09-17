@@ -108,7 +108,7 @@ func TestVerifiedTokensAreCachedButNotPastTheirExpiry(t *testing.T) {
 
 	// An entry past its expiry is discarded rather than served.
 	v.mu.Lock()
-	v.cache["token-abc"] = cacheEntry{subject: "U1234", expiresAt: time.Now().Add(-time.Second)}
+	v.cache[cacheKey("id", "token-abc")] = cacheEntry{subject: "U1234", expiresAt: time.Now().Add(-time.Second)}
 	v.mu.Unlock()
 	_, err := v.UserID(context.Background(), "token-abc")
 	require.NoError(t, err)

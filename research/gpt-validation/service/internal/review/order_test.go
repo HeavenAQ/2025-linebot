@@ -53,10 +53,12 @@ func TestItemListOrderAndFiltering(t *testing.T) {
 	ineligible.Eligible = false
 	ineligible.CoachingSource = "deterministic_fallback"
 	staleFlag := testItem("serve-stale", 0)
-	staleFlag.CoachingSource = "score_gate" // eligible flag true but definition says no
+	staleFlag.CoachingSource = "deterministic_fallback" // eligible flag true but definition says no
+	scoreGate := testItem("smash-gate", 0)
+	scoreGate.CoachingSource = "score_gate" // no cues, but experts still review it
 	otherBatch := testItem("serve-other", 1)
 	otherBatch.BatchID = "another-batch"
-	env := newTestEnv(t, testItem("serve-a", 1), testItem("serve-b", 2), testItem("smash-c", 0), ineligible, staleFlag, otherBatch)
+	env := newTestEnv(t, testItem("serve-a", 1), testItem("serve-b", 2), testItem("smash-c", 0), ineligible, staleFlag, otherBatch, scoreGate)
 
 	rec := env.do("GET", "/api/items", "code-alpha-1234", nil)
 	if rec.Code != 200 {
@@ -68,6 +70,9 @@ func TestItemListOrderAndFiltering(t *testing.T) {
 		if contains(body, hidden) {
 			t.Errorf("list includes %s", hidden)
 		}
+	}
+	if !contains(body, "smash-gate") {
+		t.Error("list omits the score-gated item experts must still review")
 	}
 	var got struct {
 		Items []ItemSummary `json:"items"`

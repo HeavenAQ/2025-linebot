@@ -729,7 +729,7 @@ def filter_items(
         "excluded_by_any_reason": dict(sorted(any_reason.items())),
         "not_eligible_breakdown": dict(sorted(ne_breakdown.items())),
         "reason_legend": {
-            "not_eligible": "items.csv eligible is not true (failed, or coaching not from OpenAI)",
+            "not_eligible": "items.csv eligible is not true (failed, or fallback coaching written without GPT)",
             "not_rated_by": "no overall.csv row for that expert",
             "not_completed_by": "overall.csv completed is not true",
             "invalid_overall_score": "completed but overall_score is not an integer 0-3",

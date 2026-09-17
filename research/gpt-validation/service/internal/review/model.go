@@ -74,11 +74,16 @@ type Item struct {
 	Media              map[string]string
 }
 
+// ReviewableCoachingSources are the coaching outcomes experts rate: GPT's own
+// feedback, and the score gate's "no issues found" (so experts can judge
+// whether staying silent was right). Fallback text written without GPT is not.
+var ReviewableCoachingSources = map[string]bool{"openai": true, "score_gate": true}
+
 // ServableTo reports whether experts may see this item in batchID. The stored
 // eligible flag is re-checked against its definition so a stale flag can never
 // expose a fallback or failed item.
 func (it Item) ServableTo(batchID string) bool {
-	return it.BatchID == batchID && it.Eligible && it.Status == "ready" && it.CoachingSource == "openai"
+	return it.BatchID == batchID && it.Eligible && it.Status == "ready" && ReviewableCoachingSources[it.CoachingSource]
 }
 
 // CriterionIDs lists rubric ids in rubric order.

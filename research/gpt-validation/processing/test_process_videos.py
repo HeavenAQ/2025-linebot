@@ -131,9 +131,9 @@ def test_build_item_matches_the_design_schema() -> None:
     assert item["gpt_flagged_criteria"] == ["wrist_flick"]
 
 
-def test_only_real_gpt_output_is_eligible() -> None:
+def test_gpt_feedback_and_score_gate_are_eligible_but_fallback_is_not() -> None:
     assert _item(coaching_source="deterministic_fallback")["eligible"] is False
-    assert _item(coaching_source="score_gate", problems=[])["eligible"] is False
+    assert _item(coaching_source="score_gate", problems=[])["eligible"] is True
 
 
 def test_build_item_rejects_mismatched_rubric_or_unknown_cue_criterion() -> None:

@@ -35,7 +35,9 @@ uv run --no-project --with pandas --with numpy --with pytest pytest -q
 
 An item is included only when **all** of these hold:
 
-1. `items.csv` `eligible` is true (status `ready`, coaching from OpenAI).
+1. `items.csv` `eligible` is true (status `ready`, coaching from OpenAI or the
+   score gate; score-gated items have no cues, so they add criterion and
+   overall ratings only).
 2. Each of the two experts has an `overall.csv` row with `completed` true and
    an integer `overall_score` from 0 to 3.
 3. Each expert has a 0/1 step-1 answer for every criterion listed for that

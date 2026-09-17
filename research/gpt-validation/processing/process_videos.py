@@ -106,8 +106,12 @@ def display_codes(videos: Iterable[InputVideo]) -> dict[str, str]:
     return codes
 
 
-# Coaching sources that mean GPT could not be reached. score_gate is a real
-# outcome (the swing needs no feedback) and stays ready but ineligible.
+# Coaching outcomes experts rate: GPT's feedback, and the score gate's "no
+# issues found", so experts can judge whether staying silent was right.
+REVIEWABLE_COACHING_SOURCES = frozenset({"openai", "score_gate"})
+
+# Coaching sources that mean GPT could not be reached, unlike score_gate,
+# which is a real outcome (the swing needs no feedback).
 RETRYABLE_COACHING_SOURCES = frozenset({"deterministic_fallback", "skipped"})
 
 
@@ -174,7 +178,7 @@ def build_item(
         "attempts": attempts,
         # Only real GPT output is under test: the rule-based fallback and the
         # score gate (no model call) are recorded but never shown to experts.
-        "eligible": coaching_source == "openai",
+        "eligible": coaching_source in REVIEWABLE_COACHING_SOURCES,
         "coaching_source": coaching_source,
         "coaching_model": coaching_model,
         "handedness": handedness,

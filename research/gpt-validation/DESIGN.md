@@ -65,7 +65,7 @@ Written by `processing/process_videos.py`.
 | `status` | string | `pending` · `processing` · `ready` · `failed` |
 | `error` | string | failure reason when `failed` |
 | `attempts` | int | processing attempts |
-| `eligible` | bool | `status == ready` and `coaching_source == "openai"` |
+| `eligible` | bool | `status == ready` and `coaching_source` is `openai` or `score_gate` (a score-gated item has no cues; experts still do step 1 and rate the overall message) |
 | `coaching_source` | string | `openai` · `deterministic_fallback` · `score_gate` |
 | `coaching_model` | string | e.g. `gpt-5.6-terra` |
 | `handedness` | string | `left` · `right` |

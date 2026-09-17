@@ -36,7 +36,7 @@ const DefaultModel = "gpt-5.6-terra"
 // requestTimeout bounds one attempt at an OpenAI call; maxRetries is how many
 // more attempts the SDK makes after a retryable failure.
 const (
-	requestTimeout = 45 * time.Second
+	requestTimeout = 2 * time.Minute
 	maxRetries     = 1
 )
 

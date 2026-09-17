@@ -309,8 +309,8 @@ pauses new uploads while queued jobs drain.
 - Per-instance rate limits cover each client IP, failed authentications per IP,
   each learner, and GPT summaries per learner; refusals return 429 with
   `Retry-After`. A global limit would belong at the edge (Cloud Armor).
-- OpenAI calls have explicit timeouts: 45 s with one retry in Go;
-  `OPENAI_TIMEOUT_SECONDS` (90) and `OPENAI_MAX_RETRIES` (1) in Python.
+- OpenAI calls have explicit timeouts: 2 minutes per attempt with one retry in
+  Go; `OPENAI_TIMEOUT_SECONDS` (120) and `OPENAI_MAX_RETRIES` (1) in Python.
 
 ## Running locally
 

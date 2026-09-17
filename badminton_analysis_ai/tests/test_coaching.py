@@ -539,7 +539,7 @@ def test_openai_client_gets_explicit_timeout_and_retries(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("OPENAI_MAX_RETRIES", raising=False)
 
-    assert CoachingGenerator().client.kwargs == {"timeout": 90.0, "max_retries": 1}
+    assert CoachingGenerator().client.kwargs == {"timeout": 120.0, "max_retries": 1}
 
     monkeypatch.setenv("OPENAI_TIMEOUT_SECONDS", "30")
     monkeypatch.setenv("OPENAI_MAX_RETRIES", "0")

@@ -533,9 +533,11 @@ func main() {
 
 	// HTTP server with timeouts
 	const (
-		DefaultReadTimeout  = 100 * time.Second
-		DefaultWriteTimeout = 100 * time.Second
-		DefaultIdleTimeout  = 120 * time.Second
+		DefaultReadTimeout = 100 * time.Second
+		// Longer than one OpenAI attempt (api/gpt requestTimeout, 2 minutes),
+		// so a slow summary is not cut off before OpenAI answers.
+		DefaultWriteTimeout = 150 * time.Second
+		DefaultIdleTimeout  = 180 * time.Second
 	)
 	srv := &http.Server{
 		Addr:         "0.0.0.0:" + application.Config.Port,

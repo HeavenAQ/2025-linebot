@@ -127,7 +127,7 @@ class CoachingGenerator:
         # each layer explicit and small: the SDK retries transient transport
         # errors, our loop retries schema/validation failures.
         self.client = OpenAI(
-            timeout=float(_env_int("OPENAI_TIMEOUT_SECONDS", 90, minimum=1)),
+            timeout=float(_env_int("OPENAI_TIMEOUT_SECONDS", 120, minimum=1)),
             max_retries=_env_int("OPENAI_MAX_RETRIES", 1, minimum=0),
         )
         self.model = model

@@ -54,24 +54,10 @@ func (app *App) handleThumbnailCreationError(err error, replyToken string) {
 	)(err, replyToken)
 }
 
-func (app *App) handleThumbnailUploadError(err error, replyToken string) {
-	app.handleLineError(
-		"Error uploading the thumbnail to Cloud Storage",
-		"Thumbnail has been uploaded to Cloud Storage successfully",
-	)(err, replyToken)
-}
-
 func (app *App) handleSendingReplyMessageError(err error, replyToken string) {
 	app.handleLineError(
 		"Failed to send reply messages through LINE",
 		"Reply messages has been sent",
-	)(err, replyToken)
-}
-
-func (app *App) handleUpdateUserPortfolioError(err error, replyToken string) {
-	app.handleLineError(
-		"Failed to update user portfolio",
-		"The user portfolio has been updated successfully",
 	)(err, replyToken)
 }
 

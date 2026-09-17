@@ -15,6 +15,7 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/analysis"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/obs"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	line "github.com/line/line-bot-sdk-go/v7/linebot"
@@ -122,7 +123,10 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid job", 400)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Minute)
+	started := time.Now()
+	// The job ID is the correlation ID: it names the learner's attempt in these
+	// logs and, through gRPC metadata, in the analysis service's logs.
+	ctx, cancel := context.WithTimeout(obs.WithRequestID(r.Context(), payload.JobID), 18*time.Minute)
 	defer cancel()
 	job, err := a.FirestoreClient.ClaimAnalysisJob(ctx, payload.JobID)
 	if err != nil {
@@ -145,8 +149,29 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, analysis.ErrSkillMismatch) {
 			failure = "影片動作與選擇的技術不符，請確認發球或殺球後重新上傳。"
 		}
-		a.Logger.Error.Printf("analysis job=%s attempt=%d retry=%t: %v", job.ID, job.Attempts, retry, err)
+		if errors.Is(err, analysis.ErrNoMatchingExpert) {
+			failure = "目前沒有同慣用手的專家影片可供比較，本次不會跨左右手評分。請聯絡教練新增同手別的專家資料。"
+		}
 	}
+	outcomeLabel, severity := "completed", obs.Info
+	switch {
+	case retry:
+		outcomeLabel, severity = "retry", obs.Warning
+	case err != nil:
+		outcomeLabel, severity = "failed", obs.Error
+	}
+	fields := map[string]any{
+		"job_id":           job.ID,
+		"skill":            job.Skill,
+		"attempt":          job.Attempts,
+		"outcome":          outcomeLabel,
+		"duration_seconds": time.Since(started).Seconds(),
+	}
+	if err != nil {
+		fields["error"] = err.Error()
+		fields["grpc_code"] = status.Code(err).String()
+	}
+	obs.Event(ctx, severity, "analysis job finished", fields)
 	// Persist even if the RPC's context expired, so the lease does not remain
 	// stuck. A failed persistence returns 503 and Cloud Tasks retries safely.
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -159,7 +184,28 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "retry analysis", 503)
 		return
 	}
-	a.Logger.Info.Printf("analysis job=%s completed=%t attempts=%d", job.ID, outcome != nil, job.Attempts)
+	w.WriteHeader(204)
+}
+
+// HandleClassStatsRebuild recomputes the class chart's aggregates from every
+// portfolio. Cloud Scheduler calls it nightly to correct any drift.
+func (a *App) HandleClassStatsRebuild(w http.ResponseWriter, r *http.Request) {
+	if !a.authorizeAnalysisTask(r) {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	started := time.Now()
+	count, err := a.FirestoreClient.RebuildClassStats(ctx)
+	if err != nil {
+		obs.Event(ctx, obs.Error, "class stats rebuild failed", map[string]any{"error": err})
+		http.Error(w, "rebuild failed", 503)
+		return
+	}
+	obs.Event(ctx, obs.Info, "class stats rebuilt", map[string]any{
+		"aggregates": count, "duration_seconds": time.Since(started).Seconds(),
+	})
 	w.WriteHeader(204)
 }
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	analysisv1 "github.com/HeavenAQ/nstc-linebot-2025/api/analysis/v1"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/obs"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/idtoken"
@@ -105,8 +106,18 @@ func identityTokens(audience string) (oauth2.TokenSource, error) {
 
 func (c *Client) Close() error { return c.connection.Close() }
 
+// authorizedContext attaches the API key and the caller's correlation IDs, so
+// the analysis service logs under the same request ID and Cloud Trace joins its
+// request span to this one.
 func (c *Client) authorizedContext(ctx context.Context) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, "x-api-key", c.apiKey)
+	pairs := []string{"x-api-key", c.apiKey}
+	if request, ok := obs.RequestFrom(ctx); ok && request.ID != "" {
+		pairs = append(pairs, "x-request-id", request.ID)
+	}
+	if trace := obs.OutgoingTraceHeader(ctx); trace != "" {
+		pairs = append(pairs, "x-cloud-trace-context", trace)
+	}
+	return metadata.AppendToOutgoingContext(ctx, pairs...)
 }
 
 func skillValue(skill string) (analysisv1.Skill, error) {

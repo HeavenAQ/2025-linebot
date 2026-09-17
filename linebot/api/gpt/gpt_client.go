@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/openai/openai-go/v3"
@@ -32,6 +33,13 @@ import (
 // change under the service without a deploy.
 const DefaultModel = "gpt-5.6-terra"
 
+// requestTimeout bounds one attempt at an OpenAI call; maxRetries is how many
+// more attempts the SDK makes after a retryable failure.
+const (
+	requestTimeout = 45 * time.Second
+	maxRetries     = 1
+)
+
 type Client struct {
 	Ctx    *context.Context
 	Client *openai.Client
@@ -45,6 +53,11 @@ func NewGPTClient(apiKey, model string) *Client {
 	}
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
+		// Every call here serves a waiting LINE reply or LIFF page, so fail
+		// in bounded time instead of the SDK's 10-minute default. One retry
+		// covers a transient error without stacking minutes of waits.
+		option.WithRequestTimeout(requestTimeout),
+		option.WithMaxRetries(maxRetries),
 	)
 
 	return &Client{

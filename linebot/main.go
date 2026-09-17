@@ -1,15 +1,21 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
-	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
-	"log"
+	"errors"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/auth"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/obs"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/ratelimit"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/app"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/gin-contrib/cors"
@@ -19,15 +25,55 @@ import (
 // recentScoreLimit caps how many graded attempts feed the learning summary.
 const recentScoreLimit = 5
 
-// authenticatedUserKey holds the LINE user ID proven by the caller's ID token.
+// authenticatedUserKey holds the LINE user ID proven by the caller's credential.
 const authenticatedUserKey = "authenticatedUserID"
+
+// maxLearnerRequestBody bounds learner API bodies; the largest legitimate one
+// is a 4 KB weekly reflection.
+const maxLearnerRequestBody = 64 << 10
+
+// Per-instance request budgets for the learner API (see api/ratelimit).
+//   - Per client IP: generous, because a whole classroom can share one campus
+//     NAT address while every open LIFF page polls pending analyses.
+//   - Failed authentications per IP: small, so a flood of forged credentials
+//     is refused before any verification work.
+//   - Per learner: a real user's page loads and polling fit well inside it.
+//   - Summaries per learner: each one can call OpenAI.
+var (
+	ipLimiter          = ratelimit.New(1800, 300)
+	authFailureLimiter = ratelimit.New(30, 20)
+	learnerLimiter     = ratelimit.New(240, 60)
+	summaryLimiter     = ratelimit.New(6, 3)
+)
+
+func tooManyRequests(c *gin.Context, limiter *ratelimit.Limiter, name string) {
+	obs.Event(c.Request.Context(), obs.Warning, "rate limited", map[string]any{
+		"limiter": name, "route": c.FullPath(), "client_ip": ratelimit.ClientIP(c.Request),
+	})
+	c.Header("Retry-After", limiter.RetryAfter())
+	c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "請求過於頻繁，請稍後再試。"})
+}
 
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	application := app.NewApp(".env")
+	obs.Configure(application.Config.GCP.ProjectID)
 
 	r := gin.New()
-	r.Use(gin.Recovery())
+	// Carry the front end's trace and a request ID through every handler, so
+	// structured logs and calls to the analysis service share one trace.
+	r.Use(func(c *gin.Context) {
+		request := obs.FromHeaders(c.GetHeader(obs.TraceHeader), c.GetHeader(obs.RequestIDHeader))
+		c.Request = c.Request.WithContext(obs.WithRequest(c.Request.Context(), request))
+		c.Header(obs.RequestIDHeader, request.ID)
+		c.Next()
+	})
+	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered any) {
+		obs.Event(c.Request.Context(), obs.Error, "panic recovered", map[string]any{
+			"panic": recovered, "route": c.FullPath(),
+		})
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}))
 
 	// Middleware for routing
 	r.Use(cors.New(cors.Config{
@@ -35,8 +81,9 @@ func main() {
 			"https://linebot-liff-nstc-2025.heavian.work",
 			"http://localhost:3000",
 		},
-		AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+		AllowMethods:  []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization", auth.AccessTokenHeader},
+		ExposeHeaders: []string{"Retry-After", obs.RequestIDHeader},
 	}))
 
 	// Routes
@@ -49,11 +96,13 @@ func main() {
 	r.POST("/internal/analysis/outbox", func(c *gin.Context) { application.HandleAnalysisOutbox(c.Writer, c.Request) })
 	r.POST("/internal/analysis/warmup", func(c *gin.Context) { application.HandleAnalysisWarmup(c.Writer, c.Request) })
 	r.POST("/internal/analysis/capacity", func(c *gin.Context) { application.HandleAnalysisCapacity(c.Writer, c.Request) })
+	r.POST("/internal/stats/rebuild", func(c *gin.Context) { application.HandleClassStatsRebuild(c.Writer, c.Request) })
 
 	// Every learner-facing route below identifies its caller from a verified
-	// LINE ID token. A user ID in a query string or body proves nothing --
-	// anyone can send anyone's -- so the ID comes from the token's subject and
-	// request-supplied IDs are only ever compared against it.
+	// LINE credential (ID token, or the LIFF access token once that expires).
+	// A user ID in a query string or body proves nothing -- anyone can send
+	// anyone's -- so the ID comes from the credential and request-supplied IDs
+	// are only ever compared against it.
 	verifier := auth.NewVerifier(application.Config.Line.LoginChannelID)
 	if verifier == nil {
 		application.Logger.Warn.Println(
@@ -65,10 +114,36 @@ func main() {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
 			return
 		}
-		userID, err := verifier.UserID(c.Request.Context(), auth.BearerToken(c.GetHeader("Authorization")))
+		clientIP := ratelimit.ClientIP(c.Request)
+		if !ipLimiter.Allow(clientIP) {
+			tooManyRequests(c, ipLimiter, "client_ip")
+			return
+		}
+		// An address that keeps presenting bad credentials is refused before
+		// any verification work is spent on it.
+		if authFailureLimiter.Exhausted(clientIP) {
+			tooManyRequests(c, authFailureLimiter, "auth_failures")
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxLearnerRequestBody)
+		userID, err := verifier.Authenticate(c.Request.Context(), c.Request)
 		if err != nil {
-			application.Logger.Warn.Printf("[auth] rejected a request: %v", err)
+			if !errors.Is(err, auth.ErrUnauthorized) {
+				// LINE unreachable is not the learner's fault; a 401 would tell
+				// the page its session expired.
+				obs.Event(c.Request.Context(), obs.Error, "authentication unavailable", map[string]any{"error": err})
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "暫時無法驗證登入，請稍後再試。"})
+				return
+			}
+			authFailureLimiter.Allow(clientIP)
+			obs.Event(c.Request.Context(), obs.Warning, "authentication rejected", map[string]any{
+				"error": err, "client_ip": clientIP, "route": c.FullPath(),
+			})
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		if !learnerLimiter.Allow(userID) {
+			tooManyRequests(c, learnerLimiter, "learner")
 			return
 		}
 		c.Set(authenticatedUserKey, userID)
@@ -116,6 +191,10 @@ func main() {
 		Skill   string `json:"skill"`
 	}
 	r.POST("/api/chat/summarize", requireLearner, func(c *gin.Context) {
+		if !summaryLimiter.Allow(learnerID(c)) {
+			tooManyRequests(c, summaryLimiter, "summary")
+			return
+		}
 		start := time.Now()
 		var req summarizeReq
 		if err := c.BindJSON(&req); err != nil || strings.TrimSpace(req.Skill) == "" {
@@ -466,8 +545,30 @@ func main() {
 		IdleTimeout:  DefaultIdleTimeout,
 	}
 
-	application.Logger.Info.Println("\n\tServer started on port " + application.Config.Port)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	// Cloud Run sends SIGTERM and allows 10 seconds before killing the
+	// instance: stop accepting requests, let in-flight ones finish, then close
+	// the clients. A queued analysis cut off here is retried by Cloud Tasks.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+	serverErrors := make(chan error, 1)
+	go func() {
+		application.Logger.Info.Println("Server started on port " + application.Config.Port)
+		serverErrors <- srv.ListenAndServe()
+	}()
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			application.Logger.Error.Printf("server stopped: %v", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		application.Logger.Info.Println("shutdown signal received; draining requests")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			application.Logger.Warn.Printf("graceful shutdown incomplete: %v", err)
+		}
+		application.Close()
+		application.Logger.Info.Println("shutdown complete")
 	}
 }

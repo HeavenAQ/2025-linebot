@@ -93,21 +93,6 @@ func (app *App) createUserSessionIfNotExist(userID string) *db.UserSession {
 	return session
 }
 
-func (app *App) getUserPortfolio(user *db.UserData, skill string) *map[string]db.Work {
-	var work map[string]db.Work
-	switch skill {
-	case "serve":
-		work = user.Portfolio.Serve
-	case "smash":
-		work = user.Portfolio.Smash
-	case "clear":
-		work = user.Portfolio.Clear
-	case "lift":
-		work = user.Portfolio.Lift
-	}
-	return &work
-}
-
 func (app *App) getUserGPTConversation(user *db.UserData, skill string) string {
 	switch skill {
 	case "serve":

@@ -103,6 +103,19 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		if current.Attempts != job.Attempts {
 			return fmt.Errorf("analysis lease superseded")
 		}
+		// A completed attempt joins the class aggregate in the same transaction,
+		// so a retried finish can never count it twice.
+		var statRef *firestore.DocumentRef
+		var stat ClassStat
+		if outcome != nil {
+			day, err := workDay(job.WorkDate)
+			if err != nil {
+				return err
+			}
+			if statRef, stat, err = c.readClassStat(tx, job.Skill, day); err != nil {
+				return err
+			}
+		}
 		state := "failed"
 		if retry {
 			state = "queued"
@@ -118,6 +131,11 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		}
 		values := map[string]any{"analysis_status": state, "analysis_error": failure}
 		if outcome != nil {
+			stat.Add(outcome.Grade.TotalGrade)
+			stat.UpdatedAt = time.Now()
+			if err := tx.Set(statRef, stat); err != nil {
+				return err
+			}
 			values["analysis_id"] = outcome.AnalysisID
 			values["grading_outcome"] = outcome.Grade
 			values["student_video"] = outcome.StudentVideo

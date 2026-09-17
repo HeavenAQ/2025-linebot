@@ -106,6 +106,11 @@ def display_codes(videos: Iterable[InputVideo]) -> dict[str, str]:
     return codes
 
 
+# Coaching sources that mean GPT could not be reached. score_gate is a real
+# outcome (the swing needs no feedback) and stays ready but ineligible.
+RETRYABLE_COACHING_SOURCES = frozenset({"deterministic_fallback", "skipped"})
+
+
 def should_process(existing: dict[str, Any] | None, *, force: bool, max_attempts: int) -> bool:
     if existing is None or force:
         return True
@@ -320,6 +325,25 @@ def _analyze(pipeline: Any, video: Path, feedback: Path, overlay: Path, filename
     )
 
 
+def release_memory() -> None:
+    """Return one video's frames and GPU buffers before the next.
+
+    A 1080p clip decodes to over a gigabyte of frames, and MPS keeps its
+    allocations cached, so a long run on a 16 GB Mac otherwise grows until the
+    OS kills it.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+    except Exception:  # noqa: BLE001 - freeing memory is best effort
+        pass
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -416,6 +440,22 @@ def main() -> int:
                 merge=True,
             )
             continue
+        finally:
+            release_memory()
+        if item["coaching_source"] in RETRYABLE_COACHING_SOURCES:
+            # GPT was unreachable (out of credits, rate limited, down), not
+            # judged unnecessary. Keep the item out of the study and stop, so
+            # the remaining videos are not spent on feedback nobody can rate.
+            LOGGER.error(
+                "coaching unavailable; stopping run",
+                extra={"json_fields": {"item_id": video.item_id, "coaching_source": item["coaching_source"]}},
+            )
+            reference.set(
+                {"status": "failed", "error": "coaching unavailable: GPT did not return feedback", "eligible": False, "attempts": 0, "updated_at": datetime.now(timezone.utc)},
+                merge=True,
+            )
+            failures += 1
+            break
         item["updated_at"] = datetime.now(timezone.utc)
         reference.set(item, merge=True)
         LOGGER.info(

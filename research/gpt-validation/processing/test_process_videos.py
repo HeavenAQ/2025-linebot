@@ -141,3 +141,10 @@ def test_build_item_rejects_mismatched_rubric_or_unknown_cue_criterion() -> None
         _item(rules=RULES[:1])
     with pytest.raises(ValueError):
         _item(problems=[{"rule_reference": "made_up", "title": "", "feedback": ""}])
+
+
+def test_only_unreachable_gpt_is_retried() -> None:
+    assert "deterministic_fallback" in process.RETRYABLE_COACHING_SOURCES
+    assert "skipped" in process.RETRYABLE_COACHING_SOURCES
+    assert "score_gate" not in process.RETRYABLE_COACHING_SOURCES
+    assert "openai" not in process.RETRYABLE_COACHING_SOURCES

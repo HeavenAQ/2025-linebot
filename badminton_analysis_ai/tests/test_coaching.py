@@ -527,3 +527,38 @@ def test_generate_falls_back_when_llm_rule_is_not_in_skill_spec(
     assert payload["response_id"] == ""
     assert payload["fallback_error"] == "KeyError"
     assert payload["analysis"]["problems"][0]["rule_reference"] == spec.rules[0].id
+
+
+class _RecordingOpenAI:
+    def __init__(self, **kwargs) -> None:
+        self.kwargs = kwargs
+
+
+def test_openai_client_gets_explicit_timeout_and_retries(monkeypatch) -> None:
+    monkeypatch.setattr(coaching_module, "OpenAI", _RecordingOpenAI)
+    monkeypatch.delenv("OPENAI_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("OPENAI_MAX_RETRIES", raising=False)
+
+    assert CoachingGenerator().client.kwargs == {"timeout": 90.0, "max_retries": 1}
+
+    monkeypatch.setenv("OPENAI_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("OPENAI_MAX_RETRIES", "0")
+    assert CoachingGenerator().client.kwargs == {"timeout": 30.0, "max_retries": 0}
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OPENAI_TIMEOUT_SECONDS", "0"),
+        ("OPENAI_TIMEOUT_SECONDS", "-5"),
+        ("OPENAI_TIMEOUT_SECONDS", "1.5"),
+        ("OPENAI_MAX_RETRIES", "-1"),
+        ("OPENAI_MAX_RETRIES", "many"),
+    ],
+)
+def test_invalid_openai_client_settings_fail_fast(monkeypatch, name, value) -> None:
+    monkeypatch.setattr(coaching_module, "OpenAI", _RecordingOpenAI)
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        CoachingGenerator()

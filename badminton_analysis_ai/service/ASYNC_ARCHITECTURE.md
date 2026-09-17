@@ -39,9 +39,11 @@ queue allows two in-flight tasks. Adaptive queue-based tuning is not enabled.
 
 ## Configuration and operation
 
-- `ANALYSIS_TASKS_QUEUE`: full queue resource; empty retains synchronous fallback.
-- `ANALYSIS_ASYNC_ACCEPT`: explicitly enable queued learner uploads after smoke
-  tests; defaults false. Workers remain available to drain when this is false.
+- `ANALYSIS_TASKS_QUEUE`: full queue resource. There is no synchronous
+  fallback: without a queue, uploads are refused with a "try again later" reply.
+- `ANALYSIS_ASYNC_ACCEPT`: accepts new learner uploads; defaults false. Setting
+  it false pauses uploads (learners are told to retry later) while workers keep
+  draining already-queued jobs.
 - `ANALYSIS_WORKER_URL`: canonical Go service URL (OIDC audience).
 - `ANALYSIS_TASK_SERVICE_ACCOUNT`: exact accepted service-account identity.
 - The internal worker, outbox, warmup and capacity routes verify Google OIDC,
@@ -53,8 +55,11 @@ queue allows two in-flight tasks. Adaptive queue-based tuning is not enabled.
   at **13:50/13:55** and every ten minutes during class, min instances 0 at
   **18:10**. A warmup executes pose inference, not just a health ping. Reserved
   GPU time is billable. Scale-to-zero remains available outside this window.
-- Disable new async acceptance by setting `ANALYSIS_ASYNC_ACCEPT=false`; keep
-  queue configuration until all accepted tasks have drained.
+- Pause new uploads by setting `ANALYSIS_ASYNC_ACCEPT=false`; keep queue
+  configuration until all accepted tasks have drained.
+- Completing a job also updates the per-skill, per-day class chart aggregate
+  (`<data>_class_stats`) in the same transaction; `class-stats-<variant>-rebuild`
+  recomputes them nightly at 03:30.
 - Existing model weights, 8 candidates, seed 19, EIMD-v3 contract, projection,
   grading and coaching prompts are unchanged. Validate serial/concurrent grades
   and both variant task paths before enabling queue config in production.

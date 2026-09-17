@@ -742,6 +742,10 @@ class SkeletonAnalysisPipeline:
                 # Whether the compiled TensorRT engine served this run, as
                 # opposed to falling back to PyTorch.
                 "pose_tensorrt_active": float(self.pose_detector.tensorrt_active),
+                # Which path wrote the feedback (openai, deterministic_fallback,
+                # score_gate, or skipped). A string, so it reaches the service
+                # log but not the numeric diagnostics in the response.
+                "coaching_source": str(coaching_payload.get("source", "skipped")),
             }
         )
 

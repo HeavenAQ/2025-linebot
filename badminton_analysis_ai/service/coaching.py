@@ -108,9 +108,28 @@ def _response_retry_input(
     ]
 
 
+def _env_int(name: str, default: int, *, minimum: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from None
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+    return value
+
+
 class CoachingGenerator:
     def __init__(self, model: str = "gpt-5.6-terra") -> None:
-        self.client = OpenAI()
+        # The SDK defaults (600 s per request, 2 internal retries) nest inside
+        # our own OPENAI_COACHING_ATTEMPTS loop, so one stuck call could hold
+        # an analysis for up to attempts x (max_retries + 1) x timeout. Keep
+        # each layer explicit and small: the SDK retries transient transport
+        # errors, our loop retries schema/validation failures.
+        self.client = OpenAI(
+            timeout=float(_env_int("OPENAI_TIMEOUT_SECONDS", 90, minimum=1)),
+            max_retries=_env_int("OPENAI_MAX_RETRIES", 1, minimum=0),
+        )
         self.model = model
         self.max_attempts = max(1, int(os.getenv("OPENAI_COACHING_ATTEMPTS", "2")))
 

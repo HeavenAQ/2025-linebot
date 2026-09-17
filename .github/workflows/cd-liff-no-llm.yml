@@ -50,7 +50,10 @@ jobs:
       - name: Verify the security headers allow only the variant's backend
         run: |
           test -f out/_headers
-          grep -q --fixed-strings "connect-src 'self' ${NEXT_PUBLIC_BACKEND_BASE_URL} " out/_headers
+          # The CSP names the backend's origin, so compare origins: a trailing
+          # slash or path on the secret must not fail a correct build.
+          origin="$(node -e 'console.log(new URL(process.env.NEXT_PUBLIC_BACKEND_BASE_URL).origin)')"
+          grep -q --fixed-strings "connect-src 'self' ${origin} " out/_headers
           ! grep --fixed-strings 'nstc-linebot-2025-bfn4xpszya-de.a.run.app' out/_headers
 
       - name: Deploy the variant's LIFF site

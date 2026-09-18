@@ -9,16 +9,14 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/conversations"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared"
 )
 
 // Flow for sending requests using the Responses API:
-// 1. Create a conversation once and store its ID.
-// 2. For each user message, call Responses.New with the conversation ID and prompt.
+// 1. Load the learner's stored turns for this skill from Firestore.
+// 2. Call Responses.New with those turns plus the new message as the input.
 // 3. Read the generated text directly from the returned Response.
 
 // DefaultModel is what every request runs on unless OPENAI_MODEL says
@@ -94,13 +92,22 @@ type HistoryMessage struct {
 	Text string `json:"text"`
 }
 
+// historyWindow is how many stored turns travel with a request. Long enough
+// to follow a conversation, short enough to keep each reply cheap.
+const historyWindow = 12
+
+func recentHistory(history []HistoryMessage) []HistoryMessage {
+	if len(history) > historyWindow {
+		return history[len(history)-historyWindow:]
+	}
+	return history
+}
+
 func (client *Client) RewriteQuery(history []HistoryMessage, query string) (string, error) {
 	if len(history) == 0 {
 		return query, nil
 	}
-	if len(history) > 12 {
-		history = history[len(history)-12:]
-	}
+	history = recentHistory(history)
 	payload, err := json.Marshal(struct {
 		History []HistoryMessage `json:"history"`
 		Query   string           `json:"query"`
@@ -115,7 +122,7 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 			OfString: param.Opt[string]{Value: string(payload)},
 		},
 		MaxOutputTokens: param.Opt[int64]{Value: 300},
-		Store:           param.Opt[bool]{Value: false},
+		Store:           param.NewOpt(false),
 	}
 	resp, err := client.Client.Responses.New(*client.Ctx, req)
 	if err != nil {
@@ -128,28 +135,20 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 	return rewritten, nil
 }
 
-func (client *Client) CreateConversation() (*conversations.Conversation, error) {
-	conversationReq := conversations.ConversationNewParams{
-		Items:    []responses.ResponseInputItemUnionParam{},
-		Metadata: shared.Metadata{},
-	}
-
-	conversation, err := client.Client.Conversations.New(*client.Ctx, conversationReq)
-	if err != nil {
-		return nil, fmt.Errorf("error creating conversation: %w", err)
-	}
-	return conversation, nil
-}
-
-// AddMessageToConversation sends a learner's question through their skill
-// conversation and returns the coach's reply.
+// Coach answers a learner's question as their badminton coach.
+//
+// The conversation lives in Firestore, not at OpenAI: the caller passes the
+// stored turns for this skill and they are sent as the request's input. An
+// OpenAI conversation would be a second copy of the same history, billed on
+// every reply and tied to the account behind the API key -- rotating the key
+// stranded every stored conversation ID and broke chat for everyone.
 //
 // The recent grades ride along with the question. Without them the coach has
 // nothing to evaluate and falls back on asking the learner what they have been
 // practising, which is a poor answer to "how am I doing" when the scores are
 // sitting in Firestore.
-func (client *Client) AddMessageToConversation(
-	conversationID, message, skillChn string, scores []commons.SkillScore,
+func (client *Client) Coach(
+	history []HistoryMessage, message, skillChn string, scores []commons.SkillScore,
 ) (string, error) {
 	var input strings.Builder
 	// Name the stroke. Each skill has its own conversation, but a fresh one
@@ -166,19 +165,21 @@ func (client *Client) AddMessageToConversation(
 	}
 	input.WriteString(message)
 
+	items := responses.ResponseInputParam{}
+	for _, turn := range recentHistory(history) {
+		role := responses.EasyInputMessageRoleUser
+		if turn.Role == "assistant" {
+			role = responses.EasyInputMessageRoleAssistant
+		}
+		items = append(items, responses.ResponseInputItemParamOfMessage(turn.Text, role))
+	}
+	items = append(items, responses.ResponseInputItemParamOfMessage(input.String(), responses.EasyInputMessageRoleUser))
+
 	req := responses.ResponseNewParams{
 		Model:        client.Model,
 		Instructions: param.Opt[string]{Value: coachInstruction},
-		Input: responses.ResponseNewParamsInputUnion{
-			OfString: param.Opt[string]{
-				Value: input.String(),
-			},
-		},
-		Conversation: responses.ResponseNewParamsConversationUnion{
-			OfString: param.Opt[string]{
-				Value: conversationID,
-			},
-		},
+		Input:        responses.ResponseNewParamsInputUnion{OfInputItemList: items},
+		Store:        param.NewOpt(false),
 	}
 
 	resp, err := client.Client.Responses.New(*client.Ctx, req)

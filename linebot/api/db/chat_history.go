@@ -12,11 +12,10 @@ import (
 
 // ChatMessage represents a single chat turn message
 type ChatMessage struct {
-	Role           string    `json:"role" firestore:"role"`                       // "user" or "assistant"
-	Text           string    `json:"text" firestore:"text"`                       // message text
-	Skill          string    `json:"skill" firestore:"skill"`                     // skill context, e.g., serve/smash/clear
-	ConversationID string    `json:"conversation_id" firestore:"conversation_id"` // optional conversation id
-	Timestamp      time.Time `json:"timestamp" firestore:"timestamp"`             // server timestamp when stored
+	Role      string    `json:"role" firestore:"role"`           // "user" or "assistant"
+	Text      string    `json:"text" firestore:"text"`           // message text
+	Skill     string    `json:"skill" firestore:"skill"`         // skill context, e.g., serve/smash/clear
+	Timestamp time.Time `json:"timestamp" firestore:"timestamp"` // server timestamp when stored
 }
 
 // ChatHistory document stored under collection "chat_history" with doc ID = userID
@@ -25,7 +24,7 @@ type ChatHistory struct {
 }
 
 // AppendChatExchange appends a user/assistant message pair to the user's chat history
-func (client *FirestoreClient) AppendChatExchange(userID, skill, conversationID, userText, assistantText string) error {
+func (client *FirestoreClient) AppendChatExchange(userID, skill, userText, assistantText string) error {
 	ctx := *client.Ctx
 	docRef := client.ChatHistory.Doc(userID)
 
@@ -49,8 +48,8 @@ func (client *FirestoreClient) AppendChatExchange(userID, skill, conversationID,
 
 		now := time.Now().UTC()
 		history.Messages = append(history.Messages,
-			ChatMessage{Role: "user", Text: userText, Skill: skill, ConversationID: conversationID, Timestamp: now},
-			ChatMessage{Role: "assistant", Text: assistantText, Skill: skill, ConversationID: conversationID, Timestamp: now},
+			ChatMessage{Role: "user", Text: userText, Skill: skill, Timestamp: now},
+			ChatMessage{Role: "assistant", Text: assistantText, Skill: skill, Timestamp: now},
 		)
 
 		return tx.Set(docRef, history)

@@ -133,17 +133,9 @@ export const FolderIDsSchema = z.object({
   thumbnail: z.string()
 })
 
-export const GPTConversationIDsSchema = z.object({
-  serve: z.string(),
-  smash: z.string(),
-  clear: z.string(),
-  lift: z.string().optional().default('')
-})
-
 export const UserDataSchema = z.object({
   portfolio: PortfoliosSchema,
   folder_paths: FolderIDsSchema,
-  gpt_conversation_ids: GPTConversationIDsSchema,
   name: z.string(),
   id: z.string(),
   handedness: z.number()

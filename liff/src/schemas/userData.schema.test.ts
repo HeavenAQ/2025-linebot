@@ -90,7 +90,6 @@ const pendingWork = {
 const user = (serve: Record<string, unknown>) => ({
   portfolio: { serve, smash: null, clear: null, lift: null },
   folder_paths: { root: '', serve: '', smash: '', clear: '', lift: '', thumbnail: '' },
-  gpt_conversation_ids: { serve: '', smash: '', clear: '', lift: '' },
   name: 'Student',
   id: 'U1',
   handedness: 0

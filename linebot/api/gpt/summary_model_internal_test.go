@@ -3,6 +3,7 @@ package gpt
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,7 +90,7 @@ func TestCoachingCarriesTheLearnersScores(t *testing.T) {
 	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
 	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
 
-	reply, err := client.AddMessageToConversation("conv_1", "目前學習進程如何", "發球", []commons.SkillScore{
+	reply, err := client.Coach(nil, "目前學習進程如何", "發球", []commons.SkillScore{
 		{Date: "2026-08-03", TotalGrade: 33.7, Details: []commons.GradingDetail{
 			{Description: "雙手平舉", Grade: 2.4, Maximum: 20},
 		}},
@@ -97,8 +98,7 @@ func TestCoachingCarriesTheLearnersScores(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "回覆", reply)
-	input, ok := body["input"].(string)
-	require.True(t, ok)
+	input := lastMessage(t, body)
 	require.Contains(t, input, "雙手平舉: 2.4/20.0")
 	require.Contains(t, input, "total 33.7")
 	require.Contains(t, input, "目前學習進程如何", "the question still has to reach the model")
@@ -124,14 +124,75 @@ func TestCoachingWithoutScoresSendsOnlyTheQuestion(t *testing.T) {
 	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
 	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
 
-	_, err := client.AddMessageToConversation("conv_1", "怎麼練發球", "發球", nil)
+	_, err := client.Coach(nil, "怎麼練發球", "發球", nil)
 
 	require.NoError(t, err)
-	// The stroke has to be named even with no scores to carry it: each skill
-	// has its own conversation, but a fresh one has no earlier turn saying
-	// which stroke it is, and the coach answered about the wrong one.
-	input, ok := body["input"].(string)
-	require.True(t, ok)
+	// The stroke has to be named even with no scores to carry it: a first
+	// question has no earlier turn saying which stroke it is, and the coach
+	// answered about the wrong one.
+	input := lastMessage(t, body)
 	require.Contains(t, input, "發球")
 	require.Contains(t, input, "怎麼練發球")
+}
+
+// The learner's stored turns are the whole conversation now, so they have to
+// travel with the question, in order and with their roles intact.
+func TestCoachingSendsTheStoredHistory(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(raw, &body))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed",
+			"output":[{"type":"message","role":"assistant","status":"completed",
+			"content":[{"type":"output_text","text":"回覆"}]}]}`))
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	openaiClient := openai.NewClient(option.WithAPIKey("test"), option.WithBaseURL(server.URL))
+	client := &Client{Ctx: &ctx, Client: &openaiClient, Model: DefaultModel}
+
+	history := make([]HistoryMessage, 0, historyWindow+4)
+	for i := 0; i < historyWindow+2; i++ {
+		history = append(history, HistoryMessage{Role: "user", Text: fmt.Sprintf("舊問題 %d", i)})
+	}
+	history = append(history, HistoryMessage{Role: "assistant", Text: "上一則回覆"})
+
+	_, err := client.Coach(history, "那手腕呢", "發球", nil)
+	require.NoError(t, err)
+
+	items, ok := body["input"].([]any)
+	require.True(t, ok, "history travels as input items, not one string")
+	require.Len(t, items, historyWindow+1, "only the most recent turns are sent, plus the new question")
+
+	first := items[0].(map[string]any)
+	require.Equal(t, "user", first["role"])
+	require.Equal(t, "舊問題 3", first["content"], "the oldest turns are dropped, not the newest")
+
+	previous := items[historyWindow-1].(map[string]any)
+	require.Equal(t, "assistant", previous["role"])
+	require.Equal(t, "上一則回覆", previous["content"])
+
+	require.Contains(t, lastMessage(t, body), "那手腕呢")
+
+	// Storing the turns at OpenAI too would be a second copy of Firestore,
+	// and its conversation ids die with the API key that made them.
+	require.Equal(t, false, body["store"])
+	require.NotContains(t, body, "conversation")
+}
+
+// lastMessage returns the text of the final input item, which is the question
+// the learner just asked.
+func lastMessage(t *testing.T, body map[string]any) string {
+	t.Helper()
+	items, ok := body["input"].([]any)
+	require.True(t, ok, "input should be a list of messages")
+	require.NotEmpty(t, items)
+	last, ok := items[len(items)-1].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "user", last["role"])
+	text, ok := last["content"].(string)
+	require.True(t, ok)
+	return text
 }

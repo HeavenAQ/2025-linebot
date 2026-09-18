@@ -18,7 +18,6 @@ export interface ChatMessage {
   role: string
   text: string
   skill: string
-  conversation_id?: string
   timestamp?: string
 }
 

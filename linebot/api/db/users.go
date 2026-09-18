@@ -13,16 +13,15 @@ import (
 )
 
 type UserData struct {
-	RealName                string             `json:"real_name" firestore:"real_name"`
-	ExperimentNumber        string             `json:"experiment_number" firestore:"experiment_number"`
-	RegistrationVersion     int                `json:"registration_version" firestore:"registration_version"`
-	RegistrationCompletedAt time.Time          `json:"registration_completed_at" firestore:"registration_completed_at"`
-	Portfolio               Portfolios         `json:"portfolio" firestore:"portfolio"`
-	FolderPaths             FolderPaths        `json:"folder_paths" firestore:"folder_paths"`
-	GPTConversationIDs      GPTConversationIDs `json:"gpt_conversation_ids" firestore:"gpt_conversation_ids"`
-	Name                    string             `json:"name" firestore:"name"`
-	ID                      string             `json:"id" firestore:"id"`
-	Handedness              Handedness         `json:"handedness" firestore:"handedness"`
+	RealName                string      `json:"real_name" firestore:"real_name"`
+	ExperimentNumber        string      `json:"experiment_number" firestore:"experiment_number"`
+	RegistrationVersion     int         `json:"registration_version" firestore:"registration_version"`
+	RegistrationCompletedAt time.Time   `json:"registration_completed_at" firestore:"registration_completed_at"`
+	Portfolio               Portfolios  `json:"portfolio" firestore:"portfolio"`
+	FolderPaths             FolderPaths `json:"folder_paths" firestore:"folder_paths"`
+	Name                    string      `json:"name" firestore:"name"`
+	ID                      string      `json:"id" firestore:"id"`
+	Handedness              Handedness  `json:"handedness" firestore:"handedness"`
 }
 
 type FolderPaths struct {
@@ -39,13 +38,6 @@ type Portfolios struct {
 	Smash map[string]Work `json:"smash" firestore:"smash"`
 	Clear map[string]Work `json:"clear" firestore:"clear"`
 	Lift  map[string]Work `json:"lift" firestore:"lift"`
-}
-
-type GPTConversationIDs struct {
-	Serve string `json:"serve" firestore:"serve"`
-	Smash string `json:"smash" firestore:"smash"`
-	Clear string `json:"clear" firestore:"clear"`
-	Lift  string `json:"lift" firestore:"lift"`
 }
 
 func (p *Portfolios) GetSkillPortfolio(skill string) map[string]Work {
@@ -83,7 +75,7 @@ type Work struct {
 	Diagnostics          map[string]float64     `json:"diagnostics" firestore:"diagnostics"`
 }
 
-func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, gptConvs *GPTConversationIDs) (*UserData, error) {
+func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders) (*UserData, error) {
 	ref := client.Data.Doc(userFolders.UserID)
 	newUserTemplate := &UserData{
 		Name:       userFolders.UserName,
@@ -102,12 +94,6 @@ func (client *FirestoreClient) CreateUserData(userFolders *storage.UserFolders, 
 			Smash: map[string]Work{},
 			Clear: map[string]Work{},
 			Lift:  map[string]Work{},
-		},
-		GPTConversationIDs: GPTConversationIDs{
-			Serve: gptConvs.Serve,
-			Smash: gptConvs.Smash,
-			Clear: gptConvs.Clear,
-			Lift:  gptConvs.Lift,
 		},
 	}
 

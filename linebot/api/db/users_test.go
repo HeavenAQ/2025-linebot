@@ -21,15 +21,8 @@ func TestCreateUserData(t *testing.T) {
 		RootPath: utils.RandomAlphabetString(10),
 	}
 
-	testGPTConvs := &db.GPTConversationIDs{
-		Serve: utils.RandomAlphabetString(10),
-		Smash: utils.RandomAlphabetString(10),
-		Clear: utils.RandomAlphabetString(10),
-		Lift:  utils.RandomAlphabetString(10),
-	}
-
 	// Call the method to create user data
-	userData, err := firestoreClient.CreateUserData(testUserFolders, testGPTConvs)
+	userData, err := firestoreClient.CreateUserData(testUserFolders)
 	require.NoError(t, err)
 	require.NotNil(t, userData)
 

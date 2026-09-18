@@ -51,7 +51,9 @@ export default function GptChatPage() {
     fetchData()
   }, [liff, profile])
 
-  const availableSkills = Object.keys(userData?.gpt_conversation_ids || {}) as Skill[]
+  // Every skill is chattable. This used to read the user's GPT conversation
+  // ids, which no longer exist: the chat history lives in Firestore instead.
+  const availableSkills = Object.keys(SkillNameMap) as Skill[]
 
   if (loading) {
     return <Spinner fullscreen />

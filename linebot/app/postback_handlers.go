@@ -172,7 +172,7 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		// Resolve omitted references against persisted, skill-specific history.
 		history, err := app.FirestoreClient.GetChatHistory(user.ID)
 		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
+			app.handleGPTChatError(err, replyToken)
 			return
 		}
 		rewriteHistory := make([]gpt.HistoryMessage, 0, 12)
@@ -183,7 +183,7 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		}
 		rewritten, err := app.GPTClient.RewriteQuery(rewriteHistory, msg)
 		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
+			app.handleGPTChatError(err, replyToken)
 			return
 		}
 
@@ -199,13 +199,14 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		}
 
 		// Send the standalone query through the skill conversation.
-		conversationID := app.getUserGPTConversation(user, session.Skill)
-		response, err := app.GPTClient.AddMessageToConversation(
-			conversationID, rewritten,
+		// The coach reads the same history the rewrite did: Firestore is the
+		// only place the conversation is kept.
+		response, err := app.GPTClient.Coach(
+			rewriteHistory, rewritten,
 			db.SkillStrToEnum(session.Skill).ChnString(), scores,
 		)
 		if err != nil {
-			app.handleAddMessageToGPTConversationError(err, replyToken)
+			app.handleGPTChatError(err, replyToken)
 			return
 		}
 
@@ -213,7 +214,6 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		if err := app.FirestoreClient.AppendChatExchange(
 			user.ID,
 			session.Skill,
-			conversationID,
 			msg,
 			response,
 		); err != nil {

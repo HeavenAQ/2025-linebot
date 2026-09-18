@@ -103,9 +103,9 @@ func (app *App) handleVideoAnalysisError(err error, replyToken string) {
 	)(err, replyToken)
 }
 
-func (app *App) handleAddMessageToGPTConversationError(err error, replyToken string) {
+func (app *App) handleGPTChatError(err error, replyToken string) {
 	app.handleLineError(
-		"Error adding message to GPT conversation",
-		"Message has been added to GPT conversation.",
+		"Error asking the GPT coach",
+		"The GPT coach has replied.",
 	)(err, replyToken)
 }

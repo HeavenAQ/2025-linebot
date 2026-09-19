@@ -147,6 +147,9 @@ export const PlaybackResponseSchema = z.object({
   student_video: MediaRefSchema,
   feedback_video: OptionalMediaRefSchema,
   skeleton_overlay_video: OptionalMediaRefSchema,
+  // Shown while the student's clip loads, so the frame is not blank. Absent on
+  // analyses whose thumbnail is missing.
+  thumbnail: OptionalMediaRefSchema,
   expert: ExpertMatchSchema,
   timeline: z.array(PhaseMarkerSchema),
   // Firestore omits empty repeated fields and Go serializes an absent slice as

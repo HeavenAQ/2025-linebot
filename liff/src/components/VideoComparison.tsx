@@ -917,6 +917,10 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
             <video
               ref={studentRef}
               src={studentSrc}
+              // The first frame of the clip the student uploaded, so the frame
+              // shows the stroke rather than an empty rectangle while the
+              // video loads.
+              poster={playback.thumbnail?.signed_url || undefined}
               className="w-full object-contain"
               style={{ aspectRatio: studentRatio }}
               playsInline

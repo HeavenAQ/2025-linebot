@@ -474,12 +474,31 @@ func main() {
 			}
 		}
 		work.FeedbackVideo = work.StudentVideo
+		// The poster the player shows until the video has enough data to paint
+		// its first frame, which is otherwise a blank rectangle. A thumbnail
+		// that predates thumbnailing, or has since been removed, simply leaves
+		// the poster out rather than failing the whole playback.
+		var thumbnail commons.MediaRef
+		if work.Thumbnail != "" {
+			signed, err := application.StorageClient.SignThumbnailURL(
+				work.Thumbnail, application.Config.GCP.ServiceAccountEmail,
+			)
+			if err != nil {
+				application.Logger.Warn.Printf(
+					"[db.playback] thumbnail unavailable user=%s skill=%s date=%s err=%v",
+					userID, skill, workDate, err,
+				)
+			} else {
+				thumbnail = signed
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"analysis_id":            work.AnalysisID,
 			"handedness":             work.Handedness,
 			"student_video":          work.StudentVideo,
 			"feedback_video":         work.FeedbackVideo,
 			"skeleton_overlay_video": work.SkeletonOverlayVideo,
+			"thumbnail":              thumbnail,
 			"expert":                 work.Expert,
 			"timeline":               work.Timeline,
 			"coaching_cues":          work.CoachingCues,

@@ -65,7 +65,9 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 		// The thumbnail is durable BEFORE any card is sent; never replace that
 		// object's contents later, since LINE caches preview images.
 		job, err = a.FirestoreClient.CreateAnalysisJob(ctx, db.AnalysisJob{
-			ID: id, UserID: user.ID, Skill: session.Skill, Handedness: session.Handedness,
+			// Handedness is the learner's own, from their profile: the analysis
+			// and the expert demonstrations both read it from one place.
+			ID: id, UserID: user.ID, Skill: session.Skill, Handedness: user.Handedness.String(),
 			WorkDate: key, InputObject: input, Thumbnail: uploaded.Path, Status: "queued", CreatedAt: now,
 		})
 		if err != nil {

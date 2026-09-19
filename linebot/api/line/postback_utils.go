@@ -64,10 +64,6 @@ func (client *Client) HandleSelectingSkillPostbackData(rawData string) (*Selecti
 	return handlePostbackData[SelectingSkillPostback](rawData)
 }
 
-func (client *Client) HandleSelectingHandednessPostbackData(rawData string) (*SelectingHandednessPostback, error) {
-	return handlePostbackData[SelectingHandednessPostback](rawData)
-}
-
 func (client *Client) HandleWritingNotePostbackData(rawData string) (*WritingNotePostback, error) {
 	return handlePostbackData[WritingNotePostback](rawData)
 }

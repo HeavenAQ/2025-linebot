@@ -258,14 +258,6 @@ func (client *Client) PromptSkillSelection(
 	return client.bot.ReplyMessage(replyToken, msg).Do()
 }
 
-func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
-	msg := linebot.NewTextMessage("請選擇左手或右手").WithQuickReplies(
-		client.getHandednessQuickReplyItems(),
-	)
-	_, err := client.bot.ReplyMessage(event.ReplyToken, msg).Do()
-	return err
-}
-
 func (client *Client) SendVideoMessage(replyToken, videoURL, thumbnailURL string) (*linebot.BasicResponse, error) {
 	videoLink := client.assetURL(videoURL)
 	thumbnailLink := client.assetURL(thumbnailURL)

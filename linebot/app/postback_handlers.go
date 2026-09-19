@@ -234,11 +234,13 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 func (app *App) handleViewingExpertVideos(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
-		session.ActionStep = db.SelectingHandedness
-		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptHandednessSelection)
-
-	case db.SelectingHandedness:
-		app.handleSendingExpertVideos(event, session, replyToken)
+		// Handedness comes from the learner's profile, so picking the stroke
+		// is the whole flow.
+		noPrompt := func(*linebot.Event) error { return nil }
+		if !app.handleSelectingSkill(event, session, rawData, replyToken, noPrompt) {
+			return
+		}
+		app.handleSendingExpertVideos(event, user, session, replyToken)
 		app.resetSessionWithErrorHandling(user.ID, replyToken)
 
 	default:
@@ -281,18 +283,8 @@ func (app *App) handleViewingPortfolio(event *linebot.Event, rawData string, use
 func (app *App) handleAnalyzingVideoActions(event *linebot.Event, rawData string, user *db.UserData, session *db.UserSession, replyToken string) {
 	switch session.ActionStep {
 	case db.SelectingSkill:
-		session.ActionStep = db.SelectingHandedness
-		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptHandednessSelection)
-
-	case db.SelectingHandedness:
 		session.ActionStep = db.UploadingVideo
-		data, err := app.LineBot.HandleSelectingHandednessPostbackData(rawData)
-		if err != nil {
-			app.handlePostbackDataTypeError(err, replyToken)
-			return
-		}
-		app.FirestoreClient.UpdateSessionHandedness(user.ID, data.Handedness)
-		app.LineBot.PromptUploadVideo(event)
+		app.handleSelectingSkill(event, session, rawData, replyToken, app.LineBot.PromptUploadVideo)
 
 	case db.UploadingVideo:
 		app.handleUploadingVideo(event, session, user, replyToken)
@@ -584,40 +576,44 @@ func (app *App) rejectUnsupportedSkill(userID, skill, replyToken string) {
 	handleLineMessageResponseError(err)
 }
 
-// handleSelectingSkill helps transition the user from “SelectingSkill” to the
-// next action, e.g., choosing handedness or uploading a video.
+// handleSelectingSkill moves the learner from “SelectingSkill” to the next
+// action, e.g. uploading a video. It reports whether the stroke was accepted
+// and saved, so a caller that acts on the choice does not act on a rejected
+// one.
 func (app *App) handleSelectingSkill(
 	event *linebot.Event,
 	session *db.UserSession,
 	rawData string,
 	replyToken string,
 	nextStepFunc func(*linebot.Event) error,
-) {
+) bool {
 	data, err := app.LineBot.HandleSelectingSkillPostbackData(rawData)
 	if err != nil {
 		app.handlePostbackDataTypeError(err, replyToken)
-		return
+		return false
 	}
 
 	if !db.IsSupportedSkill(data.Skill) {
 		app.rejectUnsupportedSkill(event.Source.UserID, data.Skill, replyToken)
-		return
+		return false
 	}
 
 	if err := nextStepFunc(event); err != nil {
 		app.handleVideoUploadPromptError(err, replyToken)
-		return
+		return false
 	}
 
 	session.Skill = data.Skill
 	if err := app.FirestoreClient.UpdateUserSession(event.Source.UserID, *session); err != nil {
 		app.handleUpdateSessionError(err, replyToken)
+		return false
 	}
+	return true
 }
 
-// handleSendingExpertVideos is a helper that sets up the correct expert videos
-// after the user selects their handedness.
-func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.UserSession, replyToken string) {
+// handleSendingExpertVideos sends the demonstrations that match the learner's
+// stroke and their own handedness.
+func (app *App) handleSendingExpertVideos(event *linebot.Event, user *db.UserData, session *db.UserSession, replyToken string) {
 	// The skill was already checked when it was selected; re-check in case the
 	// session was saved before the skill was withdrawn.
 	if !db.IsSupportedSkill(session.Skill) {
@@ -625,19 +621,7 @@ func (app *App) handleSendingExpertVideos(event *linebot.Event, session *db.User
 		return
 	}
 
-	data, err := app.LineBot.HandleSelectingHandednessPostbackData(event.Postback.Data)
-	if err != nil {
-		app.handlePostbackDataTypeError(err, replyToken)
-		return
-	}
-
-	handedness, err := db.HandednessStrToEnum(data.Handedness)
-	if err != nil {
-		app.Logger.Warn.Println("Invalid handedness received:", data.Handedness)
-		app.handlePostbackDataTypeError(err, replyToken)
-		return
-	}
-
+	handedness := user.Handedness
 	skill := db.SkillStrToEnum(session.Skill)
 	if err := app.LineBot.SendExpertVideos(handedness, skill, replyToken); err != nil {
 		app.handleSendExpertVideosError(err, replyToken)

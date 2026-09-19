@@ -22,10 +22,6 @@ type SelectingSkillPostback struct {
 	Skill string `json:"skill" validate:"required"`
 }
 
-type SelectingHandednessPostback struct {
-	Handedness string `json:"handedness" validate:"required"`
-}
-
 type StopGPTPostback struct {
 	Stop bool `json:"stop" validate:"required"`
 }
@@ -39,9 +35,8 @@ type WeeklyPreviewPostback struct {
 }
 
 // Implement the marker interface for each struct
-func (VideoPostback) isPostbackData()               {}
-func (WritingNotePostback) isPostbackData()         {}
-func (SelectingSkillPostback) isPostbackData()      {}
-func (SelectingHandednessPostback) isPostbackData() {}
-func (StopGPTPostback) isPostbackData()             {}
-func (WeeklyPreviewPostback) isPostbackData()       {}
+func (VideoPostback) isPostbackData()          {}
+func (WritingNotePostback) isPostbackData()    {}
+func (SelectingSkillPostback) isPostbackData() {}
+func (StopGPTPostback) isPostbackData()        {}
+func (WeeklyPreviewPostback) isPostbackData()  {}

@@ -862,13 +862,14 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
         </div>
       </div>
 
-      <div className="mx-4 mb-3 flex flex-wrap items-center gap-2">
+      <div className="mx-4 mb-3 flex flex-col gap-2 sm:flex-row">
         <Segmented
           label="畫面模式"
           size="sm"
           options={VIEW_OPTIONS}
           value={viewMode}
           onChange={setViewMode}
+          className="w-full sm:flex-1"
         />
         {analysisRenderReady && showStudent && (
           <Segmented
@@ -877,6 +878,7 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
             options={SOURCE_OPTIONS}
             value={studentSource}
             onChange={setStudentSource}
+            className="w-full sm:flex-1"
           />
         )}
       </div>

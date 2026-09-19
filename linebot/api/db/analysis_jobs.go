@@ -14,18 +14,32 @@ import (
 
 var ErrJobBusy = errors.New("analysis already running")
 
+// Where a video came from. A chat upload is analysed without the pipeline's
+// coaching stage and answered by the coach in the conversation instead.
+const (
+	AnalysisSourceUpload = "upload"
+	AnalysisSourceChat   = "chat"
+)
+
 type AnalysisJob struct {
-	ID          string    `firestore:"id"`
-	UserID      string    `firestore:"user_id"`
-	Skill       string    `firestore:"skill"`
-	Handedness  string    `firestore:"handedness"`
-	WorkDate    string    `firestore:"work_date"`
-	InputObject string    `firestore:"input_object"`
-	Thumbnail   string    `firestore:"thumbnail"`
-	Status      string    `firestore:"status"`
-	Attempts    int       `firestore:"attempts"`
-	CreatedAt   time.Time `firestore:"created_at"`
-	LeaseUntil  time.Time `firestore:"lease_until"`
+	ID          string `firestore:"id"`
+	UserID      string `firestore:"user_id"`
+	Skill       string `firestore:"skill"`
+	Handedness  string `firestore:"handedness"`
+	WorkDate    string `firestore:"work_date"`
+	InputObject string `firestore:"input_object"`
+	Thumbnail   string `firestore:"thumbnail"`
+	Status      string `firestore:"status"`
+	// Source is "upload" for the usual portfolio flow, "chat" when the learner
+	// sent the video while talking to the coach. A chat analysis skips the
+	// pipeline's own coaching stage: the explaining happens in the reply.
+	Source string `firestore:"source"`
+	// Question is what the learner asked about this video, if they have asked
+	// yet. The coach answers it once the analysis lands.
+	Question   string    `firestore:"question"`
+	Attempts   int       `firestore:"attempts"`
+	CreatedAt  time.Time `firestore:"created_at"`
+	LeaseUntil time.Time `firestore:"lease_until"`
 }
 
 func (c *FirestoreClient) AnalysisJobs() *firestore.CollectionRef {
@@ -160,4 +174,37 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		}
 		return tx.Update(c.Data.Doc(job.UserID), updates)
 	})
+}
+
+// SetAnalysisJobQuestion attaches the learner's question to a running chat
+// analysis, for when they send the video first and ask afterwards.
+func (c *FirestoreClient) SetAnalysisJobQuestion(ctx context.Context, jobID, question string) error {
+	_, err := c.AnalysisJobs().Doc(jobID).Update(ctx, []firestore.Update{{Path: "question", Value: question}})
+	return err
+}
+
+// PendingChatAnalysis returns the learner's chat analysis that is still
+// running, if there is one.
+func (c *FirestoreClient) PendingChatAnalysis(ctx context.Context, userID string) (*AnalysisJob, error) {
+	iter := c.AnalysisJobs().Where("user_id", "==", userID).Where("source", "==", AnalysisSourceChat).Documents(ctx)
+	defer iter.Stop()
+	var newest *AnalysisJob
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			break
+		}
+		var job AnalysisJob
+		if doc.DataTo(&job) != nil {
+			continue
+		}
+		if job.Status == "completed" || job.Status == "failed" {
+			continue
+		}
+		if newest == nil || job.CreatedAt.After(newest.CreatedAt) {
+			copied := job
+			newest = &copied
+		}
+	}
+	return newest, nil
 }

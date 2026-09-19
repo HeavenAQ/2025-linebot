@@ -24,7 +24,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, user *db.UserData, video []byte, replyToken string) {
+// enqueueVideoAnalysis accepts a video and starts its analysis. Passing a
+// chatAnalysisRequest marks it as coming from the conversation: the pipeline's
+// own coaching stage is skipped and the coach answers in chat instead.
+func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, user *db.UserData, video []byte, replyToken string, chat ...chatAnalysisRequest) {
+	source, question := db.AnalysisSourceUpload, ""
+	if len(chat) > 0 {
+		source, question = db.AnalysisSourceChat, chat[0].question
+	}
 	message, ok := event.Message.(*line.VideoMessage)
 	if !ok {
 		return
@@ -69,6 +76,7 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 			// and the expert demonstrations both read it from one place.
 			ID: id, UserID: user.ID, Skill: session.Skill, Handedness: user.Handedness.String(),
 			WorkDate: key, InputObject: input, Thumbnail: uploaded.Path, Status: "queued", CreatedAt: now,
+			Source: source, Question: question,
 		})
 		if err != nil {
 			a.handleVideoAnalysisError(err, replyToken)
@@ -84,6 +92,11 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 			// accepted video or ask the learner to upload it a second time.
 			a.Logger.Error.Printf("analysis enqueue deferred job=%s: %v", id, err)
 		}
+	}
+	if source == db.AnalysisSourceChat {
+		_, err := a.LineBot.SendReply(replyToken, chatAnalysisAcknowledgement)
+		handleLineMessageResponseError(err)
+		return
 	}
 	if err := a.FirestoreClient.ResetSession(user.ID); err != nil {
 		a.Logger.Warn.Println("reset upload session:", err)
@@ -142,7 +155,10 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 	var outcome *commons.AnalysisOutcome
 	video, err := a.StorageClient.ReadAnalysisInput(ctx, job.InputObject)
 	if err == nil {
-		outcome, err = a.AnalysisClient.AnalyzeVideo(ctx, job.ID, job.UserID, "line-upload.mp4", job.Skill, job.Handedness, video)
+		// A video sent in chat gets the plain analysis: the explaining is done
+		// by the coach in the reply, against the learner's own question.
+		outcome, err = a.AnalysisClient.AnalyzeVideo(ctx, job.ID, job.UserID, "line-upload.mp4",
+			job.Skill, job.Handedness, video, job.Source == db.AnalysisSourceChat)
 	}
 	retry := err != nil && job.Attempts < 5 && time.Since(job.CreatedAt) < 24*time.Hour && !errors.Is(err, analysis.ErrSkillMismatch) && !errors.Is(err, analysis.ErrNoMatchingExpert) && status.Code(err) != codes.InvalidArgument && status.Code(err) != codes.FailedPrecondition
 	failure := ""
@@ -185,6 +201,19 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 	if retry {
 		http.Error(w, "retry analysis", 503)
 		return
+	}
+	if job.Source == db.AnalysisSourceChat {
+		if failure != "" {
+			if _, pushErr := a.LineBot.PushGPTChattingModeReply(job.UserID, failure); pushErr != nil {
+				a.Logger.Error.Printf("chat analysis failure push job=%s: %v", job.ID, pushErr)
+			}
+		} else {
+			// The learner is waiting in the chat, so the answer is produced
+			// here rather than left for them to ask again.
+			answerCtx, answerCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer answerCancel()
+			a.answerChatAnalysis(answerCtx, job)
+		}
 	}
 	w.WriteHeader(204)
 }

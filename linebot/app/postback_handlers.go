@@ -1,8 +1,10 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
@@ -169,6 +171,19 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			msg = message.Text
 		}
 
+		questionCtx, questionCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer questionCancel()
+		if app.queueChatQuestion(questionCtx, user.ID, msg) {
+			_, err := app.LineBot.SendGPTChattingModeReply(replyToken, chatQuestionQueued)
+			handleLineMessageResponseError(err)
+			return
+		}
+		// A video may follow the question within a few minutes; the analysis
+		// then answers this question rather than a generic one.
+		if err := app.FirestoreClient.SetChatQuestion(user.ID, msg); err != nil {
+			app.Logger.Warn.Printf("remember chat question: %v", err)
+		}
+
 		// Resolve omitted references against persisted, skill-specific history.
 		history, err := app.FirestoreClient.GetChatHistory(user.ID)
 		if err != nil {
@@ -201,9 +216,16 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		// Send the standalone query through the skill conversation.
 		// The coach reads the same history the rewrite did: Firestore is the
 		// only place the conversation is kept.
-		response, err := app.GPTClient.Coach(
-			rewriteHistory, rewritten,
+		answerCtx, answerCancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer answerCancel()
+		response, err := app.GPTClient.CoachWithTools(
+			answerCtx, rewriteHistory, rewritten,
 			db.SkillStrToEnum(session.Skill).ChnString(), scores,
+			app.CoachingTools(user.ID),
+			func(record gpt.ToolCallRecord) {
+				app.Logger.Info.Printf("[chat.tool] user=%s tool=%s args=%s took=%.2fs",
+					user.ID, record.Name, record.Arguments, record.Seconds)
+			},
 		)
 		if err != nil {
 			app.handleGPTChatError(err, replyToken)

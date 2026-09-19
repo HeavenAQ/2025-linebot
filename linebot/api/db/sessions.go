@@ -2,13 +2,18 @@ package db
 
 import (
 	"fmt"
+	"time"
 )
 
 type UserSession struct {
-	Skill       string     `json:"skill" firestore:"skill"`
-	UpdatedDate string     `json:"updated_date" firestore:"updated_date"`
-	UserState   UserState  `json:"user_state" firestore:"user_state"`
-	ActionStep  ActionStep `json:"action_step" firestore:"action_step"`
+	Skill       string    `json:"skill" firestore:"skill"`
+	UpdatedDate string    `json:"updated_date" firestore:"updated_date"`
+	UserState   UserState `json:"user_state" firestore:"user_state"`
+	// ChatQuestion is the learner's last question in coach chat, kept only
+	// long enough for a video sent just after it to be answered together.
+	ChatQuestion   string     `json:"chat_question" firestore:"chat_question"`
+	ChatQuestionAt time.Time  `json:"chat_question_at" firestore:"chat_question_at"`
+	ActionStep     ActionStep `json:"action_step" firestore:"action_step"`
 }
 
 func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, error) {
@@ -70,4 +75,33 @@ func (client *FirestoreClient) ResetSession(userID string) error {
 		return err
 	}
 	return nil
+}
+
+// SetChatQuestion remembers what the learner just asked the coach, so a video
+// they send straight afterwards is answered together with the question.
+func (client *FirestoreClient) SetChatQuestion(userID, question string) error {
+	session, err := client.GetUserSession(userID)
+	if err != nil {
+		return err
+	}
+	session.ChatQuestion = question
+	session.ChatQuestionAt = time.Now()
+	return client.UpdateUserSession(userID, *session)
+}
+
+// ChatQuestionWindow is how long a question waits for a video. Long enough to
+// find the clip and send it, short enough that last week's question is not
+// answered against today's upload.
+const ChatQuestionWindow = 10 * time.Minute
+
+// PendingChatQuestion returns the learner's recent question, if it is still
+// recent enough to belong with a video arriving now.
+func (session *UserSession) PendingChatQuestion() string {
+	if session == nil || session.ChatQuestion == "" {
+		return ""
+	}
+	if time.Since(session.ChatQuestionAt) > ChatQuestionWindow {
+		return ""
+	}
+	return session.ChatQuestion
 }

@@ -47,6 +47,7 @@ func TestLiveAnalysisRejectsOppositeHandFallback(t *testing.T) {
 		skill,
 		"left",
 		video,
+		false,
 	)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, analysis.ErrNoMatchingExpert), err)
@@ -83,7 +84,7 @@ func TestLiveAnalysisRejectsSkillMismatch(t *testing.T) {
 	_, err = client.AnalyzeVideo(
 		context.Background(),
 		fmt.Sprintf("go-live-wrong-skill-%d", time.Now().UnixNano()),
-		"integration-test", filepath.Base(videoPath), skill, handedness, video,
+		"integration-test", filepath.Base(videoPath), skill, handedness, video, false,
 	)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, analysis.ErrSkillMismatch), err)
@@ -120,7 +121,7 @@ func TestLiveAnalysisService(t *testing.T) {
 	analysisStarted := time.Now()
 	result, err := client.AnalyzeVideo(
 		context.Background(), requestID, "integration-test", filepath.Base(videoPath),
-		skill, handedness, video,
+		skill, handedness, video, false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, skill, result.Skill)

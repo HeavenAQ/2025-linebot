@@ -148,10 +148,15 @@ func handednessValue(handedness string) (analysisv1.Handedness, error) {
 	}
 }
 
+// AnalyzeVideo runs one analysis. skipCoaching turns off the only stage that
+// leaves this machine: with it set, no frame of the learner is sent anywhere
+// and the response carries no coaching cues. The deployment-wide setting still
+// applies -- a request can skip coaching, never force it on.
 func (c *Client) AnalyzeVideo(
 	ctx context.Context,
 	requestID, userID, filename, skill, handedness string,
 	video []byte,
+	skipCoaching bool,
 ) (*commons.AnalysisOutcome, error) {
 	if len(video) == 0 {
 		return nil, fmt.Errorf("video is empty")
@@ -177,7 +182,7 @@ func (c *Client) AnalyzeVideo(
 			// Whether learner frames may be sent to a third-party model is a
 			// property of the deployment, not of one upload, so it is carried
 			// by the client rather than passed at every call site.
-			SkipCoaching: c.skipCoaching,
+			SkipCoaching: c.skipCoaching || skipCoaching,
 			// Deployments share this service's bucket and their learner ids,
 			// so the caller names itself to keep its recordings apart.
 			StoragePrefix: c.storagePrefix,

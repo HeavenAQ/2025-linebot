@@ -17,6 +17,12 @@ func (app *App) handleMessageEvent(event *linebot.Event, user *db.UserData, sess
 func (app *App) handleNonTextMessage(event *linebot.Event, session *db.UserSession, user *db.UserData) {
 	if _, ok := event.Message.(*linebot.VideoMessage); ok {
 		app.Logger.Info.Println("Video message received")
+		// A video sent while talking to the coach is part of that
+		// conversation, not a separate portfolio upload.
+		if session.UserState == db.ChattingWithGPT {
+			app.handleChatVideo(event, session, user, event.ReplyToken)
+			return
+		}
 		app.handleUploadingVideo(event, session, user, event.ReplyToken)
 	} else {
 		app.Logger.Warn.Println("The message type is not supported")

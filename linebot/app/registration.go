@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/line/line-bot-sdk-go/v7/linebot"
 	"google.golang.org/grpc/codes"
@@ -23,12 +25,30 @@ func (app *App) registeredEventUser(event *linebot.Event) (*db.UserData, bool) {
 }
 
 // Registration happens on the dashboard, so the bot's part is a link to it.
+// Without a configured URL the card would carry an empty one, which LINE
+// rejects outright -- leaving the learner with no reply at all -- so say it in
+// words instead.
 func (app *App) registrationLinkReply(event *linebot.Event) {
 	if event.ReplyToken == "" {
 		return
 	}
-	_, err := app.LineBot.SendRegistrationLink(event.ReplyToken, app.Config.RegistrationURL())
+	url, text := registrationInvite(app.Config.RegistrationURL())
+	if url == "" {
+		app.Logger.Error.Println("LIFF_REGISTRATION_URL is not set; replying without the registration button")
+		app.registrationReply(event, text)
+		return
+	}
+	_, err := app.LineBot.SendRegistrationLink(event.ReplyToken, url)
 	handleLineMessageResponseError(err)
+}
+
+// registrationInvite picks how to invite a learner to register: the card with
+// its button, or the instructions in words when no URL is configured.
+func registrationInvite(configured string) (url, text string) {
+	if strings.TrimSpace(configured) == "" {
+		return "", db.RegistrationInstructions
+	}
+	return strings.TrimSpace(configured), ""
 }
 
 func gateExperimentEvent(event *linebot.Event,

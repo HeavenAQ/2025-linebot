@@ -28,3 +28,6 @@ node_modules/
 liff/out/
 liff/.next/
 liff/tsconfig.tsbuildinfo
+
+# Generated demonstration videos (rebuild with scripts/make_demo_videos.py)
+/demo-videos/

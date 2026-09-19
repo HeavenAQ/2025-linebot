@@ -142,7 +142,8 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 	var outcome *commons.AnalysisOutcome
 	video, err := a.StorageClient.ReadAnalysisInput(ctx, job.InputObject)
 	if err == nil {
-		outcome, err = a.AnalysisClient.AnalyzeVideo(ctx, job.ID, job.UserID, "line-upload.mp4", job.Skill, job.Handedness, video)
+		outcome, err = a.AnalysisClient.AnalyzeVideo(ctx, job.ID, job.UserID, "line-upload.mp4",
+			job.Skill, job.Handedness, video, false)
 	}
 	retry := err != nil && job.Attempts < 5 && time.Since(job.CreatedAt) < 24*time.Hour && !errors.Is(err, analysis.ErrSkillMismatch) && !errors.Is(err, analysis.ErrNoMatchingExpert) && status.Code(err) != codes.InvalidArgument && status.Code(err) != codes.FailedPrecondition
 	failure := ""

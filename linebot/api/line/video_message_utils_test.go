@@ -117,6 +117,7 @@ func TestLiveLINEVideoAnalysis(t *testing.T) {
 		skill,
 		handedness,
 		video,
+		false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, handedness, result.Handedness)

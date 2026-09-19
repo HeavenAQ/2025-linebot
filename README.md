@@ -47,6 +47,18 @@ LINE app ──video──▶ Go backend (Cloud Run, asia-east1)
 LIFF app ──LINE ID token──▶ Go learner API (signs playback URLs itself)
 ```
 
+Learners register in the LIFF dashboard, not in the chat: the first time they
+open it the page asks for their experiment number, real name and handedness,
+and the bot only ever links them to that form. Handedness is then read from
+their profile by both the analysis and the expert demonstrations, so neither
+flow asks for it again.
+
+A video can arrive two ways. The usual upload runs the full pipeline and lands
+in the learner's portfolio. A video sent while talking to the coach runs with
+`skip_coaching`, so the learner gets the plain skeleton overlay and an answer in
+chat within one reply window; a second queued job then runs the coaching pass and
+merges its cues into that same attempt, so the portfolio record ends up identical.
+
 Uploads are processed as durable jobs; see
 `badminton_analysis_ai/api/ASYNC_ARCHITECTURE.md` for the queue, retry and
 GPU-capacity schedule. Python generates and uploads the videos and returns GCS
@@ -62,7 +74,9 @@ call the Python service.
   client, and Firestore persistence.
 - `liff/`: review interface for feedback videos and the matched expert clip.
 - `proto/`: language-neutral gRPC contract and generated Python/Go bindings.
-- `scripts/`: Cloud Tasks / Cloud Scheduler provisioning and queue verification.
+- `scripts/`: Cloud Tasks / Cloud Scheduler provisioning, queue verification, and
+  `make_demo_videos.py`, which builds the per-expert demonstration videos into
+  the git-ignored `demo-videos/`.
 - `.github/workflows/`: CI and Cloud Run / Netlify deployment.
 
 ## Latest models
@@ -231,7 +245,9 @@ deployment tree.
 Every successful analysis generates and uploads two H.264/yuv420p videos:
 
 1. `feedback_video`: detected and generated-expert skeletons, GPT-selected problem
-   circles, feedback panels, and inserted coaching pauses.
+   circles, feedback panels, and inserted coaching pauses. A run with
+   `skip_coaching` produces this render without any of the GPT annotations, and
+   a chat upload gains the annotated one when its follow-up coaching job lands.
 2. `skeleton_overlay_video`: the same detected/generated skeleton overlay without
    GPT annotations or pauses.
 
@@ -259,8 +275,13 @@ No generated video is embedded in protobuf, JSON, or base64.
 Public playback is owned by Go:
 
 ```text
-GET /api/db/playback?user_id=<id>&skill=<serve|smash>&work_date=<timestamp>
+GET /api/db/playback?skill=<serve|smash>&work_date=<timestamp>
 ```
+
+The learner is always the credential's own subject: no route takes a user ID
+from the caller. `PUT /api/db/profile` is the one learner route that needs a
+signed-in learner but not a registered one, because it is the form that
+registers them (experiment number, real name, handedness).
 
 The Go client streams video input in 1 MiB chunks and persists both returned media
 records. When the reference bank has a matching expert, the response also pairs
@@ -305,6 +326,15 @@ The Go backend's queue is configured with `ANALYSIS_TASKS_QUEUE`,
 Uploads are only ever analyzed through the queue; `ANALYSIS_ASYNC_ACCEPT=false`
 pauses new uploads while queued jobs drain.
 
+The bot also needs the two web-app links it hands learners: `LIFF_REVIEW_URL`
+for the weekly review tab, and `LIFF_REGISTRATION_URL` for the registration
+form. Both must be `https://liff.line.me/<liff id>/<path>` links, not the
+site's own URL: an endpoint URL tapped in a LINE message opens in the in-app
+browser, which sends the learner through LINE Login and back to the LIFF app's
+registered endpoint, losing the path. `main` falls back to the deployed LIFF
+link when the variable is unset; the no-LLM deployment has its own LIFF app and
+sets it explicitly.
+
 ## Observability and API protection
 
 - Both services write one JSON object per log line (severity, message, source
@@ -325,6 +355,13 @@ pauses new uploads while queued jobs drain.
   `Retry-After`. A global limit would belong at the edge (Cloud Armor).
 - OpenAI calls have explicit timeouts: 2 minutes per attempt with one retry in
   Go; `OPENAI_TIMEOUT_SECONDS` (120) and `OPENAI_MAX_RETRIES` (1) in Python.
+- The coach chat calls the Responses API with read-only function tools so it can
+  look up the learner's own attempts, their standing in the class and their own
+  written notes. The learner is bound by the caller and is never a tool
+  argument; class comparisons carry no identity; lookups are capped at four
+  rounds with a ten-second timeout each and run concurrently. Chat history lives
+  only in Firestore -- no conversation is kept at OpenAI, because those belong
+  to the account behind the API key and are stranded when it is rotated.
 
 ## Running locally
 

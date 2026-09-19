@@ -1,16 +1,19 @@
 package line
 
 import (
-    "fmt"
-    "net/http"
-    "strings"
+	"fmt"
+	"net/http"
+	"strings"
 
-    "github.com/line/line-bot-sdk-go/v7/linebot"
+	"github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
 type Client struct {
 	bot        *linebot.Client
 	bucketName string
+	// channelToken is kept for the few APIs the SDK does not wrap, such as the
+	// chat loading indicator.
+	channelToken string
 	// reviewURL is the web app's review tab. Portfolio cards link into it per
 	// attempt, so the deployment's URL has to reach the message builders.
 	reviewURL string
@@ -23,7 +26,7 @@ func NewBotClient(channelSecret, channelToken, bucketName, reviewURL string) (*C
 		return nil, fmt.Errorf("failed to create linebot client: %w", err)
 	}
 
-	return &Client{bot: bot, bucketName: bucketName, reviewURL: reviewURL}, nil
+	return &Client{bot: bot, bucketName: bucketName, reviewURL: reviewURL, channelToken: channelToken}, nil
 }
 
 // ParseRequest wraps the linebot.Client's ParseRequest method
@@ -38,9 +41,9 @@ func (client *Client) ParseRequest(r *http.Request) ([]*linebot.Event, error) {
 // assetURL returns a fully-qualified HTTPS URL for a GCS object path.
 // If the input already looks like an http(s) URL, it is returned as-is.
 func (client *Client) assetURL(pathOrURL string) string {
-    if strings.HasPrefix(pathOrURL, "http://") || strings.HasPrefix(pathOrURL, "https://") {
-        return pathOrURL
-    }
-    p := strings.TrimLeft(pathOrURL, "/")
-    return "https://storage.googleapis.com/" + client.bucketName + "/" + p
+	if strings.HasPrefix(pathOrURL, "http://") || strings.HasPrefix(pathOrURL, "https://") {
+		return pathOrURL
+	}
+	p := strings.TrimLeft(pathOrURL, "/")
+	return "https://storage.googleapis.com/" + client.bucketName + "/" + p
 }

@@ -99,7 +99,7 @@ func main() {
 			started := time.Now()
 			result, err := client.AnalyzeVideo(
 				context.Background(), requestID, "latency-benchmark", filepath.Base(benchmark.path),
-				benchmark.skill, *handedness, video,
+				benchmark.skill, *handedness, video, false,
 			)
 			if err != nil {
 				fatalf("analyze %s run %d: %v", benchmark.skill, run, err)

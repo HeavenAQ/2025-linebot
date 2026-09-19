@@ -101,6 +101,7 @@ func TestAnalyzeVideoRejectsEmptyInputBeforeStartingStream(t *testing.T) {
 		"serve",
 		"right",
 		nil,
+		false,
 	)
 
 	require.Nil(t, result)
@@ -145,6 +146,7 @@ func TestAnalyzeVideoStreamsAndMapsBothRenderedVideos(t *testing.T) {
 		"serve",
 		"right",
 		[]byte("video-bytes"),
+		false,
 	)
 
 	require.NoError(t, err)
@@ -184,7 +186,7 @@ func TestAnalyzeVideoMapsSkillMismatch(t *testing.T) {
 
 	result, err := client.AnalyzeVideo(
 		context.Background(), "request-1", "user-1", "video.mp4",
-		"serve", "right", []byte("video-bytes"),
+		"serve", "right", []byte("video-bytes"), false,
 	)
 	require.Nil(t, result)
 	require.Error(t, err)

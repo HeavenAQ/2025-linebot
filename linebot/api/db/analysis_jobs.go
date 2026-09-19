@@ -14,6 +14,12 @@ import (
 
 var ErrJobBusy = errors.New("analysis already running")
 
+// Where a video came from. A chat upload is analysed without the pipeline's
+// coaching stage and answered by the coach in the conversation instead.
+const (
+	AnalysisSourceUpload = "upload"
+)
+
 type AnalysisJob struct {
 	ID          string    `firestore:"id"`
 	UserID      string    `firestore:"user_id"`
@@ -158,4 +164,14 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		}
 		return tx.Update(c.Data.Doc(job.UserID), updates)
 	})
+}
+
+// MarkAnalysisJobState finishes a job that owns no portfolio record of its
+// own, such as the coaching pass that only merges cues into an existing one.
+func (c *FirestoreClient) MarkAnalysisJobState(ctx context.Context, jobID, state string) error {
+	_, err := c.AnalysisJobs().Doc(jobID).Update(ctx, []firestore.Update{
+		{Path: "status", Value: state},
+		{Path: "lease_until", Value: time.Time{}},
+	})
+	return err
 }

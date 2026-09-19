@@ -6,6 +6,7 @@ import {
   rateLimitedMessage,
   setRegistrationRequiredHandler
 } from '@/lib/api/client'
+import ProfileForm from '@/components/ProfileForm'
 import { hasExperimentRegistration } from '@/lib/registration'
 import { gateView, SLOW_LOADING_MS, type RegistrationStatus } from '@/lib/gateView'
 
@@ -116,21 +117,17 @@ export default function ExperimentGate({
     )
   }
 
+  // First use: the student registers here rather than in the LINE chat, so
+  // they never have to leave the page they just opened.
   return (
-    <main className={screen}>
-      <h1 className="text-2xl font-semibold">請先完成實驗登記</h1>
-      <p>請回到機器人的 LINE 聊天室，傳送「實驗編號 姓名」，完成後才能使用所有功能。</p>
-      <div className="rounded-xl border p-5">
-        <p className="text-sm text-muted-foreground">輸入範例（請換成自己的編號與真實姓名）</p>
-        <p className="mt-3 text-2xl font-semibold">01 王小明</p>
-        <p className="mt-3 text-sm">編號和姓名中間加一個空格即可。</p>
+    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-5 px-6 py-12">
+      <div className="space-y-2 text-center">
+        <h1 className="text-2xl font-semibold">請先完成實驗登記</h1>
+        <p className="text-muted-foreground">
+          填寫實驗編號與真實姓名後，就可以使用所有功能。
+        </p>
       </div>
-      <p role="status" aria-live="polite">
-        尚未完成登記。請在 LINE 傳送編號與姓名，不是在此頁填寫。
-      </p>
-      <button type="button" className={button} onClick={() => void check()}>
-        已在 LINE 登記，重新確認
-      </button>
+      <ProfileForm submitLabel="完成登記" onSaved={() => setStatus('ready')} />
     </main>
   )
 }

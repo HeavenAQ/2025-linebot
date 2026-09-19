@@ -150,6 +150,23 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 func (client *Client) Coach(
 	history []HistoryMessage, message, skillChn string, scores []commons.SkillScore,
 ) (string, error) {
+	return client.CoachWithTools(context.Background(), history, message, skillChn, scores, nil, nil)
+}
+
+// CoachWithTools answers the same way, but lets the coach look things up first.
+//
+// The learner's question often needs records that no fixed prompt could carry:
+// an attempt from three weeks ago, where they stand in the class, what they
+// wrote in their own reflection. Rather than guess which of those to attach,
+// the tools are offered and the model asks for what it needs. Every lookup is
+// read-only and scoped to this learner by the caller.
+//
+// onToolCall, when set, is told about each lookup for the request log.
+func (client *Client) CoachWithTools(
+	ctx context.Context,
+	history []HistoryMessage, message, skillChn string, scores []commons.SkillScore,
+	tools []Tool, onToolCall func(ToolCallRecord),
+) (string, error) {
 	var input strings.Builder
 	// Name the stroke. Each skill has its own conversation, but a fresh one
 	// carries no prior turns, and the grades below are only criterion names
@@ -181,18 +198,58 @@ func (client *Client) Coach(
 		Input:        responses.ResponseNewParamsInputUnion{OfInputItemList: items},
 		Store:        param.NewOpt(false),
 	}
-
-	resp, err := client.Client.Responses.New(*client.Ctx, req)
-	if err != nil {
-		return "", fmt.Errorf("error creating response: %w", err)
+	if len(tools) > 0 {
+		req.Tools = toolParams(tools)
 	}
 
-	// Extract the assistant's text output
-	output := resp.OutputText()
-	if output == "" {
-		return "", fmt.Errorf("no assistant text output available")
+	for round := 0; ; round++ {
+		resp, err := client.Client.Responses.New(ctx, req)
+		if err != nil {
+			return "", fmt.Errorf("error creating response: %w", err)
+		}
+
+		calls := functionCalls(resp)
+		// Out of rounds: answer from what has been gathered rather than
+		// leaving the learner with nothing.
+		if len(calls) == 0 || round >= maxToolRounds {
+			output := resp.OutputText()
+			if output == "" {
+				return "", fmt.Errorf("no assistant text output available")
+			}
+			return output, nil
+		}
+
+		// The model's own call items have to travel back with their results,
+		// or the next request has outputs answering nothing.
+		for _, call := range calls {
+			items = append(items, responses.ResponseInputItemParamOfFunctionCall(call.Arguments, call.CallID, call.Name))
+		}
+		for _, call := range calls {
+			started := time.Now()
+			result := runTool(ctx, tools, call.Name, call.Arguments)
+			if onToolCall != nil {
+				onToolCall(ToolCallRecord{Name: call.Name, Arguments: call.Arguments, Seconds: time.Since(started).Seconds()})
+			}
+			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(call.CallID, result))
+		}
+		req.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: items}
 	}
-	return output, nil
+}
+
+type functionCall struct {
+	CallID    string
+	Name      string
+	Arguments string
+}
+
+func functionCalls(resp *responses.Response) []functionCall {
+	var calls []functionCall
+	for _, item := range resp.Output {
+		if item.Type == "function_call" {
+			calls = append(calls, functionCall{CallID: item.CallID, Name: item.Name, Arguments: item.Arguments})
+		}
+	}
+	return calls
 }
 
 const summaryInstruction = "Summarize the learner's badminton progress in under 100 words, in the language the learner uses. " +

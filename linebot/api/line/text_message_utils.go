@@ -54,6 +54,54 @@ func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string)
 	))
 }
 
+// SendRegistrationLink invites a learner to register on the dashboard. The
+// details are typed into the web form, so nothing identifying is ever sent as
+// a chat message.
+func (client *Client) SendRegistrationLink(replyToken, registrationURL string) (*linebot.BasicResponse, error) {
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("完成實驗登記", registrationBubble(registrationURL)))
+}
+
+func registrationBubble(registrationURL string) *linebot.BubbleContainer {
+	return &linebot.BubbleContainer{
+		Type: linebot.FlexContainerTypeBubble,
+		Body: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			PaddingAll: "16px",
+			Contents: []linebot.FlexComponent{
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "請先完成實驗登記",
+					Size:   "lg",
+					Weight: linebot.FlexTextWeightTypeBold,
+				},
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "在學習網頁填寫實驗編號、姓名與慣用手，完成後就可以使用所有功能。資料填錯也可以在同一頁修改。",
+					Size:   "sm",
+					Wrap:   true,
+					Color:  "#666666",
+					Margin: "md",
+				},
+			},
+		},
+		Footer: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			Spacing:    "sm",
+			PaddingAll: "12px",
+			Contents: []linebot.FlexComponent{
+				&linebot.ButtonComponent{
+					Type:   "button",
+					Style:  linebot.FlexButtonStyleTypePrimary,
+					Color:  "#1F6F4A",
+					Action: linebot.NewURIAction("前往登記", registrationURL),
+				},
+			},
+		},
+	}
+}
+
 // reviewSectionBubble is the card behind both weekly menu entries. Neither
 // collects a note over chat any more: previews and reflections are written per
 // week in the web app, where the learner can watch their own action against the
@@ -200,14 +248,6 @@ func (client *Client) PromptSkillSelection(
 		client.getSkillQuickReplyItems(userState),
 	)
 	return client.bot.ReplyMessage(replyToken, msg).Do()
-}
-
-func (client *Client) PromptHandednessSelection(event *linebot.Event) error {
-	msg := linebot.NewTextMessage("請選擇左手或右手").WithQuickReplies(
-		client.getHandednessQuickReplyItems(),
-	)
-	_, err := client.bot.ReplyMessage(event.ReplyToken, msg).Do()
-	return err
 }
 
 func (client *Client) SendVideoMessage(replyToken, videoURL, thumbnailURL string) (*linebot.BasicResponse, error) {

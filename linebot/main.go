@@ -115,21 +115,25 @@ func main() {
 			"[auth] LINE_LOGIN_CHANNEL_ID is not set; learner API routes will refuse every request",
 		)
 	}
-	requireLearner := func(c *gin.Context) {
+	// authenticate runs the limits and the credential check, and reports
+	// whether the request may go on. Registration itself has to be reachable
+	// before a learner is registered, so the registration check below is a
+	// separate step rather than part of this one.
+	authenticate := func(c *gin.Context) bool {
 		if verifier == nil {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication is not configured"})
-			return
+			return false
 		}
 		clientIP := ratelimit.ClientIP(c.Request)
 		if !ipLimiter.Allow(clientIP) {
 			tooManyRequests(c, ipLimiter, "client_ip")
-			return
+			return false
 		}
 		// An address that keeps presenting bad credentials is refused before
 		// any verification work is spent on it.
 		if authFailureLimiter.Exhausted(clientIP) {
 			tooManyRequests(c, authFailureLimiter, "auth_failures")
-			return
+			return false
 		}
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxLearnerRequestBody)
 		userID, err := verifier.Authenticate(c.Request.Context(), c.Request)
@@ -139,21 +143,34 @@ func main() {
 				// the page its session expired.
 				obs.Event(c.Request.Context(), obs.Error, "authentication unavailable", map[string]any{"error": err})
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "暫時無法驗證登入，請稍後再試。"})
-				return
+				return false
 			}
 			authFailureLimiter.Allow(clientIP)
 			obs.Event(c.Request.Context(), obs.Warning, "authentication rejected", map[string]any{
 				"error": err, "client_ip": clientIP, "route": c.FullPath(),
 			})
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
+			return false
 		}
 		if !learnerLimiter.Allow(userID) {
 			tooManyRequests(c, learnerLimiter, "learner")
-			return
+			return false
 		}
 		c.Set(authenticatedUserKey, userID)
-		if !auth.AllowRegisteredLearner(c, userID, application.FirestoreClient.GetUserData) {
+		return true
+	}
+	// Signed in, registered or not. Only the registration form may use this.
+	requireSignIn := func(c *gin.Context) {
+		if !authenticate(c) {
+			return
+		}
+		c.Next()
+	}
+	requireLearner := func(c *gin.Context) {
+		if !authenticate(c) {
+			return
+		}
+		if !auth.AllowRegisteredLearner(c, c.GetString(authenticatedUserKey), application.FirestoreClient.GetUserData) {
 			return
 		}
 		c.Next()
@@ -250,6 +267,64 @@ func main() {
 		c.JSON(http.StatusOK, user)
 	})
 
+	// The learner's own profile: their experiment number, real name and
+	// handedness. Signing in is enough, because this is also the form that
+	// registers them -- every other learner route needs registration first.
+	r.PUT("/api/db/profile", requireSignIn, func(c *gin.Context) {
+		start := time.Now()
+		userID := learnerID(c)
+		var body struct {
+			RealName         string `json:"real_name"`
+			ExperimentNumber string `json:"experiment_number"`
+			Handedness       string `json:"handedness"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": db.RegistrationFormatError})
+			return
+		}
+		registration, err := db.ParseExperimentRegistration(body.ExperimentNumber + " " + body.RealName)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": db.RegistrationFormatError})
+			return
+		}
+		handedness, err := db.HandednessStrToEnum(strings.ToLower(strings.TrimSpace(body.Handedness)))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "handedness must be left or right"})
+			return
+		}
+		// A learner can open the dashboard before ever messaging the bot, so
+		// their record and storage folders may not exist yet.
+		user, err := application.EnsureUserData(userID)
+		if err != nil {
+			application.Logger.Error.Printf("[db.profile] user_id=%s create err=%v", userID, err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "暫時無法儲存資料，請稍後再試。"})
+			return
+		}
+		saved, err := application.FirestoreClient.SaveExperimentRegistration(userID, registration)
+		if err != nil {
+			status := http.StatusServiceUnavailable
+			message := "暫時無法儲存資料，請稍後再試。"
+			if errors.Is(err, db.ErrRegistrationFormat) {
+				status, message = http.StatusBadRequest, db.RegistrationFormatError
+			}
+			application.Logger.Error.Printf("[db.profile] user_id=%s save err=%v", userID, err)
+			c.JSON(status, gin.H{"error": message})
+			return
+		}
+		if saved.Handedness != handedness {
+			if err := application.FirestoreClient.UpdateUserHandedness(saved, handedness); err != nil {
+				application.Logger.Error.Printf("[db.profile] user_id=%s handedness err=%v", userID, err)
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "暫時無法儲存資料，請稍後再試。"})
+				return
+			}
+		}
+		application.Logger.Info.Printf(
+			"[db.profile] saved user_id=%s first_time=%t took=%s",
+			userID, !user.HasExperimentRegistration(), time.Since(start),
+		)
+		c.JSON(http.StatusOK, saved)
+	})
+
 	r.GET("/api/db/playback", requireLearner, func(c *gin.Context) {
 		// Playback hands out signed URLs to practice video, so it serves the
 		// caller's own analyses only.
@@ -318,12 +393,31 @@ func main() {
 			}
 		}
 		work.FeedbackVideo = work.StudentVideo
+		// The poster the player shows until the video has enough data to paint
+		// its first frame, which is otherwise a blank rectangle. A thumbnail
+		// that predates thumbnailing, or has since been removed, simply leaves
+		// the poster out rather than failing the whole playback.
+		var thumbnail commons.MediaRef
+		if work.Thumbnail != "" {
+			signed, err := application.StorageClient.SignThumbnailURL(
+				work.Thumbnail, application.Config.GCP.ServiceAccountEmail,
+			)
+			if err != nil {
+				application.Logger.Warn.Printf(
+					"[db.playback] thumbnail unavailable user=%s skill=%s date=%s err=%v",
+					userID, skill, workDate, err,
+				)
+			} else {
+				thumbnail = signed
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"analysis_id":            work.AnalysisID,
 			"handedness":             work.Handedness,
 			"student_video":          work.StudentVideo,
 			"feedback_video":         work.FeedbackVideo,
 			"skeleton_overlay_video": work.SkeletonOverlayVideo,
+			"thumbnail":              thumbnail,
 			"expert":                 work.Expert,
 			"timeline":               work.Timeline,
 			"grade":                  work.GradingOutcome,

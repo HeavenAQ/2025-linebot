@@ -126,7 +126,13 @@ export const UserDataSchema = z.object({
   folder_paths: FolderIDsSchema,
   name: z.string(),
   id: z.string(),
-  handedness: z.number()
+  handedness: z.number(),
+  // The experiment registration. Absent on a learner who has not registered,
+  // and on responses written before the profile form existed.
+  real_name: z.string().optional().default(''),
+  experiment_number: z.string().optional().default(''),
+  registration_version: z.number().optional().default(0),
+  registration_completed_at: z.string().optional().default('')
 })
 
 export const PlaybackResponseSchema = z.object({
@@ -135,6 +141,9 @@ export const PlaybackResponseSchema = z.object({
   student_video: MediaRefSchema,
   feedback_video: OptionalMediaRefSchema,
   skeleton_overlay_video: OptionalMediaRefSchema,
+  // Shown while the student's clip loads, so the frame is not blank. Absent on
+  // analyses whose thumbnail is missing.
+  thumbnail: OptionalMediaRefSchema,
   expert: ExpertMatchSchema,
   timeline: z.array(PhaseMarkerSchema),
   grade: GradingOutcomeSchema

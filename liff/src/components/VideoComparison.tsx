@@ -771,14 +771,16 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
         </div>
       </div>
 
-      <Segmented
-        label="畫面模式"
-        size="sm"
-        options={VIEW_OPTIONS}
-        value={viewMode}
-        onChange={setViewMode}
-        className="mx-4 mb-3"
-      />
+      <div className="mx-4 mb-3 flex flex-col gap-2 sm:flex-row">
+        <Segmented
+          label="畫面模式"
+          size="sm"
+          options={VIEW_OPTIONS}
+          value={viewMode}
+          onChange={setViewMode}
+          className="w-full sm:flex-1"
+        />
+      </div>
 
       {/* Both clips stay side by side at every width — comparing is the whole
           point, and stacking them on a phone puts the two halves of the
@@ -814,6 +816,10 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
             <video
               ref={studentRef}
               src={studentSrc}
+              // The first frame of the clip the student uploaded, so the frame
+              // shows the stroke rather than an empty rectangle while the
+              // video loads.
+              poster={playback.thumbnail?.signed_url || undefined}
               className="w-full object-contain"
               style={{ aspectRatio: studentRatio }}
               playsInline

@@ -22,12 +22,7 @@ type SelectingSkillPostback struct {
 	Skill string `json:"skill" validate:"required"`
 }
 
-type SelectingHandednessPostback struct {
-	Handedness string `json:"handedness" validate:"required"`
-}
-
 // Implement the marker interface for each struct
-func (VideoPostback) isPostbackData()               {}
-func (WritingNotePostback) isPostbackData()         {}
-func (SelectingSkillPostback) isPostbackData()      {}
-func (SelectingHandednessPostback) isPostbackData() {}
+func (VideoPostback) isPostbackData()          {}
+func (WritingNotePostback) isPostbackData()    {}
+func (SelectingSkillPostback) isPostbackData() {}

@@ -11,11 +11,10 @@ import (
 	"cloud.google.com/go/firestore"
 )
 
-const RegistrationInstructions = "請先在 LINE 聊天室輸入「實驗編號 姓名」完成登記，才能使用功能。\n例如：01 王小明\n編號和姓名中間加一個空格即可；請填寫真實姓名。"
-const RegistrationFormatError = "格式不正確，請輸入「實驗編號 姓名」。\n例如：01 王小明\n編號可用數字或英文字母加數字（例如 EG01）；姓名不可含數字、表情符號或其他說明。"
+const RegistrationInstructions = "請先在學習網頁完成實驗登記，填寫實驗編號、姓名與慣用手後，才能使用功能。"
+const RegistrationFormatError = "資料格式不正確。實驗編號可用數字，或英文字母加數字（例如 01、EG01）；姓名請填真實姓名，不可含數字、表情符號或其他說明。"
 
 var ErrRegistrationFormat = errors.New("invalid experiment registration format")
-var ErrRegistrationLocked = errors.New("experiment registration is already completed")
 var experimentNumberPattern = regexp.MustCompile(`^[A-Z]{0,4}[0-9]{1,6}$`)
 
 type ExperimentRegistration struct {
@@ -75,10 +74,12 @@ func (user *UserData) HasExperimentRegistration() bool {
 	return err == nil && parsed.ExperimentNumber == user.ExperimentNumber && parsed.RealName == user.RealName
 }
 
-// Registration is completed only through a signed LINE event. Field updates
-// preserve portfolios; a transaction makes webhook retries idempotent and prevents
-// conflicting concurrent messages from silently changing an existing identity.
-func (client *FirestoreClient) RegisterExperiment(userID string, registration ExperimentRegistration) (*UserData, error) {
+// SaveExperimentRegistration writes a learner's own details, first time or as
+// an edit from the profile page. It does not lock the first answer: the
+// learner is signed in as themselves and may fix a typo in their own name or
+// number. The completion time is stamped once and then left alone, so the
+// record still says when the learner joined the experiment.
+func (client *FirestoreClient) SaveExperimentRegistration(userID string, registration ExperimentRegistration) (*UserData, error) {
 	parsed, err := ParseExperimentRegistration(registration.ExperimentNumber + " " + registration.RealName)
 	if err != nil || parsed != registration {
 		return nil, ErrRegistrationFormat
@@ -93,18 +94,17 @@ func (client *FirestoreClient) RegisterExperiment(userID string, registration Ex
 		if err := snapshot.DataTo(&user); err != nil {
 			return err
 		}
-		if user.HasExperimentRegistration() {
-			if user.RealName == registration.RealName && user.ExperimentNumber == registration.ExperimentNumber {
-				return nil
-			}
-			return ErrRegistrationLocked
-		}
-		return tx.Update(ref, []firestore.Update{
+		updates := []firestore.Update{
 			{Path: "real_name", Value: registration.RealName},
 			{Path: "experiment_number", Value: registration.ExperimentNumber},
 			{Path: "registration_version", Value: 1},
-			{Path: "registration_completed_at", Value: firestore.ServerTimestamp},
-		})
+		}
+		if !user.HasExperimentRegistration() {
+			updates = append(updates, firestore.Update{
+				Path: "registration_completed_at", Value: firestore.ServerTimestamp,
+			})
+		}
+		return tx.Update(ref, updates)
 	})
 	if err != nil {
 		return nil, err

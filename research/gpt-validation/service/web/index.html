@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>動作回饋專家審查</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#app">跳到主要內容</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="brand">動作回饋專家審查</span>
+      <nav id="topnav" class="topnav" aria-label="帳號"></nav>
+    </div>
+  </header>
+  <main id="app" class="app" tabindex="-1">
+    <noscript>此頁面需要啟用 JavaScript。</noscript>
+    <p class="loading">載入中…</p>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="dialog" class="dialog" aria-labelledby="dialog-title" aria-describedby="dialog-message">
+    <h2 id="dialog-title" class="dialog-title"></h2>
+    <p id="dialog-message" class="dialog-message"></p>
+    <div class="dialog-actions">
+      <button type="button" id="dialog-cancel" class="btn btn-secondary"></button>
+      <button type="button" id="dialog-confirm" class="btn btn-primary"></button>
+    </div>
+  </dialog>
+</body>
+</html>

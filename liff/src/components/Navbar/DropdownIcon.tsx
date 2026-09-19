@@ -1,7 +1,7 @@
 'use client'
 import React, { Fragment } from 'react'
 import { Menu, Transition } from '@headlessui/react'
-import { BarChart3, Menu as MenuIcon, Users } from 'lucide-react'
+import { BarChart3, Menu as MenuIcon, UserRound, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils'
 
 const items = [
   { displayName: '個人成績', href: '/personal', icon: BarChart3 },
-  { displayName: '班級排名', href: '/class', icon: Users }
+  { displayName: '班級排名', href: '/class', icon: Users },
+  { displayName: '個人資料', href: '/profile', icon: UserRound }
 ]
 
 export default function DropDownIcon() {

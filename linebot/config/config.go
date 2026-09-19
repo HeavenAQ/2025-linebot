@@ -67,7 +67,13 @@ type AnalysisServerConfig struct {
 // against its own Netlify site, so there is no default to fall back to: an
 // unset URL would otherwise send learners into the other deployment's data.
 type LiffConfig struct {
-	ReviewURL string `env:"LIFF_REVIEW_URL"`
+	ReviewURL       string `env:"LIFF_REVIEW_URL"`
+	RegistrationURL string `env:"LIFF_REGISTRATION_URL"`
+}
+
+// RegistrationURL is where learners enter their experiment number and name.
+func (c *Config) RegistrationURL() string {
+	return strings.TrimSpace(c.Liff.RegistrationURL)
 }
 
 // ReviewURL is where learners write their weekly reflection.

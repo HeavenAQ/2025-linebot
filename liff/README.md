@@ -1,15 +1,24 @@
 # LIFF review app
 
-Learner-facing review interface opened from the LINE bot: scores and daily-best
-trend, synchronized student/expert video comparison, weekly review and notes,
-class averages, and the GPT coaching history.
+Learner-facing review interface opened from the LINE bot: registration and
+profile, scores and daily-best trend, synchronized student/expert video
+comparison, weekly review and notes, class averages, and the GPT coaching
+history.
+
+Routes: `/personal` (scores, 影片比較, 每週回顧), `/class`, `/gpt-chat` and
+`/profile` (個人資料). The video tab offers both renders of the learner's own
+stroke -- 教練建議版, with the coach's corrections written in and a freeze on
+each, and 分析原片 without them -- and shows the attempt's thumbnail as the
+player's poster while the video loads.
 
 It is a Next.js static export (`output: 'export'`) served by Netlify. All data
 comes from the Go backend in `../linebot`, authenticated with the learner's LINE
 ID token (`Authorization: Bearer`) while it has more than a minute left, and with
 the LIFF access token (`X-Line-Access-Token`) after that, so a page left open past
-the ID token's hour keeps working; learners register in the LINE chat before the
-app unlocks. Signed video URLs are re-fetched shortly before they expire.
+the ID token's hour keeps working. Learners register here, not in the chat: an
+unregistered learner gets the registration form instead of the app, and the same
+three fields -- experiment number, real name, handedness -- stay editable under
+個人資料. Signed video URLs are re-fetched shortly before they expire.
 
 ## Development
 

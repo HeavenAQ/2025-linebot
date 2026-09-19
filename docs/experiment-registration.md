@@ -14,7 +14,9 @@ They can change the same three fields later under 個人資料 in the dashboard 
 - Names accept 2–60 characters with at least two letters: Chinese and other
   Unicode letters, combining marks, internal spaces, apostrophes, hyphens, and
   middle dots. Digits, emoji, markup, line breaks, and explanatory punctuation
-  are rejected with a Traditional Chinese format-error reply and an example.
+  are rejected. The form applies the same rules as it is typed into, so a typo
+  is caught before the round trip, and the server re-checks and answers with a
+  Traditional Chinese format error.
 - This validates **syntax**, not legal identity or membership in a teacher's
   roster. Experiment numbers are not forced to be globally unique.
 - Existing accounts must register too; their LINE display name is not proof of
@@ -60,6 +62,8 @@ Create, not an overwrite of a potentially existing document.
   registration. Even a 200 response from an older backend without registration
   fields does not unlock the frontend.
 - AI weekly preview pushes skip unregistered users.
+- Handedness is collected here and nowhere else: neither the upload flow nor the
+  expert-video flow asks for it, and the analysis reads it from the profile.
 - Health checks, signed LINE callbacks, and authenticated administrative scheduler
   endpoints retain their existing roles. This does not revoke already-issued
   signed media URLs; those keep their existing expiry.
@@ -74,6 +78,5 @@ no real student records, LINE messages, or production credentials are used.
 They verify persistence, untouched portfolios, server timestamp, later edits
 keeping the original join time, and preservation across stale portfolio writes.
 
-Deploy only the registration commits to LLM `main` and `variant/no-llm`; do not
-include the separate unfinished smash scoring/coaching candidate. Both bot and
-LIFF deployments are needed.
+Both bot and LIFF deployments are needed, on `main` and on `variant/no-llm`:
+the bot for the link and the profile endpoint, the LIFF for the form itself.

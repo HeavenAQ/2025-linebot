@@ -20,6 +20,24 @@ prefixes. Only the queue/scheduler terminology changes; no learner data moves.
    original LINE card itself remains a pending receipt (LINE messages cannot
    be edited to replace its cached score text).
 
+### Videos sent in coach chat (LLM variant)
+
+A video sent while talking to the coach is the same job with `source: "chat"`,
+and three things differ:
+
+- It runs with `skip_coaching`, so the GPU work ends after the skeleton overlay
+  and the learner is answered sooner.
+- Nothing is replied when the video arrives. The reply token is held for the
+  finished answer -- replies are free, pushes are metered -- and the typing
+  indicator covers the wait. A token that expires first (LINE honours one for
+  about a minute) leaves the answer on the session, delivered with the learner's
+  next message.
+- A second job, `source: "chat-coaching"`, then runs the coaching pass against
+  the same stored input and merges only `coaching_cues`, `ai_note` and
+  `feedback_video` into the attempt already recorded. It never rewrites a grade
+  or the class aggregate, and it is a queued job rather than a goroutine so an
+  instance scaling down cannot take it with it.
+
 Retries use leases and deterministic task names. Completed jobs are no-ops.
 Transient inference failures retry up to five actual attempts; invalid motion
 is terminal. The one-minute outbox job recovers crashes before task publication

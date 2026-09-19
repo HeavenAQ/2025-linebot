@@ -10,6 +10,7 @@ import { expertMotionWindow } from '@/lib/expertAlignment'
 import { useCheckpointLoop } from '@/components/useCheckpointLoop'
 import { checkpointReplayMarker } from '@/lib/checkpointPlayback'
 import { isSameAnalysis } from '@/lib/playbackExpiry'
+import { hasAnalysisRender, playsAnalysisRender, type StudentSource } from '@/lib/studentClip'
 import type { CoachingCue, PhaseMarker, PlaybackResponse } from '@/types'
 
 type ViewMode = 'both' | 'student' | 'expert'
@@ -19,6 +20,11 @@ const VIEW_OPTIONS = [
   { value: 'student', label: '同學' },
   { value: 'expert', label: '專家' }
 ] as const satisfies readonly { value: ViewMode; label: string }[]
+
+const SOURCE_OPTIONS = [
+  { value: 'coach', label: '教練建議版' },
+  { value: 'analysis', label: '分析原片' }
+] as const satisfies readonly { value: StudentSource; label: string }[]
 
 interface VideoComparisonProps {
   playback: PlaybackResponse
@@ -105,11 +111,18 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
   const [studentDuration, setStudentDuration] = useState(playback.student_video.duration_seconds)
   const [expertDuration, setExpertDuration] = useState(playback.expert.video.duration_seconds)
   const [viewMode, setViewMode] = useState<ViewMode>('both')
+  const [studentSource, setStudentSource] = useState<StudentSource>('coach')
   const loop = useCheckpointLoop(studentRef, expertRef, playingRef, viewMode, setPlaying)
   const stopCheckpointLoop = loop.stop
   const studentOnly = viewMode === 'student'
-  const unpaused =
-    (studentOnly || loop.selection !== null) && Boolean(playback.skeleton_overlay_video?.signed_url)
+  // Without the plain render there is nothing to switch to, so the choice is
+  // hidden and the coach's version plays as before.
+  const analysisRenderReady = hasAnalysisRender(playback)
+  const unpaused = playsAnalysisRender({
+    source: studentSource,
+    loopActive: loop.selection !== null,
+    hasAnalysisRender: analysisRenderReady
+  })
   const studentMedia = unpaused ? playback.skeleton_overlay_video : playback.student_video
   const studentSrc = studentMedia.signed_url
   const expertSrc = playback.expert.video.signed_url
@@ -849,14 +862,24 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
         </div>
       </div>
 
-      <Segmented
-        label="畫面模式"
-        size="sm"
-        options={VIEW_OPTIONS}
-        value={viewMode}
-        onChange={setViewMode}
-        className="mx-4 mb-3"
-      />
+      <div className="mx-4 mb-3 flex flex-wrap items-center gap-2">
+        <Segmented
+          label="畫面模式"
+          size="sm"
+          options={VIEW_OPTIONS}
+          value={viewMode}
+          onChange={setViewMode}
+        />
+        {analysisRenderReady && showStudent && (
+          <Segmented
+            label="同學影片版本"
+            size="sm"
+            options={SOURCE_OPTIONS}
+            value={studentSource}
+            onChange={setStudentSource}
+          />
+        )}
+      </div>
 
       {/* Both clips stay side by side at every width — comparing is the whole
           point, and stacking them on a phone puts the two halves of the

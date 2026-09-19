@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 )
 
 // The learner a tool reads is bound by the caller. If any tool took an
@@ -87,4 +88,29 @@ func itoa(value int) string {
 		return string(rune('0' + value))
 	}
 	return itoa(value/10) + string(rune('0'+value%10))
+}
+
+// The coaching pass runs against an attempt that is already recorded and
+// already answered, so it must add only its own results.
+func TestMergeCoachingTouchesOnlyCoachingFields(t *testing.T) {
+	outcome := &commons.AnalysisOutcome{
+		CoachingCues:    []commons.CoachingCue{{Title: "手腕發力", Feedback: "擊球瞬間再快一點"}},
+		OverallFeedback: "整體不錯",
+		FeedbackVideo:   commons.MediaRef{ObjectPath: "analyses/v1/u/r/student_corrected.mp4"},
+		// A second pass also produces these; none of them may be written.
+		Grade:        commons.GradingOutcome{TotalGrade: 1},
+		StudentVideo: commons.MediaRef{ObjectPath: "should-not-be-written.mp4"},
+	}
+	paths := db.CoachingUpdatePaths(db.AnalysisJob{Skill: "smash", WorkDate: "2026-09-19-10-00"}, outcome)
+	want := map[string]bool{"coaching_cues": true, "ai_note": true, "feedback_video": true}
+	for _, path := range paths {
+		field := path[len(path)-1]
+		if !want[field] {
+			t.Errorf("coaching pass would overwrite %q", field)
+		}
+		delete(want, field)
+	}
+	if len(want) > 0 {
+		t.Errorf("coaching pass never writes %v", want)
+	}
 }

@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
+	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 	linebot "github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
@@ -212,4 +216,63 @@ func (app *App) chatAnalysisAnswer(ctx context.Context, job db.AnalysisJob, work
 // bucket is signed rather than the default one.
 func storageBucketFrom(gcsURI string) string {
 	return storage.BucketFromGCSURI(gcsURI)
+}
+
+// queueChatCoaching fills in the coaching a chat upload skipped.
+//
+// A chat analysis answers fast by leaving out the pipeline's coaching stage,
+// but the attempt lands in the learner's portfolio like any other, where a
+// missing cue list would be a hole. The pass runs as a queued job of its own:
+// a goroutine here would be frozen or killed when this instance scales down,
+// and the learner would never know the cues went missing. It merges only its
+// own results, so it can never change a score after the fact.
+func (app *App) queueChatCoaching(ctx context.Context, job db.AnalysisJob) {
+	if app.AnalysisQueue == nil {
+		return
+	}
+	digest := sha256.Sum256([]byte(job.ID + ":coaching"))
+	id := hex.EncodeToString(digest[:])
+	follow := db.AnalysisJob{
+		ID: id, UserID: job.UserID, Skill: job.Skill, Handedness: job.Handedness,
+		WorkDate: job.WorkDate, InputObject: job.InputObject, Thumbnail: job.Thumbnail,
+		Status: "queued", CreatedAt: time.Now(), Source: db.AnalysisSourceChatCoaching,
+	}
+	if _, err := app.FirestoreClient.CreateAnalysisJob(ctx, follow); err != nil {
+		app.Logger.Warn.Printf("[chat.coaching] job=%s not recorded: %v", job.ID, err)
+		return
+	}
+	if err := app.AnalysisQueue.Enqueue(ctx, id); err != nil {
+		// The outbox reconciler picks it up; the learner already has their answer.
+		app.Logger.Warn.Printf("[chat.coaching] job=%s enqueue deferred: %v", job.ID, err)
+	}
+}
+
+// runChatCoachingJob is the queued coaching pass for a chat upload. It merges
+// cues into an attempt that is already recorded and already answered, so a
+// failure costs the cues, never the attempt or its score.
+func (app *App) runChatCoachingJob(ctx context.Context, w http.ResponseWriter, job db.AnalysisJob) {
+	started := time.Now()
+	video, err := app.StorageClient.ReadAnalysisInput(ctx, job.InputObject)
+	if err == nil {
+		var outcome *commons.AnalysisOutcome
+		outcome, err = app.AnalysisClient.AnalyzeVideo(
+			ctx, job.ID, job.UserID, "line-upload.mp4", job.Skill, job.Handedness, video, false,
+		)
+		if err == nil {
+			err = app.FirestoreClient.MergeCoaching(ctx, job, outcome)
+			if err == nil {
+				app.Logger.Info.Printf("[chat.coaching] job=%s stored %d cues in %s",
+					job.ID, len(outcome.CoachingCues), time.Since(started))
+			}
+		}
+	}
+	state := "completed"
+	if err != nil {
+		state = "failed"
+		app.Logger.Warn.Printf("[chat.coaching] job=%s failed after %s: %v", job.ID, time.Since(started), err)
+	}
+	if markErr := app.FirestoreClient.MarkAnalysisJobState(ctx, job.ID, state); markErr != nil {
+		app.Logger.Warn.Printf("[chat.coaching] job=%s state not saved: %v", job.ID, markErr)
+	}
+	w.WriteHeader(204)
 }

@@ -19,6 +19,10 @@ var ErrJobBusy = errors.New("analysis already running")
 const (
 	AnalysisSourceUpload = "upload"
 	AnalysisSourceChat   = "chat"
+	// AnalysisSourceChatCoaching fills in the coaching a chat upload skipped
+	// to answer quickly. It runs against the same stored video and merges only
+	// its cues into the attempt that is already recorded.
+	AnalysisSourceChatCoaching = "chat-coaching"
 )
 
 type AnalysisJob struct {
@@ -211,4 +215,50 @@ func (c *FirestoreClient) PendingChatAnalysis(ctx context.Context, userID string
 		}
 	}
 	return newest, nil
+}
+
+// MergeCoaching adds the coaching pass's results to an attempt that is already
+// recorded and already shown to the learner.
+//
+// Only the coaching fields move: the grade, the videos the learner has seen
+// and the expert match stay exactly as they were, so a second pass can never
+// change a score after the fact.
+func (c *FirestoreClient) MergeCoaching(ctx context.Context, job AnalysisJob, outcome *commons.AnalysisOutcome) error {
+	if outcome == nil {
+		return fmt.Errorf("no coaching outcome")
+	}
+	updates := []firestore.Update{}
+	for _, path := range CoachingUpdatePaths(job, outcome) {
+		value := any(outcome.CoachingCues)
+		switch path[len(path)-1] {
+		case "ai_note":
+			value = outcome.OverallFeedback
+		case "feedback_video":
+			value = outcome.FeedbackVideo
+		}
+		updates = append(updates, firestore.Update{FieldPath: path, Value: value})
+	}
+	_, err := c.Data.Doc(job.UserID).Update(ctx, updates)
+	return err
+}
+
+// CoachingUpdatePaths lists exactly the fields the coaching pass may write.
+func CoachingUpdatePaths(job AnalysisJob, outcome *commons.AnalysisOutcome) [][]string {
+	base := []string{"portfolio", job.Skill, job.WorkDate}
+	field := func(name string) []string { return append(append([]string{}, base...), name) }
+	paths := [][]string{field("coaching_cues"), field("ai_note")}
+	if outcome != nil && outcome.FeedbackVideo.ObjectPath != "" {
+		paths = append(paths, field("feedback_video"))
+	}
+	return paths
+}
+
+// MarkAnalysisJobState finishes a job that owns no portfolio record of its
+// own, such as the coaching pass that only merges cues into an existing one.
+func (c *FirestoreClient) MarkAnalysisJobState(ctx context.Context, jobID, state string) error {
+	_, err := c.AnalysisJobs().Doc(jobID).Update(ctx, []firestore.Update{
+		{Path: "status", Value: state},
+		{Path: "lease_until", Value: time.Time{}},
+	})
+	return err
 }

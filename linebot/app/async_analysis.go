@@ -150,6 +150,10 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 		return
 	}
+	if job.Source == db.AnalysisSourceChatCoaching {
+		a.runChatCoachingJob(ctx, w, job)
+		return
+	}
 	var outcome *commons.AnalysisOutcome
 	video, err := a.StorageClient.ReadAnalysisInput(ctx, job.InputObject)
 	if err == nil {
@@ -215,6 +219,11 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 			answerCtx, answerCancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer answerCancel()
 			a.answerChatAnalysis(answerCtx, job)
+			// The attempt is in their portfolio like any other, so it should
+			// carry the same coaching cues. That pass costs another 15-30 s,
+			// which the learner has already been spared: it is queued after
+			// they have their reply and only fills in the record.
+			a.queueChatCoaching(answerCtx, job)
 		}
 	}
 	w.WriteHeader(204)

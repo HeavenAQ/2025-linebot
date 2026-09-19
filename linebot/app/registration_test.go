@@ -78,3 +78,16 @@ func TestGroupRegistrationDoesNotAccessDatabase(t *testing.T) {
 		t.Fatal("group request reached registration")
 	}
 }
+
+// An unset registration URL used to produce a card with an empty link, which
+// LINE rejects outright, so the learner got no reply at all.
+func TestRegistrationInvite(t *testing.T) {
+	url, text := registrationInvite("https://liff.line.me/1234567890-abcdefgh/profile")
+	if url == "" || text != "" {
+		t.Errorf("a configured URL should be sent as a card: url=%q text=%q", url, text)
+	}
+	url, text = registrationInvite("  ")
+	if url != "" || text != db.RegistrationInstructions {
+		t.Errorf("a missing URL should fall back to the instructions: url=%q text=%q", url, text)
+	}
+}

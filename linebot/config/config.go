@@ -84,9 +84,13 @@ type LiffConfig struct {
 // the bot never hands a learner a broken link.
 const DefaultLiffReviewURL = "https://linebot-liff-nstc-2025.heavian.work/personal?tab=review"
 
-// DefaultLiffRegistrationURL is the deployed profile page. An unregistered
-// learner who opens it gets the registration form instead.
-const DefaultLiffRegistrationURL = "https://linebot-liff-nstc-2025.heavian.work/profile"
+// DefaultLiffRegistrationURL opens the profile page as a LIFF app rather than
+// as a plain web page. Tapping an endpoint URL in a LINE message opens it in
+// the in-app browser, where the SDK treats the learner as signed out and
+// bounces them through LINE Login, which returns to the LIFF app's registered
+// endpoint -- the site root -- losing the path. A liff.line.me link opens the
+// app in a LIFF context, already signed in, and keeps the path.
+const DefaultLiffRegistrationURL = "https://liff.line.me/2006698730-J9npgmy3/profile"
 
 // RegistrationURL is where learners enter their experiment number and name.
 func (c *Config) RegistrationURL() string {

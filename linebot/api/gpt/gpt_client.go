@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
@@ -224,13 +225,27 @@ func (client *Client) CoachWithTools(
 		for _, call := range calls {
 			items = append(items, responses.ResponseInputItemParamOfFunctionCall(call.Arguments, call.CallID, call.Name))
 		}
-		for _, call := range calls {
-			started := time.Now()
-			result := runTool(ctx, tools, call.Name, call.Arguments)
+		// The model often asks for several things at once -- this attempt, the
+		// class standing, the best attempt -- and they are independent reads.
+		// Running them together costs one lookup's wait rather than three.
+		results := make([]string, len(calls))
+		elapsed := make([]float64, len(calls))
+		var wait sync.WaitGroup
+		wait.Add(len(calls))
+		for index, call := range calls {
+			go func(index int, call functionCall) {
+				defer wait.Done()
+				started := time.Now()
+				results[index] = runTool(ctx, tools, call.Name, call.Arguments)
+				elapsed[index] = time.Since(started).Seconds()
+			}(index, call)
+		}
+		wait.Wait()
+		for index, call := range calls {
 			if onToolCall != nil {
-				onToolCall(ToolCallRecord{Name: call.Name, Arguments: call.Arguments, Seconds: time.Since(started).Seconds()})
+				onToolCall(ToolCallRecord{Name: call.Name, Arguments: call.Arguments, Seconds: elapsed[index]})
 			}
-			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(call.CallID, result))
+			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(call.CallID, results[index]))
 		}
 		req.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: items}
 	}

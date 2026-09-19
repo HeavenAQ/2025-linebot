@@ -11,9 +11,13 @@ type UserSession struct {
 	UserState   UserState `json:"user_state" firestore:"user_state"`
 	// ChatQuestion is the learner's last question in coach chat, kept only
 	// long enough for a video sent just after it to be answered together.
-	ChatQuestion   string     `json:"chat_question" firestore:"chat_question"`
-	ChatQuestionAt time.Time  `json:"chat_question_at" firestore:"chat_question_at"`
-	ActionStep     ActionStep `json:"action_step" firestore:"action_step"`
+	ChatQuestion   string    `json:"chat_question" firestore:"chat_question"`
+	ChatQuestionAt time.Time `json:"chat_question_at" firestore:"chat_question_at"`
+	// PendingAnswer is an analysis answer whose reply window closed before it
+	// was ready. It rides along with the learner's next message rather than
+	// costing a push; the video is watched in the dashboard instead.
+	PendingAnswer string     `json:"pending_answer" firestore:"pending_answer"`
+	ActionStep    ActionStep `json:"action_step" firestore:"action_step"`
 }
 
 func (client *FirestoreClient) GetUserSession(userID string) (*UserSession, error) {
@@ -104,4 +108,26 @@ func (session *UserSession) PendingChatQuestion() string {
 		return ""
 	}
 	return session.ChatQuestion
+}
+
+// SetPendingAnswer stores an answer that missed its reply window, to be
+// delivered with the learner's next message.
+func (client *FirestoreClient) SetPendingAnswer(userID, answer string) error {
+	session, err := client.GetUserSession(userID)
+	if err != nil {
+		return err
+	}
+	session.PendingAnswer = answer
+	return client.UpdateUserSession(userID, *session)
+}
+
+// TakePendingAnswer returns the waiting answer and clears it.
+func (client *FirestoreClient) TakePendingAnswer(userID string) (string, error) {
+	session, err := client.GetUserSession(userID)
+	if err != nil || session.PendingAnswer == "" {
+		return "", err
+	}
+	answer := session.PendingAnswer
+	session.PendingAnswer = ""
+	return answer, client.UpdateUserSession(userID, *session)
 }

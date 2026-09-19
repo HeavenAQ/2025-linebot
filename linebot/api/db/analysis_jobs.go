@@ -36,7 +36,11 @@ type AnalysisJob struct {
 	Source string `firestore:"source"`
 	// Question is what the learner asked about this video, if they have asked
 	// yet. The coach answers it once the analysis lands.
-	Question   string    `firestore:"question"`
+	Question string `firestore:"question"`
+	// ReplyToken answers a chat analysis without spending the account's push
+	// quota. LINE only honours it for about a minute, so a slow analysis falls
+	// back to delivering the answer with the learner's next message.
+	ReplyToken string    `firestore:"reply_token"`
 	Attempts   int       `firestore:"attempts"`
 	CreatedAt  time.Time `firestore:"created_at"`
 	LeaseUntil time.Time `firestore:"lease_until"`

@@ -154,7 +154,7 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		app.FirestoreClient.UpdateUserSession(user.ID, *session)
 
 		// Inform user we are entering GPT chatting mode
-		app.LineBot.SendGPTChattingModeReply(replyToken, "已進入和GPT對話模式")
+		app.LineBot.SendGPTChattingModeReply(replyToken, chatModeWelcome)
 
 	case db.Chatting:
 		// A session saved before the skill was withdrawn would otherwise keep
@@ -169,6 +169,14 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 		message, ok := event.Message.(*linebot.TextMessage)
 		if ok {
 			msg = message.Text
+		}
+
+		if waiting, err := app.FirestoreClient.TakePendingAnswer(user.ID); err != nil {
+			app.Logger.Warn.Printf("read held answer: %v", err)
+		} else if waiting != "" {
+			_, err := app.LineBot.SendGPTChattingModeReply(replyToken, waiting)
+			handleLineMessageResponseError(err)
+			return
 		}
 
 		questionCtx, questionCancel := context.WithTimeout(context.Background(), 10*time.Second)

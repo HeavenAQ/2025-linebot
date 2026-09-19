@@ -258,12 +258,6 @@ func (client *Client) PromptSkillSelection(
 	return client.bot.ReplyMessage(replyToken, msg).Do()
 }
 
-// PushVideoMessage sends a video outside a reply window, for work that
-// finished long after the learner's message.
-func (client *Client) PushVideoMessage(userID, videoURL, thumbnailURL string) (*linebot.BasicResponse, error) {
-	return client.PushMessage(userID, linebot.NewVideoMessage(client.assetURL(videoURL), client.assetURL(thumbnailURL)))
-}
-
 func (client *Client) SendVideoMessage(replyToken, videoURL, thumbnailURL string) (*linebot.BasicResponse, error) {
 	videoLink := client.assetURL(videoURL)
 	thumbnailLink := client.assetURL(thumbnailURL)
@@ -363,23 +357,6 @@ func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.Badmin
 		return err
 	}
 	return nil
-}
-
-// PushGPTChattingModeReply is SendGPTChattingModeReply for an answer that
-// finished after the reply window closed, keeping the same 結束對話 button so
-// the learner can always leave the conversation.
-func (client *Client) PushGPTChattingModeReply(userID string, msg string) (*linebot.BasicResponse, error) {
-	data, err := json.Marshal(StopGPTPostback{Stop: true})
-	if err != nil {
-		return nil, err
-	}
-	return client.PushMessage(userID, linebot.NewTextMessage(msg).WithQuickReplies(&linebot.QuickReplyItems{
-		Items: []*linebot.QuickReplyButton{
-			linebot.NewQuickReplyButton("", linebot.NewPostbackAction(
-				"結束對話", string(data), "", "結束對話", "OpenRichMenu", "",
-			)),
-		},
-	}))
 }
 
 func (client *Client) SendGPTChattingModeReply(replyToken string, msg string) (*linebot.BasicResponse, error) {

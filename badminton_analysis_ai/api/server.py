@@ -11,15 +11,14 @@ from collections.abc import Iterator
 from concurrent import futures
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable, NoReturn
+from typing import Any, Generator, Iterable, NoReturn
 
 import grpc
-
 from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.models.types import Handedness, Skill
 
-from api.config import Settings
 from api.coaching_timeline import coaching_video_frame
+from api.config import Settings
 from api.logging_config import (
     configure_logging,
     parse_cloud_trace_context,
@@ -29,10 +28,10 @@ from api.logging_config import (
     set_request_id_if_absent,
 )
 from api.pipeline import (
-    expert_phase_results,
     AnalysisResult,
-    SkillMismatchError,
     SkeletonAnalysisPipeline,
+    SkillMismatchError,
+    expert_phase_results,
 )
 from api.renderer import probe_video
 from api.storage import ObjectStorage, SignedObject
@@ -117,7 +116,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
 
     @staticmethod
     @contextmanager
-    def _request_scope(context: grpc.ServicerContext) -> Iterator[None]:
+    def _request_scope(context: grpc.ServicerContext) -> Generator[None]:
         """Correlate this RPC's log lines with the caller's request and trace.
 
         Cloud Run forwards its own x-cloud-trace-context under the same key,

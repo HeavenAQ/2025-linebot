@@ -76,7 +76,7 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 			// and the expert demonstrations both read it from one place.
 			ID: id, UserID: user.ID, Skill: session.Skill, Handedness: user.Handedness.String(),
 			WorkDate: key, InputObject: input, Thumbnail: uploaded.Path, Status: "queued", CreatedAt: now,
-			Source: source, Question: question,
+			Source: source, Question: question, ReplyToken: replyToken,
 		})
 		if err != nil {
 			a.handleVideoAnalysisError(err, replyToken)
@@ -94,8 +94,6 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 		}
 	}
 	if source == db.AnalysisSourceChat {
-		_, err := a.LineBot.SendReply(replyToken, chatAnalysisAcknowledgement)
-		handleLineMessageResponseError(err)
 		return
 	}
 	if err := a.FirestoreClient.ResetSession(user.ID); err != nil {
@@ -204,8 +202,12 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if job.Source == db.AnalysisSourceChat {
 		if failure != "" {
-			if _, pushErr := a.LineBot.PushGPTChattingModeReply(job.UserID, failure); pushErr != nil {
-				a.Logger.Error.Printf("chat analysis failure push job=%s: %v", job.ID, pushErr)
+			if _, replyErr := a.LineBot.SendGPTChattingModeReply(job.ReplyToken, failure); replyErr != nil {
+				// The window closed; tell them with their next message rather
+				// than spending a push on bad news.
+				if holdErr := a.FirestoreClient.SetPendingAnswer(job.UserID, failure); holdErr != nil {
+					a.Logger.Error.Printf("hold chat analysis failure job=%s: %v", job.ID, holdErr)
+				}
 			}
 		} else {
 			// The learner is waiting in the chat, so the answer is produced

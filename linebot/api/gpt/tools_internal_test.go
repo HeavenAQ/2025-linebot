@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -144,5 +146,52 @@ func TestCoachWithoutToolsSendsNoToolsField(t *testing.T) {
 	}
 	if _, ok := server.requests[0]["tools"]; ok {
 		t.Error("a plain question should not offer tools")
+	}
+}
+
+// Several lookups asked for at once are independent reads; running them
+// together is the difference between one wait and three.
+func TestParallelToolCallsRunConcurrently(t *testing.T) {
+	multi := `{"id":"resp","object":"response","status":"completed","output":[
+		{"type":"function_call","id":"a","call_id":"call-a","name":"slow","arguments":"{}","status":"completed"},
+		{"type":"function_call","id":"b","call_id":"call-b","name":"slow","arguments":"{}","status":"completed"},
+		{"type":"function_call","id":"c","call_id":"call-c","name":"slow","arguments":"{}","status":"completed"}]}`
+	server := &toolServer{replies: []string{multi}}
+	client := testClient(t, server)
+
+	const work = 120 * time.Millisecond
+	started := time.Now()
+	var mu sync.Mutex
+	var peak, running int
+	_, err := client.CoachWithTools(context.Background(), nil, "?", "殺球", nil,
+		[]Tool{{Name: "slow", Parameters: map[string]any{"type": "object"},
+			Handler: func(context.Context, string) (string, error) {
+				mu.Lock()
+				running++
+				if running > peak {
+					peak = running
+				}
+				mu.Unlock()
+				time.Sleep(work)
+				mu.Lock()
+				running--
+				mu.Unlock()
+				return "{}", nil
+			}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if peak < 3 {
+		t.Errorf("at most %d lookups ran at once, want all 3", peak)
+	}
+	if elapsed := time.Since(started); elapsed > 2*work {
+		t.Errorf("three lookups took %s, longer than running them together", elapsed)
+	}
+	// Every call still needs its own result, matched by call id.
+	encoded, _ := json.Marshal(server.requests[1]["input"])
+	for _, id := range []string{"call-a", "call-b", "call-c"} {
+		if !strings.Contains(string(encoded), id) {
+			t.Errorf("missing result for %s", id)
+		}
 	}
 }

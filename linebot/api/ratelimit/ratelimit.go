@@ -8,6 +8,7 @@ package ratelimit
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -107,8 +108,8 @@ func itoa(n int) string {
 func ClientIP(r *http.Request) string {
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		parts := strings.Split(forwarded, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			if ip := strings.TrimSpace(parts[i]); ip != "" {
+		for _, part := range slices.Backward(parts) {
+			if ip := strings.TrimSpace(part); ip != "" {
 				return ip
 			}
 		}

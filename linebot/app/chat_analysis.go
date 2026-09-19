@@ -8,16 +8,22 @@ import (
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/gpt"
+	"github.com/HeavenAQ/nstc-linebot-2025/api/line"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
 	linebot "github.com/line/line-bot-sdk-go/v7/linebot"
 )
 
-// chatAnalysisAcknowledgement is what the learner sees while their video is
-// analysed. The answer follows as a push once the analysis lands, because by
-// then the reply token is long expired.
-const chatAnalysisAcknowledgement = "影片收到了，正在分析動作。分析完成後我會把骨架影片和說明一起傳給你。"
-
 const chatQuestionQueued = "收到你的問題，分析完成後一起回答。"
+
+// chatModeWelcome says what this mode can do and sets expectations about the
+// wait: an analysis takes a while, and the answer comes back in one message.
+const chatModeWelcome = "已進入和GPT對話模式，可以直接問我這個動作的問題。\n\n" +
+	"你也可以在這裡上傳一支練習影片，我會分析後把骨架影片和說明一起回覆（大約需要半分鐘到一分鐘，請稍候）。\n" +
+	"影片和問題誰先誰後都可以。如果等太久沒有收到回覆，隨便傳一則訊息給我，我就會把結果補給你。"
+
+// chatAnswerDelayed heads an answer that missed its reply window. The video is
+// not attached: by then only a push could carry it, and those are metered.
+const chatAnswerDelayed = "剛才的影片分析完成了，骨架影片可以在學習網頁上看。\n\n"
 
 // handleChatVideo takes a video sent while the learner is talking to the coach.
 //
@@ -38,6 +44,12 @@ func (app *App) handleChatVideo(event *linebot.Event, session *db.UserSession, u
 	if err != nil {
 		app.handleGetVideoError(err, replyToken)
 		return
+	}
+	// The reply token is held for the finished answer rather than spent on an
+	// acknowledgement: replies are free, pushes are not. The learner sees the
+	// typing indicator in the meantime.
+	if err := app.LineBot.ShowLoading(context.Background(), user.ID, 60); err != nil {
+		app.Logger.Warn.Printf("chat loading indicator: %v", err)
 	}
 	// A question asked just before the video belongs with it.
 	app.enqueueVideoAnalysis(event, session, user, video, replyToken, chatAnalysisRequest{
@@ -77,18 +89,20 @@ func (app *App) answerChatAnalysis(ctx context.Context, job db.AnalysisJob) {
 		app.Logger.Error.Printf("chat analysis work missing job=%s date=%s", job.ID, job.WorkDate)
 		return
 	}
-	if err := app.sendChatOverlayVideo(job, work); err != nil {
-		app.Logger.Error.Printf("chat analysis video job=%s: %v", job.ID, err)
-	}
-
 	answer, err := app.chatAnalysisAnswer(ctx, job, work)
 	if err != nil {
 		app.Logger.Error.Printf("chat analysis answer job=%s: %v", job.ID, err)
 		answer = "分析完成了，但我這邊暫時無法產生說明。你可以再問我一次。"
 	}
-	if _, err := app.LineBot.PushGPTChattingModeReply(job.UserID, answer); err != nil {
-		app.Logger.Error.Printf("chat analysis push job=%s: %v", job.ID, err)
-		return
+
+	// One reply carries both the overlay and the answer. If the window has
+	// closed, the answer waits for the learner's next message instead of
+	// costing a push.
+	if err := app.replyChatAnalysis(job, work, answer); err != nil {
+		app.Logger.Warn.Printf("chat analysis reply job=%s: %v", job.ID, err)
+		if err := app.FirestoreClient.SetPendingAnswer(job.UserID, chatAnswerDelayed+answer); err != nil {
+			app.Logger.Error.Printf("hold chat analysis answer job=%s: %v", job.ID, err)
+		}
 	}
 	if err := app.FirestoreClient.AppendChatExchange(job.UserID, job.Skill, chatQuestion(job), answer); err != nil {
 		app.Logger.Warn.Printf("append chat analysis exchange job=%s: %v", job.ID, err)
@@ -102,29 +116,41 @@ func chatQuestion(job db.AnalysisJob) string {
 	return "（上傳了一支影片）"
 }
 
-// sendChatOverlayVideo shows the correction skeleton overlay -- the analysis
-// render without any coaching text burned into it.
-func (app *App) sendChatOverlayVideo(job db.AnalysisJob, work db.Work) error {
+// replyChatAnalysis answers with the correction skeleton overlay -- the
+// analysis render with no coaching text burned into it -- and the coach's
+// explanation, in one reply.
+func (app *App) replyChatAnalysis(job db.AnalysisJob, work db.Work, answer string) error {
+	if job.ReplyToken == "" {
+		return fmt.Errorf("no reply token")
+	}
+	video, err := app.chatOverlayVideo(job, work)
+	if err != nil {
+		app.Logger.Warn.Printf("chat analysis video job=%s: %v", job.ID, err)
+	}
+	return app.LineBot.ReplyChatAnalysis(job.ReplyToken, video, answer)
+}
+
+// chatOverlayVideo signs the overlay render for playback in the chat.
+func (app *App) chatOverlayVideo(job db.AnalysisJob, work db.Work) (line.VideoContent, error) {
 	overlay := work.SkeletonOverlayVideo
 	if overlay.ObjectPath == "" {
 		overlay = work.StudentVideo
 	}
 	if overlay.ObjectPath == "" {
-		return fmt.Errorf("analysis produced no video")
+		return line.VideoContent{}, fmt.Errorf("analysis produced no video")
 	}
 	signed, err := app.StorageClient.SignPlaybackURLIn(
 		storageBucketFrom(overlay.GCSURI), overlay.ObjectPath, app.Config.GCP.ServiceAccountEmail,
 	)
 	if err != nil {
-		return fmt.Errorf("sign overlay: %w", err)
+		return line.VideoContent{}, fmt.Errorf("sign overlay: %w", err)
 	}
 	thumbnail, err := app.StorageClient.SignThumbnailURL(work.Thumbnail, app.Config.GCP.ServiceAccountEmail)
 	if err != nil {
 		// A missing preview image is not worth withholding the video over.
 		app.Logger.Warn.Printf("chat analysis thumbnail job=%s: %v", job.ID, err)
 	}
-	_, err = app.LineBot.PushVideoMessage(job.UserID, signed.SignedURL, thumbnail.SignedURL)
-	return err
+	return line.VideoContent{URL: signed.SignedURL, ThumbnailURL: thumbnail.SignedURL}, nil
 }
 
 // chatAnalysisAnswer asks the coach to explain this attempt, with the learner's

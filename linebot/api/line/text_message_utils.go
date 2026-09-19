@@ -71,6 +71,54 @@ func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*lineb
 	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("每週回顧與反思", bubble))
 }
 
+// SendRegistrationLink invites a learner to register on the dashboard. The
+// details are typed into the web form, so nothing identifying is ever sent as
+// a chat message.
+func (client *Client) SendRegistrationLink(replyToken, registrationURL string) (*linebot.BasicResponse, error) {
+	return client.ReplyMessage(replyToken, linebot.NewFlexMessage("完成實驗登記", registrationBubble(registrationURL)))
+}
+
+func registrationBubble(registrationURL string) *linebot.BubbleContainer {
+	return &linebot.BubbleContainer{
+		Type: linebot.FlexContainerTypeBubble,
+		Body: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			PaddingAll: "16px",
+			Contents: []linebot.FlexComponent{
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "請先完成實驗登記",
+					Size:   "lg",
+					Weight: linebot.FlexTextWeightTypeBold,
+				},
+				&linebot.TextComponent{
+					Type:   "text",
+					Text:   "在學習網頁填寫實驗編號、姓名與慣用手，完成後就可以使用所有功能。資料填錯也可以在同一頁修改。",
+					Size:   "sm",
+					Wrap:   true,
+					Color:  "#666666",
+					Margin: "md",
+				},
+			},
+		},
+		Footer: &linebot.BoxComponent{
+			Type:       "box",
+			Layout:     "vertical",
+			Spacing:    "sm",
+			PaddingAll: "12px",
+			Contents: []linebot.FlexComponent{
+				&linebot.ButtonComponent{
+					Type:   "button",
+					Style:  linebot.FlexButtonStyleTypePrimary,
+					Color:  "#1F6F4A",
+					Action: linebot.NewURIAction("前往登記", registrationURL),
+				},
+			},
+		},
+	}
+}
+
 // weeklyReviewBubble is split out from the send so the buttons can be read back
 // in a test: the postback one has to survive the round trip through LINE and
 // come back as a preview request rather than as some other card's payload.

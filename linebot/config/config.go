@@ -76,12 +76,25 @@ type PreviewConfig struct {
 // LiffConfig points the bot at the web app. Reflections are written there now,
 // so the bot has to be able to send learners to the right tab.
 type LiffConfig struct {
-	ReviewURL string `env:"LIFF_REVIEW_URL"`
+	ReviewURL       string `env:"LIFF_REVIEW_URL"`
+	RegistrationURL string `env:"LIFF_REGISTRATION_URL"`
 }
 
 // DefaultLiffReviewURL is the deployed review tab, used when nothing is set so
 // the bot never hands a learner a broken link.
 const DefaultLiffReviewURL = "https://linebot-liff-nstc-2025.heavian.work/personal?tab=review"
+
+// DefaultLiffRegistrationURL is the deployed profile page. An unregistered
+// learner who opens it gets the registration form instead.
+const DefaultLiffRegistrationURL = "https://linebot-liff-nstc-2025.heavian.work/profile"
+
+// RegistrationURL is where learners enter their experiment number and name.
+func (c *Config) RegistrationURL() string {
+	if url := strings.TrimSpace(c.Liff.RegistrationURL); url != "" {
+		return url
+	}
+	return DefaultLiffRegistrationURL
+}
 
 // ReviewURL is where learners write their weekly reflection.
 func (c *Config) ReviewURL() string {

@@ -47,7 +47,9 @@ export function contentSecurityPolicy(backendBaseUrl: string | undefined): strin
     ['script-src', "'self'", "'unsafe-inline'", ...LIFF_SCRIPT_HOSTS],
     ['style-src', "'self'", "'unsafe-inline'", 'https://static.line-scdn.net'],
     // Profile pictures come from profile.line-scdn.net.
-    ['img-src', "'self'", 'data:', 'blob:', 'https://*.line-scdn.net'],
+    // storage.googleapis.com serves the video poster, which is an image and so
+    // falls under img-src even though the video it fronts falls under media-src.
+    ['img-src', "'self'", 'data:', 'blob:', 'https://*.line-scdn.net', 'https://storage.googleapis.com'],
     ['font-src', "'self'", 'data:'],
     // Analysis videos are V4-signed URLs on storage.googleapis.com.
     ['media-src', "'self'", 'blob:', 'https://storage.googleapis.com'],

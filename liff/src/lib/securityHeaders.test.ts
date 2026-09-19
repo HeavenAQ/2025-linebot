@@ -44,6 +44,9 @@ test('carries every directive the LIFF app depends on', () => {
   ])
   assert.ok(policy.get('media-src')?.includes('https://storage.googleapis.com'))
   assert.ok(policy.get('img-src')?.includes('https://*.line-scdn.net'))
+  // The video poster is a signed Cloud Storage image; without this the player
+  // shows an empty frame until the video paints, which the poster exists to avoid.
+  assert.ok(policy.get('img-src')?.includes('https://storage.googleapis.com'))
   for (const host of ['https://*.line.me', 'https://uts-front.line-apps.com']) {
     assert.ok(policy.get('connect-src')?.includes(host), host)
   }

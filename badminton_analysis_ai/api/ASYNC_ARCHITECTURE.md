@@ -27,7 +27,7 @@ and expires unpublished jobs after 24 hours. It does not poll GPU progress.
 
 ## GPU scheduling
 
-`badminton_analysis_ai/service/pose_batcher.py` aggregates up to the TensorRT engine's fixed **16 frames**,
+`badminton_analysis_ai/api/pose_batcher.py` aggregates up to the TensorRT engine's fixed **16 frames**,
 including frames from different videos. A full batch runs immediately; a partial
 batch dispatches after at most **50 ms of formation time**. A busy GPU, Cloud
 Tasks backlog, network transfer and cold-start time are not covered by 50 ms.

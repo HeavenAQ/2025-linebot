@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from service.pose_batcher import PoseBatcher
+from api.pose_batcher import PoseBatcher
 
 
 class Detector:

@@ -3,7 +3,7 @@
 from pathlib import Path
 import subprocess
 
-from service.renderer import source_fps
+from api.renderer import source_fps
 
 
 def normalize_smash_source(source: Path, output: Path) -> Path:

@@ -11,7 +11,7 @@ from badminton_analysis.ml.smash_current_placement import (
     transport_corrected_by_student_displacement,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
-from service.pipeline import _source_qualitative_phase_results
+from api.pipeline import _source_qualitative_phase_results
 from badminton_analysis.models.types import Skill
 
 
@@ -100,7 +100,7 @@ def test_committed_current_artifact_hashes():
 
 @pytest.mark.parametrize("selected_end", [5, 8])
 def test_renderer_does_not_transform_scored_pixels(monkeypatch, tmp_path, selected_end):
-    import service.renderer as renderer
+    import api.renderer as renderer
     from badminton_analysis.models.types import Handedness
 
     written, drawn = [], []

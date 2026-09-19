@@ -2,7 +2,7 @@
 
 This tree contains the frozen inference artifacts for serve and smash.
 Serve's generator, scoring, prompt, and display contract are unchanged by this port.
-The September smash scorer is selected explicitly by `service/pipeline.py`.
+The September smash scorer is selected explicitly by `api/pipeline.py`.
 
 ## Architecture and contracts
 
@@ -55,7 +55,7 @@ of unseen-person generalization.
 
 All paths below are relative to `badminton_analysis_ai/`.
 
-- Preprocessing: `service/smash_source.py`,
+- Preprocessing: `api/smash_source.py`,
   `badminton_analysis/ml/expert_motion_preprocessing.py`.
 - Generation/dispatch: `badminton_analysis/ml/expert_motion_backend.py`.
 - Complete smash orchestration: `badminton_analysis/ml/smash_current_runtime.py`.
@@ -63,7 +63,7 @@ All paths below are relative to `badminton_analysis_ai/`.
   `smash_current_endpoint.py` in that same module directory.
 - Frozen graph, checkpoint alignment and placement: `smash_current_graph.py`,
   `smash_current_alignment.py`, `smash_current_placement.py`.
-- Rendering/GPT: `service/renderer.py`, `service/coaching.py`,
+- Rendering/GPT: `api/renderer.py`, `api/coaching.py`,
   `badminton_analysis/ml/smash_coaching_evidence.py`.
 - Packaging: `scripts/export_current_smash_artifacts.py` exports the frozen
   research artifacts to a fresh output directory; it does not fit or train.

@@ -34,9 +34,9 @@ from badminton_analysis.models.types import (
 from badminton_analysis.services.pose_detector import PoseDetector
 from badminton_analysis.services.video_processor import VideoProcessor
 
-from service.renderer import render_correction_video, source_fps, source_frame_rate
-from service.coaching import CoachingGenerator
-from service.pose_batcher import PoseBatcher
+from api.renderer import render_correction_video, source_fps, source_frame_rate
+from api.coaching import CoachingGenerator
+from api.pose_batcher import PoseBatcher
 
 LOGGER = logging.getLogger("badminton-analysis")
 
@@ -362,7 +362,7 @@ def _dump_pose_arrays(
     request: this exists to explain a bad grade, not to cause one.
     """
     try:
-        from service.storage import ObjectStorage
+        from api.storage import ObjectStorage
 
         with tempfile.TemporaryDirectory() as raw_directory:
             local = Path(raw_directory) / "pose.npz"
@@ -474,7 +474,7 @@ class SkeletonAnalysisPipeline:
             raise ValueError("only serve and smash are currently supported")
         pipeline_started = time.perf_counter()
         if skill == Skill.SMASH:
-            from service.smash_source import normalize_smash_source
+            from api.smash_source import normalize_smash_source
 
             video_path = normalize_smash_source(
                 video_path,

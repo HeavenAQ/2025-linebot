@@ -34,7 +34,7 @@ LIFF app ──LINE ID token──▶ Go learner API (signs playback URLs itself
 ```
 
 Uploads are processed as durable jobs; see
-`badminton_analysis_ai/service/ASYNC_ARCHITECTURE.md` for the queue, retry and
+`badminton_analysis_ai/api/ASYNC_ARCHITECTURE.md` for the queue, retry and
 GPU-capacity schedule. Python generates and uploads the videos and returns GCS
 object metadata; it never returns video bytes. The Go backend signs playback
 URLs locally (`linebot/api/storage/playback.go`), so browsers and LIFF never
@@ -320,7 +320,7 @@ then start the analysis service:
 ```bash
 cd badminton_analysis_ai
 export PYTHONPATH="$PWD:$PWD/generated"
-python -m service.server
+python -m api.server
 ```
 
 The service requires FFmpeg for final H.264 rendering. The container also
@@ -357,16 +357,16 @@ Before deployment, verify:
 ## Main inference trace
 
 1. `proto/badminton/analysis/v1/analysis.proto`
-2. `badminton_analysis_ai/service/server.py`
-3. `badminton_analysis_ai/service/pipeline.py`
+2. `badminton_analysis_ai/api/server.py`
+3. `badminton_analysis_ai/api/pipeline.py`
 4. `badminton_analysis_ai/badminton_analysis/services/pose_detector.py`
 5. `badminton_analysis_ai/badminton_analysis/services/video_analyzer.py`
 6. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_preprocessing.py`
 7. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_backend.py`
 8. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_generator.py`
 9. `badminton_analysis_ai/badminton_analysis/ml/kinematic_retargeting.py`
-10. `badminton_analysis_ai/service/coaching.py`
-11. `badminton_analysis_ai/service/renderer.py`
+10. `badminton_analysis_ai/api/coaching.py`
+11. `badminton_analysis_ai/api/renderer.py`
 12. `linebot/api/analysis/client.go`
 13. `linebot/main.go`
 14. `liff/src/components/VideoComparison.tsx`

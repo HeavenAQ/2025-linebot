@@ -9,8 +9,8 @@ from badminton_analysis.ml.coaching_feedback import (
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.ml.smash_coaching_evidence import build_checkpoint_evidence
-from service.coaching import CoachingGenerator
-from service.coaching_timeline import coaching_video_frame
+from api.coaching import CoachingGenerator
+from api.coaching_timeline import coaching_video_frame
 
 
 def eg27_evidence():

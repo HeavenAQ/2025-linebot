@@ -31,7 +31,7 @@ RUN test -f /opt/conda/lib/python3.11/site-packages/tensorrt_libs/libnvinfer_bui
     python -c "import torch; assert torch.version.cuda == '12.4'; import tensorrt as trt; assert trt.__version__ == '10.14.1.48.post1'"
 COPY . .
 
-RUN python -c "import service.server; print('Python service imports verified')"
+RUN python -c "import api.server; print('Python service imports verified')"
 
 # A missing engine is not a runtime error — the detector would just rebuild it
 # on every cold start, which is precisely the cost this avoids. So deployable
@@ -45,4 +45,4 @@ RUN if [ "$REQUIRE_TRT_ENGINE" = "1" ]; then \
     fi
 
 EXPOSE 8080
-CMD ["python", "-m", "service.server"]
+CMD ["python", "-m", "api.server"]

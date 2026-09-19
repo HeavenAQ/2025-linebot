@@ -19,7 +19,7 @@ from badminton_analysis.ml.skeleton_normalization import (
 )
 from badminton_analysis.ml.skeleton_scoring import BONES
 from badminton_analysis.models.types import Handedness, TrackingData
-from service.coaching_timeline import coaching_video_frame
+from api.coaching_timeline import coaching_video_frame
 
 _LEFT_RIGHT_PAIRS = (
     (1, 2),

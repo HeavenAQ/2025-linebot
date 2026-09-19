@@ -31,7 +31,7 @@ visual interpretation.
 
 Public `frame_index` remains normalized to 0..63. Exact `video_frame_index`
 and timestamp are retained. Rendering and gRPC cue construction both use
-`service.coaching_timeline.coaching_video_frame`, so pauses follow video time,
+`api.coaching_timeline.coaching_video_frame`, so pauses follow video time,
 not evidence-ID order. Frontend checkpoints separately use the scorer's exact
 source anchor, including contact for wrist flick and the selected endpoint.
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import service.renderer as renderer
+import api.renderer as renderer
 from badminton_analysis.models.types import Handedness
 
 

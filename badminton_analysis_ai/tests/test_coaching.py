@@ -13,8 +13,8 @@ from badminton_analysis.ml.coaching_feedback import (
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Skill
 
-import service.coaching as coaching_module
-from service.coaching import (
+import api.coaching as coaching_module
+from api.coaching import (
     CoachingGenerator,
     _normalized_to_output_frame_indices,
 )

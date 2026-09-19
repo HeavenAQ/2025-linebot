@@ -8,7 +8,7 @@ from badminton_analysis.ml.expert_reference_bank import (
     segmental_alignment,
 )
 from badminton_analysis.ml.skeleton_normalization import CANONICAL_PHASE_INDICES
-from service.pipeline import _expert_alignment
+from api.pipeline import _expert_alignment
 
 FPS = 30.0
 PHASES = (12, 27, 42, 51, 60)

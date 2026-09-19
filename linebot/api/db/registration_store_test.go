@@ -81,6 +81,69 @@ func (s *registrationFirestore) Commit(_ context.Context, request *pb.CommitRequ
 	}
 	return result, nil
 }
+
+// newRegistrationTestClient starts an in-memory Firestore and hands back a
+// client pointed at it.
+func newRegistrationTestClient(t *testing.T) *FirestoreClient {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	pb.RegisterFirestoreServer(server, &registrationFirestore{})
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	connection, err := grpc.DialContext(ctx, "passthrough:///registration-test",
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	transport, err := firestore.NewClient(ctx, "registration-test", option.WithGRPCConn(connection), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = transport.Close() })
+	return &FirestoreClient{Ctx: &ctx, Client: transport, Data: transport.Collection("variant_users")}
+}
+
+// The learner fills the form in themselves, so a typo in their own name has to
+// be fixable -- unlike the LINE flow, which locks the first answer.
+func TestProfileSaveRegistersThenAllowsEdits(t *testing.T) {
+	client := newRegistrationTestClient(t)
+	if _, err := client.Data.Doc("U1").Set(*client.Ctx, &UserData{ID: "U1", Name: "LINE display name"}); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := client.SaveExperimentRegistration("U1", ExperimentRegistration{ExperimentNumber: "001", RealName: "王小明"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.HasExperimentRegistration() || saved.RealName != "王小明" || saved.ExperimentNumber != "001" {
+		t.Fatalf("registration not persisted: %+v", saved)
+	}
+	joined := saved.RegistrationCompletedAt
+
+	edited, err := client.SaveExperimentRegistration("U1", ExperimentRegistration{ExperimentNumber: "EG02", RealName: "王小美"})
+	if err != nil {
+		t.Fatalf("edit rejected: %v", err)
+	}
+	if edited.RealName != "王小美" || edited.ExperimentNumber != "EG02" {
+		t.Fatalf("edit not persisted: %+v", edited)
+	}
+	if !edited.RegistrationCompletedAt.Equal(joined) {
+		t.Error("editing details moved the time the learner joined the experiment")
+	}
+	if edited.Name != "LINE display name" {
+		t.Error("save overwrote the LINE display name")
+	}
+
+	if _, err := client.SaveExperimentRegistration("U1", ExperimentRegistration{ExperimentNumber: "abc", RealName: "王"}); !errors.Is(err, ErrRegistrationFormat) {
+		t.Fatalf("invalid details were not rejected: %v", err)
+	}
+}
+
 func TestRegistrationPersistsAndSurvivesStalePortfolioWrite(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

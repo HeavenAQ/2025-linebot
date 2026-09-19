@@ -75,6 +75,44 @@ func (user *UserData) HasExperimentRegistration() bool {
 	return err == nil && parsed.ExperimentNumber == user.ExperimentNumber && parsed.RealName == user.RealName
 }
 
+// SaveExperimentRegistration writes a learner's own details, first time or as
+// an edit from the profile page. Unlike RegisterExperiment it does not lock:
+// the learner is signed in as themselves and may fix a typo in their own name
+// or number. The completion time is stamped once and then left alone, so the
+// record still says when the learner joined the experiment.
+func (client *FirestoreClient) SaveExperimentRegistration(userID string, registration ExperimentRegistration) (*UserData, error) {
+	parsed, err := ParseExperimentRegistration(registration.ExperimentNumber + " " + registration.RealName)
+	if err != nil || parsed != registration {
+		return nil, ErrRegistrationFormat
+	}
+	ref := client.Data.Doc(userID)
+	err = client.Client.RunTransaction(*client.Ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		snapshot, err := tx.Get(ref)
+		if err != nil {
+			return err
+		}
+		var user UserData
+		if err := snapshot.DataTo(&user); err != nil {
+			return err
+		}
+		updates := []firestore.Update{
+			{Path: "real_name", Value: registration.RealName},
+			{Path: "experiment_number", Value: registration.ExperimentNumber},
+			{Path: "registration_version", Value: 1},
+		}
+		if !user.HasExperimentRegistration() {
+			updates = append(updates, firestore.Update{
+				Path: "registration_completed_at", Value: firestore.ServerTimestamp,
+			})
+		}
+		return tx.Update(ref, updates)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return client.GetUserData(userID)
+}
+
 // Registration is completed only through a signed LINE event. Field updates
 // preserve portfolios; a transaction makes webhook retries idempotent and prevents
 // conflicting concurrent messages from silently changing an existing identity.

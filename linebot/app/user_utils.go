@@ -1,8 +1,30 @@
 package app
 
 import (
+	"fmt"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 )
+
+// EnsureUserData returns the learner's record, creating it on first use. The
+// LIFF registration form reaches a learner who has never sent the bot a
+// message, so the folders and the document may not exist yet.
+func (app *App) EnsureUserData(userID string) (*db.UserData, error) {
+	user, err := app.FirestoreClient.GetUserData(userID)
+	if err == nil {
+		return user, nil
+	}
+	if status.Code(err) != codes.NotFound {
+		return nil, err
+	}
+	if created := app.createUser(userID); created != nil {
+		return created, nil
+	}
+	return nil, fmt.Errorf("could not create user %s", userID)
+}
 
 func (app *App) createUser(userID string) *db.UserData {
 	// Retrieve user's name from LINE

@@ -40,11 +40,6 @@ def _largest_person_index(
     return int(np.argmax(np.where(keep, areas, -np.inf)))
 
 
-# COCO-WholeBody-133 column count of a prediction's ``wholebody_*`` arrays.
-# RFDETRKeypointPreview only predicts the 17 COCO body joints, so slots 0-16
-# carry data and the rest stay zero-confidence.
-_WHOLEBODY_KEYPOINTS = 133
-
 # Fixed batch size the cached TensorRT engine is built for. Callers chunk
 # whole videos to this size; a short final chunk is padded internally.
 BATCH_SIZE = 16
@@ -70,9 +65,7 @@ class PoseDetector:
 
     RFDETRKeypointPreview predicts person detection and 17 COCO-order body
     keypoints in one forward pass, in the same index order as this repo's
-    `COCOKeypoints` enum, so no schema adapter is needed. It has no hand
-    keypoints, so `wholebody_keypoints`/`wholebody_scores` only ever carry
-    real data in their first 17 slots.
+    `COCOKeypoints` enum, so no schema adapter is needed.
     """
 
     def __init__(
@@ -190,16 +183,10 @@ class PoseDetector:
         keypoints: NDArray[np.float64],
         scores: NDArray[np.float64],
     ) -> PosePrediction:
-        wholebody_keypoints = np.zeros((_WHOLEBODY_KEYPOINTS, 2), dtype=np.float64)
-        wholebody_scores = np.zeros(_WHOLEBODY_KEYPOINTS, dtype=np.float64)
-        wholebody_keypoints[:17] = keypoints
-        wholebody_scores[:17] = scores
         return {
             "bbox": list(bbox),
             "keypoints": keypoints,
             "keypoint_scores": scores,
-            "wholebody_keypoints": wholebody_keypoints,
-            "wholebody_scores": wholebody_scores,
         }
 
     def _largest_person_prediction(self, result: Any) -> list[PosePrediction]:
@@ -337,13 +324,18 @@ class PoseDetector:
             body_coords[COCOKeypoints(i)] = keypoints[i]
         return body_coords or None
 
-    def get_wholebody_2d_keypoints(
+    def get_dense_2d_keypoints(
         self,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
-        """Return the selected person's aligned WholeBody coordinates and scores."""
+        """The selected person's 17 body keypoints and their scores.
+
+        Unlike ``get_2d_landmarks`` this keeps every joint, including those
+        below the detection threshold, with its continuous score, so callers
+        can weigh a weak keypoint rather than lose it.
+        """
         if not self._last_predictions:
             return None
         target = self._last_predictions[0]
-        keypoints = np.asarray(target["wholebody_keypoints"], dtype=np.float64)
-        scores = np.asarray(target["wholebody_scores"], dtype=np.float64)
+        keypoints = np.asarray(target["keypoints"], dtype=np.float64)
+        scores = np.asarray(target["keypoint_scores"], dtype=np.float64)
         return keypoints, np.clip(scores, 0.0, 1.0)

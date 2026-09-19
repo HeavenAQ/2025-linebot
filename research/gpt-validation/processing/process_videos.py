@@ -200,7 +200,7 @@ def capture_pose_pass() -> Iterator[list[tuple[Path, Any]]]:
     analysis (for smash, over its 30 fps copy of the source), so wrapping it
     yields that video path and its tracking data unchanged.
     """
-    import service.pipeline as pipeline_module
+    import api.pipeline as pipeline_module
 
     captured: list[tuple[Path, Any]] = []
     original = pipeline_module.VideoProcessor
@@ -227,7 +227,7 @@ def render_detected_overlay(video_path: Path, output_path: Path, tracking: Any) 
     """
     import cv2
 
-    from service.renderer import (
+    from api.renderer import (
         _draw_skeleton,
         _prepare_detected_pose_for_render,
         _transcode_preserving_frame_rate,
@@ -363,10 +363,10 @@ def main() -> int:
 
     from google.cloud import firestore
 
-    from service.config import Settings
-    from service.logging_config import configure_logging
-    from service.pipeline import SkeletonAnalysisPipeline
-    from service.storage import ObjectStorage
+    from api.config import Settings
+    from api.logging_config import configure_logging
+    from api.pipeline import SkeletonAnalysisPipeline
+    from api.storage import ObjectStorage
 
     configure_logging(logging.INFO)
     if not os.environ.get("OPENAI_API_KEY"):

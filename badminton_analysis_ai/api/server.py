@@ -18,9 +18,9 @@ import grpc
 from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.models.types import Handedness, Skill
 
-from service.config import Settings
-from service.coaching_timeline import coaching_video_frame
-from service.logging_config import (
+from api.config import Settings
+from api.coaching_timeline import coaching_video_frame
+from api.logging_config import (
     configure_logging,
     parse_cloud_trace_context,
     request_context,
@@ -28,14 +28,14 @@ from service.logging_config import (
     set_analysis_id,
     set_request_id_if_absent,
 )
-from service.pipeline import (
+from api.pipeline import (
     expert_phase_results,
     AnalysisResult,
     SkillMismatchError,
     SkeletonAnalysisPipeline,
 )
-from service.renderer import probe_video
-from service.storage import ObjectStorage, SignedObject
+from api.renderer import probe_video
+from api.storage import ObjectStorage, SignedObject
 
 LOGGER = logging.getLogger("badminton-analysis")
 _SAFE_SEGMENT = re.compile(r"[^A-Za-z0-9._-]+")

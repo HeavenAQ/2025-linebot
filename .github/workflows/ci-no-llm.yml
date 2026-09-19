@@ -55,7 +55,7 @@ jobs:
         run: PYTHONPATH=.:generated pytest -q tests
       - name: Import the server the image starts
         working-directory: badminton_analysis_ai
-        run: PYTHONPATH=.:generated python -c "import service.server"
+        run: PYTHONPATH=.:generated python -c "import api.server"
 
   liff:
     runs-on: ubuntu-latest

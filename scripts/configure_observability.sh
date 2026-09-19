@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Idempotent log-based metrics built on the structured JSON logs of the Go bot
 # (message/jsonPayload fields written by linebot/api/obs) and the Python
-# analysis service (service/logging_config.py). Cloud Run already exports
+# analysis service (api/logging_config.py). Cloud Run already exports
 # request count, latency and instance metrics; these add application meaning.
 set -euo pipefail
 

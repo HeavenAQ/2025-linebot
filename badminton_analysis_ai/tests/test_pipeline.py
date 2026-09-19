@@ -3,9 +3,9 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
-import service.pipeline as pipeline_module
+import api.pipeline as pipeline_module
 from badminton_analysis.ml.expert_reference_bank import SkillSupport
-from service.pipeline import (
+from api.pipeline import (
     SkeletonAnalysisPipeline,
     _correction_grade_context,
     _rule_anchor_frames,
@@ -234,7 +234,7 @@ def test_source_playback_timeline_uses_analysis_clip_clock() -> None:
 
 @pytest.mark.parametrize("skill", ["serve", "smash"])
 def test_expert_replay_ranges_are_movements_not_single_anchor_frames(skill):
-    from service.pipeline import expert_phase_results
+    from api.pipeline import expert_phase_results
 
     markers = expert_phase_results(
         get_skill_spec(skill),
@@ -360,7 +360,7 @@ def test_pose_dump_records_skill_and_handedness_names_and_backend(
 ) -> None:
     import numpy as np
 
-    import service.storage
+    import api.storage
 
     captured: dict[str, object] = {}
 
@@ -373,7 +373,7 @@ def test_pose_dump_records_skill_and_handedness_names_and_backend(
                 captured.update({key: archive[key] for key in archive.files})
             captured["object_path"] = object_path
 
-    monkeypatch.setattr(service.storage, "ObjectStorage", Storage)
+    monkeypatch.setattr(api.storage, "ObjectStorage", Storage)
     pipeline_module._dump_pose_arrays(
         "dumps",
         "clip.mp4",

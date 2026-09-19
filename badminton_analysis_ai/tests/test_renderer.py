@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from service.renderer import (
+from api.renderer import (
     _apply_fixed_hierarchical_placement,
     _constant_frame_rate_flag,
     _transcode_preserving_frame_rate,

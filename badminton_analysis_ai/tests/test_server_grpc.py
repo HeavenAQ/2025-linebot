@@ -15,10 +15,10 @@ from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
 from badminton_analysis.ml.expert_reference_bank import ExpertReference
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
-from service.pipeline import AnalysisResult, PhaseResult, SkillMismatchError
-from service.logging_config import CloudLoggingJsonFormatter
-from service.server import BadmintonAnalysisService, _PROTO_TO_SKILL
-from service.storage import SignedObject
+from api.pipeline import AnalysisResult, PhaseResult, SkillMismatchError
+from api.logging_config import CloudLoggingJsonFormatter
+from api.server import BadmintonAnalysisService, _PROTO_TO_SKILL
+from api.storage import SignedObject
 
 
 class _Backend:
@@ -170,7 +170,7 @@ def test_streamed_grpc_api_returns_feedback_and_clean_overlay(monkeypatch) -> No
         "width": 720,
         "height": 1280,
     }
-    monkeypatch.setattr("service.server.probe_video", lambda _: metadata)
+    monkeypatch.setattr("api.server.probe_video", lambda _: metadata)
     service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
     service.settings = SimpleNamespace(
         grpc_api_key="test-key",
@@ -362,7 +362,7 @@ def test_skip_coaching_reaches_the_pipeline(monkeypatch) -> None:
     would be sending imagery it promised not to.
     """
     monkeypatch.setattr(
-        "service.server.probe_video",
+        "api.server.probe_video",
         lambda _: {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280},
     )
     service = BadmintonAnalysisService.__new__(BadmintonAnalysisService)
@@ -411,7 +411,7 @@ def test_analysis_root_separates_deployments_sharing_the_bucket() -> None:
     belongs to. An empty prefix must keep the original layout, because the
     first deployment's objects are already stored that way.
     """
-    from service.server import _analysis_root
+    from api.server import _analysis_root
 
     assert _analysis_root("", "U1", "req9") == "analyses/v1/U1/req9"
     assert _analysis_root("noai", "U1", "req9") == "noai/analyses/v1/U1/req9"
@@ -496,7 +496,7 @@ def test_request_and_trace_metadata_correlate_the_completion_log(
     names, so they are asserted literally.
     """
     monkeypatch.setattr(
-        "service.server.probe_video",
+        "api.server.probe_video",
         lambda _: {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280},
     )
 
@@ -547,7 +547,7 @@ def test_malformed_trace_and_missing_request_id_fall_back_to_header(
     monkeypatch, json_logs
 ) -> None:
     monkeypatch.setattr(
-        "service.server.probe_video",
+        "api.server.probe_video",
         lambda _: {"duration_seconds": 2.0, "fps": 30.0, "width": 720, "height": 1280},
     )
 
@@ -602,7 +602,7 @@ def test_health_binds_request_context(json_logs) -> None:
         loaded_skills = (Skill.SERVE,)
 
         def warmup(self) -> None:
-            from service.logging_config import current_request_id
+            from api.logging_config import current_request_id
 
             seen["request_id"] = current_request_id()
 

@@ -380,7 +380,7 @@ must not be edited on this branch.
 cd linebot && go build ./... && go vet ./... && go test ./...
 cd linebot && PATH="$PATH:$(go env GOPATH)/bin" staticcheck -checks 'U1000' ./...
 cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -m pytest -q tests
-cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -c "import service.server"
+cd badminton_analysis_ai && PYTHONPATH=.:generated .venv/bin/python -c "import api.server"
 cd liff && npx tsc --noEmit
 cd liff && npm test
 cd liff && NEXT_PUBLIC_BACKEND_BASE_URL=https://<variant bot> npm run build   # writes out/_headers

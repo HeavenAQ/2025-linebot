@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from service.logging_config import (
+from api.logging_config import (
     SPAN_FIELD,
     TRACE_FIELD,
     CloudLoggingJsonFormatter,

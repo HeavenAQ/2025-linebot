@@ -3,7 +3,7 @@ import inspect
 from functools import wraps
 from typing import Any, TypeVar, Protocol, cast
 
-from service.logging_config import json_stream_handler
+from api.logging_config import json_stream_handler
 
 
 class _LogMethod(Protocol):

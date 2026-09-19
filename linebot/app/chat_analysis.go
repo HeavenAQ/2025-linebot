@@ -48,9 +48,7 @@ func (app *App) handleChatVideo(event *linebot.Event, session *db.UserSession, u
 	// The reply token is held for the finished answer rather than spent on an
 	// acknowledgement: replies are free, pushes are not. The learner sees the
 	// typing indicator in the meantime.
-	if err := app.LineBot.ShowLoading(context.Background(), user.ID, 60); err != nil {
-		app.Logger.Warn.Printf("chat loading indicator: %v", err)
-	}
+	app.showChatLoading(user.ID)
 	// A question asked just before the video belongs with it.
 	app.enqueueVideoAnalysis(event, session, user, video, replyToken, chatAnalysisRequest{
 		question: session.PendingChatQuestion(),
@@ -106,6 +104,17 @@ func (app *App) answerChatAnalysis(ctx context.Context, job db.AnalysisJob) {
 	}
 	if err := app.FirestoreClient.AppendChatExchange(job.UserID, job.Skill, chatQuestion(job), answer); err != nil {
 		app.Logger.Warn.Printf("append chat analysis exchange job=%s: %v", job.ID, err)
+	}
+}
+
+// showChatLoading animates the typing indicator while the coach works. Every
+// answer in this mode costs a model call -- two when tools are used -- which
+// is long enough for silence to read as the bot having ignored the learner.
+// The indicator is free, unlike a holding message, and clears as soon as the
+// reply lands.
+func (app *App) showChatLoading(userID string) {
+	if err := app.LineBot.ShowLoading(context.Background(), userID, 60); err != nil {
+		app.Logger.Warn.Printf("chat loading indicator: %v", err)
 	}
 }
 

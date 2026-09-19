@@ -192,6 +192,8 @@ func (app *App) handleChattingWithGPT(event *linebot.Event, rawData string, user
 			app.Logger.Warn.Printf("remember chat question: %v", err)
 		}
 
+		app.showChatLoading(user.ID)
+
 		// Resolve omitted references against persisted, skill-specific history.
 		history, err := app.FirestoreClient.GetChatHistory(user.ID)
 		if err != nil {

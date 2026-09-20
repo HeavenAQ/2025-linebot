@@ -66,12 +66,9 @@ func parseArgs(arguments string) (coachingToolArgs, error) {
 	return args, nil
 }
 
-// CoachingTools are the lookups the coach may use while answering userID.
-//
-// The learner is fixed here, by the caller, and is never a tool argument: a
-// question -- or anything quoted inside it -- must not be able to name someone
-// else's record. Everything is read-only, and class comparisons come back
-// without any identity attached.
+// CoachingTools are the read-only lookups the coach may use while answering
+// userID. The learner is fixed by the caller and is never a tool argument, so
+// no question can name someone else's record; class figures carry no identity.
 func (app *App) CoachingTools(userID string) []gpt.Tool {
 	return []gpt.Tool{
 		{

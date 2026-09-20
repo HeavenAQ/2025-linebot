@@ -8,13 +8,9 @@ resource "google_storage_bucket" "learner_media" {
   location      = upper(var.region)
   storage_class = "STANDARD"
 
-  # This bucket predates the configuration and still carries per-object ACLs,
-  # so both settings describe it as it is rather than as it should be. Nothing
-  # serves from it directly -- every read is a signed URL minted by the Go
-  # backend -- so turning uniform access on and enforcing public access
-  # prevention is a safe tightening, but it is a live change to the bucket
-  # holding every recording: make it deliberately, not as a side effect of an
-  # unrelated apply.
+  # As it is, not as it should be: this bucket predates the configuration.
+  # Tightening both is safe (every read is a signed URL) but it is a live change
+  # to the bucket holding every recording, so make it on purpose.
   uniform_bucket_level_access = false
   public_access_prevention    = "inherited"
 

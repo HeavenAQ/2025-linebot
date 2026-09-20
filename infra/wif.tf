@@ -1,15 +1,7 @@
-# How GitHub Actions becomes the deploy service account.
-#
-# This is the most security-relevant thing in the project, and until now it
-# existed only in the console. The service account these bindings hand out has
-# `storage.admin` and `datastore.user`: whoever can mint a token as it can read
-# every learner's recordings and scores. What stops that from being anyone with
-# a GitHub account is one line -- the provider's attribute condition -- so that
-# line belongs in review, not in a web form.
-#
-# No key file is involved anywhere. GitHub presents its own OIDC token, this
-# provider decides whether to believe it, and the binding below says which
-# repository may exchange it for the service account.
+# How GitHub Actions becomes the deploy service account: no key file, an OIDC
+# token this provider decides whether to believe. The attribute condition below
+# is the only thing standing between a GitHub account and an identity that can
+# read every learner's recordings and scores.
 
 data "google_project" "this" {
   project_id = var.project_id
@@ -57,10 +49,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 }
 
-# The repository, and nothing else, may act as the deploy service account.
-# `workloadIdentityUser` is what lets the exchange happen at all;
-# `serviceAccountTokenCreator` is what lets the workflow mint the identity
-# tokens it sends to the GPU service during the end-to-end test.
+# The repository, and nothing else, may act as the deploy service account:
+# workloadIdentityUser allows the exchange, tokenCreator mints the identity
+# tokens the end-to-end test sends to the GPU service.
 locals {
   github_principal = "principalSet://iam.googleapis.com/projects/${data.google_project.this.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.github.workload_identity_pool_id}/attribute.repository/${var.github_repository}"
 }

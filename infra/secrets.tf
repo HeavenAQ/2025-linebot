@@ -1,9 +1,6 @@
-# Secret containers for the LLM product and the two secrets both variants
-# share. The no-LLM bot's own .env is declared on its own branch.
-#
-# Secret containers only. No value is ever written from Terraform: a version
-# added here would be readable in state and in every plan output. Add versions
-# with `gcloud secrets versions add`, and see README.md for what each holds.
+# Containers only -- a value written here would be readable in state and in
+# every plan. Add versions with `gcloud secrets versions add`; README.md says
+# what each holds. The variant's own .env is declared on its branch.
 resource "google_secret_manager_secret" "secrets" {
   for_each = toset([
     # The whole .env the LLM bot downloads at startup (LINE channel

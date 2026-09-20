@@ -24,12 +24,8 @@ provider "google" {
   region  = var.region
 }
 
-# The budget is the one resource billed against a *billing account* rather than
-# the project. Requests for it must name a project to charge the API quota to,
-# which user credentials do not carry by default -- without this the API replies
-# that the service is disabled on a project nobody recognises. Scoped to an
-# alias so every other resource keeps the plain provider, which needs no extra
-# permission.
+# Only the budget needs this: requests to the billing API must name a project
+# to charge quota to, which user credentials do not carry by default.
 provider "google" {
   alias                 = "billing"
   project               = var.project_id

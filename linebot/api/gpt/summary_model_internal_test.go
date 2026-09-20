@@ -16,12 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The summary used to run off a stored OpenAI prompt, which pinned whichever
-// model it was saved against. When OpenAI retired that model the summary
-// started failing in production with "Model not found", and nothing in this
-// repository named either the model or the prompt text, so there was no way to
-// fix it from here. Sending both on every request is what makes that
-// recoverable -- hence this test.
+// A stored OpenAI prompt pins its model, and when that one was retired the
+// summary failed in production with nothing here naming the model or the
+// prompt. Sending both on every request is what makes that fixable.
 func TestSummarizeNamesItsOwnModel(t *testing.T) {
 	var body map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

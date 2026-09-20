@@ -56,14 +56,9 @@ func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string)
 	))
 }
 
-// SendWeeklyReviewLink replaces the old 預習及反思 conversation. Reflections are
-// written per week in the web app now, where the learner can watch the video
-// and their expert comparison while writing, so the bot's job is to hand them
-// the right link rather than collect a note over chat.
-//
-// The second button covers the other half of 預習及反思: the coach's own 課前預習
-// note is otherwise only pushed on a schedule, so a learner who wants it before
-// then -- or who joined mid-week -- can ask for it here.
+// SendWeeklyReviewLink replaces the old 預習及反思 conversation: reflections are
+// written in the web app now, beside the video. The second button fetches the
+// 課前預習 note on demand, for a learner who joined mid-week.
 func (client *Client) SendWeeklyReviewLink(replyToken, reviewURL string) (*linebot.BasicResponse, error) {
 	bubble, err := weeklyReviewBubble(reviewURL)
 	if err != nil {
@@ -303,12 +298,9 @@ func (client *Client) SendPortfolio(
 	return nil
 }
 
-// SendExpertVideos replies with the demonstrations themselves rather than
-// links to them: a learner on a phone in a gym should not have to leave LINE,
-// wait for a browser and come back.
-//
-// Each video carries the thumbnail stored beside it, because LINE draws a video
-// message as an empty rectangle until the file has loaded.
+// SendExpertVideos replies with the demonstrations themselves, not links: a
+// learner in a gym should not have to leave LINE and come back. Each carries
+// the thumbnail stored beside it, or LINE shows an empty rectangle.
 func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.BadmintonSkill, demos []storage.ExpertDemo, replyToken string) error {
 	intro := fmt.Sprintf("以下是【%v】-【%v】的專家示範影片：",
 		handedness.ChnString(), skill.ChnString())

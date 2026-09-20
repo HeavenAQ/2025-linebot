@@ -84,12 +84,9 @@ const ScoreRecordLabel = "我的動作評分紀錄"
 // wrote are still in every learner's history.
 const scoreRecordMarker = "動作評分細節"
 
-// RedactScoreRecords replaces raw score dumps with a label.
-//
-// A learner reading their history wants to see what they asked, not the
-// machine-readable payload that went to the model on their behalf. Redacting
-// here rather than in the web app keeps the numbers off the wire entirely, and
-// covers every client at once.
+// RedactScoreRecords replaces the machine-readable payload sent on a learner's
+// behalf with a label. Done here, not in the web app, so the numbers stay off
+// the wire for every client.
 func RedactScoreRecords(history *ChatHistory) *ChatHistory {
 	if history == nil {
 		return nil

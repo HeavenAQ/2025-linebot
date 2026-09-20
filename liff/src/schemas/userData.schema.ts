@@ -15,14 +15,14 @@ export const GradingDetailSchema = z.object({
   maximum: z.number().optional().default(20)
 })
 
-export const GradingOutcomeSchema = z.object({
+const GradingOutcomeSchema = z.object({
   // Empty while a video is still queued for analysis.
   grading_details: listOf(GradingDetailSchema),
   total_grade: z.number(),
   score_status: z.string().optional().default('')
 })
 
-export const MediaRefSchema = z.object({
+const MediaRefSchema = z.object({
   object_path: z.string().optional().default(''),
   gcs_uri: z.string().optional().default(''),
   signed_url: z.string().optional().default(''),
@@ -45,7 +45,7 @@ export const PhaseMarkerSchema = z.object({
   end_seconds: z.number().nullable().optional()
 })
 
-export const AlignmentSampleSchema = z.object({
+const AlignmentSampleSchema = z.object({
   normalized_position: z.number(),
   expert_seconds: z.number()
 })
@@ -124,7 +124,7 @@ export const PortfoliosSchema = z.object({
   lift: NullablePortfolio
 })
 
-export const FolderIDsSchema = z.object({
+const FolderIDsSchema = z.object({
   root: z.string(),
   serve: z.string(),
   smash: z.string(),
@@ -171,8 +171,6 @@ export type UserData = z.infer<typeof UserDataSchema>
 export type Portfolios = z.infer<typeof PortfoliosSchema>
 export type GradingDetail = z.infer<typeof GradingDetailSchema>
 export type PhaseMarker = z.infer<typeof PhaseMarkerSchema>
-export type AlignmentSample = z.infer<typeof AlignmentSampleSchema>
 export type CoachingCue = z.infer<typeof CoachingCueSchema>
 export type PlaybackResponse = z.infer<typeof PlaybackResponseSchema>
 
-export default UserDataSchema

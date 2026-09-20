@@ -217,12 +217,9 @@ func (c *FirestoreClient) PendingChatAnalysis(ctx context.Context, userID string
 	return newest, nil
 }
 
-// MergeCoaching adds the coaching pass's results to an attempt that is already
-// recorded and already shown to the learner.
-//
-// Only the coaching fields move: the grade, the videos the learner has seen
-// and the expert match stay exactly as they were, so a second pass can never
-// change a score after the fact.
+// MergeCoaching adds the coaching pass's results to an attempt already shown
+// to the learner. Only the coaching fields move, so a second pass can never
+// change a score, a video or the expert match after the fact.
 func (c *FirestoreClient) MergeCoaching(ctx context.Context, job AnalysisJob, outcome *commons.AnalysisOutcome) error {
 	if outcome == nil {
 		return fmt.Errorf("no coaching outcome")

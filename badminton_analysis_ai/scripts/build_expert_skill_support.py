@@ -96,7 +96,7 @@ def _expert_rows(
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for skill_name, root in roots.items():
-        skill = Skill.convert_to_enum(skill_name)
+        Skill.convert_to_enum(skill_name)  # rejects a name that is not a skill
         paths = sorted(root.glob("*.npz"))
         if not paths:
             raise FileNotFoundError(f"no {skill_name} experts under {root}")

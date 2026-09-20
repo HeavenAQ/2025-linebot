@@ -1,9 +1,6 @@
-// Package ratelimit keeps one client from exhausting the learner API.
-//
-// Limits are per Cloud Run instance, not global: an attacker spread over many
-// instances gets more budget in total. That still bounds what one client can
-// cost per instance, and the service's max-instances setting bounds the rest.
-// A global limit belongs at the edge (Cloud Armor), not in application memory.
+// Package ratelimit keeps one client from exhausting the learner API. Limits
+// are per Cloud Run instance, so max-instances bounds the total; a global limit
+// belongs at the edge, in Cloud Armor, not in application memory.
 package ratelimit
 
 import (

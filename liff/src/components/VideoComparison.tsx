@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Captions, Maximize2, Pause, Play, RotateCcw } from 'lucide-react'
 
 import AutoHeight from '@/components/ui/auto-height'
@@ -252,15 +252,10 @@ export default function VideoComparison({ playback, onMediaError }: VideoCompari
         setCaption({ title: live.cue.title, body: live.cue.feedback, live: true })
         return
       }
-      // Checkpoints are listed in scoring order, not stroke order, so the one
-      // reached most recently is the furthest along that the playhead has
-      // passed — not the last one in the list.
-      //
-      // "Passed" needs slack. Seeking to a checkpoint sets a video time that
-      // converts back a hair short of the position asked for — a seek to
-      // 0.3650794 came back as 0.3650625 — and on an exact test the checkpoint
-      // just jumped to counts as not yet reached, so the caption named the one
-      // before it. The tolerance is a small fraction of a frame of 63.
+      // Listed in scoring order, not stroke order, so the checkpoint reached is
+      // the furthest the playhead has passed, not the last in the list. The
+      // tolerance covers seeks landing a hair short (0.3650794 → 0.3650625),
+      // which on an exact test named the checkpoint before.
       let reached: PhaseMarker | null = null
       for (const marker of playback.timeline) {
         if (marker.normalized_position > position + CHECKPOINT_REACHED_EPSILON) continue

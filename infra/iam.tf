@@ -1,7 +1,5 @@
-# One service account runs the bots, the analysis service and every scheduled
-# job. A second identity per service would buy isolation the deployment does
-# not have anyway: the two product variants already share this account and are
-# kept apart by their own databases, buckets and prefixes.
+# One service account for everything: the variants are kept apart by their own
+# databases, buckets and prefixes, not by identity.
 resource "google_service_account" "bot" {
   project      = var.project_id
   account_id   = var.service_account_id
@@ -11,29 +9,17 @@ resource "google_service_account" "bot" {
   depends_on = [google_project_service.enabled]
 }
 
-# Project-level roles. Each one is here because something breaks without it:
-#
-#   run.admin            the capacity scheduler raises and drops the GPU
-#                        service's minimum instances around class
-#   run.invoker          is granted per service below, not project-wide
-#   cloudtasks.enqueuer  the bot publishes its own analysis jobs
-#   datastore.user       Firestore reads and writes
-#   storage.admin        learner media in the variant buckets
-#   secretmanager.secretAccessor  the .env each bot loads at startup
-#   iam.serviceAccountUser        lets the account act as itself when
-#                        deploying revisions and minting OIDC tokens
-#   artifactregistry.writer, cloudbuild.builds.editor
-#                        the deploy workflows build and push images
+# Project-level roles. run.invoker is granted per service, in cloud_run.tf.
 locals {
   project_roles = [
-    "roles/artifactregistry.writer",
-    "roles/cloudbuild.builds.editor",
-    "roles/cloudtasks.enqueuer",
-    "roles/datastore.user",
-    "roles/iam.serviceAccountUser",
-    "roles/run.admin",
-    "roles/secretmanager.secretAccessor",
-    "roles/storage.admin",
+    "roles/artifactregistry.writer",      # the deploy workflows push images
+    "roles/cloudbuild.builds.editor",     # and build them
+    "roles/cloudtasks.enqueuer",          # the bot publishes its own analysis jobs
+    "roles/datastore.user",               # Firestore
+    "roles/iam.serviceAccountUser",       # act as itself to deploy and mint OIDC tokens
+    "roles/run.admin",                    # the capacity jobs move the GPU's minimum instances
+    "roles/secretmanager.secretAccessor", # the .env each bot loads at startup
+    "roles/storage.admin",                # learner media
   ]
 }
 

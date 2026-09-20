@@ -30,7 +30,7 @@ const iconTone = {
   error: 'text-destructive'
 } as const
 
-export interface AlertProps
+interface AlertProps
   extends React.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof alertVariants> {
   title?: string

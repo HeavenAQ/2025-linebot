@@ -2,7 +2,7 @@ import { authorizedFetch, RateLimitedError, rateLimitedMessage } from '@/lib/api
 import { UserDataSchema } from '@/schemas/userData.schema'
 import type { UserData } from '@/types'
 
-export interface ProfilePayload {
+interface ProfilePayload {
   real_name: string
   experiment_number: string
   handedness: 'left' | 'right'

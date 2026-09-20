@@ -1,10 +1,6 @@
-# Log-based metrics, built from the structured logs both services already
-# write. They are project-wide and carry a `service` label, so one set covers
-# both products; the no-LLM branch does not redeclare them.
-#
-# Everything here reads fields the code logs deliberately. If a field is
-# renamed, the metric goes quiet rather than wrong, which is why the field
-# names appear in tests on the Go side.
+# Log-based metrics over the structured logs both services write. Project-wide
+# and labelled by service, so one set covers both products. A renamed log field
+# makes a metric go quiet rather than wrong, which is why the Go tests name them.
 
 # Queued analyses by how they ended. The outcome label separates a completed
 # attempt from one that will be retried and one that failed for good.

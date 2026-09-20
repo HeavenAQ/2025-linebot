@@ -150,14 +150,9 @@ func (s BadmintonSkill) Valid() bool {
 	return s >= Serve && s <= Lift
 }
 
-// unsupportedSkills are the skills the course is not running this semester.
-//
-// PER-SEMESTER TOGGLE: this map is the single source of truth for which skills
-// students may start new work on. To offer a skill again next semester, delete
-// its line here — the selection UI, the flow guards and the weekly preview all
-// read from it, so nothing else needs to change. Removing a skill only blocks
-// NEW activity; historical portfolio entries, scores and analyses for it stay
-// readable everywhere.
+// PER-SEMESTER TOGGLE. The one source of truth for which skills students may
+// start new work on: delete a line to offer that skill again. Removing one
+// blocks only new activity; existing portfolios stay readable.
 var unsupportedSkills = map[BadmintonSkill]bool{
 	Clear: true,
 	Lift:  true,

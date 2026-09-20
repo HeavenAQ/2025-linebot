@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-export interface SegmentedOption<T extends string> {
+interface SegmentedOption<T extends string> {
   value: T
   label: string
   icon?: React.ComponentType<{ size?: number | string; 'aria-hidden'?: boolean }>

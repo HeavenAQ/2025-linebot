@@ -1,13 +1,6 @@
-# Alerting.
-#
-# The metrics in observability.tf record what happened; nothing was reading
-# them. These policies are the read side: the small number of conditions that
-# mean a student is stuck, the study is losing data, or the project is spending
-# money it should not be.
-#
-# Every threshold is deliberately loose. An alert that fires on a single
-# transient failure gets muted within a week, and a muted alert is worse than
-# none -- so each condition asks for a pattern, not an incident.
+# The read side of observability.tf: a student stuck, the study losing data, or
+# money going out. Thresholds are loose on purpose -- an alert that fires on one
+# transient failure gets muted, and a muted alert is worse than none.
 
 resource "google_monitoring_notification_channel" "email" {
   project      = var.project_id
@@ -22,10 +15,8 @@ resource "google_monitoring_notification_channel" "email" {
   depends_on = [google_project_service.enabled]
 }
 
-# The bot is serving errors. This is the one a student notices first: the
-# webhook 500s and the reply never comes. Both products' bot services are
-# matched by name, because the variant's service is declared on its own branch
-# and an alert policy is project-wide.
+# The failure a student notices first: the webhook 500s and no reply arrives.
+# Both bots are matched by name, since alert policies are project-wide.
 resource "google_monitoring_alert_policy" "bot_errors" {
   project      = var.project_id
   display_name = "LINE bot serving 5xx"
@@ -64,8 +55,7 @@ resource "google_monitoring_alert_policy" "bot_errors" {
   }
 }
 
-# Analyses the GPU service rejected or failed. A handful a day is students
-# uploading the wrong stroke; a burst is the service.
+# A handful a day is students uploading the wrong stroke; a burst is the service.
 resource "google_monitoring_alert_policy" "analysis_failures" {
   project      = var.project_id
   display_name = "Analyses failing"
@@ -214,14 +204,8 @@ resource "google_monitoring_alert_policy" "learner_refusals" {
   }
 }
 
-# Spend.
-#
-# The budget is NT$1,000 a month and warns at every full multiple of it: at
-# 1,000, again at 2,000, and so on. Thresholds are how the budget speaks --
-# nothing here caps anything, and GCP will not stop serving when one trips.
-# The L4 is the reason this exists: it is billed by the second whenever an
-# instance is up, so a scheduler job that fails to release it is the difference
-# between a normal month and an unpleasant one.
+# NT$1,000 a month, mailing at every full multiple of it. It caps nothing; it
+# exists because the L4 bills by the second whenever an instance is up.
 resource "google_billing_budget" "monthly" {
   provider        = google.billing
   billing_account = var.billing_account_id

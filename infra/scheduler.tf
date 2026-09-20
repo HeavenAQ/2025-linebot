@@ -1,22 +1,13 @@
-# Scheduled work, all of it calling the bots' own internal endpoints with a
-# Google-signed OIDC token whose audience is the worker URL. Those endpoints
-# verify the token, the audience and the caller's identity before doing
-# anything.
-#
-# The worker URL is read back from the service rather than written down, so a
-# redeployed service cannot leave a scheduler pointing at a dead host.
-#
-# These cover the LLM product only. The no-LLM variant runs the same two jobs
-# against its own worker, declared on its own branch. The GPU warm-up and
-# capacity jobs below are shared: one L4 serves both products, so reserving it
-# once is enough.
+# Scheduled work, calling the bot's internal endpoints with a Google-signed
+# OIDC token whose audience is the worker URL, read back from the service so a
+# redeploy cannot leave a job pointing at a dead host. The outbox and rebuild
+# are per product; the GPU jobs are shared, since one L4 serves both.
 locals {
   worker_url = google_cloud_run_v2_service.bot.uri
 }
 
-# Queue publication can fail after a job is recorded -- a crash between the
-# two, say. This sweeps those up a minute later, and expires anything still
-# unpublished after a day. It does not poll analyses in progress.
+# Sweeps up jobs recorded but never published (a crash between the two), and
+# expires anything still unpublished after a day.
 resource "google_cloud_scheduler_job" "outbox" {
   project          = var.project_id
   name             = "analysis-llm-outbox"
@@ -73,10 +64,9 @@ resource "google_cloud_scheduler_job" "class_stats_rebuild" {
   }
 }
 
-# Class is Monday 14:00-18:00 Taiwan time, and a cold L4 costs the first
-# student of the day a minute or more. Capacity is reserved at 13:45 and
-# released at 18:10; an idle GPU instance is billed by the second, so it is
-# never left on.
+# Class is Monday 14:00-18:00 Taipei and a cold L4 costs the first student a
+# minute, so capacity is reserved at 13:45 and released at 18:10 -- an idle GPU
+# is billed by the second.
 resource "google_cloud_scheduler_job" "gpu_capacity" {
   for_each = {
     "analysis-gpu-monday-start" = { schedule = "45 13 * * 1", minimum = 1 }
@@ -110,9 +100,8 @@ resource "google_cloud_scheduler_job" "gpu_capacity" {
   }
 }
 
-# Reserving an instance is not the same as it being ready: the models load
-# lazily, so these actually run an inference. The pre-class pair wakes it, and
-# the in-class sweep keeps it warm through the session.
+# The models load lazily, so these run a real inference rather than pinging:
+# the pre-class pair wakes the GPU, the in-class sweep keeps it warm.
 resource "google_cloud_scheduler_job" "gpu_warmup" {
   for_each = {
     "analysis-gpu-warmup"       = "50,55 13 * * 1"

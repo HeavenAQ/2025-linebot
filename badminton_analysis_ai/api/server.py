@@ -7,7 +7,6 @@ import signal
 import tempfile
 import time
 import uuid
-from collections.abc import Iterator
 from concurrent import futures
 from contextlib import contextmanager
 from pathlib import Path

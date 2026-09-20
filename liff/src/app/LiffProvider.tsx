@@ -1,5 +1,5 @@
 'use client'
-import React, {
+import {
   createContext,
   FC,
   PropsWithChildren,
@@ -10,8 +10,9 @@ import React, {
   useState
 } from 'react'
 
-import { Profile } from '@liff/get-profile'
 import { Liff } from '@line/liff'
+
+type Profile = Awaited<ReturnType<Liff['getProfile']>>
 
 import { setExpiredTokenHandler, setTokenSources } from '@/lib/api/client'
 import ExperimentGate from '@/components/ExperimentGate'

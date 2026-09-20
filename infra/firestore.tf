@@ -1,9 +1,6 @@
-# The LLM product's learners live in the project's default database. The
-# no-LLM variant has its own named database, declared on its own branch, so
-# the two can never read each other's students.
-#
-# Collections are not declared: Firestore creates them on first write, and the
-# bot owns their shape.
+# The LLM product's default database; the variant's is named, on its branch, so
+# neither can read the other's students. Collections are the bot's: Firestore
+# creates them on first write.
 resource "google_firestore_database" "llm" {
   project                 = var.project_id
   name                    = "(default)"

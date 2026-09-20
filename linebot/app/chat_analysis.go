@@ -218,14 +218,10 @@ func storageBucketFrom(gcsURI string) string {
 	return storage.BucketFromGCSURI(gcsURI)
 }
 
-// queueChatCoaching fills in the coaching a chat upload skipped.
-//
-// A chat analysis answers fast by leaving out the pipeline's coaching stage,
-// but the attempt lands in the learner's portfolio like any other, where a
-// missing cue list would be a hole. The pass runs as a queued job of its own:
-// a goroutine here would be frozen or killed when this instance scales down,
-// and the learner would never know the cues went missing. It merges only its
-// own results, so it can never change a score after the fact.
+// queueChatCoaching fills in the coaching a chat upload skipped, so the
+// attempt is whole in the portfolio. It is a queued job rather than a
+// goroutine, which would die with the instance, and it merges only the three
+// coaching fields, so it can never change a score after the fact.
 func (app *App) queueChatCoaching(ctx context.Context, job db.AnalysisJob) {
 	if app.AnalysisQueue == nil {
 		return

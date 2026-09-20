@@ -56,17 +56,10 @@ func supportedSkillHistory(history []commons.SkillHistory) []commons.SkillHistor
 	return supported
 }
 
-// focusSkill picks the skill a learner should work on this week: the one they
-// practised most recently. A preview arrives before the next lesson, so it is
-// most use when it follows on from the session they just had, rather than from
-// whichever skill is their weakest across the whole term -- a skill they have
-// not touched in weeks is not what they are carrying in.
-//
-// Scores arrive newest first, so each skill's latest attempt is Scores[0], and
-// the date format is zero-padded throughout, so it orders lexically. Ties --
-// two skills graded in the same minute -- go to the lower of the two, then to
-// SkillOrder, so the choice never depends on map ordering. Callers pass
-// history already narrowed by supportedSkillHistory.
+// focusSkill picks the skill practised most recently, since a preview lands
+// before the next lesson and should follow the session just had. Scores arrive
+// newest first and dates are zero-padded, so Scores[0] orders lexically; ties
+// break on the lower score then SkillOrder, never on map ordering.
 func focusSkill(history []commons.SkillHistory) commons.SkillHistory {
 	best := history[0]
 	for _, candidate := range history[1:] {
@@ -148,12 +141,9 @@ func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
 	return outcome
 }
 
-// WeeklyPreviewForUser writes one learner's 課前預習 note and pushes it.
-//
-// A learner is messaged at most once per ISO week: the run is expected to be
-// retried and rescheduled, and a duplicate push reads as a bug to a student.
-// With dryRun set the note is written but not delivered or recorded, so a run
-// can be reviewed before any student sees it.
+// WeeklyPreviewForUser writes one learner's 課前預習 note and pushes it, at most
+// once per ISO week since the run is retried. With dryRun the note is written
+// but never delivered or recorded.
 func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool) PreviewOutcome {
 	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
 

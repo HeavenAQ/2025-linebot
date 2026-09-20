@@ -1,5 +1,5 @@
 'use client'
-import React, { Fragment } from 'react'
+import { Fragment } from 'react'
 import { Menu, Transition } from '@headlessui/react'
 import { BarChart3, Menu as MenuIcon, MessageSquareText, UserRound, Users } from 'lucide-react'
 import Link from 'next/link'

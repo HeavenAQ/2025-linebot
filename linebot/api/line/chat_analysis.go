@@ -12,12 +12,9 @@ type VideoContent struct {
 	ThumbnailURL string
 }
 
-// ReplyChatAnalysis answers a video sent in coach chat with one reply: the
-// analysis render to watch, then the coach's explanation.
-//
-// One reply carries both, which keeps a finished analysis off the account's
-// push quota. An empty video -- a render that failed to sign -- still sends
-// the explanation rather than nothing.
+// ReplyChatAnalysis answers a video sent in coach chat with one reply -- the
+// render, then the explanation -- which keeps it off the push quota. A render
+// that failed to sign still sends the explanation rather than nothing.
 func (client *Client) ReplyChatAnalysis(replyToken string, video VideoContent, answer string) error {
 	data, err := json.Marshal(StopGPTPostback{Stop: true})
 	if err != nil {

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useLiff } from '../LiffProvider'
 import type { UserData } from '@/types'
 import { Alert } from '@/components/ui/alert'

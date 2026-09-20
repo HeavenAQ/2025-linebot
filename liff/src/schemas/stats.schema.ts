@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 // Summary shape returned by backend for both user and class
-export const StatsSummarySchema = z.object({
+const StatsSummarySchema = z.object({
   avg: z.number(),
   max: z.number(),
   min: z.number(),

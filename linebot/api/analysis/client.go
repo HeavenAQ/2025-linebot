@@ -90,13 +90,9 @@ func NewClient(
 	}, nil
 }
 
-// identityTokens yields OIDC tokens naming the analysis service as audience.
-//
-// On Cloud Run the metadata server mints them from the attached service
-// account. Elsewhere -- a CI runner authenticated by workload identity
-// federation, where minting an audience-bound token from ambient credentials
-// does not work -- ANALYSIS_IDENTITY_TOKEN supplies one that was obtained out
-// of band.
+// identityTokens yields OIDC tokens naming the analysis service as audience:
+// from Cloud Run's metadata server, or from ANALYSIS_IDENTITY_TOKEN where
+// ambient credentials cannot mint an audience-bound one, as on a CI runner.
 func identityTokens(audience string) (oauth2.TokenSource, error) {
 	if token := strings.TrimSpace(os.Getenv("ANALYSIS_IDENTITY_TOKEN")); token != "" {
 		return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token, TokenType: "Bearer"}), nil

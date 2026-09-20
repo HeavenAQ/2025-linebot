@@ -1,31 +1,8 @@
-# The TensorRT engine builder.
-#
-# A serialized engine is bound to the exact GPU architecture, driver and
-# TensorRT version it was built against, so it has to be produced on the same
-# L4 the service runs on. It is built rarely -- when RF-DETR, TensorRT or the
-# GPU generation changes -- and takes about two minutes, after which the
-# artifact is published to Artifact Registry and baked into every image.
-#
-# Terraform declares the job so that run is reproducible rather than assembled
-# by hand each time. It cannot build the image the job runs, so the recipe sits
-# beside this file in `cloudbuild/engine-bootstrap.yaml`: the production image
-# with the engine assertion switched off, since that assertion cannot hold
-# before the engine exists.
-#
-# To rebuild an engine:
-#
-#   gcloud builds submit --config infra/cloudbuild/engine-bootstrap.yaml \
-#     --project <project> badminton_analysis_ai
-#   gcloud run jobs execute rfdetr-engine-builder --region <gpu region> \
-#     --project <project> --wait
-#
-# The job uploads the engine itself; see `build_rfdetr_engine.py` and
-# `models/trt-engine.env` for the artifact version it publishes.
-#
-# Ordering note: Cloud Run checks the image exists when the job is created, and
-# the bootstrap image is built by the command above, so the build comes first.
-# `create_engine_builder_job` stays false until that build has run once;
-# flipping it to true is what creates the job.
+# Builds the RF-DETR TensorRT engine on the same L4 the service runs on: an
+# engine is bound to the GPU, driver and TensorRT version it was compiled
+# against. Terraform cannot build the image this job runs, so the recipe is
+# `cloudbuild/engine-bootstrap.yaml`; README.md has the two commands, and the
+# flag stays false until that image exists, because Cloud Run checks for it.
 resource "google_cloud_run_v2_job" "engine_builder" {
   count = var.create_engine_builder_job ? 1 : 0
 

@@ -21,15 +21,10 @@ import (
 // 3. Read the generated text directly from the returned Response.
 
 // DefaultModel is what every request runs on unless OPENAI_MODEL says
-// otherwise.
-//
-// Named here rather than left to a stored OpenAI prompt. A stored prompt pins
-// whichever model it was saved against, and OpenAI retires those: when
-// gpt-5.2-chat-latest was withdrawn, every summary started coming back 404
-// with nothing in this repository naming the model, so there was no way to fix
-// it from here. The system prompts live in this file for the same reason --
-// they are reviewable, versioned with the code that sends them, and cannot
-// change under the service without a deploy.
+// otherwise. Named here, not in a stored OpenAI prompt: a stored prompt pins a
+// model, and when gpt-5.2-chat-latest was retired every summary 404'd with
+// nothing in this repository to fix. The system prompts are here for the same
+// reason.
 const DefaultModel = "gpt-5.6-terra"
 
 // requestTimeout bounds one attempt at an OpenAI call; maxRetries is how many
@@ -66,12 +61,9 @@ func NewGPTClient(apiKey, model string) *Client {
 	}
 }
 
-// coachInstruction is the persona behind the bot's replies to learners.
-//
-// It is deliberately explicit that questions about a learner's own progress
-// are in scope: the stored prompt this replaced used to refuse them outright
-// and tell the student to go find a real coach, which is the one thing a
-// coaching bot must not do when it has the scores in front of it.
+// coachInstruction is the persona behind replies to learners. It says
+// explicitly that questions about their own progress are in scope: the stored
+// prompt it replaced refused them and told students to find a real coach.
 const coachInstruction = "你是一位羽球教練，正在指導大學體育課的學生。" +
 	"學生會問你關於自己練習的問題，訊息中通常附有系統的動作評分。\n" +
 	"- 一律使用繁體中文，語氣直接、鼓勵，像在球場邊說話。\n" +
@@ -136,33 +128,20 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 	return rewritten, nil
 }
 
-// Coach answers a learner's question as their badminton coach.
-//
-// The conversation lives in Firestore, not at OpenAI: the caller passes the
-// stored turns for this skill and they are sent as the request's input. An
-// OpenAI conversation would be a second copy of the same history, billed on
-// every reply and tied to the account behind the API key -- rotating the key
-// stranded every stored conversation ID and broke chat for everyone.
-//
-// The recent grades ride along with the question. Without them the coach has
-// nothing to evaluate and falls back on asking the learner what they have been
-// practising, which is a poor answer to "how am I doing" when the scores are
-// sitting in Firestore.
+// Coach answers a learner's question as their badminton coach. The
+// conversation lives in Firestore rather than at OpenAI -- a rotated API key
+// once stranded every stored conversation ID -- and the recent grades ride
+// along, or the coach has nothing to answer "how am I doing" with.
 func (client *Client) Coach(
 	history []HistoryMessage, message, skillChn string, scores []commons.SkillScore,
 ) (string, error) {
 	return client.CoachWithTools(context.Background(), history, message, skillChn, scores, nil, nil)
 }
 
-// CoachWithTools answers the same way, but lets the coach look things up first.
-//
-// The learner's question often needs records that no fixed prompt could carry:
-// an attempt from three weeks ago, where they stand in the class, what they
-// wrote in their own reflection. Rather than guess which of those to attach,
-// the tools are offered and the model asks for what it needs. Every lookup is
-// read-only and scoped to this learner by the caller.
-//
-// onToolCall, when set, is told about each lookup for the request log.
+// CoachWithTools answers the same way, but offers read-only lookups first, so
+// a question needing an attempt from three weeks ago or a class standing is
+// answered from the record instead of guessed at. onToolCall, when set, is
+// told about each lookup for the request log.
 func (client *Client) CoachWithTools(
 	ctx context.Context,
 	history []HistoryMessage, message, skillChn string, scores []commons.SkillScore,

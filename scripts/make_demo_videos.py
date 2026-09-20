@@ -75,9 +75,8 @@ DEMO_SEQUENCES = {
     "serve": (
         (("arms_raised",), (0,)),
         (("racket_foot_weight",), (1,)),
-        (("hip_rotation", "wrist_flick"), (1, 2)),
-        (("weight_transfer",), (2,)),
-        (("shoulder_rotation",), (4,)),
+        (("weight_transfer", "wrist_flick"), (1, 2)),
+        (("hip_rotation", "shoulder_rotation"), (3, 4)),
     ),
     "smash": (
         (("preparation",), (0,)),

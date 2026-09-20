@@ -26,9 +26,11 @@
 #
 # Ordering note: Cloud Run checks the image exists when the job is created, and
 # the bootstrap image is built by the command above, so the build comes first.
-# Until it has run once, apply with
-# `-exclude=google_cloud_run_v2_job.engine_builder`.
+# `create_engine_builder_job` stays false until that build has run once;
+# flipping it to true is what creates the job.
 resource "google_cloud_run_v2_job" "engine_builder" {
+  count = var.create_engine_builder_job ? 1 : 0
+
   project             = var.project_id
   name                = "rfdetr-engine-builder"
   location            = var.gpu_region

@@ -23,3 +23,17 @@ provider "google" {
   project = var.project_id
   region  = var.region
 }
+
+# The budget is the one resource billed against a *billing account* rather than
+# the project. Requests for it must name a project to charge the API quota to,
+# which user credentials do not carry by default -- without this the API replies
+# that the service is disabled on a project nobody recognises. Scoped to an
+# alias so every other resource keeps the plain provider, which needs no extra
+# permission.
+provider "google" {
+  alias                 = "billing"
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
+}

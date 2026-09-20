@@ -31,24 +31,63 @@ declared on its own branch.** The GPU service, the service account, Artifact
 Registry, the shared secrets and the log-based metrics are declared here,
 because one of each serves both.
 
-## First run on a new project
+## Before anything: how Terraform authenticates
 
-State lives in a bucket, and Terraform cannot create the bucket it stores its
-state in, so that one is made by hand:
+Terraform needs Google credentials of its own; the `gcloud` login alone is not
+enough. The simplest way, and the one the applies here were run with, is to
+hand it a token minted from that login:
+
+```bash
+gcloud auth login                                    # once, as the project owner
+export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+```
+
+The token lasts about an hour — long enough for a plan and an apply. Re-export
+it when Terraform starts reporting 401s.
+
+**Apply as yourself, not as the deploy service account.** The key at
+`linebot/sa-key.json` works for everything except the budget: managing budgets
+is a permission on the *billing account*, and only the owner account holds
+`roles/billing.admin` there. Applying with the key gets as far as the budget and
+then stops. (If you ever do want the key to manage it, grant the narrower
+`roles/billing.costsManager` — see "The budget" below.)
+
+## Setting it up, start to finish
+
+The commands below build the whole project from nothing. On the existing
+project, skip to "Adopting the resources that already exist" — every one of
+these resources is already there and must be imported instead of created.
+
+**1. The state bucket.** Terraform cannot create the bucket it keeps its own
+state in, so this one is made by hand:
 
 ```bash
 project=nstc-linebot-2025
 gcloud storage buckets create "gs://${project}-tfstate" \
   --project "$project" --location asia-east1 --uniform-bucket-level-access
 gcloud storage buckets update "gs://${project}-tfstate" --versioning
-
-cd infra
-terraform init
-terraform import google_storage_bucket.terraform_state "${project}/${project}-tfstate"
-terraform plan
 ```
 
-Then add each secret's value, which Terraform deliberately never sees:
+**2. The values this repository does not carry.** It is public, so the alert
+address and the billing account ID live in a gitignored file:
+
+```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+$EDITOR terraform.tfvars        # alert_email, billing_account_id
+```
+
+**3. Create everything.**
+
+```bash
+terraform init
+terraform import google_storage_bucket.terraform_state "${project}/${project}-tfstate"
+terraform plan                  # read it
+terraform apply
+```
+
+**4. Fill the secrets**, which Terraform declares but never sees (a value in
+Terraform is a value in state):
 
 ```bash
 gcloud secrets versions add 2025-linebot-env --data-file=.env
@@ -57,15 +96,41 @@ gcloud secrets versions add analysis-grpc-api-key --data-file=-
 gcloud secrets versions add gpt-validation-access-codes --data-file=codes.json
 ```
 
+**5. Deploy the real images** by pushing to `main`. Until then each service runs
+the placeholder image Terraform created it with, and the workflows in
+`.github/workflows/` own every revision from that point on.
+
+**6. Build the TensorRT engine** once the GPU service exists, then turn its job
+on — Cloud Run refuses to create a job whose image does not exist yet, which is
+why `create_engine_builder_job` starts false:
+
+```bash
+cd ../badminton_analysis_ai
+gcloud builds submit --config cloudbuild-engine-bootstrap.yaml --project "$project"
+cd ../infra
+echo 'create_engine_builder_job = true' >> terraform.tfvars
+terraform apply
+gcloud run jobs execute rfdetr-engine-builder \
+  --region asia-southeast1 --project "$project" --wait
+```
+
+**7. Point GitHub at the pool.** `wif.tf` creates the identity pool and
+provider; the repository needs their full names as secrets:
+
+```bash
+num="$(gcloud projects describe "$project" --format='value(projectNumber)')"
+gh secret set GCP_WORKLOAD_IDENTITY_PROVIDER --body \
+  "projects/${num}/locations/global/workloadIdentityPools/git-actions-pool/providers/git-actions-provider"
+gh secret set GCP_SA_EMAIL --body "nstc-linebot-2025@${project}.iam.gserviceaccount.com"
+gh secret set GCP_PROJECT_ID --body "$project"
+```
+
 | Secret | Holds |
 | --- | --- |
 | `2025-linebot-env` | The bot's whole `.env`: LINE channel credentials, Firestore database and collection names, the OpenAI key |
 | `openai-api-key` | Read by the GPU service for the coaching pass |
 | `analysis-grpc-api-key` | Shared by the bots and the GPU service, so only the bots may call it |
 | `gpt-validation-access-codes` | The expert review site's per-reviewer codes |
-
-Finally deploy the real images by pushing to `main`; the workflows in
-`.github/workflows/` own every revision from then on.
 
 ## Adopting the resources that already exist
 
@@ -138,10 +203,11 @@ channel and the budget.
 The engine-builder job (`google_cloud_run_v2_job.engine_builder`) has no
 counterpart to import — the engine has been built by hand until now. Cloud Run
 checks its image exists when the job is created, and that image comes from the
-bootstrap build, so until that build has run once:
+bootstrap build, so the job is behind a flag that stays off until that build has
+run once:
 
-```bash
-terraform apply -exclude=google_cloud_run_v2_job.engine_builder
+```hcl
+create_engine_builder_job = true   # in terraform.tfvars, after the bootstrap build
 ```
 
 The learner bucket is described as it is: per-object ACLs, no public access
@@ -149,29 +215,27 @@ prevention. Turning both on is a safe tightening — nothing is served from it
 except through signed URLs — but it changes the bucket holding every
 recording, so it is left as a one-line edit to make on purpose.
 
-## Credentials, and the one resource that needs yours
+## The budget
 
-Most of this can be applied with the deploy service account. The budget cannot:
-managing budgets is a billing-account permission, and only `891118heaven@gmail.com`
-holds `roles/billing.admin` there. So apply as yourself:
+It is the only resource here billed against a *billing account* rather than the
+project, and that makes it the only one with its own requirements:
 
-```bash
-gcloud auth application-default login
-cd infra && terraform apply
-```
+- **It needs the owner account.** `roles/billing.admin` on the billing account
+  is held by one user; the deploy service account has no billing role at all.
+  To let the key manage it instead, grant the narrower role once:
 
-If you would rather keep using the service-account key, grant it the narrower
-billing role once (you are the only one who can):
+  ```bash
+  gcloud billing accounts add-iam-policy-binding 019A8A-F51497-B2EE02 \
+    --member "serviceAccount:nstc-linebot-2025@nstc-linebot-2025.iam.gserviceaccount.com" \
+    --role roles/billing.costsManager
+  ```
 
-```bash
-gcloud billing accounts add-iam-policy-binding 019A8A-F51497-B2EE02 \
-  --member "serviceAccount:nstc-linebot-2025@nstc-linebot-2025.iam.gserviceaccount.com" \
-  --role roles/billing.costsManager
-```
-
-Two values are deliberately not in this repository, which is public. Copy
-`terraform.tfvars.example` to `terraform.tfvars` (gitignored) and fill in the
-address alerts go to and the billing account ID.
+- **It is applied through an aliased provider** (`google.billing` in
+  `versions.tf`) with `user_project_override`. Requests to the budgets API must
+  name a project to charge quota to, and user credentials carry none by default;
+  without the alias the API replies that the service is disabled on a project
+  you have never heard of. Only the budget uses that provider, so nothing else
+  needs the extra permission it implies.
 
 ## Who may deploy
 

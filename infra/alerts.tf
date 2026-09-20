@@ -223,6 +223,7 @@ resource "google_monitoring_alert_policy" "learner_refusals" {
 # instance is up, so a scheduler job that fails to release it is the difference
 # between a normal month and an unpleasant one.
 resource "google_billing_budget" "monthly" {
+  provider        = google.billing
   billing_account = var.billing_account_id
   display_name    = "Badminton coaching — NT$1,000 steps"
 

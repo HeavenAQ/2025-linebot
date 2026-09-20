@@ -68,3 +68,9 @@ variable "billing_account_id" {
   description = "Billing account the budget is attached to, as XXXXXX-XXXXXX-XXXXXX."
   type        = string
 }
+
+variable "create_engine_builder_job" {
+  description = "Create the TensorRT engine-builder job. Requires the bootstrap image to exist already, because Cloud Run checks it when the job is created; see engine_builder.tf."
+  type        = bool
+  default     = false
+}

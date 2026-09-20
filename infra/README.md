@@ -11,7 +11,7 @@ that true on paper as well as in practice.
 | --- | --- |
 | The service account and its roles | Secret **values** (added with `gcloud`; a value in Terraform is a value in state) |
 | The learner bucket, the default Firestore database | Collections and documents — the bot owns those |
-| Cloud Run services: the bot, the GPU analysis service, the validation site | Their images and environment — GitHub Actions deploys revisions |
+| Cloud Run services: the bot, the GPU analysis service, the validation site | Their images, environment and machine shape — GitHub Actions deploys revisions |
 | The analysis queue and every scheduled job | LINE channels, the LIFF apps, Netlify |
 | Artifact Registry for the TensorRT engine | The engine build recipe (`badminton_analysis_ai/cloudbuild-engine-bootstrap.yaml`) |
 | Log-based metrics | Dashboards and alert policies |
@@ -19,7 +19,11 @@ that true on paper as well as in practice.
 **Cloud Run templates are ignored after creation.** Terraform creates each
 service with a placeholder image and never looks at the template again, so an
 `apply` cannot roll production back to whatever image this repository last
-named. Machine shape, identity and IAM stay Terraform's.
+named — and with the template go the machine shape and the environment, which
+the deploy workflow sets on every revision. What stays Terraform's is what a
+deploy does not touch: the service's existence, its region and ingress, who may
+invoke it, and deletion protection. The deploy workflows read the invoker
+policy back and fail if it has changed, rather than granting it themselves.
 
 **The no-LLM variant's queue, schedulers, bucket, database and bot service are
 declared on its own branch.** The GPU service, the service account, Artifact

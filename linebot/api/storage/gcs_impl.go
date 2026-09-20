@@ -2,9 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	gcs "cloud.google.com/go/storage"
+	"google.golang.org/api/iterator"
 )
 
 // StorageClient abstracts the subset of Cloud Storage client used by BucketClient.
@@ -16,6 +18,10 @@ type StorageClient interface {
 
 type BucketHandle interface {
 	Object(name string) ObjectHandle
+	// ObjectNames lists the objects under a prefix. The demonstration videos
+	// are found this way rather than named in code, so adding an expert is an
+	// upload rather than a deploy.
+	ObjectNames(ctx context.Context, prefix string) ([]string, error)
 	// SignedURL mints a time-limited read URL. It is on the interface so the
 	// playback path can be tested without reaching GCP.
 	SignedURL(object string, opts *gcs.SignedURLOptions) (string, error)
@@ -43,6 +49,21 @@ func (c *gcsClient) Close() error                    { return c.Client.Close() }
 type gcsBucket struct{ *gcs.BucketHandle }
 
 func (b *gcsBucket) Object(name string) ObjectHandle { return &gcsObject{b.BucketHandle.Object(name)} }
+
+func (b *gcsBucket) ObjectNames(ctx context.Context, prefix string) ([]string, error) {
+	var names []string
+	it := b.BucketHandle.Objects(ctx, &gcs.Query{Prefix: prefix})
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			return names, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, attrs.Name)
+	}
+}
 
 func (b *gcsBucket) SignedURL(object string, opts *gcs.SignedURLOptions) (string, error) {
 	return b.BucketHandle.SignedURL(object, opts)

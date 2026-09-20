@@ -202,14 +202,14 @@ func (client *Client) ReplyMessage(
 func (client *Client) SendInstruction(replyToken string) (*linebot.BasicResponse, error) {
 	const welcome = "歡迎加入羽球教室🏸，以下為選單的使用說明:\n\n"
 	const instruction = "➡️ 使用說明：呼叫選單各個項目的解說\n\n"
+	const reviewAndPreview = "➡️ 反思及預習：開啟學習網頁的「每週回顧」，一邊看影片一邊寫下這一週的心得，也寫下下次上課想盯住的動作重點\n\n"
 	const portfolio = "➡️ 學習歷程：查看個人每周的學習歷程記錄\n\n"
-	const addPreview = "➡️ 課前預習：開啟學習網頁「每週回顧」的預習，寫下這次上課想盯住的動作重點\n\n"
-	const addReflection = "➡️ 學習反思：開啟「每週回顧」的反思，一邊看影片一邊寫下這一週的心得\n\n"
-	const analyzeRecording = "➡️ 動作分析：上傳個人動作錄影，系統將自動產生分析結果\n\n"
+	const uploadVideo = "➡️ 影片上傳：上傳個人動作錄影，系統將自動產生分析結果\n\n"
+	const dashboard = "➡️ 學習儀表板：開啟學習網頁，查看個人與班級的分析數據\n\n"
 	const expertVideo = "➡️ 專家影片：觀看專家示範影片\n\n"
 	const note1 = "✅ 如需查看課程大綱，請輸入「課程大綱」\n\n"
 	const note2 = "⚠️ 每周的學習歷程都需有【影片】才能建檔"
-	const msg = welcome + instruction + addReflection + portfolio + analyzeRecording + addPreview + expertVideo + note1 + note2
+	const msg = welcome + instruction + reviewAndPreview + portfolio + uploadVideo + dashboard + expertVideo + note1 + note2
 	return client.bot.ReplyMessage(replyToken, linebot.NewTextMessage(msg)).Do()
 }
 

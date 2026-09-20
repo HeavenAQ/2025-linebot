@@ -38,7 +38,13 @@ State shares the LLM product's bucket under a different prefix, so `main` must
 have been applied at least once (it creates the bucket and the service
 account):
 
+Terraform needs credentials of its own; the `gcloud` login alone is not enough.
+Mint a token from it — an hour's worth, which covers a plan and an apply:
+
 ```bash
+gcloud auth login
+export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)"
+
 cd infra
 terraform init
 terraform plan

@@ -80,6 +80,15 @@ score on this branch and was unprotected, and the public invoker binding on the
 bot service, which is a re-grant of what is already there — LINE has to reach
 the webhook.
 
+## What watches this variant
+
+Alerting is declared on `main` and covers both products: the bot 5xx policy
+matches this service by name, and the log-based metrics carry a `service`
+label. The spend budget is per project, so it counts this variant's GPU minutes
+too. Nothing about alerting is declared here, for the same reason the metrics
+are not: two configurations owning one policy is how a policy ends up silently
+disabled.
+
 ## A plan that wants to destroy something
 
 The bucket and the database hold student recordings and scores.

@@ -171,22 +171,25 @@ jobs:
           test -n "${service_url}"
           echo "ANALYSIS_SERVICE_URL=${service_url}" >> "${GITHUB_ENV}"
 
-      - name: Restrict analysis service to the bot backend
+      - name: Check the analysis service is still restricted to the bot backend
         run: |
           # The GPU service is billed by the second and sits on a public URL, so
           # only the LINE bot backend may invoke it. Both run as this service
           # account; anything else Cloud Run rejects before a container starts.
-          # Deploying with --no-allow-unauthenticated already drops allUsers;
-          # this adds the one principal that is allowed back in.
-          gcloud run services add-iam-policy-binding badminton-analysis-ai \
-            --region asia-southeast1 \
-            --member "serviceAccount:${{ secrets.GCP_SA_EMAIL }}" \
-            --role roles/run.invoker \
-            --quiet
-          echo "invokers now:"
-          gcloud run services get-iam-policy badminton-analysis-ai \
+          #
+          # Who may invoke it is Terraform's (`infra/cloud_run.tf`), not this
+          # workflow's: granting it here on every deploy would quietly paper
+          # over a policy someone changed in the console. So this only reads it
+          # back, and fails the deploy if the one allowed principal is gone or
+          # anyone else has been added.
+          invokers="$(gcloud run services get-iam-policy badminton-analysis-ai \
             --region asia-southeast1 --format=json | jq -r \
-            '.bindings[]? | select(.role == "roles/run.invoker") | .members[]'
+            '[.bindings[]? | select(.role == "roles/run.invoker") | .members[]] | sort | join(",")')"
+          echo "invokers: ${invokers}"
+          if [[ "${invokers}" != "serviceAccount:${{ secrets.GCP_SA_EMAIL }}" ]]; then
+            echo "Unexpected invokers on the GPU service; run terraform apply in infra/" >&2
+            exit 1
+          fi
 
       - name: Run real gRPC video analysis
         env:

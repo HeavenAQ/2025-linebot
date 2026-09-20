@@ -110,11 +110,14 @@ jobs:
             echo "NEXT_PUBLIC_LIFF_ID does not start with a channel ID" >&2
             exit 1
           fi
+          # Public access is Terraform's (`infra/cloud_run.tf`): LINE has to
+          # reach the webhook, and every learner route authenticates the
+          # caller itself. Deploying does not change IAM, and the health check
+          # below would fail if the binding had been lost.
           gcloud run deploy ${{ secrets.GCP_PROJECT_ID }} \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_PROJECT_ID }} \
             --platform managed \
             --region asia-east1 \
-            --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
             --timeout 1200 \

@@ -143,11 +143,14 @@ jobs:
             registration_url="https://liff.line.me/2006698730-VbnY1UL3/profile"
           fi
 
+          # Public access is Terraform's (`infra/cloud_run.tf`): LINE has to
+          # reach the webhook, and every learner route authenticates the caller
+          # itself. Deploying does not change IAM, and the health check below
+          # would fail if the binding had been lost.
           gcloud run deploy "${SERVICE_NAME}" \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.IMAGE_NAME }} \
             --platform managed \
             --region "${REGION}" \
-            --allow-unauthenticated \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --memory 2Gi \
             --timeout 1200 \

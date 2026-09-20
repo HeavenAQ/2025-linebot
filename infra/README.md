@@ -26,8 +26,11 @@ Nothing in this configuration turns that on or off; the bot does, through
 
 **Cloud Run templates are ignored after creation.** Terraform creates the
 service with a placeholder image and never looks at the template again, so an
-apply cannot roll production back to whatever image this repository last
-named. The deploy workflow owns every revision.
+`apply` cannot roll production back to whatever image this repository last
+named — and with the template go the machine shape and the environment, which
+`cd-linebot-no-llm.yml` sets on every revision. What stays Terraform's is what
+a deploy does not touch: the service's existence, its region and ingress, who
+may invoke it, and deletion protection.
 
 ## Applying
 

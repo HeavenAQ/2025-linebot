@@ -57,4 +57,4 @@ const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(
 )
 InputField.displayName = 'InputField'
 
-export { Input, InputField }
+export { InputField }

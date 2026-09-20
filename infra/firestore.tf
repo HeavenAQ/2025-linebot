@@ -1,8 +1,5 @@
-# This variant's learners live in their own named database, so the two
-# products can never read each other's students.
-#
-# Collections are not declared: Firestore creates them on first write, and the
-# bot owns their shape.
+# This variant's own named database, so neither product can read the other's
+# students. Collections are the bot's: Firestore creates them on first write.
 resource "google_firestore_database" "no_llm" {
   project                 = var.project_id
   name                    = "nstc-linebot-noai"

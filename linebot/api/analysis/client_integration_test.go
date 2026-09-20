@@ -191,11 +191,9 @@ func TestLiveAnalysisService(t *testing.T) {
 	}
 	require.NotEmpty(t, result.Timeline)
 	// Playback aligns marker for marker, so the expert must report the same
-	// checkpoints in the same order, timed inside its own motion window.
-	// Criteria are listed in scoring order, not stroke order — serve grades the
-	// hip rotation (keyframe 4) before the wrist flick (keyframe 3) — so the
-	// timestamps only run forwards once sorted by position, which is the order
-	// playback interpolates through.
+	// checkpoints in the same order, inside its own motion window. They are
+	// listed in scoring order, not stroke order, so timestamps only run
+	// forwards once sorted by position — which is how playback reads them.
 	if expectExpertVideo {
 		require.Len(t, result.Expert.Timeline, len(result.Timeline))
 		byPosition := append([]commons.PhaseMarker(nil), result.Expert.Timeline...)

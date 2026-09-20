@@ -1,16 +1,8 @@
-// Package auth establishes who is calling the learner-facing API.
-//
-// The LIFF client knows its own LINE user ID, but a client-supplied ID proves
-// nothing: anyone can send any ID. LINE issues a signed ID token for the logged
-// in user, and this verifies that token and takes the learner's identity from
-// the verified subject instead.
-//
-// ID tokens are verified locally whenever LINE signed them with ES256 (LIFF
-// tokens are): the signature is checked against LINE's published keys, so a
-// forged or garbage token costs this service microseconds and never turns into
-// a request to LINE. ID tokens last about an hour and cannot be refreshed, so a
-// page left open longer falls back to the LIFF access token, which LINE
-// verifies remotely.
+// Package auth establishes who is calling the learner-facing API. A
+// client-supplied user ID proves nothing, so the learner's identity comes from
+// the subject of a LINE ID token: verified locally against LINE's published
+// ES256 keys, so a forged one never costs a request to LINE. Those expire after
+// an hour, after which a page falls back to the access token, verified remotely.
 package auth
 
 import (

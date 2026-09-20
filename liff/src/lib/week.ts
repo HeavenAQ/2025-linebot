@@ -14,7 +14,7 @@ export function parseWorkDate(key: string): Date | null {
 }
 
 /** The ISO week a date falls in, as { year, week }. */
-export function isoWeekParts(date: Date): { year: number; week: number } {
+function isoWeekParts(date: Date): { year: number; week: number } {
   // Shift to the Thursday of this week: the ISO year is whichever year that
   // Thursday lands in, which is what makes 1 Jan sometimes belong to week 52
   // or 53 of the year before.
@@ -33,7 +33,7 @@ export function isoWeek(date: Date): string {
 }
 
 /** Monday and Sunday of an ISO week label, for showing a human date range. */
-export function weekRange(label: string): { start: Date; end: Date } | null {
+function weekRange(label: string): { start: Date; end: Date } | null {
   const match = /^(\d{4})-W(\d{2})$/.exec(label)
   if (!match) return null
   const year = Number(match[1])

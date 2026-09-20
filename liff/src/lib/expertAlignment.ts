@@ -1,6 +1,6 @@
 const isFiniteNumber = (value: number) => typeof value === 'number' && Number.isFinite(value)
 
-export interface ExpertMotionWindow {
+interface ExpertMotionWindow {
   start: number
   end: number
 }

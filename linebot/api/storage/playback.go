@@ -58,15 +58,9 @@ func BucketFromGCSURI(uri string) string {
 }
 
 // SignPlaybackURLIn mints a read URL for one stored object, in the bucket the
-// analysis recorded (an empty name means this client's bucket).
-//
-// Go signs these itself rather than asking the analysis service to, so opening
-// a video never depends on the GPU service being awake; its minimum capacity is
-// scheduled and is zero outside class.
-//
-// Signing uses whatever credentials the process has: a key file signs locally,
-// while on Cloud Run the metadata credentials sign through IAM, which needs the
-// service account to hold roles/iam.serviceAccountTokenCreator on itself.
+// analysis recorded (empty means this client's). Go signs it rather than the
+// GPU service, so playback never waits on a scaled-to-zero GPU; on Cloud Run
+// that signing goes through IAM, needing serviceAccountTokenCreator on itself.
 func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	if strings.TrimSpace(bucketName) == "" {
 		bucketName = c.bucketName

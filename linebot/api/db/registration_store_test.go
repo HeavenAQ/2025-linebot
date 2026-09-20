@@ -93,7 +93,7 @@ func newRegistrationTestClient(t *testing.T) *FirestoreClient {
 	pb.RegisterFirestoreServer(server, &registrationFirestore{})
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
-	connection, err := grpc.DialContext(ctx, "passthrough:///registration-test",
+	connection, err := grpc.NewClient("passthrough:///registration-test",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

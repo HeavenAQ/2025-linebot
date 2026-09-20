@@ -57,22 +57,12 @@ FONT_CANDIDATES = [
 SLOW_FACTOR = 4  # quarter speed
 PAUSE_SECONDS = 6
 
-# How the slow motion is laid out, per skill. This is deliberately not derived
-# from the rubric, because the rubric answers a different question.
+# How the slow motion is laid out, per skill. Not derived from the rubric: a
+# rule's anchor is the frame the scorer measures against, not where the movement
+# happens, so ordering by anchors played the stroke backwards.
 #
-# A rule's anchor is the frame the scorer measures it against, which is not
-# where the movement happens: the serve scores 髖關節前旋 on the last keyframe,
-# where the rotation has *finished*, though the rotation itself drives the swing
-# into contact. Ordering the video by anchors stepped forwards and backwards
-# through the stroke and looked like the clip was playing in reverse.
-#
-# Each entry is (criterion ids, keyframes). One keyframe freezes on it, once per
-# criterion. Two play the stroke between them at a crawl, each criterion
-# captioned across its share -- so a criterion judged over a movement is watched
-# over that movement, and one that happens in an instant is frozen on it. The
-# serve's weight transfer is the movement into keyframe 2; the wrist flick is
-# keyframe 2 itself, where the wrist reaches maximum acceleration and the
-# shuttle is struck.
+# Each entry is (criterion ids, keyframes): one keyframe freezes, two play the
+# stroke between them at a crawl with each criterion captioned across its share.
 DEMO_SEQUENCES = {
     "serve": (
         (("arms_raised",), (0,)),

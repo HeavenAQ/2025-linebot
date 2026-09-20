@@ -1,9 +1,5 @@
-# This variant's analysis queue.
-#
-# Two concurrent dispatches, because the two products' queues together must not
-# put more than four requests on the single L4 that serves both. The worker
-# acknowledges a task only after the attempt is durably recorded, so Cloud
-# Tasks owns every retry and nothing is lost to a crash mid-analysis.
+# This variant's analysis queue. Two concurrent dispatches, because both
+# products' queues together must not put more than four requests on the one L4.
 resource "google_cloud_tasks_queue" "analysis" {
   project  = var.project_id
   name     = "analysis-no-llm"

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 interface AutoHeightProps {
   children: ReactNode

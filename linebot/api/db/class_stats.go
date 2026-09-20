@@ -13,14 +13,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ClassStat is the running aggregate of every completed attempt of one skill
-// on one day. The class chart reads these instead of scanning every learner's
-// portfolio on each request.
-//
-// Count, sum and sum of squares are enough to recover the mean and standard
-// deviation exactly; min and max only ever widen because attempts are never
-// regraded. The nightly rebuild corrects anything that drifts (for example a
-// deleted test user).
+// ClassStat aggregates every completed attempt of one skill on one day, so the
+// class chart never scans every portfolio. Count, sum and sum of squares
+// recover mean and standard deviation exactly; the nightly rebuild corrects
+// drift, such as a deleted test user.
 type ClassStat struct {
 	Skill      string    `firestore:"skill"`
 	Date       string    `firestore:"date"`

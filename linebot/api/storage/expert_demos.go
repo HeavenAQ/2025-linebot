@@ -11,24 +11,15 @@ import (
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
 )
 
-// Demonstration videos of each expert performing one stroke, stored as
-//
-//	expert-demo-video/<handedness>/<skill>/<expert>.mp4
-//	expert-demo-video/<handedness>/<skill>/<expert>.jpg
-//
-// Splitting by handedness and skill is what lets this be a prefix listing
-// rather than a table in the code: a new expert is an upload, and a left-handed
-// learner never has to be told which mirror to watch.
+// Demonstrations live at expert-demo-video/<handedness>/<skill>/<expert>.mp4,
+// with a .jpg beside each: a prefix listing, so adding an expert is an upload.
 const DemoPrefix = "expert-demo-video"
 
-// A thumbnail is not decoration. LINE shows a video message as a transparent
-// placeholder until the file itself has loaded, so a demonstration without one
-// arrives as a blank rectangle. A video whose thumbnail is missing is therefore
-// treated as unavailable rather than sent bare.
+// LINE draws a video message as a transparent rectangle until the file loads,
+// so a demonstration without a thumbnail is skipped rather than sent bare.
 const demoThumbnailExtension = ".jpg"
 
-// The listing changes only when videos are uploaded, which is rare and manual,
-// so it is cached; the signed URLs inside are minted per reply and are not.
+// The listing changes only on upload; the signed URLs inside it do not cache.
 const demoListingTTL = time.Hour
 
 // ExpertDemo is one expert's demonstration, ready to send.
@@ -53,13 +44,9 @@ func DemoObjectPath(handedness, skill, expert, extension string) string {
 	return path.Join(DemoPrefix, handedness, skill, expert+extension)
 }
 
-// ExpertDemos returns the demonstrations for one handedness and stroke, in a
-// stable order, each signed for playback. At most `limit` are returned: a LINE
-// reply carries five messages in total, and the caller spends one on text.
-//
-// An expert whose thumbnail is missing is skipped rather than sent, and an
-// empty result is not an error -- a stroke may simply have no demonstrations
-// recorded yet, which the caller says in words.
+// ExpertDemos returns up to limit demonstrations for one handedness and
+// stroke, in a stable order, each signed for playback. An empty result is not
+// an error: a stroke may have no demonstrations recorded yet.
 func (c *BucketClient) ExpertDemos(handedness, skill, serviceAccountEmail string, limit int) ([]ExpertDemo, error) {
 	experts, err := c.demoExperts(handedness, skill)
 	if err != nil {

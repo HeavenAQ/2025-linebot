@@ -299,14 +299,10 @@ func (app *App) handleWatchPortfolioVideo(
 	}
 }
 
-// handleUploadingVideo accepts a learner's video and records a durable
-// analysis job, replying at once with a pending portfolio card. Analysis never
-// runs inside the webhook request: it can take minutes, which would hold the
-// request (and a Cloud Run instance) open and outlive LINE's reply token.
-//
-// Without a configured queue, or with ANALYSIS_ASYNC_ACCEPT=false (the
-// operational switch that pauses new uploads while queued jobs drain), the
-// learner is told to try again later before the video is even downloaded.
+// handleUploadingVideo records a durable analysis job and replies at once with
+// a pending card: analysis takes minutes and would outlive LINE's reply token.
+// With no queue, or ANALYSIS_ASYNC_ACCEPT=false while jobs drain, the learner
+// is asked to try later before the video is even downloaded.
 func (app *App) handleUploadingVideo(event *linebot.Event, session *db.UserSession, user *db.UserData, replyToken string) {
 	// A video message routes straight here on the session's stored skill, which
 	// may have been chosen before the skill was withdrawn.
@@ -387,12 +383,9 @@ func (app *App) getVideoContent(event *linebot.Event, userID string) ([]byte, er
 // 4.5 Helper for Selecting Skill
 // --------------------------------------------------------------------
 
-// rejectUnsupportedSkill turns away a request for a skill the course is not
-// running this semester. The selection UI never offers one, so reaching here
-// means a stale postback, an old rich menu, or a client that skipped the menu.
-// The session is reset so the learner lands back on the main menu instead of
-// being stranded mid-flow, and nothing downstream (analysis, portfolio writes)
-// is called.
+// rejectUnsupportedSkill turns away a skill the course is not running: a stale
+// postback or an old rich menu. The session is reset so the learner lands on
+// the main menu rather than stranded, and nothing downstream is called.
 func (app *App) rejectUnsupportedSkill(userID, skill, replyToken string) {
 	app.Logger.Warn.Printf(
 		"Unsupported skill requested. User ID: %v, Skill: %v", userID, skill,

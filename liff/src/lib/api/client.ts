@@ -13,7 +13,7 @@ import { rateLimitMessage, selectCredential } from '@/lib/api/credentials'
  */
 type TokenSource = () => string | null
 
-export interface TokenSources {
+interface TokenSources {
   idToken: TokenSource
   accessToken: TokenSource
 }

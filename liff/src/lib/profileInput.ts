@@ -4,14 +4,14 @@
  * server still decides: this only saves them the trip.
  */
 
-export const EXPERIMENT_NUMBER_PATTERN = /^[A-Z]{0,4}[0-9]{1,6}$/
+const EXPERIMENT_NUMBER_PATTERN = /^[A-Z]{0,4}[0-9]{1,6}$/
 const NAME_ALLOWED = /^[\p{L}\p{M}'’\-·・ ]+$/u
 const LETTER = /\p{L}/u
 
 export const NUMBER_HINT = '編號可用數字，或英文字母加數字（例如 01、EG01）。'
 export const NAME_HINT = '請填寫真實姓名，不可含數字、表情符號或其他說明。'
 
-export interface ProfileInput {
+interface ProfileInput {
   experimentNumber: string
   realName: string
 }

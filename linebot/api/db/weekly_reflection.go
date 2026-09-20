@@ -102,14 +102,9 @@ func (client *FirestoreClient) ListWeeklyReflections(userID string) (map[string]
 	return reflections, nil
 }
 
-// WithWeeklyReflectionNotes returns a presentation copy of user whose
-// portfolio attempts carry the notes written in the LIFF weekly review. The
-// persisted portfolio predates weekly reviews and still has a per-video
-// Reflection field, so LINE cards must join the two data sets explicitly.
-//
-// A copy is returned because displaying a portfolio must not copy week-level
-// notes back into every persisted video document the next time UserData is
-// updated for an unrelated reason.
+// WithWeeklyReflectionNotes joins week-level notes onto the per-video
+// Reflection field the portfolio predates them with. It returns a copy, so
+// displaying a portfolio never writes week notes back into stored videos.
 func WithWeeklyReflectionNotes(
 	user *UserData,
 	reflections map[string]WeeklyReflection,

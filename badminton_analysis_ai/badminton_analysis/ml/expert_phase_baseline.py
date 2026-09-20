@@ -1235,15 +1235,12 @@ def _serve_semantic_evidence(
                 "root_transfer_distance",
                 "coordinated_hip_rotation",
             ),
-            # The two dominant-side joint-angle summaries are invariant to
-            # translation, scale, and the ankle-spine in-plane rotation and
-            # therefore carry most of the decision. Pelvis loading remains a
-            # required supporting cue: limb articulation without a change in
-            # loading is not body-weight transfer. Root translation stays
-            # outside the weighted distance because monocular perspective and
-            # camera motion can suppress or exaggerate it; the camera-robust
-            # aggregation below uses it only as an alternative supporting cue
-            # when the dominant-side joint chain independently agrees.
+            # The dominant-side joint angles carry the decision: invariant to
+            # translation, scale and in-plane rotation. Pelvis loading is a
+            # required supporting cue, since articulation without loading is not
+            # weight transfer. Root translation is excluded -- monocular
+            # perspective distorts it -- and used only as an alternative cue
+            # below, when the joint chain independently agrees.
             np.asarray((2.5, 1.5, 0.5, 0.0, 0.0), dtype=np.float64),
         )
     if rule_id == "hip_rotation":

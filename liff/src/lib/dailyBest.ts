@@ -6,7 +6,7 @@
  * what they reached that day, so it is the progress worth charting.
  */
 
-export interface DailyBest {
+interface DailyBest {
   /** "YYYY-MM-DD" */
   day: string
   totalGrade: number

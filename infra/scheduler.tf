@@ -1,15 +1,12 @@
 # This variant's scheduled work, calling its own worker with a Google-signed
-# OIDC token whose audience is that worker's URL.
-#
-# The GPU warm-up and capacity jobs are not here: one L4 serves both products,
-# and reserving it is declared once, on `main`.
+# OIDC token for that worker's URL. The GPU warm-up and capacity jobs live on
+# `main`: one L4 serves both products, so it is reserved once.
 locals {
   worker_url = google_cloud_run_v2_service.bot.uri
 }
 
-# Queue publication can fail after a job is recorded -- a crash between the
-# two, say. This sweeps those up a minute later, and expires anything still
-# unpublished after a day.
+# Sweeps up jobs recorded but never published (a crash between the two), and
+# expires anything still unpublished after a day.
 resource "google_cloud_scheduler_job" "outbox" {
   project          = var.project_id
   name             = "analysis-no-llm-outbox"

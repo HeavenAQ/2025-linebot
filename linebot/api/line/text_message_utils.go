@@ -295,12 +295,9 @@ func (client *Client) SendPortfolio(
 	return nil
 }
 
-// SendExpertVideos replies with the demonstrations themselves rather than
-// links to them: a learner on a phone in a gym should not have to leave LINE,
-// wait for a browser and come back.
-//
-// Each video carries the thumbnail stored beside it, because LINE draws a video
-// message as an empty rectangle until the file has loaded.
+// SendExpertVideos replies with the demonstrations themselves, not links: a
+// learner in a gym should not have to leave LINE and come back. Each carries
+// the thumbnail stored beside it, or LINE shows an empty rectangle.
 func (client *Client) SendExpertVideos(handedness db.Handedness, skill db.BadmintonSkill, demos []storage.ExpertDemo, replyToken string) error {
 	intro := fmt.Sprintf("以下是【%v】-【%v】的專家示範影片：",
 		handedness.ChnString(), skill.ChnString())

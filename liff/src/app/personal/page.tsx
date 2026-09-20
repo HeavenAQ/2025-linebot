@@ -1,7 +1,7 @@
 'use client'
 
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BarChart3, Columns2, NotebookPen } from 'lucide-react'
 
 import { useLiff } from '../LiffProvider'

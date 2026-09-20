@@ -36,7 +36,7 @@ export function checkpointRange(marker: RangeMarker, start: number, end: number)
   return { start: lo, end: Math.min(end, Math.max(lo + 1 / 30, right)), inferred: !measured }
 }
 
-export type LoopVideo = {
+type LoopVideo = {
   currentTime: number
   ended: boolean
   paused: boolean

@@ -218,15 +218,10 @@ def _serve_shoulder_completion_phases(
     if float(np.linalg.norm(forward_axis)) <= 1e-8:
         forward_axis = np.asarray((1.0, 0.0), dtype=np.float64)
 
-    # Search the complete observed clip. The legacy acceleration window can
-    # end during the backswing; using it as a hard upper bound excluded the
-    # actual across-body forward swing (CG43 ended at 96 while the forward
-    # acceleration occurred at 101). The body-derived axis makes the later
-    # recovery in the opposite direction ineligible.
-    # The legacy preparation anchor can itself occur after the true forward
-    # event (CG07: legacy preparation 82, forward acceleration 77). Start from
-    # the detected analysis onset; the signed across-body projection already
-    # rejects the opposite backswing.
+    # Search the whole clip: the legacy window can end mid-backswing (CG43 ended
+    # at 96, the forward acceleration was at 101) and the legacy preparation
+    # anchor can fall after the true event (CG07: 82 against 77). The signed
+    # across-body projection already rejects the opposite backswing.
     directional_search_start = start + 2
     directional_search_stop = len(motion_smoothed_wrist) - 2
     if directional_search_stop <= directional_search_start:

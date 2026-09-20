@@ -6,7 +6,7 @@
  * registration instructions while the check is still running told registered
  * students to register again, and they did.
  */
-export type GateView = 'loading' | 'login-error' | 'error' | 'registration' | 'ready'
+type GateView = 'loading' | 'login-error' | 'error' | 'registration' | 'ready'
 
 export type RegistrationStatus = 'checking' | 'required' | 'ready' | 'error'
 

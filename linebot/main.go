@@ -29,12 +29,9 @@ const authenticatedUserKey = "authenticatedUserID"
 // is a 4 KB weekly reflection.
 const maxLearnerRequestBody = 64 << 10
 
-// Per-instance request budgets for the learner API (see api/ratelimit).
-//   - Per client IP: generous, because a whole classroom can share one campus
-//     NAT address while every open LIFF page polls pending analyses.
-//   - Failed authentications per IP: small, so a flood of forged credentials
-//     is refused before any verification work.
-//   - Per learner: a real user's page loads and polling fit well inside it.
+// Per-instance budgets for the learner API (see api/ratelimit). The IP limit
+// is generous because a classroom shares one campus NAT address, and the
+// failed authentication limit is small so forged credentials cost little.
 var (
 	ipLimiter          = ratelimit.New(1800, 300)
 	authFailureLimiter = ratelimit.New(30, 20)

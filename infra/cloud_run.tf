@@ -1,13 +1,8 @@
-# This variant's LINE webhook, learner API and analysis job worker.
-#
-# Terraform creates the service and owns what rarely changes: its identity,
-# its region, who may call it. GitHub Actions owns the image and the
-# environment, so the template is ignored after creation -- otherwise an apply
-# would roll production back to whatever image this file last named.
-#
-# Public, because LINE has to reach the webhook; every learner route
-# authenticates the caller's own LINE credential, and the internal worker
-# routes verify a Google-signed OIDC token.
+# This variant's webhook, learner API and job worker. Terraform owns the
+# service's existence, region, ingress and invokers; the deploy workflow owns
+# every revision, so `template` is ignored after creation. Public because LINE
+# must reach the webhook -- learner routes check a LINE credential, worker
+# routes a Google OIDC token.
 resource "google_cloud_run_v2_service" "bot" {
   project             = var.project_id
   name                = "nstc-linebot-2025-noai"

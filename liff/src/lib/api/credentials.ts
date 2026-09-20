@@ -9,7 +9,7 @@
  * The ID token is preferred while it is fresh: it is what the backend has always
  * verified, and it proves identity without a round trip to LINE's API.
  */
-export type Credential =
+type Credential =
   | { kind: 'id_token'; header: 'Authorization'; value: string }
   | { kind: 'access_token'; header: 'X-Line-Access-Token'; value: string }
 
@@ -17,7 +17,7 @@ export type Credential =
  * How long an ID token must still have to be sent. Covers clock skew between
  * this device and the backend, and the time the request spends in flight.
  */
-export const ID_TOKEN_EXPIRY_MARGIN_SECONDS = 60
+const ID_TOKEN_EXPIRY_MARGIN_SECONDS = 60
 
 /**
  * The `exp` claim of a JWT, in Unix seconds, or null when it cannot be read.

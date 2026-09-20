@@ -156,9 +156,19 @@ resource "google_logging_metric" "learner_api_refusals" {
     labels {
       key = "service"
     }
+    # Which limiter refused, empty on an authentication failure: that is what
+    # separates a learner hitting their own limit from someone probing.
+    labels {
+      key = "limiter"
+    }
+    labels {
+      key = "route"
+    }
   }
 
   label_extractors = {
     service = "EXTRACT(resource.labels.service_name)"
+    limiter = "EXTRACT(jsonPayload.limiter)"
+    route   = "EXTRACT(jsonPayload.route)"
   }
 }

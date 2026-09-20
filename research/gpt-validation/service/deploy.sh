@@ -3,12 +3,15 @@
 #
 # Usage: BATCH_ID=beginners-2026-09 ./deploy.sh
 #
-# Prerequisites (one-time):
-#   - Secret Manager secret "gpt-validation-access-codes" holding
-#     {"<expert_id>": "<code>", ..., "admin": "<code>"}, readable by the
-#     service account (roles/secretmanager.secretAccessor).
-#   - The service account can read Firestore and the bucket, and holds
-#     roles/iam.serviceAccountTokenCreator on itself (V4 URL signing via IAM).
+# The service itself, its service account, its IAM and the secret that holds
+# the access codes are declared in infra/ and created by `terraform apply`.
+# This script only builds an image and deploys a revision -- the same split the
+# two bots have. What it still needs from you is the secret's *value*, which
+# Terraform deliberately never sees:
+#
+#   gcloud secrets versions add gpt-validation-access-codes --data-file=codes.json
+#
+# holding {"<expert_id>": "<code>", ..., "admin": "<code>"}.
 set -euo pipefail
 
 PROJECT="${GCP_PROJECT_ID:-nstc-linebot-2025}"
@@ -28,7 +31,6 @@ gcloud run deploy "${SERVICE}" \
   --region "${REGION}" \
   --image "${IMAGE}" \
   --platform managed \
-  --allow-unauthenticated \
   --min-instances 0 \
   --max-instances 2 \
   --service-account "${SERVICE_ACCOUNT}" \

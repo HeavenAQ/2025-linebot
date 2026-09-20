@@ -75,8 +75,11 @@ call the Python service.
 - `liff/`: review interface for feedback videos and the matched expert clip.
 - `proto/`: language-neutral gRPC contract and generated Python/Go bindings.
 - `infra/`: Terraform for everything in GCP -- the service account, buckets,
-  Firestore, Cloud Run, the analysis queue, the class schedule and the
-  log-based metrics. The no-LLM variant has its own on `variant/no-llm`.
+  Firestore, Cloud Run, the analysis queue, the class schedule, the log-based
+  metrics and the alerts and budget that read them, plus the identity pool
+  GitHub Actions deploys through. `cloudbuild/` holds the one image recipe
+  Terraform cannot build itself. The no-LLM variant has its own on
+  `variant/no-llm`.
 - `scripts/`: queue verification and
   `make_demo_videos.py`, which builds the per-expert demonstration videos into
   the git-ignored `demo-videos/`.
@@ -349,8 +352,9 @@ sets it explicitly.
   service over gRPC metadata, so both services' logs and request spans join one
   trace.
 - Log-based metrics for queued job outcomes and duration, GPU latency stages,
-  analysis failures and learner API rejections are declared in
-  `infra/observability.tf`.
+  analysis failures, refused learner requests and failed scheduled jobs are
+  declared in `infra/observability.tf`, and `infra/alerts.tf` turns five of them
+  into alerts alongside an NT$1,000 monthly budget.
 - Learner API credentials: an ES256 LIFF ID token is verified locally against
   LINE's published keys; once it expires the LIFF app sends its access token
   (`X-Line-Access-Token`), which LINE verifies. Rejected credentials are cached

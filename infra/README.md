@@ -13,7 +13,7 @@ that true on paper as well as in practice.
 | The learner bucket, the default Firestore database | Collections and documents — the bot owns those |
 | Cloud Run services: the bot, the GPU analysis service, the validation site | Their images, environment and machine shape — GitHub Actions deploys revisions |
 | The analysis queue and every scheduled job | LINE channels, the LIFF apps, Netlify |
-| Artifact Registry for the TensorRT engine | The engine build recipe (`badminton_analysis_ai/cloudbuild-engine-bootstrap.yaml`) |
+| Artifact Registry, and the recipe that builds the engine image (`cloudbuild/engine-bootstrap.yaml`) | The engine itself — built by running the job, not by an apply |
 | Log-based metrics, alert policies, the spend budget | Dashboards |
 | How GitHub Actions authenticates (the identity pool and provider) | GitHub repository secrets |
 
@@ -105,9 +105,8 @@ on — Cloud Run refuses to create a job whose image does not exist yet, which i
 why `create_engine_builder_job` starts false:
 
 ```bash
-cd ../badminton_analysis_ai
-gcloud builds submit --config cloudbuild-engine-bootstrap.yaml --project "$project"
-cd ../infra
+gcloud builds submit --config cloudbuild/engine-bootstrap.yaml \
+  --project "$project" ../badminton_analysis_ai
 echo 'create_engine_builder_job = true' >> terraform.tfvars
 terraform apply
 gcloud run jobs execute rfdetr-engine-builder \

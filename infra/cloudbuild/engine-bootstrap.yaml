@@ -1,6 +1,16 @@
 # Builds the image used to produce the RF-DETR TensorRT engine. It is the same
 # image as production apart from skipping the engine assertion, which cannot
 # hold before the engine exists.
+#
+# The build context is the analysis service, not this directory, so the source
+# directory is passed separately:
+#
+#   gcloud builds submit --config infra/cloudbuild/engine-bootstrap.yaml \
+#     --project <project> badminton_analysis_ai
+#
+# Terraform declares the job that runs the resulting image
+# (infra/engine_builder.tf); it cannot build the image itself, which is why
+# this file exists.
 steps:
   - name: gcr.io/cloud-builders/docker
     args:

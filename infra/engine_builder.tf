@@ -7,17 +7,15 @@
 # artifact is published to Artifact Registry and baked into every image.
 #
 # Terraform declares the job so that run is reproducible rather than assembled
-# by hand each time. It does not declare how the image is built: the recipe
-# lives with the code it builds, in
-# `badminton_analysis_ai/cloudbuild-engine-bootstrap.yaml`, which produces the
-# same image as production with the engine assertion switched off (it cannot
-# hold before the engine exists).
+# by hand each time. It cannot build the image the job runs, so the recipe sits
+# beside this file in `cloudbuild/engine-bootstrap.yaml`: the production image
+# with the engine assertion switched off, since that assertion cannot hold
+# before the engine exists.
 #
 # To rebuild an engine:
 #
-#   cd badminton_analysis_ai
-#   gcloud builds submit --config cloudbuild-engine-bootstrap.yaml \
-#     --project <project>
+#   gcloud builds submit --config infra/cloudbuild/engine-bootstrap.yaml \
+#     --project <project> badminton_analysis_ai
 #   gcloud run jobs execute rfdetr-engine-builder --region <gpu region> \
 #     --project <project> --wait
 #

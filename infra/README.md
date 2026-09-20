@@ -104,9 +104,30 @@ done
 `google_project_service` and the IAM members are safe to let Terraform create:
 enabling an enabled API and granting a granted role both do nothing.
 
+After the imports, the first `apply` on the live project still changes four
+things, all of them deliberate:
+
+| Change | Why |
+| --- | --- |
+| Firestore delete protection **on** | The database holds every score, and was unprotected |
+| Public access prevention **enforced** on the state bucket | State names every resource in the project |
+| Two descriptions rewritten | The service account and the registry said little |
+
+It also creates the `learner_api_refusals` metric, which never existed.
+
 The engine-builder job (`google_cloud_run_v2_job.engine_builder`) has no
-counterpart to import — the engine has been built by hand until now. Its first
-`apply` creates it.
+counterpart to import — the engine has been built by hand until now. Cloud Run
+checks its image exists when the job is created, and that image comes from the
+bootstrap build, so until that build has run once:
+
+```bash
+terraform apply -exclude=google_cloud_run_v2_job.engine_builder
+```
+
+The learner bucket is described as it is: per-object ACLs, no public access
+prevention. Turning both on is a safe tightening — nothing is served from it
+except through signed URLs — but it changes the bucket holding every
+recording, so it is left as a one-line edit to make on purpose.
 
 ## The class schedule
 

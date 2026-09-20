@@ -33,7 +33,7 @@ resource "google_cloud_run_v2_service" "bot" {
   }
 
   lifecycle {
-    ignore_changes = [template, client, client_version, traffic]
+    ignore_changes = [template, scaling, client, client_version, traffic]
   }
 
   depends_on = [google_project_service.enabled]
@@ -98,7 +98,7 @@ resource "google_cloud_run_v2_service" "analysis" {
   }
 
   lifecycle {
-    ignore_changes = [template, client, client_version, traffic]
+    ignore_changes = [template, scaling, client, client_version, traffic]
   }
 
   depends_on = [google_project_service.enabled]
@@ -115,11 +115,13 @@ resource "google_cloud_run_v2_service_iam_member" "analysis_invoker" {
 # The expert review site for the GPT feedback validation study. Public, gated
 # by the access codes in Secret Manager; it scales to zero between reviews.
 resource "google_cloud_run_v2_service" "gpt_validation" {
-  project             = var.project_id
-  name                = "gpt-validation"
-  location            = var.region
-  ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = false
+  project  = var.project_id
+  name     = "gpt-validation"
+  location = var.region
+  ingress  = "INGRESS_TRAFFIC_ALL"
+  # The study outlives the site, but the site holds the experts' only way in
+  # while they are reviewing; take it down on purpose, not on an apply.
+  deletion_protection = true
 
   template {
     service_account = google_service_account.bot.email
@@ -135,7 +137,7 @@ resource "google_cloud_run_v2_service" "gpt_validation" {
   }
 
   lifecycle {
-    ignore_changes = [template, client, client_version, traffic]
+    ignore_changes = [template, scaling, client, client_version, traffic]
   }
 
   depends_on = [google_project_service.enabled]

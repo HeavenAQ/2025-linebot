@@ -23,6 +23,11 @@
 #
 # The job uploads the engine itself; see `build_rfdetr_engine.py` and
 # `models/trt-engine.env` for the artifact version it publishes.
+#
+# Ordering note: Cloud Run checks the image exists when the job is created, and
+# the bootstrap image is built by the command above, so the build comes first.
+# Until it has run once, apply with
+# `-exclude=google_cloud_run_v2_job.engine_builder`.
 resource "google_cloud_run_v2_job" "engine_builder" {
   project             = var.project_id
   name                = "rfdetr-engine-builder"

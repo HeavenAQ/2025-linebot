@@ -3,19 +3,24 @@
 # recordings. Private: everything is served through V4 signed URLs minted by
 # the Go backend.
 resource "google_storage_bucket" "learner_media" {
-  project                     = var.project_id
-  name                        = "nstc-2025-storage"
-  location                    = upper(var.region)
-  storage_class               = "STANDARD"
-  uniform_bucket_level_access = true
-  public_access_prevention    = "enforced"
+  project       = var.project_id
+  name          = "nstc-2025-storage"
+  location      = upper(var.region)
+  storage_class = "STANDARD"
+
+  # This bucket predates the configuration and still carries per-object ACLs,
+  # so both settings describe it as it is rather than as it should be. Nothing
+  # serves from it directly -- every read is a signed URL minted by the Go
+  # backend -- so turning uniform access on and enforcing public access
+  # prevention is a safe tightening, but it is a live change to the bucket
+  # holding every recording: make it deliberately, not as a side effect of an
+  # unrelated apply.
+  uniform_bucket_level_access = false
+  public_access_prevention    = "inherited"
 
   # Student recordings are the study's raw data: nothing here deletes them on a
-  # timer. Add a lifecycle rule deliberately, after the study, if ever.
-
-  versioning {
-    enabled = false
-  }
+  # timer, and no lifecycle rule or versioning is configured. Add either
+  # deliberately, after the study, if ever.
 
   depends_on = [google_project_service.enabled]
 }

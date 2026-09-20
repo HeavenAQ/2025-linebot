@@ -12,10 +12,7 @@ resource "google_logging_metric" "analysis_jobs" {
   project     = var.project_id
   name        = "analysis_jobs"
   description = "Queued analysis jobs by outcome (completed, retry, failed) and skill."
-  filter      = <<-EOT
-    resource.type="cloud_run_revision"
-    jsonPayload.message="analysis job finished"
-  EOT
+  filter      = "resource.type=\"cloud_run_revision\" jsonPayload.message=\"analysis job finished\""
 
   metric_descriptor {
     metric_kind = "DELTA"
@@ -45,10 +42,7 @@ resource "google_logging_metric" "analysis_job_duration" {
   project     = var.project_id
   name        = "analysis_job_duration"
   description = "Wall time of one queued analysis attempt as seen by the Go worker, in seconds."
-  filter      = <<-EOT
-    resource.type="cloud_run_revision"
-    jsonPayload.message="analysis job finished"
-  EOT
+  filter      = "resource.type=\"cloud_run_revision\" jsonPayload.message=\"analysis job finished\""
 
   value_extractor = "EXTRACT(jsonPayload.duration_seconds)"
 
@@ -83,11 +77,11 @@ resource "google_logging_metric" "analysis_stage_latency" {
   project     = var.project_id
   name        = "analysis_latency_${each.value}"
   description = "GPU analysis service latency_${each.value}_seconds per completed analysis."
-  filter      = <<-EOT
-    resource.type="cloud_run_revision"
-    resource.labels.service_name="${google_cloud_run_v2_service.analysis.name}"
-    jsonPayload.message="analysis completed"
-  EOT
+  filter = join(" ", [
+    "resource.type=\"cloud_run_revision\"",
+    "resource.labels.service_name=\"${google_cloud_run_v2_service.analysis.name}\"",
+    "jsonPayload.message=\"analysis completed\"",
+  ])
 
   value_extractor = "EXTRACT(jsonPayload.latency_${each.value}_seconds)"
 
@@ -95,6 +89,14 @@ resource "google_logging_metric" "analysis_stage_latency" {
     metric_kind = "DELTA"
     value_type  = "DISTRIBUTION"
     unit        = "s"
+
+    labels {
+      key = "skill"
+    }
+  }
+
+  label_extractors = {
+    skill = "EXTRACT(jsonPayload.skill)"
   }
 
   bucket_options {
@@ -112,11 +114,11 @@ resource "google_logging_metric" "analysis_failures" {
   project     = var.project_id
   name        = "analysis_failures"
   description = "Analyses the GPU service rejected or failed, by gRPC code and error type."
-  filter      = <<-EOT
-    resource.type="cloud_run_revision"
-    resource.labels.service_name="${google_cloud_run_v2_service.analysis.name}"
-    jsonPayload.message="analysis failed"
-  EOT
+  filter = join(" ", [
+    "resource.type=\"cloud_run_revision\"",
+    "resource.labels.service_name=\"${google_cloud_run_v2_service.analysis.name}\"",
+    "jsonPayload.message=\"analysis failed\"",
+  ])
 
   metric_descriptor {
     metric_kind = "DELTA"
@@ -142,10 +144,10 @@ resource "google_logging_metric" "learner_api_refusals" {
   project     = var.project_id
   name        = "learner_api_refusals"
   description = "Learner API requests refused by rate limits or failed authentication."
-  filter      = <<-EOT
-    resource.type="cloud_run_revision"
-    (jsonPayload.message="rate limited" OR jsonPayload.message="authentication rejected")
-  EOT
+  filter = join(" ", [
+    "resource.type=\"cloud_run_revision\"",
+    "(jsonPayload.message=\"rate limited\" OR jsonPayload.message=\"authentication rejected\")",
+  ])
 
   metric_descriptor {
     metric_kind = "DELTA"

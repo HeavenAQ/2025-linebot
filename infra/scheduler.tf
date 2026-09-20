@@ -34,6 +34,14 @@ resource "google_cloud_scheduler_job" "outbox" {
       audience              = local.worker_url
     }
   }
+
+  retry_config {
+    retry_count          = 0
+    max_retry_duration   = "0s"
+    min_backoff_duration = "5s"
+    max_backoff_duration = "3600s"
+    max_doublings        = 5
+  }
 }
 
 # Attempts fold into the class aggregates as they complete; this recomputes
@@ -54,6 +62,14 @@ resource "google_cloud_scheduler_job" "class_stats_rebuild" {
       service_account_email = google_service_account.bot.email
       audience              = local.worker_url
     }
+  }
+
+  retry_config {
+    retry_count          = 0
+    max_retry_duration   = "0s"
+    min_backoff_duration = "5s"
+    max_backoff_duration = "3600s"
+    max_doublings        = 5
   }
 }
 
@@ -84,6 +100,14 @@ resource "google_cloud_scheduler_job" "gpu_capacity" {
       audience              = local.worker_url
     }
   }
+
+  retry_config {
+    retry_count          = 0
+    max_retry_duration   = "0s"
+    min_backoff_duration = "5s"
+    max_backoff_duration = "3600s"
+    max_doublings        = 5
+  }
 }
 
 # Reserving an instance is not the same as it being ready: the models load
@@ -110,5 +134,13 @@ resource "google_cloud_scheduler_job" "gpu_warmup" {
       service_account_email = google_service_account.bot.email
       audience              = local.worker_url
     }
+  }
+
+  retry_config {
+    retry_count          = 0
+    max_retry_duration   = "0s"
+    min_backoff_duration = "5s"
+    max_backoff_duration = "3600s"
+    max_doublings        = 5
   }
 }

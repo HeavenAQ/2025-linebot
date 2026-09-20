@@ -74,7 +74,10 @@ call the Python service.
   client, and Firestore persistence.
 - `liff/`: review interface for feedback videos and the matched expert clip.
 - `proto/`: language-neutral gRPC contract and generated Python/Go bindings.
-- `scripts/`: Cloud Tasks / Cloud Scheduler provisioning, queue verification, and
+- `infra/`: Terraform for everything in GCP -- the service account, buckets,
+  Firestore, Cloud Run, the analysis queue, the class schedule and the
+  log-based metrics. The no-LLM variant has its own on `variant/no-llm`.
+- `scripts/`: queue verification and
   `make_demo_videos.py`, which builds the per-expert demonstration videos into
   the git-ignored `demo-videos/`.
 - `.github/workflows/`: CI and Cloud Run / Netlify deployment.
@@ -322,7 +325,9 @@ Mondays 13:45–18:10 Asia/Taipei. Local Apple Silicon inference can use MPS.
 
 The Go backend's queue is configured with `ANALYSIS_TASKS_QUEUE`,
 `ANALYSIS_ASYNC_ACCEPT`, `ANALYSIS_WORKER_URL` and
-`ANALYSIS_TASK_SERVICE_ACCOUNT` (see `scripts/configure_async_analysis.sh`).
+`ANALYSIS_TASK_SERVICE_ACCOUNT`. The queue, the schedulers and everything else
+in GCP are declared in `infra/` (Terraform); the deploy workflows set the
+environment those values live in.
 Uploads are only ever analyzed through the queue; `ANALYSIS_ASYNC_ACCEPT=false`
 pauses new uploads while queued jobs drain.
 
@@ -343,9 +348,9 @@ sets it explicitly.
   analysis job ID for queued work) and `x-cloud-trace-context` to the GPU
   service over gRPC metadata, so both services' logs and request spans join one
   trace.
-- `scripts/configure_observability.sh` creates log-based metrics for queued job
-  outcomes and duration, GPU latency stages, analysis failures, and learner API
-  rejections.
+- Log-based metrics for queued job outcomes and duration, GPU latency stages,
+  analysis failures and learner API rejections are declared in
+  `infra/observability.tf`.
 - Learner API credentials: an ES256 LIFF ID token is verified locally against
   LINE's published keys; once it expires the LIFF app sends its access token
   (`X-Line-Access-Token`), which LINE verifies. Rejected credentials are cached

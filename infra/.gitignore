@@ -1,0 +1,8 @@
+# Provider binaries and local state; state lives in the bucket named in
+# versions.tf.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log

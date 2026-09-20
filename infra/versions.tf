@@ -1,0 +1,25 @@
+# Terraform and provider versions are pinned: an infrastructure change should
+# come from this repository, never from a provider upgrade nobody asked for.
+terraform {
+  required_version = ">= 1.9"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.0"
+    }
+  }
+
+  # State lives in its own bucket so two people (or a laptop and CI) cannot
+  # apply at once. Create that bucket first -- see README.md -- then run
+  # `terraform init -migrate-state`.
+  backend "gcs" {
+    bucket = "nstc-linebot-2025-tfstate"
+    prefix = "infra"
+  }
+}
+
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}

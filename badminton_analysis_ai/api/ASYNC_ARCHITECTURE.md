@@ -67,8 +67,10 @@ queue allows two in-flight tasks. Adaptive queue-based tuning is not enabled.
 - The internal worker, outbox, warmup and capacity routes verify Google OIDC,
   audience, service-account email and email verification; task headers alone
   grant no authority. Learner routes retain LINE identity/registration checks.
-- `scripts/configure_async_analysis.sh` provisions queues and schedules after
-  the new services have deployed. Run once from either branch.
+- The queue and the schedules are declared in Terraform under `infra/`, one
+  configuration per product: each branch owns its own queue, outbox job and
+  nightly rebuild, while the GPU service and its class-time warm-up are
+  declared once, on `main`.
 - Taiwan (`Asia/Taipei`) Mondays: min GPU instances 1 at **13:45**, model warmup
   at **13:50/13:55** and every ten minutes during class, min instances 0 at
   **18:10**. A warmup executes pose inference, not just a health ping. Reserved

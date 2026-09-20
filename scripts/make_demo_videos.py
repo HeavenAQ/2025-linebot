@@ -57,19 +57,35 @@ FONT_CANDIDATES = [
 SLOW_FACTOR = 4  # quarter speed
 PAUSE_SECONDS = 6
 
-# Criteria that share a moment normally freeze once each, which reads well when
-# the moment really is an instant. Some are not: the smash's 轉身 and
-# 雙手手肘平衡 are judged across the turn itself, and the serve's 持拍手手腕發力
-# and 髖關節前旋 across contact and the swing that follows it. Freezing twice on
-# one frame made those look stuck. For the phases named here the stroke plays
-# far slower than the rest of the slow motion instead, each criterion's caption
-# taking its turn across the phase -- so the learner watches the span the
-# scorer reads rather than a still from the middle of it.
+# How the slow motion is laid out, per skill. This is deliberately not derived
+# from the rubric, because the rubric answers a different question.
 #
-# Nothing on screen says which phases these are. The video is for a student who
-# has never seen another version of it, and what they need to know is where to
-# look, not how the demonstration was put together.
-STUDIED_PHASES = {("smash", 1), ("serve", 2), ("serve", 4)}
+# A rule's anchor is the frame the scorer measures it against, which is not
+# where the movement happens: the serve scores 髖關節前旋 on the last keyframe,
+# where the rotation has *finished*, though the rotation itself drives the swing
+# into contact. Ordering the video by anchors stepped forwards and backwards
+# through the stroke and looked like the clip was playing in reverse.
+#
+# Each entry is (criterion ids, keyframes). One keyframe freezes on it, once per
+# criterion. Two play the stroke between them at a crawl, each criterion
+# captioned across its share -- so a criterion judged over a movement is watched
+# over that movement. The serve's pair ends on keyframe 2, which is where the
+# wrist reaches maximum acceleration and the shuttle is struck.
+DEMO_SEQUENCES = {
+    "serve": (
+        (("arms_raised",), (0,)),
+        (("racket_foot_weight",), (1,)),
+        (("hip_rotation", "wrist_flick"), (1, 2)),
+        (("weight_transfer",), (2,)),
+        (("shoulder_rotation",), (4,)),
+    ),
+    "smash": (
+        (("preparation",), (0,)),
+        (("body_rotation", "arm_balance"), (1, 2)),
+        (("elbow_forward", "wrist_flick"), (2,)),
+        (("follow_through",), (4,)),
+    ),
+}
 TITLE_SECONDS = 2.5
 FPS = 30
 
@@ -99,74 +115,50 @@ def probe(video: Path) -> tuple[int, int]:
 
 @dataclass
 class Checkpoint:
-    """One rubric criterion and the frame of the expert video it is judged on."""
+    """One criterion as the learner sees it named on screen."""
 
     name: str
     points: float
-    frame: int
-    phase_index: int
     index: int
     total: int
 
 
-def checkpoints(skill: str, phase_frames: list[int]) -> list[Checkpoint]:
-    """Every criterion, in the order the movement reaches it.
+@dataclass
+class Step:
+    """A stretch of the slow motion: a freeze when `end` is None, else a span."""
 
-    Rubric order is not stroke order. The serve grades 髖關節前旋, judged during
-    the follow-through, before 持拍手手腕發力, judged at contact -- deliberately,
-    and scoring depends on it. Freezing in that order would step forwards to the
-    follow-through and then back to contact, which reads as the clip playing
-    backwards, so the demonstration follows the body and numbers the checkpoints
-    the way it plays them.
-
-    Criteria that share an anchor keep their own entry, in rubric order: the
-    learner is scored on each one, so each gets its own freeze.
-    """
-    rules = SKILL_SPECS[Skill[skill.upper()]].rules
-    ordered = sorted(
-        ((rule.allowed_anchor_indices[-1], position, rule)
-         for position, rule in enumerate(rules)),
-        key=lambda entry: (phase_frames[entry[0]], entry[1]),
-    )
-    return [
-        Checkpoint(
-            name=rule.name_zh_tw,
-            points=rule.maximum,
-            frame=phase_frames[anchor],
-            phase_index=anchor,
-            index=number,
-            total=len(rules),
-        )
-        for number, (anchor, _, rule) in enumerate(ordered, start=1)
-    ]
+    marks: list[Checkpoint]
+    start: int
+    end: int | None
 
 
-def grouped(marks: list[Checkpoint]) -> list[list[Checkpoint]]:
-    """Checkpoints that land on the same frame, kept together in playback order."""
-    groups: list[list[Checkpoint]] = []
-    for mark in marks:
-        if groups and groups[-1][0].frame == mark.frame:
-            groups[-1].append(mark)
-        else:
-            groups.append([mark])
-    return groups
+def checkpoints(skill: str, phase_frames: list[int]) -> list[Step]:
+    """The slow motion, step by step, in the order the learner watches it."""
+    rules = {rule.id: rule for rule in SKILL_SPECS[Skill[skill.upper()]].rules}
+    sequence = DEMO_SEQUENCES[skill]
 
+    listed = [rule_id for ids, _ in sequence for rule_id in ids]
+    if sorted(listed) != sorted(rules):
+        # The rubric changed under the layout; a silently dropped criterion is
+        # a demonstration that teaches the wrong thing.
+        missing = sorted(set(rules) - set(listed)) or "none"
+        unknown = sorted(set(listed) - set(rules)) or "none"
+        raise SystemExit(f"{skill}: DEMO_SEQUENCES missing {missing}, unknown {unknown}")
 
-def studied_span(phase_frames: list[int], phase_index: int,
-                 start: int, end: int) -> tuple[int, int]:
-    """The frames a studied phase covers, clipped to the analysed window.
-
-    A phase boundary normally opens the span named after it. The last boundary
-    opens nothing -- the stroke ends there -- so the span that closes on it is
-    the one worth watching.
-    """
-    if phase_index + 1 < len(phase_frames):
-        first, last = phase_frames[phase_index], phase_frames[phase_index + 1]
-    elif phase_index > 0:
-        first, last = phase_frames[phase_index - 1], phase_frames[phase_index]
-    else:
-        first, last = phase_frames[phase_index], end
-    return max(start, min(int(first), end)), max(start, min(int(last), end))
+    steps, number = [], 0
+    for ids, phases in sequence:
+        marks = []
+        for rule_id in ids:
+            number += 1
+            rule = rules[rule_id]
+            marks.append(Checkpoint(name=rule.name_zh_tw, points=rule.maximum,
+                                    index=number, total=len(listed)))
+        steps.append(Step(
+            marks=marks,
+            start=int(phase_frames[phases[0]]),
+            end=int(phase_frames[phases[-1]]) if len(phases) > 1 else None,
+        ))
+    return steps
 
 
 def title_card(path: Path, size: tuple[int, int], heading: str, detail: str) -> None:
@@ -220,7 +212,7 @@ def encode_still(image: Path, output: Path, seconds: float, size: tuple[int, int
 def build(skill: str, handedness: str, mirrored: bool, source: Path, phase_frames: list[int],
           window: list[int], work: Path, output: Path) -> None:
     work.mkdir(parents=True, exist_ok=True)
-    marks = checkpoints(skill, phase_frames)
+    steps = checkpoints(skill, phase_frames)
 
     # One normalised copy drives every segment: same size, same frame rate, no
     # audio, mirrored once here for the left-handed version.
@@ -265,27 +257,24 @@ def build(skill: str, handedness: str, mirrored: bool, source: Path, phase_frame
         pieces.append(slow)
         cursor = target
 
-    for number, group in enumerate(grouped(marks)):
-        target = max(start, min(int(group[0].frame), end))
-        catch_up(number, target)
+    for number, step in enumerate(steps):
+        begin = max(start, min(step.start, end))
+        catch_up(number, begin)
 
-        phase_index = group[0].phase_index
-        span_start, span_end = studied_span(phase_frames, phase_index, start, end)
-
-        # A studied phase plays through at a crawl, one caption at a time,
-        # rather than freezing on its anchor frame once per criterion.
-        if (skill, phase_index) in STUDIED_PHASES and span_end > span_start:
-            catch_up(number, span_start)
-            share = max(1, (span_end - span_start) // len(group))
-            for position, mark in enumerate(group):
-                first = span_start + position * share
-                last = span_end if position == len(group) - 1 else first + share
-                frames_shown = max(1, last - first)
-                # Stretch each criterion's share to the same dwell a freeze
-                # would have had, so the section keeps the pace of the rest.
-                factor = max(SLOW_FACTOR, round(PAUSE_SECONDS * int(FPS) / frames_shown))
-                band = work / f"studied-{number}-{position}.png"
-                clip = work / f"studied-{number}-{position}.mp4"
+        # A criterion judged over a movement is watched over that movement: the
+        # span plays far slower than the surrounding slow motion, each caption
+        # taking its share of it.
+        if step.end is not None:
+            finish = max(begin, min(step.end, end))
+            share = max(1, (finish - begin) // len(step.marks))
+            for position, mark in enumerate(step.marks):
+                first = begin + position * share
+                last = finish if position == len(step.marks) - 1 else first + share
+                # Stretch each share to the dwell a freeze would have had, so
+                # the section keeps the pace of the rest of the segment.
+                factor = max(SLOW_FACTOR, round(PAUSE_SECONDS * int(FPS) / max(1, last - first)))
+                band = work / f"span-{number}-{position}.png"
+                clip = work / f"span-{number}-{position}.mp4"
                 caption_overlay(band, size, mark)
                 run("ffmpeg", "-y", "-i", base, "-loop", "1", "-i", band,
                     "-filter_complex",
@@ -295,18 +284,19 @@ def build(skill: str, handedness: str, mirrored: bool, source: Path, phase_frame
                     "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                     "-r", FPS, clip)
                 pieces.append(clip)
-            cursor = span_end
+            cursor = max(cursor, finish)
             continue
 
-        for position, mark in enumerate(group):
+        for position, mark in enumerate(step.marks):
             still = work / f"freeze-{number}-{position}.png"
             captioned = work / f"freeze-{number}-{position}-caption.png"
             frozen = work / f"freeze-{number}-{position}.mp4"
-            run("ffmpeg", "-y", "-i", base, "-vf", f"select=eq(n\\,{target})", "-vsync", "0",
+            run("ffmpeg", "-y", "-i", base, "-vf", f"select=eq(n\\,{begin})", "-vsync", "0",
                 "-frames:v", "1", still)
             caption(still, captioned, mark)
             encode_still(captioned, frozen, PAUSE_SECONDS, size)
             pieces.append(frozen)
+
     if end > cursor:
         tail = work / "slow-tail.mp4"
         run("ffmpeg", "-y", "-i", base, "-vf",

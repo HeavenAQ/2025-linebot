@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	gcs "cloud.google.com/go/storage"
@@ -36,6 +38,23 @@ type fakeBucket struct {
 	signed        []string
 	signedOptions []*gcs.SignedURLOptions
 	signErr       error
+	listed        []string
+	listErr       error
+}
+
+func (b *fakeBucket) ObjectNames(_ context.Context, prefix string) ([]string, error) {
+	b.listed = append(b.listed, prefix)
+	if b.listErr != nil {
+		return nil, b.listErr
+	}
+	var names []string
+	for name := range b.objects {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 func (b *fakeBucket) Object(name string) ObjectHandle {

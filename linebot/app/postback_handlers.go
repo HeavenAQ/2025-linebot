@@ -643,6 +643,9 @@ func (app *App) handleSelectingSkill(
 	return true
 }
 
+// A LINE reply carries at most five messages, one of which is the intro text.
+const maxExpertDemos = 4
+
 // handleSendingExpertVideos sends the demonstrations that match the learner's
 // stroke and their own handedness.
 func (app *App) handleSendingExpertVideos(event *linebot.Event, user *db.UserData, session *db.UserSession, replyToken string) {
@@ -655,7 +658,20 @@ func (app *App) handleSendingExpertVideos(event *linebot.Event, user *db.UserDat
 
 	handedness := user.Handedness
 	skill := db.SkillStrToEnum(session.Skill)
-	if err := app.LineBot.SendExpertVideos(handedness, skill, replyToken); err != nil {
+
+	// A reply carries five messages and the intro text is one of them, so at
+	// most four demonstrations go out; the learner sees the same experts in the
+	// same order every time they ask.
+	demos, err := app.StorageClient.ExpertDemos(
+		handedness.String(), skill.String(), app.Config.GCP.ServiceAccountEmail, maxExpertDemos,
+	)
+	if err != nil {
+		app.Logger.Error.Printf("failed to list expert demonstrations: %v", err)
+		app.handleSendExpertVideosError(err, replyToken)
+		return
+	}
+
+	if err := app.LineBot.SendExpertVideos(handedness, skill, demos, replyToken); err != nil {
 		app.handleSendExpertVideosError(err, replyToken)
 		return
 	}

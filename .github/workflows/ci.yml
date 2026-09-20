@@ -56,3 +56,20 @@ jobs:
         run: npm test
       - working-directory: liff
         run: npm run build
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.3
+      - working-directory: infra
+        run: terraform fmt -check -diff
+      # No credentials and no state: `-backend=false` checks that the
+      # configuration is well formed, which is all that can be checked without
+      # reaching the project. A plan needs the state bucket and is run by hand.
+      - working-directory: infra
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate

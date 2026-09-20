@@ -217,6 +217,13 @@ recording, so it is left as a one-line edit to make on purpose.
 
 ## The budget
 
+It replaces a `$10 Monthly Budget Alert` that covered the whole billing account
+and warned at NT$5, NT$9, NT$10, NT$15 and NT$100 — often enough that the mail
+stopped meaning anything. This one is scoped to this project, so Maps Platform
+spend on the same account is counted by its own default budgets and not by
+this one. Widen `budget_filter.projects` if that ever stops being what you
+want.
+
 It is the only resource here billed against a *billing account* rather than the
 project, and that makes it the only one with its own requirements:
 

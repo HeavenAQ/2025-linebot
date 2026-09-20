@@ -22,17 +22,11 @@ def _fake_pose_prediction(x: float) -> list[dict]:
     keypoints[int(COCOKeypoints.RIGHT_WRIST)] = (x, 1.0)
     keypoints[int(COCOKeypoints.RIGHT_ELBOW)] = (x, 2.0)
     scores = np.full(17, 0.9, dtype=np.float64)
-    wholebody_keypoints = np.zeros((133, 2), dtype=np.float64)
-    wholebody_keypoints[:17] = keypoints
-    wholebody_scores = np.zeros(133, dtype=np.float64)
-    wholebody_scores[:17] = scores
     return [
         {
             "bbox": [0.0, 0.0, 10.0, 10.0],
             "keypoints": keypoints,
             "keypoint_scores": scores,
-            "wholebody_keypoints": wholebody_keypoints,
-            "wholebody_scores": wholebody_scores,
         }
     ]
 
@@ -72,8 +66,8 @@ def test_process_frames_batched_chunks_and_records_results() -> None:
             COCOKeypoints(i): results[0]["keypoints"][i] for i in range(17)
         }
     )
-    detector.get_wholebody_2d_keypoints = MagicMock(
-        return_value=(np.zeros((133, 2)), np.zeros(133))
+    detector.get_dense_2d_keypoints = MagicMock(
+        return_value=(np.zeros((17, 2)), np.zeros(17))
     )
     processor = VideoProcessor("test.mp4", detector)
 
@@ -100,14 +94,14 @@ def test_process_frames_preserves_continuous_rfdetr_body_confidence() -> None:
             COCOKeypoints.RIGHT_ELBOW: np.asarray((1.0, 2.0)),
         }
     )
-    scores = np.zeros(133, dtype=np.float64)
+    scores = np.zeros(17, dtype=np.float64)
     scores[int(COCOKeypoints.RIGHT_WRIST)] = 0.42
     scores[int(COCOKeypoints.RIGHT_ELBOW)] = 0.73
     scores[int(COCOKeypoints.LEFT_ELBOW)] = 0.10
     scores[int(COCOKeypoints.LEFT_WRIST)] = 0.10
     detector.elbow_detection_confidence = 0.05
-    detector.get_wholebody_2d_keypoints = MagicMock(
-        return_value=(np.zeros((133, 2), dtype=np.float64), scores)
+    detector.get_dense_2d_keypoints = MagicMock(
+        return_value=(np.zeros((17, 2), dtype=np.float64), scores)
     )
     processor = VideoProcessor("test.mp4", detector)
 
@@ -130,7 +124,7 @@ def test_process_frames_batched_skips_frames_missing_expected_hand() -> None:
     detector.min_detection_confidence = 0.5
     detector.get_poses_batch = MagicMock(return_value=[[]])
     detector.get_2d_landmarks = MagicMock(return_value=None)
-    detector.get_wholebody_2d_keypoints = MagicMock(return_value=None)
+    detector.get_dense_2d_keypoints = MagicMock(return_value=None)
     processor = VideoProcessor("test.mp4", detector)
 
     with patch(

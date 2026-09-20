@@ -81,31 +81,29 @@ class TestPoseDetector:
                 elbow_detection_confidence=0.2,
             )
 
-    def test_get_wholebody_keypoints_preserves_coordinates_and_confidence(self):
-        keypoints = np.zeros((133, 2), dtype=np.float64)
+    def test_get_dense_keypoints_preserves_coordinates_and_confidence(self):
+        keypoints = np.zeros((17, 2), dtype=np.float64)
         keypoints[10] = (120.0, 45.0)
-        scores = np.linspace(0.0, 1.0, 133)
+        scores = np.linspace(0.0, 1.0, 17)
         self.detector._last_predictions = [
             {
                 "bbox": [0.0, 0.0, 100.0, 200.0],
-                "keypoints": np.zeros((17, 2)),
-                "keypoint_scores": np.zeros(17),
-                "wholebody_keypoints": keypoints,
-                "wholebody_scores": scores,
+                "keypoints": keypoints,
+                "keypoint_scores": scores,
             }
         ]
 
-        result = self.detector.get_wholebody_2d_keypoints()
+        result = self.detector.get_dense_2d_keypoints()
 
         assert result is not None
         coordinates, confidence = result
-        assert coordinates.shape == (133, 2)
-        assert confidence.shape == (133,)
+        assert coordinates.shape == (17, 2)
+        assert confidence.shape == (17,)
         np.testing.assert_allclose(coordinates[10], (120.0, 45.0))
         assert confidence[10] == pytest.approx(scores[10])
 
-    def test_get_wholebody_2d_keypoints_no_predictions(self):
-        assert self.detector.get_wholebody_2d_keypoints() is None
+    def test_get_dense_2d_keypoints_no_predictions(self):
+        assert self.detector.get_dense_2d_keypoints() is None
 
     def test_prediction_prefers_largest_person_and_ignores_other_classes(self):
         keypoints = np.zeros((3, 17, 2), dtype=np.float64)
@@ -134,7 +132,7 @@ class TestPoseDetector:
         assert result == []
         assert self.detector.get_2d_landmarks(result) is None
 
-    def test_prediction_pads_body_keypoints_into_wholebody_slots(self):
+    def test_prediction_keeps_the_seventeen_body_keypoints(self):
         keypoints = np.zeros((1, 17, 2), dtype=np.float64)
         keypoints[0] = np.arange(34, dtype=np.float64).reshape(17, 2)
         confidence = np.full((1, 17), 0.9, dtype=np.float64)
@@ -149,18 +147,14 @@ class TestPoseDetector:
 
         assert len(result) == 1
         assert result[0]["keypoints"].shape == (17, 2)
-        assert result[0]["wholebody_keypoints"].shape == (133, 2)
         # RFDETRKeypointPreview's native order already matches COCOKeypoints,
         # so no schema adapter is needed.
         np.testing.assert_allclose(
             result[0]["keypoints"][int(COCOKeypoints.RIGHT_WRIST)], (20.0, 21.0)
         )
-        # No hand/face/feet keypoints exist, so only the first 17 wholebody
-        # slots carry real (nonzero-confidence) data.
-        np.testing.assert_allclose(
-            result[0]["wholebody_keypoints"][:17], result[0]["keypoints"]
-        )
-        assert np.all(result[0]["wholebody_scores"][17:] == 0.0)
+        # The model predicts these 17 joints and nothing else: no padded
+        # WholeBody slots are carried alongside them.
+        assert set(result[0]) == {"bbox", "keypoints", "keypoint_scores"}
 
     def test_reset_tracking_clears_cached_state(self):
         self.detector._last_predictions = [{"keypoints": np.zeros((17, 2))}]

@@ -42,7 +42,7 @@ class VideoProcessor:
         frame: NDArray[np.uint8],
         source_frame_index: int,
         landmark_2d: Coordinate2DDict | None,
-        wholebody_keypoints: tuple[NDArray[np.float64], NDArray[np.float64]] | None,
+        dense_keypoints: tuple[NDArray[np.float64], NDArray[np.float64]] | None,
         handedness: int | None,
     ) -> None:
         """Record one frame's pose result, skipping frames without a person
@@ -65,7 +65,7 @@ class VideoProcessor:
                 return
 
         self.body_landmarks_2d.append(landmark_2d)
-        if wholebody_keypoints is None:
+        if dense_keypoints is None:
             # This branch is defensive: a valid RF-DETR body result normally
             # always carries its dense scores.  Keep the buffers aligned even
             # for test doubles or alternate backends.
@@ -77,9 +77,9 @@ class VideoProcessor:
             self.body_keypoints_2d.append(dense)
             self.body_confidence_2d.append(observed)
         else:
-            coordinates, scores = wholebody_keypoints
-            body_coordinates = np.asarray(coordinates[:17], dtype=np.float64).copy()
-            body_scores = np.clip(np.asarray(scores[:17], dtype=np.float64), 0.0, 1.0)
+            coordinates, scores = dense_keypoints
+            body_coordinates = np.asarray(coordinates, dtype=np.float64).copy()
+            body_scores = np.clip(np.asarray(scores, dtype=np.float64), 0.0, 1.0)
             # Match get_2d_landmarks' validity decision while retaining the
             # detector's continuous score for every accepted keypoint.
             general_threshold = float(self.pose_detector.min_detection_confidence)
@@ -165,12 +165,12 @@ class VideoProcessor:
                 # point it at this frame's result before reading landmarks.
                 self.pose_detector._last_predictions = results
                 landmark_2d = self.pose_detector.get_2d_landmarks(results)
-                wholebody_keypoints = self.pose_detector.get_wholebody_2d_keypoints()
+                dense_keypoints = self.pose_detector.get_dense_2d_keypoints()
                 self._record_frame_result(
                     frame,
                     index,
                     landmark_2d,
-                    wholebody_keypoints,
+                    dense_keypoints,
                     handedness,
                 )
             chunk_frames.clear()

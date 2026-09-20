@@ -1,0 +1,3 @@
+# Copy to terraform.tfvars and fill in. Both are needed by alerts.tf.
+alert_email        = "you@example.com"
+billing_account_id = "XXXXXX-XXXXXX-XXXXXX"

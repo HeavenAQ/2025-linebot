@@ -14,7 +14,8 @@ that true on paper as well as in practice.
 | Cloud Run services: the bot, the GPU analysis service, the validation site | Their images, environment and machine shape — GitHub Actions deploys revisions |
 | The analysis queue and every scheduled job | LINE channels, the LIFF apps, Netlify |
 | Artifact Registry for the TensorRT engine | The engine build recipe (`badminton_analysis_ai/cloudbuild-engine-bootstrap.yaml`) |
-| Log-based metrics | Dashboards and alert policies |
+| Log-based metrics, alert policies, the spend budget | Dashboards |
+| How GitHub Actions authenticates (the identity pool and provider) | GitHub repository secrets |
 
 **Cloud Run templates are ignored after creation.** Terraform creates each
 service with a placeholder image and never looks at the template again, so an
@@ -97,6 +98,19 @@ for secret in 2025-linebot-env openai-api-key analysis-grpc-api-key gpt-validati
   terraform import "google_secret_manager_secret.secrets[\"${secret}\"]" "projects/${project}/secrets/${secret}"
 done
 
+num=38977606134
+principal="principalSet://iam.googleapis.com/projects/${num}/locations/global/workloadIdentityPools/git-actions-pool/attribute.repository/HeavenAQ/2025-linebot"
+sa="projects/${project}/serviceAccounts/nstc-linebot-2025@${project}.iam.gserviceaccount.com"
+
+terraform import google_iam_workload_identity_pool.github \
+  "projects/${project}/locations/global/workloadIdentityPools/git-actions-pool"
+terraform import google_iam_workload_identity_pool_provider.github \
+  "projects/${project}/locations/global/workloadIdentityPools/git-actions-pool/providers/git-actions-provider"
+terraform import google_service_account_iam_member.github_impersonates_bot \
+  "${sa} roles/iam.workloadIdentityUser ${principal}"
+terraform import google_service_account_iam_member.github_mints_tokens_as_bot \
+  "${sa} roles/iam.serviceAccountTokenCreator ${principal}"
+
 for metric in analysis_jobs analysis_job_duration analysis_failures learner_api_refusals; do
   terraform import "google_logging_metric.${metric}" "${metric}"
 done
@@ -117,7 +131,9 @@ things, all of them deliberate:
 | Public access prevention **enforced** on the state bucket | State names every resource in the project |
 | Two descriptions rewritten | The service account and the registry said little |
 
-It also creates the `learner_api_refusals` metric, which never existed.
+It also creates what never existed at all: the `learner_api_refusals` and
+`scheduler_job_failures` metrics, five alert policies, the email notification
+channel and the budget.
 
 The engine-builder job (`google_cloud_run_v2_job.engine_builder`) has no
 counterpart to import — the engine has been built by hand until now. Cloud Run
@@ -132,6 +148,65 @@ The learner bucket is described as it is: per-object ACLs, no public access
 prevention. Turning both on is a safe tightening — nothing is served from it
 except through signed URLs — but it changes the bucket holding every
 recording, so it is left as a one-line edit to make on purpose.
+
+## Credentials, and the one resource that needs yours
+
+Most of this can be applied with the deploy service account. The budget cannot:
+managing budgets is a billing-account permission, and only `891118heaven@gmail.com`
+holds `roles/billing.admin` there. So apply as yourself:
+
+```bash
+gcloud auth application-default login
+cd infra && terraform apply
+```
+
+If you would rather keep using the service-account key, grant it the narrower
+billing role once (you are the only one who can):
+
+```bash
+gcloud billing accounts add-iam-policy-binding 019A8A-F51497-B2EE02 \
+  --member "serviceAccount:nstc-linebot-2025@nstc-linebot-2025.iam.gserviceaccount.com" \
+  --role roles/billing.costsManager
+```
+
+Two values are deliberately not in this repository, which is public. Copy
+`terraform.tfvars.example` to `terraform.tfvars` (gitignored) and fill in the
+address alerts go to and the billing account ID.
+
+## Who may deploy
+
+`wif.tf` is worth reading before anything else here. GitHub Actions holds no key
+for this project: it presents its own OIDC token, and the provider's attribute
+condition decides whether to believe it. That condition is a single line —
+
+```
+assertion.repository=='HeavenAQ/2025-linebot'
+```
+
+— and it is the only thing standing between a GitHub account and a service
+account that can read every learner's recordings and scores. Narrowing it
+further (to a branch, or a deployment environment) is safe; widening it is the
+change to think hardest about in this whole directory.
+
+## Alerts
+
+Five conditions, all to one email channel, all with loose thresholds — an alert
+that fires on a single transient failure gets muted, and a muted alert is worse
+than none:
+
+| Alert | Fires when |
+| --- | --- |
+| LINE bot serving 5xx | More than 3 server errors in 5 minutes on either bot |
+| Analyses failing | More than 3 failures in 10 minutes |
+| Scheduled job failing | More than 5 failed attempts of one job in 15 minutes |
+| GPU instance held for six hours | Class reserves one 13:45–18:10; six hours means the stop job did not take |
+| Learner API refusing in bulk | 50 refusals in 5 minutes — a probe, or a retry loop in the app |
+
+The budget is NT$1,000 a month and mails at every full multiple of it: 1,000,
+2,000, and so on to 5,000. It caps nothing — GCP keeps serving when a threshold
+trips. The L4 is why it exists: it bills by the second for as long as an
+instance is up, so a stop job that silently failed is the difference between a
+normal month and an unpleasant one.
 
 ## The class schedule
 

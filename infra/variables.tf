@@ -50,3 +50,21 @@ variable "placeholder_image" {
   type        = string
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
 }
+
+variable "github_repository" {
+  description = "The repository allowed to deploy, as owner/name. Anything else the identity provider refuses."
+  type        = string
+  default     = "HeavenAQ/2025-linebot"
+}
+
+# Kept out of the repository, which is public: set both in terraform.tfvars,
+# which is gitignored. See README.md.
+variable "alert_email" {
+  description = "Where alert and budget notifications are sent."
+  type        = string
+}
+
+variable "billing_account_id" {
+  description = "Billing account the budget is attached to, as XXXXXX-XXXXXX-XXXXXX."
+  type        = string
+}

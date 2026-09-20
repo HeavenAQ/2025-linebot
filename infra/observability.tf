@@ -172,3 +172,27 @@ resource "google_logging_metric" "learner_api_refusals" {
     route   = "EXTRACT(jsonPayload.route)"
   }
 }
+
+# Scheduled jobs that failed. Cloud Scheduler logs every attempt; an attempt
+# that did not return 2xx is logged at ERROR with the job in the resource
+# labels, which is enough to tell "the outbox is not dispatching" from "the GPU
+# was never released".
+resource "google_logging_metric" "scheduler_failures" {
+  project     = var.project_id
+  name        = "scheduler_job_failures"
+  description = "Cloud Scheduler attempts that failed, by job."
+  filter      = "resource.type=\"cloud_scheduler_job\" severity>=ERROR"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+
+    labels {
+      key = "job_id"
+    }
+  }
+
+  label_extractors = {
+    job_id = "EXTRACT(resource.labels.job_id)"
+  }
+}

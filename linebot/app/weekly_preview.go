@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,10 +115,11 @@ func (app *App) previewFocus(user db.UserData, outcome *PreviewOutcome) (db.Badm
 	return skill, history, true
 }
 
-// WeeklyPreviewOnDemand writes the note behind the 產生課前預習 button. It shares
-// the scheduled run's skill choice and history depth, but deliberately neither
-// dedupes nor records: the learner asked for this one, so a second tap is a
-// second answer, and it must not consume that week's scheduled push.
+// WeeklyPreviewOnDemand answers the 產生課前預習 button with this week's note,
+// the same one the scheduled push sends. It is rewritten only when the
+// learner's record has moved since it was written, so tapping twice costs
+// nothing and practising in between gets fresh advice. Asking by hand never
+// marks the week as pushed.
 func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
 	outcome := PreviewOutcome{UserID: user.ID, Name: user.Name}
 	if !user.HasExperimentRegistration() {
@@ -130,6 +132,19 @@ func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
 		return outcome
 	}
 
+	week := db.ISOWeek(time.Now())
+	sourceKey := previewSourceKey(history)
+	stored, err := app.FirestoreClient.GetWeeklyPreview(user.ID, week)
+	if err != nil {
+		app.Logger.Warn.Printf("[preview.weekly] user_id=%s read_failed err=%v", user.ID, err)
+	}
+	if stored.Fresh(sourceKey) {
+		outcome.Note = stored.Message
+		outcome.Skill = stored.Skill
+		outcome.Status = PreviewPrepared
+		return outcome
+	}
+
 	note, err := app.GPTClient.WeeklyPreview(user.Name, skill.ChnString(), history)
 	if err != nil {
 		outcome.Status = PreviewFailed
@@ -138,6 +153,17 @@ func (app *App) WeeklyPreviewOnDemand(user db.UserData) PreviewOutcome {
 	}
 	outcome.Note = strings.TrimSpace(note)
 	outcome.Status = PreviewPrepared
+
+	if err := app.FirestoreClient.SetWeeklyPreview(db.WeeklyPreview{
+		UserID:    user.ID,
+		Week:      week,
+		Skill:     outcome.Skill,
+		Message:   outcome.Note,
+		SourceKey: sourceKey,
+		Pushed:    stored.Delivered(),
+	}); err != nil {
+		app.Logger.Warn.Printf("[preview.weekly] user_id=%s record_failed err=%v", user.ID, err)
+	}
 	return outcome
 }
 
@@ -152,28 +178,38 @@ func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool)
 		return outcome
 	}
 
+	sourceKey := previewSourceKey(history)
+	var stored *db.WeeklyPreview
 	if !dryRun {
-		sent, err := app.FirestoreClient.GetWeeklyPreview(user.ID, week)
+		var err error
+		stored, err = app.FirestoreClient.GetWeeklyPreview(user.ID, week)
 		if err != nil {
 			outcome.Status = PreviewFailed
 			outcome.Error = fmt.Sprintf("read weekly preview: %v", err)
 			return outcome
 		}
-		if sent != nil {
+		if stored.Delivered() {
 			outcome.Status = PreviewAlreadySent
-			outcome.Note = sent.Message
-			outcome.Skill = sent.Skill
+			outcome.Note = stored.Message
+			outcome.Skill = stored.Skill
 			return outcome
 		}
 	}
 
-	note, err := app.GPTClient.WeeklyPreview(user.Name, skill.ChnString(), history)
-	if err != nil {
-		outcome.Status = PreviewFailed
-		outcome.Error = fmt.Sprintf("generate preview: %v", err)
-		return outcome
+	// A note the learner already asked for is the one they are pushed, unless
+	// they have practised since it was written.
+	if stored.Fresh(sourceKey) {
+		outcome.Note = stored.Message
+		outcome.Skill = stored.Skill
+	} else {
+		note, err := app.GPTClient.WeeklyPreview(user.Name, skill.ChnString(), history)
+		if err != nil {
+			outcome.Status = PreviewFailed
+			outcome.Error = fmt.Sprintf("generate preview: %v", err)
+			return outcome
+		}
+		outcome.Note = strings.TrimSpace(note)
 	}
-	outcome.Note = strings.TrimSpace(note)
 
 	if dryRun {
 		outcome.Status = PreviewPrepared
@@ -185,9 +221,16 @@ func (app *App) WeeklyPreviewForUser(user db.UserData, week string, dryRun bool)
 		outcome.Error = fmt.Sprintf("push preview: %v", err)
 		return outcome
 	}
-	// Recorded only after delivery, so a failed push is retried next run rather
-	// than silently marked done.
-	if err := app.FirestoreClient.SetWeeklyPreview(user.ID, week, outcome.Skill, outcome.Note); err != nil {
+	// Marked pushed only after delivery, so a failed push is retried next run
+	// rather than silently marked done.
+	if err := app.FirestoreClient.SetWeeklyPreview(db.WeeklyPreview{
+		UserID:    user.ID,
+		Week:      week,
+		Skill:     outcome.Skill,
+		Message:   outcome.Note,
+		SourceKey: sourceKey,
+		Pushed:    true,
+	}); err != nil {
 		app.Logger.Warn.Printf("[preview.weekly] user_id=%s record_failed err=%v", user.ID, err)
 	}
 	outcome.Status = PreviewPushed
@@ -239,4 +282,16 @@ func (app *App) selectPreviewUsers(userIDs []string) ([]db.UserData, error) {
 		users = append(users, *user)
 	}
 	return users, nil
+}
+
+// previewSourceKey fingerprints the history a note was written from, so a new
+// analysis makes the stored note stale rather than leaving a learner reading
+// advice that predates their latest attempt.
+func previewSourceKey(history []commons.SkillHistory) string {
+	parts := make([]string, 0, len(history))
+	for _, skill := range history {
+		parts = append(parts, skill.Skill+"="+db.ScoreFingerprint(skill.Scores))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ";")
 }

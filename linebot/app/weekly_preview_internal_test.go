@@ -126,3 +126,45 @@ func TestISOWeekIsStableAcrossAWeek(t *testing.T) {
 	// 1 January 2027 falls in ISO week 53 of 2026.
 	require.Equal(t, "2026-W53", db.ISOWeek(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)))
 }
+
+// The button and the scheduled push share one note, so the fingerprint has to
+// move when the learner's record does and stay put when it does not.
+func TestPreviewSourceKeyIsStableForTheSameHistory(t *testing.T) {
+	first := []commons.SkillHistory{history("serve", 80), history("smash", 70)}
+	second := []commons.SkillHistory{history("smash", 70), history("serve", 80)}
+
+	require.Equal(t, previewSourceKey(first), previewSourceKey(second),
+		"the order histories arrive in is not a change to the learner's record")
+}
+
+func TestPreviewSourceKeyChangesAfterANewAnalysis(t *testing.T) {
+	before := []commons.SkillHistory{history("serve", 80)}
+	graded := []commons.SkillHistory{historyOn("serve", "2026-08-08-11-00", 88, 80)}
+	regraded := []commons.SkillHistory{history("serve", 81)}
+
+	require.NotEqual(t, previewSourceKey(before), previewSourceKey(graded),
+		"a new attempt must make the stored note stale")
+	require.NotEqual(t, previewSourceKey(before), previewSourceKey(regraded),
+		"a changed grade must make the stored note stale")
+}
+
+func TestStoredPreviewIsFreshOnlyWhenItMatchesAndHasText(t *testing.T) {
+	key := previewSourceKey([]commons.SkillHistory{history("serve", 80)})
+
+	require.True(t, (&db.WeeklyPreview{Message: "練習重點", SourceKey: key}).Fresh(key))
+	require.False(t, (&db.WeeklyPreview{Message: "練習重點", SourceKey: "older"}).Fresh(key),
+		"a note written before the latest attempt is not reused")
+	require.False(t, (&db.WeeklyPreview{Message: "  ", SourceKey: key}).Fresh(key),
+		"an empty note is not a note")
+	require.False(t, (*db.WeeklyPreview)(nil).Fresh(key))
+}
+
+// Records written before the button shared this note carry neither field, and
+// their existence meant the learner had already been pushed that week.
+func TestALegacyRecordStillCountsAsPushed(t *testing.T) {
+	require.True(t, (&db.WeeklyPreview{Message: "舊的課前預習"}).Delivered())
+	require.False(t, (&db.WeeklyPreview{Message: "剛產生", SourceKey: "serve=2026-08-01-10-00:80.00"}).Delivered(),
+		"a note asked for by hand has not been pushed")
+	require.True(t, (&db.WeeklyPreview{Message: "已推播", SourceKey: "serve=x", Pushed: true}).Delivered())
+	require.False(t, (*db.WeeklyPreview)(nil).Delivered())
+}

@@ -69,13 +69,16 @@ PAUSE_SECONDS = 6
 # Each entry is (criterion ids, keyframes). One keyframe freezes on it, once per
 # criterion. Two play the stroke between them at a crawl, each criterion
 # captioned across its share -- so a criterion judged over a movement is watched
-# over that movement. The serve's pair ends on keyframe 2, which is where the
-# wrist reaches maximum acceleration and the shuttle is struck.
+# over that movement, and one that happens in an instant is frozen on it. The
+# serve's weight transfer is the movement into keyframe 2; the wrist flick is
+# keyframe 2 itself, where the wrist reaches maximum acceleration and the
+# shuttle is struck.
 DEMO_SEQUENCES = {
     "serve": (
         (("arms_raised",), (0,)),
         (("racket_foot_weight",), (1,)),
-        (("weight_transfer", "wrist_flick"), (1, 2)),
+        (("weight_transfer",), (1, 2)),
+        (("wrist_flick",), (2,)),
         (("hip_rotation", "shoulder_rotation"), (3, 4)),
     ),
     "smash": (

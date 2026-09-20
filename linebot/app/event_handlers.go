@@ -1,6 +1,12 @@
 package app
 
-import "github.com/line/line-bot-sdk-go/v7/linebot"
+import (
+	"context"
+
+	"github.com/line/line-bot-sdk-go/v7/linebot"
+)
+
+const loadingSeconds = 60
 
 func (app *App) handleEvents(events []*linebot.Event) {
 	for _, event := range events {
@@ -18,12 +24,23 @@ func (app *App) handleEvents(events []*linebot.Event) {
 		case linebot.EventTypeFollow:
 			app.handleFollowEvent(event)
 		case linebot.EventTypeMessage:
+			app.showLoading(event.Source.UserID)
 			app.handleMessageEvent(event, user, session)
 		case linebot.EventTypePostback:
+			app.showLoading(event.Source.UserID)
 			app.handlePostbackEvent(event, user, session)
 		default:
 			app.handleUnsupportedEvent(event)
 		}
+	}
+}
+
+func (app *App) showLoading(userID string) {
+	if userID == "" {
+		return
+	}
+	if err := app.LineBot.ShowLoading(context.Background(), userID, loadingSeconds); err != nil {
+		app.Logger.Warn.Printf("loading indicator: %v", err)
 	}
 }
 

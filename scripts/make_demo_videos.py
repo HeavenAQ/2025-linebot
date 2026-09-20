@@ -1,11 +1,14 @@
 """Build the demonstration videos students watch before recording themselves.
 
-One video per skill and handedness. Each is the same expert stroke three times:
+One video per expert per skill, in both handednesses. Each is the same expert
+stroke three times:
 
   1. 正常速度 -- the whole stroke at recording speed
   2. 慢動作 -- quarter speed, freezing 6 s on every rubric checkpoint with its
-     name on screen. Two criteria judged at the same moment freeze twice, once
-     per criterion, because the learner is marked on each separately.
+     name on screen, in the order the stroke reaches them rather than the order
+     the rubric scores them. Two criteria judged at the same moment freeze
+     twice, once per criterion, because the learner is marked on each
+     separately.
   3. 再看一次 -- normal speed again, now that the checkpoints are known
 
 Checkpoint frames come from the production expert reference bank, so the
@@ -53,6 +56,20 @@ FONT_CANDIDATES = [
 
 SLOW_FACTOR = 4  # quarter speed
 PAUSE_SECONDS = 6
+
+# Criteria that share a moment normally freeze once each, which reads well when
+# the moment really is an instant. Some are not: the smash's 轉身 and
+# 雙手手肘平衡 are judged across the turn itself, and the serve's 持拍手手腕發力
+# and 髖關節前旋 across contact and the swing that follows it. Freezing twice on
+# one frame made those look stuck. For the phases named here the stroke plays
+# far slower than the rest of the slow motion instead, each criterion's caption
+# taking its turn across the phase -- so the learner watches the span the
+# scorer reads rather than a still from the middle of it.
+#
+# Nothing on screen says which phases these are. The video is for a student who
+# has never seen another version of it, and what they need to know is where to
+# look, not how the demonstration was put together.
+STUDIED_PHASES = {("smash", 1), ("serve", 2), ("serve", 4)}
 TITLE_SECONDS = 2.5
 FPS = 30
 
@@ -87,28 +104,69 @@ class Checkpoint:
     name: str
     points: float
     frame: int
+    phase_index: int
     index: int
     total: int
 
 
 def checkpoints(skill: str, phase_frames: list[int]) -> list[Checkpoint]:
-    """Every criterion in rubric order, each timed at its own anchor frame.
+    """Every criterion, in the order the movement reaches it.
 
-    Criteria that share an anchor keep their own entry: the learner is scored
-    on each one, so each gets its own freeze.
+    Rubric order is not stroke order. The serve grades 髖關節前旋, judged during
+    the follow-through, before 持拍手手腕發力, judged at contact -- deliberately,
+    and scoring depends on it. Freezing in that order would step forwards to the
+    follow-through and then back to contact, which reads as the clip playing
+    backwards, so the demonstration follows the body and numbers the checkpoints
+    the way it plays them.
+
+    Criteria that share an anchor keep their own entry, in rubric order: the
+    learner is scored on each one, so each gets its own freeze.
     """
     rules = SKILL_SPECS[Skill[skill.upper()]].rules
-    marks = []
-    for index, rule in enumerate(rules):
-        anchor = rule.allowed_anchor_indices[-1]
-        marks.append(Checkpoint(
+    ordered = sorted(
+        ((rule.allowed_anchor_indices[-1], position, rule)
+         for position, rule in enumerate(rules)),
+        key=lambda entry: (phase_frames[entry[0]], entry[1]),
+    )
+    return [
+        Checkpoint(
             name=rule.name_zh_tw,
             points=rule.maximum,
             frame=phase_frames[anchor],
-            index=index + 1,
+            phase_index=anchor,
+            index=number,
             total=len(rules),
-        ))
-    return marks
+        )
+        for number, (anchor, _, rule) in enumerate(ordered, start=1)
+    ]
+
+
+def grouped(marks: list[Checkpoint]) -> list[list[Checkpoint]]:
+    """Checkpoints that land on the same frame, kept together in playback order."""
+    groups: list[list[Checkpoint]] = []
+    for mark in marks:
+        if groups and groups[-1][0].frame == mark.frame:
+            groups[-1].append(mark)
+        else:
+            groups.append([mark])
+    return groups
+
+
+def studied_span(phase_frames: list[int], phase_index: int,
+                 start: int, end: int) -> tuple[int, int]:
+    """The frames a studied phase covers, clipped to the analysed window.
+
+    A phase boundary normally opens the span named after it. The last boundary
+    opens nothing -- the stroke ends there -- so the span that closes on it is
+    the one worth watching.
+    """
+    if phase_index + 1 < len(phase_frames):
+        first, last = phase_frames[phase_index], phase_frames[phase_index + 1]
+    elif phase_index > 0:
+        first, last = phase_frames[phase_index - 1], phase_frames[phase_index]
+    else:
+        first, last = phase_frames[phase_index], end
+    return max(start, min(int(first), end)), max(start, min(int(last), end))
 
 
 def title_card(path: Path, size: tuple[int, int], heading: str, detail: str) -> None:
@@ -126,10 +184,9 @@ def title_card(path: Path, size: tuple[int, int], heading: str, detail: str) -> 
     image.save(path)
 
 
-def caption(frame_image: Path, output: Path, mark: Checkpoint) -> None:
-    """Write the checkpoint's name over the frozen frame."""
-    image = Image.open(frame_image).convert("RGB")
-    width, height = image.size
+def caption_band(size: tuple[int, int], mark: Checkpoint) -> Image.Image:
+    """The checkpoint's name and worth, as a band to sit at the foot of frame."""
+    width, height = size
     band = int(height * 0.16)
     overlay = Image.new("RGBA", (width, band), (10, 14, 20, 225))
     draw = ImageDraw.Draw(overlay)
@@ -138,8 +195,20 @@ def caption(frame_image: Path, output: Path, mark: Checkpoint) -> None:
     draw.text((int(width * 0.05), int(band * 0.62)),
               f"檢核點 {mark.index} / {mark.total}　滿分 {mark.points:.0f} 分",
               font=note_font, fill=(150, 200, 175))
-    image.paste(overlay, (0, height - band), overlay)
+    return overlay
+
+
+def caption(frame_image: Path, output: Path, mark: Checkpoint) -> None:
+    """Write the checkpoint's name over the frozen frame."""
+    image = Image.open(frame_image).convert("RGB")
+    band = caption_band(image.size, mark)
+    image.paste(band, (0, image.size[1] - band.size[1]), band)
     image.save(output)
+
+
+def caption_overlay(path: Path, size: tuple[int, int], mark: Checkpoint) -> None:
+    """The same band on transparency, for overlaying on moving video."""
+    caption_band(size, mark).save(path)
 
 
 def encode_still(image: Path, output: Path, seconds: float, size: tuple[int, int]) -> None:
@@ -180,26 +249,64 @@ def build(skill: str, handedness: str, mirrored: bool, source: Path, phase_frame
     add_title("① 正常速度", "先看一次完整動作")
     add_normal("first")
 
-    add_title("② 慢動作　停格檢核", f"每個檢核點停格 {PAUSE_SECONDS} 秒")
+    add_title("② 慢動作　停格檢核", "逐一看過每個檢核點")
     start, end = int(window[0]), int(window[-1])
     cursor = start
-    for number, mark in enumerate(marks):
-        target = max(start, min(int(mark.frame), end))
-        if target > cursor:
-            slow = work / f"slow-{number}.mp4"
-            run("ffmpeg", "-y", "-i", base, "-vf",
-                f"trim=start_frame={cursor}:end_frame={target},setpts=(PTS-STARTPTS)*{SLOW_FACTOR}",
-                "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", FPS, slow)
-            pieces.append(slow)
-            cursor = target
-        still = work / f"freeze-{number}.png"
-        captioned = work / f"freeze-{number}-caption.png"
-        frozen = work / f"freeze-{number}.mp4"
-        run("ffmpeg", "-y", "-i", base, "-vf", f"select=eq(n\\,{target})", "-vsync", "0",
-            "-frames:v", "1", still)
-        caption(still, captioned, mark)
-        encode_still(captioned, frozen, PAUSE_SECONDS, size)
-        pieces.append(frozen)
+
+    def catch_up(number: int, target: int) -> None:
+        """Quarter speed from wherever the clip is up to the next checkpoint."""
+        nonlocal cursor
+        if target <= cursor:
+            return
+        slow = work / f"slow-{number}.mp4"
+        run("ffmpeg", "-y", "-i", base, "-vf",
+            f"trim=start_frame={cursor}:end_frame={target},setpts=(PTS-STARTPTS)*{SLOW_FACTOR}",
+            "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", FPS, slow)
+        pieces.append(slow)
+        cursor = target
+
+    for number, group in enumerate(grouped(marks)):
+        target = max(start, min(int(group[0].frame), end))
+        catch_up(number, target)
+
+        phase_index = group[0].phase_index
+        span_start, span_end = studied_span(phase_frames, phase_index, start, end)
+
+        # A studied phase plays through at a crawl, one caption at a time,
+        # rather than freezing on its anchor frame once per criterion.
+        if (skill, phase_index) in STUDIED_PHASES and span_end > span_start:
+            catch_up(number, span_start)
+            share = max(1, (span_end - span_start) // len(group))
+            for position, mark in enumerate(group):
+                first = span_start + position * share
+                last = span_end if position == len(group) - 1 else first + share
+                frames_shown = max(1, last - first)
+                # Stretch each criterion's share to the same dwell a freeze
+                # would have had, so the section keeps the pace of the rest.
+                factor = max(SLOW_FACTOR, round(PAUSE_SECONDS * int(FPS) / frames_shown))
+                band = work / f"studied-{number}-{position}.png"
+                clip = work / f"studied-{number}-{position}.mp4"
+                caption_overlay(band, size, mark)
+                run("ffmpeg", "-y", "-i", base, "-loop", "1", "-i", band,
+                    "-filter_complex",
+                    f"[0:v]trim=start_frame={first}:end_frame={last},"
+                    f"setpts=(PTS-STARTPTS)*{factor}[slow];"
+                    f"[slow][1:v]overlay=0:H-h:shortest=1,format=yuv420p",
+                    "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                    "-r", FPS, clip)
+                pieces.append(clip)
+            cursor = span_end
+            continue
+
+        for position, mark in enumerate(group):
+            still = work / f"freeze-{number}-{position}.png"
+            captioned = work / f"freeze-{number}-{position}-caption.png"
+            frozen = work / f"freeze-{number}-{position}.mp4"
+            run("ffmpeg", "-y", "-i", base, "-vf", f"select=eq(n\\,{target})", "-vsync", "0",
+                "-frames:v", "1", still)
+            caption(still, captioned, mark)
+            encode_still(captioned, frozen, PAUSE_SECONDS, size)
+            pieces.append(frozen)
     if end > cursor:
         tail = work / "slow-tail.mp4"
         run("ffmpeg", "-y", "-i", base, "-vf",
@@ -264,6 +371,7 @@ def main() -> None:
     parser.add_argument("--output", default=str(REPO / "demo-videos"))
     parser.add_argument("--bank", default=str(ANALYSIS / "models" / "expert_reference_bank.npz"))
     parser.add_argument("--only", action="append", default=[], help="build only this expert (repeatable)")
+    parser.add_argument("--skill", action="append", default=[], help="build only this skill (repeatable)")
     parser.add_argument("--keep-work", action="store_true", help="keep the intermediate clips")
     arguments = parser.parse_args()
 
@@ -274,6 +382,8 @@ def main() -> None:
     demos = expert_demos(bank, root)
     if arguments.only:
         demos = [demo for demo in demos if demo.person in arguments.only]
+    if arguments.skill:
+        demos = [demo for demo in demos if demo.skill in arguments.skill]
     print(f"{len(demos)} experts -> {len(demos) * 2} videos")
 
     for demo in demos:

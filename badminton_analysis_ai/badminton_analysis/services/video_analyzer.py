@@ -10,6 +10,8 @@ from badminton_analysis.models.constants import (
     IMPACT_FRAME_SEARCH_WINDOW_BEFORE,
     IMPACT_FRAME_SEARCH_WINDOW_AFTER,
     ANALYSIS_WINDOW_PADDING_BEFORE,
+    SERVE_MINIMUM_FOLLOW_THROUGH,
+    SERVE_PEAK_DROP_RATIO,
 )
 
 
@@ -333,9 +335,65 @@ class VideoAnalyzer:
             end_frame,
             peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER,
         )
+        peak_frame = cls._serve_peak_with_follow_through(
+            hand_positions, start_frame=start_frame, peak_frame=peak_frame
+        )
+        end_frame = max(end_frame, peak_frame + SERVE_MINIMUM_FOLLOW_THROUGH)
         start_frame = max(0, peak_frame - ANALYSIS_WINDOW_PADDING_BEFORE)
         final_end_frame = min(len(hand_positions) - 1, end_frame)
         return int(start_frame), int(peak_frame), int(final_end_frame)
+
+    @classmethod
+    def _serve_peak_with_follow_through(
+        cls,
+        hand_positions: list[Coordinate],
+        *,
+        start_frame: int,
+        peak_frame: int,
+    ) -> int:
+        """A contact frame with room after it for the follow-through phases.
+
+        The five serve phases are cut from the window, and the last two sit
+        after contact. A contact frame at the very end of the footage leaves
+        nothing to cut them from: the phases come back equal, or so close
+        together that they collapse into one index when the clip is resampled.
+
+        When that happens the tail is discarded and the lowest-hand search is
+        repeated on the earlier half, halving again until a contact frame with
+        enough room turns up -- a learner who swings twice and stops recording
+        during the second is analysed on the first. The candidate must still
+        look like a stroke: a hand that never drops is a region with no serve
+        in it, and grading that is worse than saying so.
+        """
+        positions = np.asarray(hand_positions, dtype=np.float64)
+        last_frame = len(positions) - 1
+        if peak_frame + SERVE_MINIMUM_FOLLOW_THROUGH <= last_frame:
+            return int(peak_frame)
+
+        y_values = positions[:, 1]
+        drop = float(np.nanmax(y_values) - np.nanmin(y_values))
+        floor = float(np.nanmin(y_values)) + SERVE_PEAK_DROP_RATIO * drop
+
+        lower = int(max(0, start_frame))
+        upper = int(peak_frame)
+        while upper - lower >= SERVE_MINIMUM_FOLLOW_THROUGH:
+            candidate = lower + int(np.nanargmax(y_values[lower:upper]))
+            if (
+                candidate + SERVE_MINIMUM_FOLLOW_THROUGH <= last_frame
+                and drop > 0.0
+                and y_values[candidate] >= floor
+            ):
+                cls.logger.info(
+                    f"serve contact {peak_frame} left no follow-through before "
+                    f"frame {last_frame}; reselected {candidate}"
+                )
+                return int(candidate)
+            upper = lower + (upper - lower) // 2
+
+        raise ValueError(
+            "the serve is cut off: the recording ends during the swing, with no "
+            "follow-through to analyse"
+        )
 
     @classmethod
     def find_analysis_phases(

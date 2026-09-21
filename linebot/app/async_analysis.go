@@ -162,12 +162,15 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 		outcome, err = a.AnalysisClient.AnalyzeVideo(ctx, job.ID, job.UserID, "line-upload.mp4",
 			job.Skill, job.Handedness, video, job.Source == db.AnalysisSourceChat)
 	}
-	retry := err != nil && job.Attempts < 5 && time.Since(job.CreatedAt) < 24*time.Hour && !errors.Is(err, analysis.ErrSkillMismatch) && !errors.Is(err, analysis.ErrNoMatchingExpert) && status.Code(err) != codes.InvalidArgument && status.Code(err) != codes.FailedPrecondition
+	retry := err != nil && job.Attempts < 5 && time.Since(job.CreatedAt) < 24*time.Hour && !errors.Is(err, analysis.ErrSkillMismatch) && !errors.Is(err, analysis.ErrNoMatchingExpert) && !errors.Is(err, analysis.ErrStrokeCutOff) && status.Code(err) != codes.InvalidArgument && status.Code(err) != codes.FailedPrecondition
 	failure := ""
 	if err != nil {
 		failure = "分析未能完成，請稍後重新上傳或聯絡老師。"
 		if errors.Is(err, analysis.ErrSkillMismatch) {
 			failure = "影片動作與選擇的技術不符，請確認發球或殺球後重新上傳。"
+		}
+		if errors.Is(err, analysis.ErrStrokeCutOff) {
+			failure = "影片在揮拍過程中就結束了，請從準備姿勢開始錄，揮拍後再多錄一秒左右再停止，然後重新上傳。"
 		}
 		if errors.Is(err, analysis.ErrNoMatchingExpert) {
 			failure = "目前沒有同慣用手的專家影片可供比較，本次不會跨左右手評分。請聯絡教練新增同手別的專家資料。"

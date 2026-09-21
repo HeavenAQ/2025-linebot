@@ -700,3 +700,35 @@ def test_contact_retarget_preserves_expert_support_foot_world_path() -> None:
         reference_world_ankle[8:32],
         atol=1e-6,
     )
+
+
+def test_serve_stance_that_closes_loses_the_base_to_transfer_across() -> None:
+    kept = _pose()
+    closed = _pose()
+    # The ankles walk together over the stroke, as a learner does who steps
+    # into the serve instead of turning over a standing base.
+    closing = np.linspace(0.0, 0.8, 64, dtype=np.float32)
+    closed[:, 15, 0] += 0.25 * closing
+    closed[:, 16, 0] -= 0.25 * closing
+
+    assert _serve_qualitative_pose_evidence(kept)["stance_retention"] > 0.95
+    assert _serve_qualitative_pose_evidence(closed)["stance_retention"] < 0.6
+
+
+def test_serve_transfer_finished_before_the_swing_is_out_of_time() -> None:
+    together = _pose()
+    early = _pose()
+    # Rotate the hips and dominant chain in the first third, then swing the
+    # racket wrist only at the end: transfer done before the arm moves.
+    rocking = np.clip(np.linspace(0.0, 3.0, 64, dtype=np.float32), 0.0, 1.0)
+    swinging = np.clip(np.linspace(-2.0, 1.0, 64, dtype=np.float32), 0.0, 1.0)
+    for pose, chain in ((together, swinging), (early, rocking)):
+        pose[:, (11, 12, 13, 14), 0] += 0.4 * chain[:, None]
+        pose[:, 10, 0] += 0.9 * swinging
+        pose[:, 10, 1] -= 0.9 * swinging
+
+    synchrony = _serve_qualitative_pose_evidence(together)["transfer_swing_synchrony"]
+    early_synchrony = _serve_qualitative_pose_evidence(early)["transfer_swing_synchrony"]
+
+    assert synchrony == pytest.approx(1.0)
+    assert early_synchrony < 0.85

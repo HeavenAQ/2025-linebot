@@ -106,6 +106,26 @@ def _expand_display_confidence(
     return expanded
 
 
+def _place_in_window(
+    values: NDArray[np.floating], lead: int, span: int, total: int
+) -> NDArray[np.floating]:
+    """Put a model-space sequence back on the frames it was taken from.
+
+    The model sees a 64-frame sample cut from its own phase window, which is
+    usually shorter than the window being drawn. Stretching those frames across
+    the whole render window plays the stroke at the wrong speed and puts the
+    correction's contact somewhere the learner's contact is not. Resample onto
+    the span it came from, hold the end poses either side, and let the display
+    mask hide them.
+    """
+    placed = np.asarray(resample_sequence(values, span))
+    if span == total:
+        return placed
+    head = np.repeat(placed[:1], lead, axis=0)
+    tail = np.repeat(placed[-1:], total - lead - span, axis=0)
+    return np.concatenate([head, placed, tail], axis=0)
+
+
 def _complete_interpolated_display_confidence(
     confidence: NDArray[np.floating], reconstructed_confidence: float = 0.2
 ) -> NDArray[np.float32]:
@@ -521,10 +541,24 @@ def render_correction_video(
     raw_2d, raw_confidence = _prepare_detected_pose_for_render(tracking)
     if handedness == Handedness.LEFT:
         raw_2d, raw_confidence = _canonicalize_left(raw_2d, raw_confidence)
-    original_timeline = resample_sequence(original, window_frame_count)
-    corrected_timeline = resample_sequence(corrected, window_frame_count)
+    # The generated motion covers its own phase window, not the render window.
+    generated_start, generated_end = start, end
+    if generated_source_window is not None:
+        generated_start = min(max(int(generated_source_window[0]), start), end)
+        generated_end = min(max(int(generated_source_window[-1]), generated_start), end)
+    generated_lead = generated_start - start
+    generated_span = generated_end - generated_start + 1
+
+    original_timeline = _place_in_window(
+        original, generated_lead, generated_span, window_frame_count
+    )
+    corrected_timeline = _place_in_window(
+        corrected, generated_lead, generated_span, window_frame_count
+    )
     model_confidence = np.clip(
-        resample_sequence(confidence, window_frame_count), 0.0, 1.0
+        _place_in_window(confidence, generated_lead, generated_span, window_frame_count),
+        0.0,
+        1.0,
     )
     model_display_confidence = _expand_display_confidence(model_confidence)
     expanded_detected_confidence = _expand_display_confidence(raw_confidence)
@@ -534,21 +568,25 @@ def render_correction_video(
     detected_display_confidence = _complete_interpolated_display_confidence(
         expanded_detected_confidence
     )
-    original_root_values = resample_sequence(
+    original_root_values = _place_in_window(
         (
             np.zeros((target_frames, 2), dtype=np.float32)
             if original_root is None
             else np.asarray(original_root, dtype=np.float32)
         ),
+        generated_lead,
+        generated_span,
         window_frame_count,
     )
-    corrected_root_values = resample_sequence(
-        (
-            original_root_values
-            if corrected_root is None
-            else np.asarray(corrected_root, dtype=np.float32)
-        ),
-        window_frame_count,
+    corrected_root_values = (
+        original_root_values
+        if corrected_root is None
+        else _place_in_window(
+            np.asarray(corrected_root, dtype=np.float32),
+            generated_lead,
+            generated_span,
+            window_frame_count,
+        )
     )
     if original_root_values.shape != (
         window_frame_count,
@@ -571,10 +609,10 @@ def render_correction_video(
         fixed_corrected_pixels = projected_corrected_pixels
         fixed_display_masks = detected_display_confidence[start : end + 1].copy()
         if generated_source_window is not None:
-            # Show actual source evidence in the lead-in, not a fabricated
-            # generated pose. Tail continuation is explicitly display-only.
-            first_generated = generated_source_window[0] - start
-            fixed_display_masks[: max(0, first_generated)] = 0
+            # Show actual source evidence outside the generated window, not a
+            # fabricated pose held at either end of it.
+            fixed_display_masks[:generated_lead] = 0
+            fixed_display_masks[generated_lead + generated_span :] = 0
     else:
         # Fit each generated frame onto the detected skeleton, then apply one
         # clip-level ankle/knee/hip placement.
@@ -600,6 +638,11 @@ def render_correction_video(
                 )
             )
         fixed_display_masks = np.asarray(masks, dtype=np.float32)
+        if generated_source_window is not None:
+            # Outside the model's own window there is no generated pose, only
+            # the end one held in place; do not draw it.
+            fixed_display_masks[:generated_lead] = 0
+            fixed_display_masks[generated_lead + generated_span :] = 0
         fixed_corrected_pixels = _apply_fixed_hierarchical_placement(
             np.asarray(mapped, dtype=np.float32),
             raw_2d[start : end + 1],

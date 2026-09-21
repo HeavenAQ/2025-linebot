@@ -257,6 +257,7 @@ func (a *App) HandleAnalysisOutbox(w http.ResponseWriter, r *http.Request) {
 	}
 	docs, err := a.FirestoreClient.AnalysisJobs().Where("status", "==", "queued").Limit(100).Documents(r.Context()).GetAll()
 	if err != nil {
+		obs.Event(r.Context(), obs.Warning, "outbox unavailable", map[string]any{"error": err})
 		http.Error(w, "outbox unavailable", 503)
 		return
 	}
@@ -274,6 +275,9 @@ func (a *App) HandleAnalysisOutbox(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := a.AnalysisQueue.Enqueue(r.Context(), doc.Ref.ID); err != nil {
+			obs.Event(r.Context(), obs.Warning, "outbox publish failed", map[string]any{
+				"job_id": doc.Ref.ID, "error": err,
+			})
 			http.Error(w, "publish failed", 503)
 			return
 		}
@@ -289,6 +293,7 @@ func (a *App) HandleAnalysisWarmup(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	if err := a.AnalysisClient.Warmup(ctx); err != nil {
+		obs.Event(ctx, obs.Warning, "gpu warmup failed", map[string]any{"error": err})
 		http.Error(w, "GPU warmup failed", 503)
 		return
 	}

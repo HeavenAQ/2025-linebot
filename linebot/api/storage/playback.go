@@ -1,13 +1,16 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	gcs "cloud.google.com/go/storage"
 	"github.com/HeavenAQ/nstc-linebot-2025/commons"
+	"google.golang.org/api/googleapi"
 )
 
 // PlaybackURLTTL is how long a playback link stays valid. Long enough for a
@@ -71,6 +74,23 @@ func (c *BucketClient) SignPlaybackURLIn(bucketName, objectPath, serviceAccountE
 	return c.signObjectURL(bucketName, objectPath, serviceAccountEmail)
 }
 
+// Signing goes through the IAM signBytes API, which now and then answers 5xx.
+// A retry costs milliseconds; not retrying costs the learner their playback.
+const (
+	signAttempts     = 3
+	signRetryBackoff = 100 * time.Millisecond
+)
+
+// signRetryable tells a bad moment at the signing backend from a refusal: a
+// 5xx or a throttle is worth another try, a 401/403/404 never will be.
+func signRetryable(err error) bool {
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.Code >= 500 || apiErr.Code == http.StatusTooManyRequests
+}
+
 // Only callers that have validated their specific media path may use this.
 func (c *BucketClient) signObjectURL(bucketName, objectPath, serviceAccountEmail string) (commons.MediaRef, error) {
 	expires := time.Now().Add(PlaybackURLTTL)
@@ -88,7 +108,15 @@ func (c *BucketClient) signObjectURL(bucketName, objectPath, serviceAccountEmail
 	if trimmed := strings.TrimSpace(serviceAccountEmail); trimmed != "" {
 		opts.GoogleAccessID = trimmed
 	}
-	url, err := c.client.Bucket(bucketName).SignedURL(objectPath, opts)
+	var url string
+	var err error
+	for attempt := 0; attempt < signAttempts; attempt++ {
+		url, err = c.client.Bucket(bucketName).SignedURL(objectPath, opts)
+		if err == nil || !signRetryable(err) {
+			break
+		}
+		time.Sleep(time.Duration(attempt+1) * signRetryBackoff)
+	}
 	if err != nil {
 		return commons.MediaRef{}, fmt.Errorf("sign playback URL for %q: %w", objectPath, err)
 	}

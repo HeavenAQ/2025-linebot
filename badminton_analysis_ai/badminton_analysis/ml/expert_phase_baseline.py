@@ -665,6 +665,16 @@ def _serve_dominant_chain_angles(
     )
 
 
+def _serve_signal_onset(signal: NDArray[np.floating], fraction: float) -> float:
+    """First frame where a signal has travelled `fraction` of its own range."""
+    low = float(np.min(signal))
+    high = float(np.max(signal))
+    if high - low <= _EPS:
+        return float(len(signal) - 1)
+    crossed = np.flatnonzero(signal >= low + fraction * (high - low))
+    return float(crossed[0]) if len(crossed) else float(len(signal) - 1)
+
+
 def _serve_qualitative_pose_evidence(
     pose: NDArray[np.floating],
     root: NDArray[np.floating] | None = None,
@@ -768,6 +778,31 @@ def _serve_qualitative_pose_evidence(
     root_transfer = float(
         np.linalg.norm(completion_root - preparation_root) / preparation_torso
     )
+    # Transfer that is over before the arm moves is not transfer into the
+    # stroke: the learner rocks forward, waits, then swings. The lead is the
+    # gap between the dominant chain reaching half its excursion and the
+    # racket wrist reaching a third of its speed, as a fraction of the stroke.
+    wrist_speed = _smooth_trajectory(
+        np.concatenate(
+            [[0.0], np.linalg.norm(np.diff(values[:, 10], axis=0), axis=-1)]
+        )[:, None]
+    )[:, 0]
+    transfer_lead = max(
+        0.0,
+        (
+            _serve_signal_onset(wrist_speed, 0.3)
+            - _serve_signal_onset(chain_excursion, 0.5)
+        )
+        / len(values),
+    )
+    transfer_swing_synchrony = 1.0 / (1.0 + transfer_lead)
+    # A learner who brings the ankles together has no base to transfer across,
+    # and a step reads as transfer to the chain cues. The stance that survives
+    # the stroke is measured against the one it started from, so the expert
+    # floor rejects a stance that closes.
+    stance_retention = float(
+        np.min(stance_width[preparation_start:completion_end])
+    ) / max(preparation_stance, _EPS)
     return {
         "simultaneous_arm_elevation": arms_raised,
         "preparation_stance_width": preparation_stance,
@@ -778,6 +813,8 @@ def _serve_qualitative_pose_evidence(
         "transfer_rotation_correlation": transfer_rotation_correlation,
         "coordinated_hip_rotation": coordinated_hip_rotation,
         "root_transfer_distance": root_transfer,
+        "stance_retention": stance_retention,
+        "transfer_swing_synchrony": transfer_swing_synchrony,
     }
 
 
@@ -1225,6 +1262,8 @@ def _serve_semantic_evidence(
                     motion["pelvis_loading_shift"],
                     motion["root_transfer_distance"],
                     motion["coordinated_hip_rotation"],
+                    motion["stance_retention"],
+                    motion["transfer_swing_synchrony"],
                 ),
                 dtype=np.float64,
             ),
@@ -1234,6 +1273,8 @@ def _serve_semantic_evidence(
                 "pelvis_loading_shift",
                 "root_transfer_distance",
                 "coordinated_hip_rotation",
+                "stance_retention",
+                "transfer_swing_synchrony",
             ),
             # The dominant-side joint angles carry the decision: invariant to
             # translation, scale and in-plane rotation. Pelvis loading is a
@@ -1241,7 +1282,7 @@ def _serve_semantic_evidence(
             # weight transfer. Root translation is excluded -- monocular
             # perspective distorts it -- and used only as an alternative cue
             # below, when the joint chain independently agrees.
-            np.asarray((2.5, 1.5, 0.5, 0.0, 0.0), dtype=np.float64),
+            np.asarray((2.5, 1.5, 0.5, 0.0, 0.0, 1.0, 1.0), dtype=np.float64),
         )
     if rule_id == "hip_rotation":
         rotation = _serve_projected_rotation_features(pose, confidence)
@@ -1499,7 +1540,11 @@ def _serve_expert_envelope_components(
             )
         )
         support_distance = float(np.min(deficiency[2:5]))
-        distance = float(max(chain_distance, support_distance))
+        # A stance that closes leaves nothing to transfer across, and a
+        # transfer finished before the swing never entered the stroke. Either
+        # one decides on its own, however well the chain cues read.
+        timing_distance = float(np.max(deficiency[5:7]))
+        distance = float(max(chain_distance, support_distance, timing_distance))
         aggregation = "dominant_chain_with_pelvis_or_root_support"
     elif rule_id == "hip_rotation":
         # Axial rotation changes apparent hip width, shoulder width, hip-axis

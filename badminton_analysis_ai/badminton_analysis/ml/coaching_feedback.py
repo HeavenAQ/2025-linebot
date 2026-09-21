@@ -557,4 +557,9 @@ def system_instructions(spec: SkillCorrectionSpec) -> str:
 雙手平衡需特別檢查非慣用手已抬起、慣用手仍偏低的早期持續片段。必須分清慣用手與非慣用手，不可把慣用手偏低改寫為非慣用手偏低，也不可用之後正常的一幀推翻前段不足。
 隨揮沿用最佳終點與起終肩寬比較，不加入未採用的幀平均或後續回退扣分。
 分數是系統量測，不是動作缺失的直接證明。若full_interval_visible為false、指定影像不足或量測標為無法評估，請明示限制，不能宣稱完整審閱所有區間；給出檢查建議，不能捏造左右側、角度數值或未看見的缺失。"""
+    if spec.skill == Skill.SERVE:
+        instructions += """
+重心轉移另有兩種常見錯誤，一律以criteria中的量測判斷，量測為0時不得宣稱該錯誤：
+standardized_shortfall_stance_retention大於0代表兩腳踝距離在動作中明顯縮小（併腳或向前跨步），沒有可轉移的底盤；請提醒維持起始步幅，擊球前後不要移動腳步。
+standardized_shortfall_transfer_swing_synchrony大於0代表重心在揮拍開始前就已轉移完畢；請提醒重心轉移要隨揮拍一起發生，不是先移重心再揮拍。"""
     return instructions

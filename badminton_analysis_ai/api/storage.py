@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import mimetypes
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import google.auth
+from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request
 from google.cloud import storage
+
+# Signing goes through the IAM signBytes API, which answers 5xx now and then.
+# Without a retry that blip throws away an analysis the GPU has already run.
+SIGN_ATTEMPTS = 3
+SIGN_RETRY_SECONDS = 0.2
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,17 @@ class ObjectStorage:
         return SignedObject(
             object_path=object_path,
             gcs_uri=f"gs://{self.bucket_name}/{object_path}",
-            signed_url=blob.generate_signed_url(**kwargs),
+            signed_url=self._signed_url(blob, kwargs),
             expires_at_unix=int(expires_at.timestamp()),
         )
+
+    @staticmethod
+    def _signed_url(blob: storage.Blob, kwargs: dict[str, object]) -> str:
+        for attempt in range(SIGN_ATTEMPTS):
+            try:
+                return blob.generate_signed_url(**kwargs)
+            except TransportError:
+                if attempt == SIGN_ATTEMPTS - 1:
+                    raise
+                time.sleep(SIGN_RETRY_SECONDS * (attempt + 1))
+        raise AssertionError("unreachable")

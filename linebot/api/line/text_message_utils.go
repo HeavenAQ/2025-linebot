@@ -3,6 +3,7 @@ package line
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/HeavenAQ/nstc-linebot-2025/api/db"
 	"github.com/HeavenAQ/nstc-linebot-2025/api/storage"
@@ -39,20 +40,33 @@ func (client *Client) SendWelcomeReply(event *linebot.Event) (*linebot.BasicResp
 // client that skipped the menu can all still ask for one, and a generic error
 // would leave the student retrying something that will never work.
 func (client *Client) SendUnsupportedSkillReply(replyToken string, skill string) (*linebot.BasicResponse, error) {
+	return client.SendReply(replyToken, unsupportedSkillMessage(skill))
+}
+
+func unsupportedSkillMessage(skill string) string {
+	// No skill at all means the learner never chose one -- a video sent
+	// straight to the bot, or a session reset behind them. Telling them a
+	// stroke is closed would send them looking for a stroke they never picked.
+	if strings.TrimSpace(skill) == "" {
+		return fmt.Sprintf(
+			"請先從選單的【動作分析】選擇 %v，再上傳影片。",
+			db.SupportedSkillsChnString(),
+		)
+	}
 	// A payload old or malformed enough that we cannot even name the skill
 	// still gets an answer that tells the student what to do next.
 	parsed := db.SkillStrToEnum(skill)
 	if !parsed.Valid() {
-		return client.SendReply(replyToken, fmt.Sprintf(
+		return fmt.Sprintf(
 			"這個動作本學期未開放，請改選 %v。",
 			db.SupportedSkillsChnString(),
-		))
+		)
 	}
-	return client.SendReply(replyToken, fmt.Sprintf(
+	return fmt.Sprintf(
 		"【%v】本學期未開放，請改選 %v。",
 		parsed.ChnString(),
 		db.SupportedSkillsChnString(),
-	))
+	)
 }
 
 // SendRegistrationLink invites a learner to register on the dashboard. The

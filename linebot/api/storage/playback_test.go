@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 )
 
 func playbackClient(t *testing.T) (*BucketClient, *fakeBucket) {
@@ -92,4 +93,33 @@ func TestSignPlaybackURLOmitsAnEmptyServiceAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, media.SignedURL, "as=")
 	require.NotContains(t, media.SignedURL, "as=  ")
+}
+
+// The IAM signBytes API answers 5xx now and then. A learner opening a video
+// should not see that blip, so the signer tries again.
+func TestSignPlaybackURLRetriesATransientSignerFailure(t *testing.T) {
+	t.Parallel()
+
+	client, bucket := playbackClient(t)
+	bucket.signErr = &googleapi.Error{Code: 502, Message: "backend error"}
+	bucket.signErrTimes = 1
+
+	media, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
+
+	require.NoError(t, err)
+	require.Contains(t, media.SignedURL, "student_corrected.mp4")
+	require.Len(t, bucket.signed, 2)
+}
+
+// A refusal is not a blip: retrying it only delays the error.
+func TestSignPlaybackURLDoesNotRetryARefusal(t *testing.T) {
+	t.Parallel()
+
+	client, bucket := playbackClient(t)
+	bucket.signErr = &googleapi.Error{Code: 403, Message: "permission denied"}
+
+	_, err := client.SignPlaybackURLIn("", "analyses/v1/U1/r/student_corrected.mp4", "svc@x.iam")
+
+	require.ErrorContains(t, err, "permission denied")
+	require.Len(t, bucket.signed, 1)
 }

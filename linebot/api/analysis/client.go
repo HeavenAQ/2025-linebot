@@ -33,6 +33,10 @@ func (c *Client) Warmup(ctx context.Context) error {
 var ErrNoMatchingExpert = errors.New("no same-handed expert is available")
 var ErrSkillMismatch = errors.New("requested badminton skill conflicts with the observed motion")
 
+// ErrStrokeCutOff is a recording that stops during the swing, leaving no
+// follow-through to grade. Re-recording fixes it, so the learner is told how.
+var ErrStrokeCutOff = errors.New("the recording ends during the stroke")
+
 type Client struct {
 	connection   *grpc.ClientConn
 	service      analysisv1.BadmintonAnalysisClient
@@ -203,6 +207,10 @@ func (c *Client) AnalyzeVideo(
 		if status.Code(err) == codes.InvalidArgument &&
 			strings.Contains(status.Convert(err).Message(), "conflicts with") {
 			return nil, fmt.Errorf("%w: %s", ErrSkillMismatch, status.Convert(err).Message())
+		}
+		if status.Code(err) == codes.FailedPrecondition &&
+			strings.Contains(status.Convert(err).Message(), "cut off") {
+			return nil, fmt.Errorf("%w: %s", ErrStrokeCutOff, status.Convert(err).Message())
 		}
 		return nil, fmt.Errorf("receive analysis: %w", err)
 	}

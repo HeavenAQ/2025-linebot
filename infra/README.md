@@ -11,6 +11,7 @@ that true on paper as well as in practice.
 | --- | --- |
 | The service account and its roles | Secret **values** (added with `gcloud`; a value in Terraform is a value in state) |
 | The learner bucket, the default Firestore database | Collections and documents — the bot owns those |
+| — it holds **both** products' rendered analyses, since the shared GPU service writes to its own bucket and separates deployments by storage prefix | — |
 | Cloud Run services: the bot, the GPU analysis service, the validation site | Their images, environment and machine shape — GitHub Actions deploys revisions |
 | The analysis queue and every scheduled job | LINE channels, the LIFF apps, Netlify |
 | Artifact Registry, and the recipe that builds the engine image (`cloudbuild/engine-bootstrap.yaml`) | The engine itself — built by running the job, not by an apply |

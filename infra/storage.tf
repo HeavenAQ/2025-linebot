@@ -1,7 +1,10 @@
-# The LLM product's learner media. The no-LLM variant has its own bucket,
-# declared on its own branch, so a mistake in one cannot touch the other's
-# recordings. Private: everything is served through V4 signed URLs minted by
-# the Go backend.
+# Learner media. This bucket holds the LLM product's uploads AND every
+# product's rendered analyses: the GPU service is shared, writes to its own
+# bucket, and separates deployments by the storage_prefix each request carries
+# (`noai/` for the variant). The variant's own bucket, declared on its branch,
+# holds its uploads and thumbnails only -- so the two are separated by prefix
+# here, not by bucket. Private either way: every read is a V4 signed URL minted
+# by the Go backend.
 resource "google_storage_bucket" "learner_media" {
   project       = var.project_id
   name          = "nstc-2025-storage"

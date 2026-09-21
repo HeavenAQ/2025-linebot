@@ -137,6 +137,14 @@ func (app *App) CoachingTools(userID string) []gpt.Tool {
 				if err != nil {
 					return "", err
 				}
+				// Zeroes would read as a class that scores nothing.
+				if standing.Classmates == 0 {
+					return encode(map[string]any{
+						"skill":      standing.Skill,
+						"classmates": 0,
+						"note":       "no classmate has a graded attempt at this stroke yet, so there is nothing to compare against",
+					})
+				}
 				return encode(standing)
 			},
 		},
@@ -154,6 +162,12 @@ func (app *App) CoachingTools(userID string) []gpt.Tool {
 				best, err := app.FirestoreClient.ClassBestAttemptFor(ctx, args.Skill)
 				if err != nil {
 					return "", err
+				}
+				if len(best.Criteria) == 0 {
+					return encode(map[string]any{
+						"skill": best.Skill,
+						"note":  "no graded attempt at this stroke yet, so there is no class best to compare against",
+					})
 				}
 				return encode(best)
 			},

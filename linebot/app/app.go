@@ -74,6 +74,7 @@ func NewApp(configPath string) *App {
 	if err != nil {
 		panic(err)
 	}
+	firestoreClient.ExcludeFromClassFigures(cfg.ExcludedLearnerIDs())
 
 	// Set up Cloud Storage client
 	storageClient, err := storage.NewBucketClient(

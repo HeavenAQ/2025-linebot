@@ -108,6 +108,9 @@ func (c *FirestoreClient) RebuildClassStats(ctx context.Context) (int, error) {
 		if err := doc.DataTo(&user); err != nil {
 			continue // one malformed document must not block the rest
 		}
+		if !c.CountsTowardClass(user.ID) {
+			continue
+		}
 		for _, skill := range SkillOrder {
 			for key, work := range user.Portfolio.GetSkillPortfolio(skill) {
 				if work.AnalysisStatus != "" && work.AnalysisStatus != "completed" {

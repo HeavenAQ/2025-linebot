@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"strings"
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
@@ -17,6 +18,28 @@ type FirestoreClient struct {
 	WeeklyPreviews *firestore.CollectionRef
 	// WeeklyReflections holds what learners write in the LIFF review tab.
 	WeeklyReflections *firestore.CollectionRef
+	// excludedLearners are accounts whose attempts must not reach the class
+	// figures: the instructor's and the developer's own test uploads, which are
+	// real documents in the same collection as the students'.
+	excludedLearners map[string]bool
+}
+
+// ExcludeFromClassFigures keeps the listed learners out of every class
+// aggregate, standing and best attempt. Their own portfolios are untouched.
+func (c *FirestoreClient) ExcludeFromClassFigures(userIDs []string) {
+	excluded := make(map[string]bool, len(userIDs))
+	for _, id := range userIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			excluded[id] = true
+		}
+	}
+	c.excludedLearners = excluded
+}
+
+// CountsTowardClass reports whether a learner's attempts belong in the class
+// figures.
+func (c *FirestoreClient) CountsTowardClass(userID string) bool {
+	return !c.excludedLearners[userID]
 }
 
 func NewFirestoreClient(projectID string, dataCollection string, sessionCollection string) (*FirestoreClient, error) {

@@ -87,6 +87,27 @@ type Config struct {
 	GCP            GCPConfig
 	AnalysisServer AnalysisServerConfig
 	Liff           LiffConfig
+	Class          ClassConfig
+}
+
+// ClassConfig names the accounts whose uploads are tests rather than
+// coursework -- the instructor's and the developer's -- so the class figures
+// describe the students.
+type ClassConfig struct {
+	ExcludedUserIDs string `env:"CLASS_STATS_EXCLUDED_USER_IDS"`
+}
+
+// ExcludedLearnerIDs are the LINE user IDs kept out of every class figure.
+// They live in the environment, not here, because they identify real people.
+func (c *Config) ExcludedLearnerIDs() []string {
+	raw := strings.Split(c.Class.ExcludedUserIDs, ",")
+	ids := make([]string, 0, len(raw))
+	for _, id := range raw {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (c *Config) isConfigEmpty() bool {

@@ -119,6 +119,9 @@ func (client *FirestoreClient) listUsers(ctx context.Context) ([]UserData, error
 		if err := doc.DataTo(&user); err != nil {
 			continue // one malformed document must not hide the whole class
 		}
+		if !client.CountsTowardClass(user.ID) {
+			continue
+		}
 		users = append(users, user)
 	}
 	return users, nil

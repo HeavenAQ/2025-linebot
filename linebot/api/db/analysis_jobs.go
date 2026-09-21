@@ -113,7 +113,7 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		// so a retried finish can never count it twice.
 		var statRef *firestore.DocumentRef
 		var stat ClassStat
-		if outcome != nil {
+		if outcome != nil && c.CountsTowardClass(job.UserID) {
 			day, err := workDay(job.WorkDate)
 			if err != nil {
 				return err
@@ -137,10 +137,14 @@ func (c *FirestoreClient) FinishAnalysisJob(ctx context.Context, job AnalysisJob
 		}
 		values := map[string]any{"analysis_status": state, "analysis_error": failure}
 		if outcome != nil {
-			stat.Add(outcome.Grade.TotalGrade)
-			stat.UpdatedAt = time.Now()
-			if err := tx.Set(statRef, stat); err != nil {
-				return err
+			// statRef is nil for a learner kept out of the class figures; their
+			// portfolio still records the attempt in full.
+			if statRef != nil {
+				stat.Add(outcome.Grade.TotalGrade)
+				stat.UpdatedAt = time.Now()
+				if err := tx.Set(statRef, stat); err != nil {
+					return err
+				}
 			}
 			values["analysis_id"] = outcome.AnalysisID
 			values["grading_outcome"] = outcome.Grade

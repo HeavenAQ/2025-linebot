@@ -71,13 +71,17 @@ const ClassProgressChart = () => {
   }, [profile?.userId, selectedSkill])
 
   const chartData = useMemo(() => {
-    // Use backend-provided dates. Prefer class dates as base timeline.
-    const baseDatesRaw =
-      (classStatsByDate && Object.keys(classStatsByDate)) ||
-      (personalStatsByDate && Object.keys(personalStatsByDate)) ||
-      []
-    // Sort ascending (YYYY-MM-DD sorts chronologically) and take the latest 6
-    const dates = baseDatesRaw.sort().slice(-6)
+    // Every date either side has, so a learner still sees their own line on a
+    // skill the class has not attempted yet. Sorted ascending (YYYY-MM-DD
+    // sorts chronologically), latest 6.
+    const dates = Array.from(
+      new Set([
+        ...Object.keys(classStatsByDate ?? {}),
+        ...Object.keys(personalStatsByDate ?? {})
+      ])
+    )
+      .sort()
+      .slice(-6)
     return dates.map(date => ({
       date,
       classTotalGrade:

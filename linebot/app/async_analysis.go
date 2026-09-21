@@ -170,7 +170,7 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 			failure = "影片動作與選擇的技術不符，請確認發球或殺球後重新上傳。"
 		}
 		if errors.Is(err, analysis.ErrStrokeCutOff) {
-			failure = "影片在揮拍過程中就結束了，請從準備姿勢開始錄，揮拍後再多錄一秒左右再停止，然後重新上傳。"
+			failure = "揮拍結束後請保持姿勢，不要甩手或再揮動球拍，等動作完全停下來再結束錄影，然後重新上傳。"
 		}
 		if errors.Is(err, analysis.ErrNoMatchingExpert) {
 			failure = "目前沒有同慣用手的專家影片可供比較，本次不會跨左右手評分。請聯絡教練新增同手別的專家資料。"

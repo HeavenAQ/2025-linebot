@@ -391,8 +391,9 @@ class VideoAnalyzer:
             upper = lower + (upper - lower) // 2
 
         raise ValueError(
-            "the serve is cut off: the recording ends during the swing, with no "
-            "follow-through to analyse"
+            "the serve is cut off: the strongest arm movement is at the end of "
+            "the recording, with no follow-through after it -- the clip stops "
+            "during the swing, or a shake after the stroke outran it"
         )
 
     @classmethod

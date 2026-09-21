@@ -38,6 +38,7 @@ type fakeBucket struct {
 	signed        []string
 	signedOptions []*gcs.SignedURLOptions
 	signErr       error
+	signErrTimes  int // 0 means signErr is permanent, N means only the first N calls fail
 	listed        []string
 	listErr       error
 }
@@ -65,7 +66,7 @@ func (b *fakeBucket) Object(name string) ObjectHandle {
 func (b *fakeBucket) SignedURL(object string, opts *gcs.SignedURLOptions) (string, error) {
 	b.signed = append(b.signed, object)
 	b.signedOptions = append(b.signedOptions, opts)
-	if b.signErr != nil {
+	if b.signErr != nil && (b.signErrTimes == 0 || len(b.signed) <= b.signErrTimes) {
 		return "", b.signErr
 	}
 	return fmt.Sprintf("https://signed.test/%s/%s?exp=%d&as=%s",

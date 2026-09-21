@@ -182,6 +182,7 @@ jobs:
             --use-http2 \
             --service-account ${{ secrets.GCP_SA_EMAIL }} \
             --execution-environment gen2 \
+            --gpu 1 \
             --gpu-type nvidia-l4 \
             --cpu 4 \
             --memory 16Gi \

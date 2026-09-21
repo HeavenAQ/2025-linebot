@@ -23,16 +23,7 @@ func (app *App) sendPortfolio(
 	if err != nil {
 		return fmt.Errorf("load weekly notes for portfolio: %w", err)
 	}
-	display := db.WithWeeklyReflectionNotes(user, weekly)
-	// Sign a presentation copy, never persist expiring links in Firestore.
-	portfolio := display.Portfolio.GetSkillPortfolio(skill.String())
-	failures := signPortfolioThumbnails(portfolio, app.LineBot.PortfolioWorksForDisplay(portfolio),
-		func(value string) (commons.MediaRef, error) {
-			return app.StorageClient.SignThumbnailURL(value, app.Config.GCP.ServiceAccountEmail)
-		})
-	if len(failures) > 0 {
-		app.Logger.Warn.Printf("portfolio reply omitting %d unavailable thumbnails", len(failures))
-	}
+	display := app.displayPortfolio(user, weekly, skill)
 	return app.LineBot.SendPortfolio(
 		event,
 		display,
@@ -41,6 +32,21 @@ func (app *App) sendPortfolio(
 		textMsg,
 		showBtns,
 	)
+}
+
+// displayPortfolio signs a presentation copy; expiring links are never
+// persisted in Firestore.
+func (app *App) displayPortfolio(user *db.UserData, weekly map[string]db.WeeklyReflection, skill db.BadmintonSkill) *db.UserData {
+	display := db.WithWeeklyReflectionNotes(user, weekly)
+	portfolio := display.Portfolio.GetSkillPortfolio(skill.String())
+	failures := signPortfolioThumbnails(portfolio, app.LineBot.PortfolioWorksForDisplay(portfolio),
+		func(value string) (commons.MediaRef, error) {
+			return app.StorageClient.SignThumbnailURL(value, app.Config.GCP.ServiceAccountEmail)
+		})
+	if len(failures) > 0 {
+		app.Logger.Warn.Printf("portfolio reply omitting %d unavailable thumbnails", len(failures))
+	}
+	return display
 }
 
 // Mutates only the presentation copy. One bad image must not prevent the

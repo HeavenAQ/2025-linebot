@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 6.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
   # Same bucket as the LLM product, different prefix: one project, two

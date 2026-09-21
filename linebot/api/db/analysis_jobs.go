@@ -32,6 +32,12 @@ type AnalysisJob struct {
 	Attempts    int       `firestore:"attempts"`
 	CreatedAt   time.Time `firestore:"created_at"`
 	LeaseUntil  time.Time `firestore:"lease_until"`
+	// Source is always an upload on this branch; the field exists so the worker
+	// reads the same record shape as the LLM product.
+	Source string `firestore:"source"`
+	// ReplyToken is the upload's own token, held so the finished analysis
+	// answers the video rather than a card telling the learner to come back.
+	ReplyToken string `firestore:"reply_token"`
 }
 
 func (c *FirestoreClient) AnalysisJobs() *firestore.CollectionRef {

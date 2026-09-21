@@ -69,6 +69,7 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 			// and the expert demonstrations both read it from one place.
 			ID: id, UserID: user.ID, Skill: session.Skill, Handedness: user.Handedness.String(),
 			WorkDate: key, InputObject: input, Thumbnail: uploaded.Path, Status: "queued", CreatedAt: now,
+			Source: db.AnalysisSourceUpload, ReplyToken: replyToken,
 		})
 		if err != nil {
 			a.handleVideoAnalysisError(err, replyToken)
@@ -88,14 +89,43 @@ func (a *App) enqueueVideoAnalysis(event *line.Event, session *db.UserSession, u
 	if err := a.FirestoreClient.ResetSession(user.ID); err != nil {
 		a.Logger.Warn.Println("reset upload session:", err)
 	}
-	updated, err := a.FirestoreClient.GetUserData(user.ID)
+	// No card yet: the reply token is held for the finished analysis, and the
+	// typing indicator is re-armed here because uploading the video has already
+	// spent part of the window opened when the message arrived.
+	a.showLoading(user.ID)
+}
+
+// analysisResultMessage is what the learner reads, and whether the card keeps
+// its buttons: a failure explains itself and offers nothing to tap.
+func analysisResultMessage(failure string) (string, bool) {
+	if failure != "" {
+		return failure, false
+	}
+	return "分析完成，這是你的學習歷程。", true
+}
+
+// deliverAnalysisResult tells the learner how their upload was graded, on the
+// reply token their video came in on. An analysis that outlived that token --
+// a few in a hundred -- costs a push instead of silence.
+func (a *App) deliverAnalysisResult(job db.AnalysisJob, failure string) {
+	user, err := a.FirestoreClient.GetUserData(job.UserID)
 	if err != nil {
-		a.handleVideoAnalysisError(err, replyToken)
+		a.Logger.Error.Printf("read learner for analysis result job=%s: %v", job.ID, err)
 		return
 	}
-	if err := a.sendPortfolio(event, updated, db.SkillStrToEnum(job.Skill), session.UserState,
-		"影片已收到並加入學習歷程，正在分析中。稍後點擊查看結果，無需重新上傳。", true); err != nil {
-		a.Logger.Error.Printf("send pending analysis portfolio: %v", err)
+	skill := db.SkillStrToEnum(job.Skill)
+	text, showBtns := analysisResultMessage(failure)
+	weekly, err := a.FirestoreClient.ListWeeklyReflections(job.UserID)
+	if err != nil {
+		a.Logger.Warn.Printf("load weekly notes for analysis result job=%s: %v", job.ID, err)
+	}
+	display := a.displayPortfolio(user, weekly, skill)
+
+	if replyErr := a.LineBot.ReplyAnalysisResult(job.ReplyToken, display, skill, text, showBtns); replyErr != nil {
+		a.Logger.Warn.Printf("analysis reply token spent job=%s: %v", job.ID, replyErr)
+		if pushErr := a.LineBot.PushAnalysisResult(job.UserID, display, skill, text, showBtns); pushErr != nil {
+			a.Logger.Error.Printf("push analysis result job=%s: %v", job.ID, pushErr)
+		}
 	}
 }
 
@@ -189,6 +219,9 @@ func (a *App) HandleAnalysisTask(w http.ResponseWriter, r *http.Request) {
 	if retry {
 		http.Error(w, "retry analysis", 503)
 		return
+	}
+	if job.Source == db.AnalysisSourceUpload && job.ReplyToken != "" {
+		a.deliverAnalysisResult(job, failure)
 	}
 	w.WriteHeader(204)
 }

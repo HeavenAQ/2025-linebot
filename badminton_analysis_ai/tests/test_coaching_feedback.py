@@ -17,6 +17,7 @@ from badminton_analysis.ml.coaching_feedback import (
     prompt_context,
     build_response_input,
     sample_video_frames,
+    system_instructions,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Skill
@@ -222,3 +223,13 @@ def test_smash_display_anchors_match_semantic_phases() -> None:
         for anchor_index in rule.allowed_anchor_indices:
             frame = phases[anchor_index]
             assert phase_for_frame(frame, phases, spec) == rule.phase
+
+
+def test_serve_instructions_name_the_two_transfer_error_modes() -> None:
+    serve = system_instructions(get_skill_spec(Skill.SERVE))
+    smash = system_instructions(get_skill_spec(Skill.SMASH))
+
+    assert "standardized_shortfall_stance_retention" in serve
+    assert "standardized_shortfall_transfer_swing_synchrony" in serve
+    assert "量測為0時不得宣稱該錯誤" in serve
+    assert "stance_retention" not in smash

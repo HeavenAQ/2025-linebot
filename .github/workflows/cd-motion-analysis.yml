@@ -16,6 +16,13 @@
 # job's retries and deadline absorb.
 name: Motion Analysis Service CD
 
+# The region holds two 16 GiB GPU revisions and no more, and a deploy needs
+# both slots (serving + candidate). A second run starting before the first
+# promotes is refused by quota, which strands the first run's candidate.
+concurrency:
+  group: motion-analysis-cd
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
@@ -115,6 +122,39 @@ jobs:
           done
           echo "build ${build_id} still running after 60 minutes" >&2
           exit 1
+
+      - name: Clear revisions left by an earlier run
+        run: |
+          # A revision that failed to start, or a candidate whose promote was
+          # refused, still holds its 16 GiB, and the region fits two. Left in
+          # place it refuses this deploy for the same reason, so the slot is
+          # reclaimed first. A tagged revision cannot be deleted, so the tag
+          # goes first.
+          serving="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 \
+            --format='value(status.traffic[0].revisionName)')"
+          echo "serving revision: ${serving}"
+          stale_tags="$(gcloud run services describe badminton-analysis-ai \
+            --region asia-southeast1 --format=json | jq -r \
+            --arg serving "${serving}" \
+            '.status.traffic[]? | select(.tag != null and .revisionName != $serving) | .tag')"
+          for tag in ${stale_tags}; do
+            echo "removing stale tag ${tag}"
+            gcloud run services update-traffic badminton-analysis-ai \
+              --region asia-southeast1 --remove-tags "${tag}" \
+              || echo "could not remove tag ${tag}"
+          done
+          for revision in $(gcloud run revisions list \
+            --service badminton-analysis-ai --region asia-southeast1 \
+            --format='value(metadata.name)'); do
+            if [[ "${revision}" == "${serving}" ]]; then
+              continue
+            fi
+            echo "removing stale revision ${revision}"
+            gcloud run revisions delete "${revision}" \
+              --region asia-southeast1 --quiet \
+              || echo "could not delete ${revision}; this deploy may be refused for quota"
+          done
 
       - name: Deploy gRPC analysis service
         run: |

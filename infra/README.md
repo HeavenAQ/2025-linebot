@@ -12,12 +12,16 @@ true on paper as well as in practice.
 | The bot service `nstc-linebot-2025-noai` | The service account and its roles |
 | The queue `analysis-no-llm` | The GPU analysis service and its class-time warm-up |
 | `analysis-no-llm-outbox`, `class-stats-no-llm-rebuild` | Artifact Registry and the engine-builder job |
-| The bucket `nstc-2025-storage-noai` | The shared secrets (`analysis-grpc-api-key`, `openai-api-key`) |
+| The bucket `nstc-2025-storage-noai` (uploads and thumbnails only) | The shared secrets (`analysis-grpc-api-key`, `openai-api-key`) |
 | The Firestore database `nstc-linebot-noai` | The log-based metrics (project-wide, labelled by service) |
 | The secret `2025-linebot-noai-env` | Enabled APIs |
 
 Anything in the right-hand column is read here through a `data` block, never
 declared, so the two configurations cannot fight over it.
+
+Rendered analyses do not land in that bucket: the shared GPU service writes to
+the LLM product's bucket under this variant's `noai/` storage prefix, which is
+what keeps the two deployments' outputs apart.
 
 The GPU service is shared safely because coaching — the only stage that sends
 anything to a third party — is switched off per request by this deployment.

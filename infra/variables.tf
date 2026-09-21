@@ -74,3 +74,15 @@ variable "create_engine_builder_job" {
   type        = bool
   default     = false
 }
+
+# Who receives the weekly class report, and whose attempts it leaves out. Both
+# are LINE user IDs, so they live in terraform.tfvars rather than here.
+variable "class_report_recipients" {
+  description = "LINE user IDs the weekly class report is pushed to, comma separated."
+  type        = string
+}
+
+variable "class_stats_excluded_user_ids" {
+  description = "LINE user IDs whose attempts never count toward class figures."
+  type        = string
+}

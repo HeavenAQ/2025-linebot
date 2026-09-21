@@ -67,7 +67,16 @@ func (app *App) handleUserState(event *linebot.Event, user *db.UserData, session
 		return
 	}
 
-	// 5. Route by user state
+	// 5. A typed message carries no postback payload. A step that is waiting
+	// for a button tap would read that as malformed data and answer with an
+	// error, so say what to do instead.
+	if rawData == "" && awaitingButtonTap(session) {
+		_, err := app.LineBot.SendDefaultReply(replyToken)
+		handleLineMessageResponseError(err)
+		return
+	}
+
+	// 6. Route by user state
 	switch session.UserState {
 	case db.WritingNotes:
 		app.handleWritingNotes(event, rawData, user, session, replyToken)
@@ -526,6 +535,21 @@ func getPostbackData(event *linebot.Event) string {
 		return event.Postback.Data
 	}
 	return ""
+}
+
+// awaitingButtonTap reports whether the session's next move must come from a
+// card button rather than from typed text.
+func awaitingButtonTap(session *db.UserSession) bool {
+	switch session.UserState {
+	case db.ViewingPortfoilo:
+		return true
+	case db.WritingNotes:
+		return session.ActionStep == db.SelectingSkill || session.ActionStep == db.SelectingPortfolio
+	case db.ChattingWithGPT, db.ViewingExpertVideos, db.AnalyzingVideo:
+		return session.ActionStep == db.SelectingSkill
+	default:
+		return false
+	}
 }
 
 func isMenuSwitchEvent(data string) bool {

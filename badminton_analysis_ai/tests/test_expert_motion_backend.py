@@ -266,3 +266,45 @@ def test_smash_runtime_score_preserves_total_and_rubric_caps(
     assert result["total_score"] == pytest.approx(72.5)
     assert sum(item["score"] for item in result["criteria"]) == pytest.approx(72.5)
     assert all(0.0 <= item["score"] <= item["maximum"] for item in result["criteria"])
+
+
+def test_serve_each_checkpoint_grade_depends_on_its_own_evidence_only() -> None:
+    ids = (
+        "arms_raised",
+        "racket_foot_weight",
+        "weight_transfer",
+        "hip_rotation",
+        "wrist_flick",
+        "shoulder_rotation",
+    )
+    maxima = (5.0, 5.0, 30.0, 10.0, 30.0, 20.0)
+
+    def graded(ratios: tuple[float, ...]) -> dict[str, float]:
+        criteria = [
+            {
+                "rule_reference": rule,
+                "score": maximum * ratio,
+                "maximum": maximum,
+                "raw_checkpoint_ratio": ratio,
+            }
+            for rule, maximum, ratio in zip(ids, maxima, ratios, strict=True)
+        ]
+        result = _serve_single_head_score({"criteria": criteria, "checklist_total_score": 37.0})
+        grades = {item["rule_reference"]: item["score"] for item in result["criteria"]}
+        assert result["total_score"] == pytest.approx(sum(grades.values()))
+        return grades
+
+    base = (1.0, 1.0, 1.0, 0.7, 0.9, 0.8)
+    reference = graded(base)
+    assert reference == pytest.approx(
+        {rule: maximum * ratio for rule, maximum, ratio in zip(ids, maxima, base)}
+    )
+    for changed in range(len(ids)):
+        ratios = list(base)
+        ratios[changed] = 0.0
+        result = graded(tuple(ratios))
+        for index, rule in enumerate(ids):
+            if index == changed:
+                assert result[rule] == pytest.approx(0.0)
+            else:
+                assert result[rule] == pytest.approx(reference[rule])

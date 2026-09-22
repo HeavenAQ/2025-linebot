@@ -110,129 +110,63 @@ def _dual_window_scoring_correction(
     )
 
 
-_SERVE_STANCE_CHECKPOINTS = ("arms_raised", "racket_foot_weight")
-_SERVE_MOTION_CHECKPOINTS = (
-    "weight_transfer",
-    "hip_rotation",
-    "wrist_flick",
-    "shoulder_rotation",
-)
-
-
-def _serve_checkpoint_ratio(item: dict[str, Any]) -> float:
-    ratio = item.get("effective_checklist_ratio")
-    if ratio is None:
-        ratio = float(item["score"]) / max(float(item["maximum"]), 1e-8)
-    return float(np.clip(float(ratio), 0.0, 1.0))
-
-
 def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
-    """Expose the validated six-item checklist on the original rubric scale.
+    """Grade each serve checkpoint from its own evidence and add them up.
 
-    Raised arms and weight on the racket foot are read from the starting pose
-    and nothing after it, so each shows its own grade. The combined soft
-    conjunction covers only the four motion checkpoints, on their 90 points,
-    and is split among them.
+    A checkpoint's grade is its maximum times its own ratio: the expert floor
+    where its own joints move within the experts' range over its own frames,
+    and outside that range the lower of the floor and its corrected-skeleton
+    residual. Nothing about any other checkpoint enters it, and the product
+    total is their sum. The six-item checklist the raters' workbook is
+    validated against (``checklist_total_score``) is reported unchanged.
     """
     criteria = [dict(item) for item in score["criteria"]]
-    by_id = {str(item["rule_reference"]): item for item in criteria}
-    motion_ratios = np.asarray(
-        [_serve_checkpoint_ratio(by_id[key]) for key in _SERVE_MOTION_CHECKPOINTS]
-    )
-    motion_maximum = sum(float(by_id[key]["maximum"]) for key in _SERVE_MOTION_CHECKPOINTS)
-    if bool(score.get("isolated_preparation_deviation", False)):
-        motion_share = float(np.mean(motion_ratios))
-    else:
-        power = float(score.get("aggregation_power", 1.0 / 3.0))
-        floor = float(score.get("aggregation_floor", 1e-3))
-        bounded = np.maximum(motion_ratios, floor)
-        motion_share = float(np.mean(bounded**power) ** (1.0 / power))
-    motion_share *= float(score.get("trajectory_novelty_factor", 1.0))
-    total = motion_maximum * motion_share
-    preserved = ("weight_transfer", "shoulder_rotation")
-    flexible = ("hip_rotation", "wrist_flick")
-    attributed: dict[str, float] = {
-        criterion: min(
-            float(by_id[criterion]["maximum"]),
-            max(0.0, float(by_id[criterion]["score"])),
-        )
-        for criterion in preserved
-    }
-    transfer = by_id["weight_transfer"]
-    strict_distance = float(
-        transfer.get(
-            "strict_required_cue_distance",
-            transfer.get("combined_distance", 0.0),
-        )
-    )
-    tolerance = float(transfer.get("expert_tolerance", strict_distance))
-    robust_scale = max(float(transfer.get("expert_robust_scale", 1.0)), 1e-8)
-    transfer_support_ratio = float(
-        np.exp(-max(0.0, strict_distance - tolerance) / robust_scale)
-    )
-    transfer_cap = float(transfer["maximum"]) * transfer_support_ratio
-    attributed["weight_transfer"] = min(attributed["weight_transfer"], transfer_cap)
-    preserved_sum = float(sum(attributed.values()))
-    if preserved_sum > total:
-        scale = total / max(preserved_sum, 1e-8)
-        attributed = {key: value * scale for key, value in attributed.items()}
-        attributed.update({key: 0.0 for key in flexible})
-    else:
-        remaining = min(
-            total - preserved_sum,
-            sum(float(by_id[key]["maximum"]) for key in flexible),
-        )
-        active = list(flexible)
-        weights = {key: max(float(by_id[key]["score"]), 1e-12) for key in flexible}
-        while active and remaining > 1e-12:
-            weight_sum = sum(weights[key] for key in active)
-            capped = []
-            for key in active:
-                proposal = remaining * weights[key] / weight_sum
-                maximum = float(by_id[key]["maximum"])
-                if proposal >= maximum - 1e-12:
-                    attributed[key] = maximum
-                    remaining -= maximum
-                    capped.append(key)
-            if not capped:
-                for key in active:
-                    attributed[key] = remaining * weights[key] / weight_sum
-                remaining = 0.0
-                break
-            active = [key for key in active if key not in capped]
-        attributed.update({key: attributed.get(key, 0.0) for key in flexible})
-    for key in _SERVE_STANCE_CHECKPOINTS:
-        item = by_id[key]
-        attributed[key] = float(item["maximum"]) * _serve_checkpoint_ratio(item)
-    arms = by_id["arms_raised"]
-    if bool(arms.get("passes_corrected_shoulder_height", False)):
-        # The semantic shoulder-height rule is authoritative for this one
-        # preparation checkpoint.
-        attributed["arms_raised"] = float(arms["maximum"])
-    raw_weighted_total = float(sum(float(item["score"]) for item in criteria))
     for item in criteria:
-        item["raw_weighted_score"] = float(item["score"])
-        item["score"] = float(attributed[str(item["rule_reference"])])
-        item["aggregate_attributed_score"] = float(item["score"])
+        maximum = float(item["maximum"])
+        ratio = float(
+            item.get("raw_checkpoint_ratio", float(item["score"]) / max(maximum, 1e-8))
+        )
+        # Within the experts' own range for this checkpoint, the expert floor
+        # decides; outside it, the checkpoint must also agree with the learner's
+        # corrected skeleton -- the same switch the whole-serve score makes,
+        # taken on this checkpoint's own joints and frames.
+        residual = item.get("corrected_skeleton_residual_ratio")
+        inside_expert_range = float(item.get("checkpoint_distance", 0.0)) <= float(
+            item.get("checkpoint_expert_q80", float("inf"))
+        )
+        if residual is not None and not inside_expert_range:
+            ratio = min(ratio, float(residual))
         if item["rule_reference"] == "weight_transfer":
-            item["strict_transfer_support_ratio"] = transfer_support_ratio
-            item["strict_transfer_attribution_cap"] = transfer_cap
+            # Passing on one alternative cue while the strict all-cues distance
+            # disagrees caps the transfer on its own evidence.
+            strict = float(
+                item.get("strict_required_cue_distance", item.get("combined_distance", 0.0))
+            )
+            tolerance = float(item.get("expert_tolerance", strict))
+            scale = max(float(item.get("expert_robust_scale", 1.0)), 1e-8)
+            support = float(np.exp(-max(0.0, strict - tolerance) / scale))
+            item["strict_transfer_support_ratio"] = support
+            item["strict_transfer_attribution_cap"] = maximum * support
+            ratio = min(ratio, support)
         if item["rule_reference"] == "arms_raised" and bool(
             item.get("passes_corrected_shoulder_height", False)
         ):
-            item["single_head_attribution_override"] = (
-                "corrected_shoulder_height_semantic_pass"
-            )
-    attributed_total = float(sum(float(item["score"]) for item in criteria))
+            ratio = 1.0
+        item["own_checkpoint_ratio"] = float(np.clip(ratio, 0.0, 1.0))
+        item["within_expert_range"] = bool(inside_expert_range)
+        item["raw_weighted_score"] = float(item["score"])
+        item["score"] = maximum * item["own_checkpoint_ratio"]
+        item["aggregate_attributed_score"] = float(item["score"])
+    total = float(sum(float(item["score"]) for item in criteria))
     return {
         **score,
         "criteria": criteria,
-        "raw_weighted_total_score": raw_weighted_total,
-        "weighted_total_score": attributed_total,
-        "total_score": attributed_total,
-        "single_head_attribution_policy": (
-            "stance_checkpoints_own_grade_motion_checkpoints_combined"
+        "raw_weighted_total_score": float(
+            sum(float(item["raw_weighted_score"]) for item in criteria)
         ),
+        "weighted_total_score": total,
+        "total_score": total,
+        "single_head_attribution_policy": "independent_checkpoints_own_evidence_sum",
     }
 
 

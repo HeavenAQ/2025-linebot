@@ -90,6 +90,53 @@ func TestLiveAnalysisRejectsSkillMismatch(t *testing.T) {
 	require.True(t, errors.Is(err, analysis.ErrSkillMismatch), err)
 }
 
+// TestLiveAnalysisSteady waits until the service has answered Health for a
+// sustained stretch before the fixtures run. A freshly started GPU instance can
+// be sent SIGTERM 20 to 40 seconds after it starts, with the replacement coming
+// up only once it has gone (max-instances is 1), and Cloud Run allows 10 seconds
+// after SIGTERM, far short of an analysis. Health passes on that first instance
+// as soon as its models load, so a single check lets the fixture land on an
+// instance about to be stopped; a streak that outlasts the window does not.
+func TestLiveAnalysisSteady(t *testing.T) {
+	if os.Getenv("RUN_LIVE_ANALYSIS_STEADY") != "1" {
+		t.Skip("set RUN_LIVE_ANALYSIS_STEADY=1 to wait for a steady deployed GPU service")
+	}
+	_ = godotenv.Load("../../.env")
+	target := os.Getenv("ANALYSIS_GRPC_TARGET")
+	apiKey := os.Getenv("ANALYSIS_GRPC_API_KEY")
+	require.NotEmpty(t, target)
+	require.NotEmpty(t, apiKey)
+	client, err := analysis.NewClient(target, apiKey, os.Getenv("ANALYSIS_GRPC_INSECURE") == "true", false, "")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	const (
+		steadyFor = 90 * time.Second
+		interval  = 10 * time.Second
+		giveUp    = 20 * time.Minute
+	)
+	deadline := time.Now().Add(giveUp)
+	var healthySince time.Time
+	for time.Now().Before(deadline) {
+		if err := client.Health(context.Background()); err != nil {
+			if !healthySince.IsZero() {
+				t.Logf("service stopped answering after %s: %v", time.Since(healthySince).Round(time.Second), err)
+			} else {
+				t.Logf("service not ready: %v", err)
+			}
+			healthySince = time.Time{}
+		} else if healthySince.IsZero() {
+			healthySince = time.Now()
+			t.Log("service answered; checking that it stays up")
+		} else if time.Since(healthySince) >= steadyFor {
+			t.Logf("service steady for %s", time.Since(healthySince).Round(time.Second))
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("service did not stay up for %s within %s", steadyFor, giveUp)
+}
+
 func TestLiveAnalysisService(t *testing.T) {
 	if os.Getenv("RUN_LIVE_ANALYSIS") != "1" {
 		t.Skip("set RUN_LIVE_ANALYSIS=1 to exercise the deployed GPU service")

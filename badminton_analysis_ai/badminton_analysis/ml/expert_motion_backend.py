@@ -116,9 +116,14 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
     A checkpoint's grade is its maximum times its own ratio: the expert floor
     where its own joints move within the experts' range over its own frames,
     and outside that range the lower of the floor and its corrected-skeleton
-    residual. Nothing about any other checkpoint enters it, and the product
-    total is their sum. The six-item checklist the raters' workbook is
-    validated against (``checklist_total_score``) is reported unchanged.
+    residual. Nothing about any other checkpoint enters it.
+
+    The total is the validated six-item checklist, which is what the raters'
+    workbook is measured against, and is not the sum of the six grades: a
+    checklist where one checkpoint fails is worth less than the points the
+    others carry, and that judgement is what agrees with the raters. Each
+    grade says how that checkpoint was performed; the total says how the serve
+    was graded.
     """
     criteria = [dict(item) for item in score["criteria"]]
     for item in criteria:
@@ -157,16 +162,20 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         item["raw_weighted_score"] = float(item["score"])
         item["score"] = maximum * item["own_checkpoint_ratio"]
         item["aggregate_attributed_score"] = float(item["score"])
-    total = float(sum(float(item["score"]) for item in criteria))
+    checkpoint_sum = float(sum(float(item["score"]) for item in criteria))
+    total = float(score["checklist_total_score"])
     return {
         **score,
         "criteria": criteria,
         "raw_weighted_total_score": float(
             sum(float(item["raw_weighted_score"]) for item in criteria)
         ),
+        "independent_checkpoint_sum": checkpoint_sum,
         "weighted_total_score": total,
         "total_score": total,
-        "single_head_attribution_policy": "independent_checkpoints_own_evidence_sum",
+        "single_head_attribution_policy": (
+            "independent_checkpoints_own_evidence_validated_checklist_total"
+        ),
     }
 
 

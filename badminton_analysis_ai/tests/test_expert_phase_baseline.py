@@ -715,20 +715,21 @@ def test_serve_stance_that_closes_loses_the_base_to_transfer_across() -> None:
     assert _serve_qualitative_pose_evidence(closed)["stance_retention"] < 0.6
 
 
-def test_serve_transfer_finished_before_the_swing_is_out_of_time() -> None:
-    together = _pose()
-    early = _pose()
-    # Rotate the hips and dominant chain in the first third, then swing the
-    # racket wrist only at the end: transfer done before the arm moves.
-    rocking = np.clip(np.linspace(0.0, 3.0, 64, dtype=np.float32), 0.0, 1.0)
-    swinging = np.clip(np.linspace(-2.0, 1.0, 64, dtype=np.float32), 0.0, 1.0)
-    for pose, chain in ((together, swinging), (early, rocking)):
-        pose[:, (11, 12, 13, 14), 0] += 0.4 * chain[:, None]
-        pose[:, 10, 0] += 0.9 * swinging
-        pose[:, 10, 1] -= 0.9 * swinging
+def test_serve_transfer_is_read_between_the_wrist_descent_and_contact() -> None:
+    late = _pose()
+    intime = _pose()
+    # The racket wrist rises, then comes down into contact halfway through.
+    rising = np.clip(np.linspace(0.0, 2.0, 64, dtype=np.float32), 0.0, 1.0)
+    falling = np.clip(np.linspace(-1.0, 3.0, 64, dtype=np.float32), 0.0, 1.0)
+    for pose in (late, intime):
+        pose[:, 10, 1] += 0.9 * rising - 1.6 * falling
+    # One learner's pelvis crosses before contact, the other only afterwards.
+    before = np.clip(np.linspace(-1.5, 2.5, 64, dtype=np.float32), 0.0, 1.0)
+    after = np.clip(np.linspace(-3.0, 1.0, 64, dtype=np.float32), 0.0, 1.0)
+    intime[:, (11, 12), 0] += 0.5 * before[:, None]
+    late[:, (11, 12), 0] += 0.5 * after[:, None]
 
-    synchrony = _serve_qualitative_pose_evidence(together)["transfer_swing_synchrony"]
-    early_synchrony = _serve_qualitative_pose_evidence(early)["transfer_swing_synchrony"]
+    in_time = _serve_qualitative_pose_evidence(intime)["pelvis_loading_shift"]
+    too_late = _serve_qualitative_pose_evidence(late)["pelvis_loading_shift"]
 
-    assert synchrony == pytest.approx(1.0)
-    assert early_synchrony < 0.85
+    assert in_time > too_late * 2.0, "a transfer that lands after contact is not counted"

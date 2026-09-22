@@ -79,7 +79,14 @@ class AnalysisResult:
 
 # The serve coaching prompt names these measurements, so GPT has to receive
 # them; the criteria list it reads otherwise carries only grades.
-_SERVE_TRANSFER_MEASUREMENTS = ("pelvis_loading_shift", "stance_retention")
+_SERVE_TRANSFER_MEASUREMENTS = ("pelvis_loading_shift",)
+# The stance is judged against the learner's own corrected skeleton.
+_SERVE_CORRECTION_STANCE_MEASUREMENTS = (
+    "correction_learner_stance_retention",
+    "correction_corrected_stance_retention",
+    "correction_stance_retention_shortfall",
+    "correction_stance_allowance",
+)
 
 
 def _attach_serve_transfer_measurements(
@@ -104,6 +111,9 @@ def _attach_serve_transfer_measurements(
         for prefix in ("source_", "expert_lower_", "standardized_shortfall_"):
             if prefix + cue in measured:
                 criterion[prefix + cue] = float(measured[prefix + cue])
+    for key in _SERVE_CORRECTION_STANCE_MEASUREMENTS:
+        if key in measured:
+            criterion[key] = float(measured[key])
 
 
 def _correction_grade_context(

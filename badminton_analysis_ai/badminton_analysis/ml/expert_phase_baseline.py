@@ -34,6 +34,11 @@ from badminton_analysis.ml.video_annotations import expert_subject_identity
 # Room for an expert the envelope has never seen: leave-one-identity-out puts
 # the narrowest stance 15% below the lowest take the fit can see.
 _SERVE_UNSEEN_EXPERT_MARGIN = 0.15
+# How much more an expert's ankles close than their own corrected skeleton's
+# do, at most, across the 53 expert takes (expert-1, 0.167), with the same
+# unseen-expert margin. The corrected skeleton keeps its stance open, so this is
+# the correction's own noise on experts, not a stance norm.
+_SERVE_CORRECTION_STANCE_ALLOWANCE = 0.167 * (1.0 + _SERVE_UNSEEN_EXPERT_MARGIN)
 _EPS = 1e-8
 
 
@@ -818,6 +823,95 @@ def _serve_qualitative_pose_evidence(
     }
 
 
+def _serve_transfer_correction_residuals(
+    learner_pose: NDArray[np.floating],
+    corrected_pose: NDArray[np.floating],
+) -> dict[str, float]:
+    """How much more the learner's ankles close than their corrected skeleton's.
+
+    Both sequences are on the scorer's time basis. The stance is the narrowest
+    the ankles get between preparation and the end of the stroke, relative to
+    the preparation stance. The corrected skeleton keeps its stance open, so
+    the difference is the learner's own closing -- feet brought together or a
+    step -- measured against what the correction would do from the same start.
+    """
+    learner = np.asarray(learner_pose, dtype=np.float64)
+    corrected = np.asarray(corrected_pose, dtype=np.float64)
+    preparation_start, preparation_end = motion_completion_bounds(
+        len(learner), 0.125, 0.34375
+    )
+    _, completion_end = motion_completion_bounds(len(learner), 0.71875, 1.0)
+
+    def retention(pose: NDArray[np.float64]) -> float:
+        width = np.linalg.norm(pose[:, 16] - pose[:, 15], axis=-1)
+        start = float(np.median(width[preparation_start:preparation_end]))
+        return float(np.min(width[preparation_start:completion_end])) / max(start, _EPS)
+
+    learner_retention = retention(learner)
+    corrected_retention = retention(corrected)
+    return {
+        "correction_learner_stance_retention": learner_retention,
+        "correction_corrected_stance_retention": corrected_retention,
+        "correction_stance_retention_shortfall": max(
+            0.0, corrected_retention - learner_retention
+        ),
+    }
+
+
+def _serve_transfer_against_correction(
+    semantic: dict[str, Any], residuals: dict[str, float], tolerance: float
+) -> dict[str, Any]:
+    """Decide the stance on the learner's own corrected skeleton.
+
+    The chain and pelvis cues keep their expert evidence. The stance, which
+    the expert floor judged against the learner's own starting stance, is
+    instead judged by how much more the learner's ankles close than their
+    corrected skeleton's, beyond what experts show against theirs.
+    """
+    scale = max(float(semantic["expert_scale_stance_retention"]), 1e-3)
+    excess = max(
+        0.0,
+        residuals["correction_stance_retention_shortfall"]
+        - _SERVE_CORRECTION_STANCE_ALLOWANCE,
+    )
+    # The allowance is already the experts' own spread against their
+    # corrections, so closing beyond it starts past the checkpoint's tolerance
+    # rather than being allowed a second time.
+    stance_distance = tolerance + excess / scale if excess > 0.0 else 0.0
+    distance = float(
+        max(
+            semantic["transfer_chain_distance"],
+            semantic["transfer_support_distance"],
+            stance_distance,
+        )
+    )
+    # The all-cues distance the rubric cap reads carries the stance too, with
+    # the same weight it had against the expert floor.
+    weighted = (
+        (2.5, semantic["standardized_shortfall_dominant_chain_excursion"]),
+        (1.5, semantic["standardized_shortfall_dominant_chain_completion_change"]),
+        (0.5, semantic["standardized_shortfall_pelvis_loading_shift"]),
+        (1.0, stance_distance),
+    )
+    strict = float(
+        np.sqrt(
+            sum(weight * float(value) ** 2 for weight, value in weighted)
+            / sum(weight for weight, _ in weighted)
+        )
+    )
+    return {
+        **semantic,
+        **residuals,
+        "strict_required_cue_distance": strict,
+        "correction_stance_distance": stance_distance,
+        "correction_stance_allowance": _SERVE_CORRECTION_STANCE_ALLOWANCE,
+        "euclidean_distance": distance,
+        "combined_distance": distance,
+        "expert_pattern_distance": distance,
+        "semantic_cue_aggregation": "dominant_chain_with_support_and_corrected_stance",
+    }
+
+
 def _serve_expert_qualitative_envelope(
     model: ExpertPhaseModel,
 ) -> dict[str, dict[str, float]]:
@@ -1554,6 +1648,10 @@ def _serve_expert_envelope_components(
         stance_distance = float(deficiency[5])
         distance = float(max(chain_distance, support_distance, stance_distance))
         aggregation = "dominant_chain_with_pelvis_or_root_support"
+        transfer_parts = {
+            "transfer_chain_distance": chain_distance,
+            "transfer_support_distance": support_distance,
+        }
     elif rule_id == "hip_rotation":
         # Axial rotation changes apparent hip width, shoulder width, hip-axis
         # direction, and torso twist differently with camera azimuth. Require
@@ -1587,6 +1685,8 @@ def _serve_expert_envelope_components(
         "semantic_cue_aggregation": aggregation,
         "strict_required_cue_distance": strict_required_cue_distance,
     }
+    if rule_id == "weight_transfer":
+        components.update(transfer_parts)
     for name, value, target, feature_scale, shortfall in zip(
         names,
         evidence,
@@ -2031,6 +2131,18 @@ def score_expert_correction(
             }:
                 semantic = semantic_components[index]
                 generated_distance = float(components[index]["combined_distance"])
+                if rule.id == "weight_transfer":
+                    semantic = _serve_transfer_against_correction(
+                        semantic,
+                        _serve_transfer_correction_residuals(
+                            semantic_pose,
+                            phase_align_sequence(
+                                correction.corrected_pose,
+                                correction.student.phase_indices,
+                            ),
+                        ),
+                        float(model.criterion_tolerances[index]),
+                    )
                 components[index] = {
                     **semantic,
                     "generated_target_distance": generated_distance,

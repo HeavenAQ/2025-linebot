@@ -733,3 +733,42 @@ def test_serve_transfer_is_read_between_the_wrist_descent_and_contact() -> None:
     too_late = _serve_qualitative_pose_evidence(late)["pelvis_loading_shift"]
 
     assert in_time > too_late * 2.0, "a transfer that lands after contact is not counted"
+
+
+def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> None:
+    from badminton_analysis.ml.expert_phase_baseline import (
+        _SERVE_CORRECTION_STANCE_ALLOWANCE,
+        _serve_transfer_against_correction,
+        _serve_transfer_correction_residuals,
+    )
+
+    frames = 64
+    open_stance = np.zeros((frames, 17, 2))
+    open_stance[:, 15] = (-0.3, 1.0)
+    open_stance[:, 16] = (0.3, 1.0)
+    closing = open_stance.copy()
+    # The learner's ankles come together during the stroke; the corrected
+    # skeleton keeps the stance it started from.
+    closing[40:, 15] = (-0.1, 1.0)
+    closing[40:, 16] = (0.1, 1.0)
+    residuals = _serve_transfer_correction_residuals(closing, open_stance)
+    assert residuals["correction_corrected_stance_retention"] == pytest.approx(1.0)
+    assert residuals["correction_learner_stance_retention"] == pytest.approx(1 / 3)
+    assert residuals["correction_stance_retention_shortfall"] == pytest.approx(2 / 3)
+
+    semantic = {
+        "expert_scale_stance_retention": 0.25,
+        "transfer_chain_distance": 0.0,
+        "transfer_support_distance": 0.0,
+        "standardized_shortfall_dominant_chain_excursion": 0.0,
+        "standardized_shortfall_dominant_chain_completion_change": 0.0,
+        "standardized_shortfall_pelvis_loading_shift": 0.0,
+    }
+    judged = _serve_transfer_against_correction(semantic, residuals, tolerance=0.17)
+    excess = 2 / 3 - _SERVE_CORRECTION_STANCE_ALLOWANCE
+    # Closing beyond the experts' own spread starts past the checkpoint's
+    # tolerance instead of being allowed a second time.
+    assert judged["combined_distance"] == pytest.approx(0.17 + excess / 0.25)
+
+    kept = _serve_transfer_correction_residuals(open_stance, open_stance)
+    assert _serve_transfer_against_correction(semantic, kept, tolerance=0.17)["combined_distance"] == 0.0

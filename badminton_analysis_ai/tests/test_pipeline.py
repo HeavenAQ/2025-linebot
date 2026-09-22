@@ -267,17 +267,20 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
     criteria = [(rule.name_zh_tw, 0.1, rule.maximum * 0.5) for rule in spec.rules]
     context = _correction_grade_context({"total_grade": 45.0}, diagnostics, spec, criteria)
     measured = {"rule_reference": "weight_transfer"}
-    for cue, value, floor in (("pelvis_loading_shift", 0.20, 0.29), ("stance_retention", 0.47, 0.70)):
-        measured[f"source_{cue}"] = value
-        measured[f"expert_lower_{cue}"] = floor
-        measured[f"standardized_shortfall_{cue}"] = 1.0
+    measured["source_pelvis_loading_shift"] = 0.20
+    measured["expert_lower_pelvis_loading_shift"] = 0.29
+    measured["standardized_shortfall_pelvis_loading_shift"] = 1.0
+    measured["correction_learner_stance_retention"] = 0.76
+    measured["correction_corrected_stance_retention"] = 1.0
+    measured["correction_stance_retention_shortfall"] = 0.24
+    measured["correction_stance_allowance"] = 0.19
 
     _attach_serve_transfer_measurements(context, {"criteria": [measured]})
 
     # An instruction to judge by a measurement GPT never receives is worse
     # than none: it is told the error cannot be claimed without the number.
     named = set(
-        re.findall(r"(?:source|expert_lower|standardized_shortfall)_[a-z_]+", system_instructions(spec))
+        re.findall(r"(?:source|expert_lower|standardized_shortfall|correction)_[a-z_]+", system_instructions(spec))
     )
     transfer = next(item for item in context["criteria"] if item["rule_reference"] == "weight_transfer")
     assert named, "the serve instructions name the measurements they rely on"

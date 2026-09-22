@@ -77,6 +77,35 @@ class AnalysisResult:
     expert_alignment: tuple[tuple[float, float], ...] = ()
 
 
+# The serve coaching prompt names these measurements, so GPT has to receive
+# them; the criteria list it reads otherwise carries only grades.
+_SERVE_TRANSFER_MEASUREMENTS = ("pelvis_loading_shift", "stance_retention")
+
+
+def _attach_serve_transfer_measurements(
+    correction_grade: dict[str, Any], score: dict[str, Any]
+) -> None:
+    measured = next(
+        (
+            item
+            for item in score.get("criteria", [])
+            if str(item.get("rule_reference")) == "weight_transfer"
+        ),
+        None,
+    )
+    if measured is None:
+        return
+    criterion = next(
+        item
+        for item in correction_grade["criteria"]
+        if item["rule_reference"] == "weight_transfer"
+    )
+    for cue in _SERVE_TRANSFER_MEASUREMENTS:
+        for prefix in ("source_", "expert_lower_", "standardized_shortfall_"):
+            if prefix + cue in measured:
+                criterion[prefix + cue] = float(measured[prefix + cue])
+
+
 def _correction_grade_context(
     grade: GradingOutcome,
     diagnostics: dict[str, Any],
@@ -92,7 +121,10 @@ def _correction_grade_context(
         "分數容許範圍只由保留身分的專家動作分布校準"
     )
     if spec.skill == Skill.SERVE:
-        score_method += "；發球重心轉移另比較預備至完成的下肢支撐與軀幹前傾變化"
+        score_method += (
+            "；發球重心轉移以持拍手手腕開始下壓到最大加速度（擊球）之間的骨盆位移判斷，"
+            "並檢查兩腳踝距離是否在動作中明顯縮小"
+        )
     if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
         score_status = "frozen_checkpoint_calibration"
         score_method = (
@@ -637,6 +669,8 @@ class SkeletonAnalysisPipeline:
         correction_grade = _correction_grade_context(
             grade, diagnostics, spec, criterion_values
         )
+        if spec.skill == Skill.SERVE:
+            _attach_serve_transfer_measurements(correction_grade, generated.score)
         if "checkpoint_evidence" in generated.score:
             correction_grade["checkpoint_evidence"] = generated.score[
                 "checkpoint_evidence"

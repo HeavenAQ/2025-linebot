@@ -274,6 +274,10 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
     measured["correction_corrected_stance_retention"] = 1.0
     measured["correction_stance_retention_shortfall"] = 0.24
     measured["correction_stance_allowance"] = 0.19
+    measured["correction_learner_transfer_lead_frames"] = 8.0
+    measured["correction_corrected_transfer_lead_frames"] = -3.0
+    measured["correction_transfer_lead_excess_frames"] = 11.0
+    measured["correction_transfer_lead_allowance_frames"] = 4.6
 
     wrist = {
         "rule_reference": "wrist_flick",

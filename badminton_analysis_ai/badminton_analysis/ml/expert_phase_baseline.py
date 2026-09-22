@@ -39,6 +39,14 @@ _SERVE_UNSEEN_EXPERT_MARGIN = 0.15
 # unseen-expert margin. The corrected skeleton keeps its stance open, so this is
 # the correction's own noise on experts, not a stance norm.
 _SERVE_CORRECTION_STANCE_ALLOWANCE = 0.167 * (1.0 + _SERVE_UNSEEN_EXPERT_MARGIN)
+# The weight arrives on the front foot as the racket arm speeds up. Experts'
+# pelvis arrives at most 4 frames (of 64) earlier, relative to that, than their
+# own corrected skeleton's does; beyond that, with the same margin, the transfer
+# was made before the swing. Every further 4 frames count one distance unit.
+_SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES = 4.0 * (
+    1.0 + _SERVE_UNSEEN_EXPERT_MARGIN
+)
+_SERVE_CORRECTION_TRANSFER_LEAD_SCALE_FRAMES = 4.0
 # The racket arm is extended at contact. Experts' elbows at contact are at
 # most 12.3 degrees more bent than their own corrected skeleton's (expert-6);
 # beyond that, with the same margin, every further 10 degrees of bend keeps
@@ -750,6 +758,9 @@ def _serve_qualitative_pose_evidence(
         np.sum((hip_center - values[:, 15]) * ankle_axis, axis=-1) / ankle_denominator
     )
     baseline_loading = float(np.median(pelvis_loading[baseline_start:baseline_end]))
+    preparation_loading = float(
+        np.median(pelvis_loading[preparation_start:preparation_end])
+    )
     # The furthest the pelvis gets, not where it sits on one frame: a learner
     # who arrives early and holds and one who arrives just in time have both
     # arrived.
@@ -826,6 +837,13 @@ def _serve_qualitative_pose_evidence(
         "coordinated_hip_rotation": coordinated_hip_rotation,
         "root_transfer_distance": root_transfer,
         "stance_retention": stance_retention,
+        # How far the pelvis had already moved toward the front (non-racket)
+        # foot, from the preparation stance, before the wrist started down --
+        # a transfer made before the swing instead of with it. Loading runs
+        # from the front ankle (0) to the racket-side ankle (1).
+        "pelvis_transfer_before_swing": preparation_loading - baseline_loading,
+        "pelvis_loading_at_preparation": preparation_loading,
+        "pelvis_loading_before_swing": baseline_loading,
     }
 
 
@@ -855,7 +873,35 @@ def _serve_transfer_correction_residuals(
 
     learner_retention = retention(learner)
     corrected_retention = retention(corrected)
+    _, contact = motion_completion_bounds(len(learner), 0.0, 0.5)
+    descent = _serve_wrist_descent_onset(learner, contact)
+
+    def transfer_lead(pose: NDArray[np.float64]) -> float:
+        # Frames between the pelvis reaching the front foot and the racket
+        # arm speeding up: positive when the weight is already there, and
+        # waiting, before the swing that should carry it.
+        arm = _smooth_trajectory(pose[:, 10] - pose[:, 6])
+        speed = np.r_[0.0, np.linalg.norm(np.diff(arm, axis=0), axis=-1)]
+        span = slice(descent, min(len(pose), contact + 3))
+        swing_start = descent + int(np.argmax(speed[span] >= 0.5 * np.max(speed[span])))
+        hip = 0.5 * (pose[:, 11] + pose[:, 12])
+        axis = pose[:, 16] - pose[:, 15]
+        loading = np.sum((hip - pose[:, 15]) * axis, axis=-1) / np.maximum(
+            np.sum(axis * axis, axis=-1), _EPS
+        )
+        start = float(np.mean(loading[max(0, descent - 4) : max(1, descent)]))
+        lowest = float(np.min(loading[descent : contact + 1]))
+        arrived = descent + int(
+            np.argmax(loading[descent : contact + 1] <= start - 0.9 * (start - lowest))
+        )
+        return float(swing_start - arrived)
+
+    learner_lead = transfer_lead(learner)
+    corrected_lead = transfer_lead(corrected)
     return {
+        "correction_learner_transfer_lead_frames": learner_lead,
+        "correction_corrected_transfer_lead_frames": corrected_lead,
+        "correction_transfer_lead_excess_frames": max(0.0, learner_lead - corrected_lead),
         "correction_learner_stance_retention": learner_retention,
         "correction_corrected_stance_retention": corrected_retention,
         "correction_stance_retention_shortfall": max(
@@ -920,11 +966,24 @@ def _serve_transfer_against_correction(
     # corrections, so closing beyond it starts past the checkpoint's tolerance
     # rather than being allowed a second time.
     stance_distance = tolerance + excess / scale if excess > 0.0 else 0.0
+    early = max(
+        0.0,
+        residuals["correction_transfer_lead_excess_frames"]
+        - _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES,
+    )
+    # Weight already on the front foot before the swing is the same fault as
+    # weight that never gets there: nothing moves with the racket.
+    timing_distance = (
+        tolerance + early / _SERVE_CORRECTION_TRANSFER_LEAD_SCALE_FRAMES
+        if early > 0.0
+        else 0.0
+    )
     distance = float(
         max(
             semantic["transfer_chain_distance"],
             semantic["transfer_support_distance"],
             stance_distance,
+            timing_distance,
         )
     )
     # The all-cues distance the rubric cap reads carries the stance too, with
@@ -946,6 +1005,10 @@ def _serve_transfer_against_correction(
         **residuals,
         "strict_required_cue_distance": strict,
         "correction_stance_distance": stance_distance,
+        "correction_transfer_timing_distance": timing_distance,
+        "correction_transfer_lead_allowance_frames": (
+            _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES
+        ),
         "correction_stance_allowance": _SERVE_CORRECTION_STANCE_ALLOWANCE,
         "euclidean_distance": distance,
         "combined_distance": distance,

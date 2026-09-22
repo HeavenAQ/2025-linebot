@@ -796,3 +796,29 @@ def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> Non
     assert _serve_wrist_correction_residuals(extended, extended)[
         "correction_elbow_at_contact_shortfall_degrees"
     ] == pytest.approx(0.0)
+
+
+def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() -> None:
+    from badminton_analysis.ml.expert_phase_baseline import (
+        _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES,
+        _serve_transfer_against_correction,
+    )
+
+    semantic = {
+        "expert_scale_stance_retention": 0.25,
+        "transfer_chain_distance": 0.0,
+        "transfer_support_distance": 0.0,
+        "standardized_shortfall_dominant_chain_excursion": 0.0,
+        "standardized_shortfall_dominant_chain_completion_change": 0.0,
+        "standardized_shortfall_pelvis_loading_shift": 0.0,
+    }
+    on_time = {
+        "correction_stance_retention_shortfall": 0.0,
+        "correction_transfer_lead_excess_frames": 0.0,
+    }
+    early = dict(on_time, correction_transfer_lead_excess_frames=11.0)
+    assert _serve_transfer_against_correction(semantic, on_time, tolerance=0.17)["combined_distance"] == 0.0
+    judged = _serve_transfer_against_correction(semantic, early, tolerance=0.17)
+    assert judged["combined_distance"] == pytest.approx(
+        0.17 + (11.0 - _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES) / 4.0
+    )

@@ -87,6 +87,13 @@ _SERVE_CORRECTION_STANCE_MEASUREMENTS = (
     "correction_stance_retention_shortfall",
     "correction_stance_allowance",
 )
+# The racket elbow at contact, against the learner's own corrected skeleton.
+_SERVE_CORRECTION_ELBOW_MEASUREMENTS = (
+    "correction_learner_elbow_at_contact_degrees",
+    "correction_corrected_elbow_at_contact_degrees",
+    "correction_elbow_at_contact_shortfall_degrees",
+    "correction_elbow_allowance_degrees",
+)
 
 
 def _attach_serve_transfer_measurements(
@@ -114,6 +121,23 @@ def _attach_serve_transfer_measurements(
     for key in _SERVE_CORRECTION_STANCE_MEASUREMENTS:
         if key in measured:
             criterion[key] = float(measured[key])
+    wrist = next(
+        (
+            item
+            for item in score.get("criteria", [])
+            if str(item.get("rule_reference")) == "wrist_flick"
+        ),
+        None,
+    )
+    if wrist is not None:
+        wrist_criterion = next(
+            item
+            for item in correction_grade["criteria"]
+            if item["rule_reference"] == "wrist_flick"
+        )
+        for key in _SERVE_CORRECTION_ELBOW_MEASUREMENTS:
+            if key in wrist:
+                wrist_criterion[key] = float(wrist[key])
 
 
 def _correction_grade_context(

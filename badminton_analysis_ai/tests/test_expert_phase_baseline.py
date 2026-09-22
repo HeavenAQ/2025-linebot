@@ -772,3 +772,27 @@ def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> Non
 
     kept = _serve_transfer_correction_residuals(open_stance, open_stance)
     assert _serve_transfer_against_correction(semantic, kept, tolerance=0.17)["combined_distance"] == 0.0
+
+
+def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> None:
+    from badminton_analysis.ml.expert_phase_baseline import (
+        _serve_wrist_correction_residuals,
+    )
+
+    frames = 64
+    extended = np.zeros((frames, 17, 2))
+    extended[:, 6] = (0.0, 0.0)
+    extended[:, 8] = (1.0, 0.0)
+    extended[:, 10] = (2.0, 0.0)
+    bent = extended.copy()
+    # Bent to a right angle through contact; a single mislabelled frame just
+    # before it is not enough to read the arm as extended.
+    bent[28:36, 10] = (1.0, 1.0)
+    bent[31, 10] = (2.0, 0.0)
+    measured = _serve_wrist_correction_residuals(bent, extended)
+    assert measured["correction_corrected_elbow_at_contact_degrees"] == pytest.approx(180.0)
+    assert measured["correction_learner_elbow_at_contact_degrees"] == pytest.approx(90.0)
+    assert measured["correction_elbow_at_contact_shortfall_degrees"] == pytest.approx(90.0)
+    assert _serve_wrist_correction_residuals(extended, extended)[
+        "correction_elbow_at_contact_shortfall_degrees"
+    ] == pytest.approx(0.0)

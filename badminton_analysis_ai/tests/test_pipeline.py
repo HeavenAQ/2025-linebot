@@ -1,3 +1,4 @@
+import re
 import pytest
 import threading
 from pathlib import Path
@@ -7,11 +8,13 @@ import api.pipeline as pipeline_module
 from badminton_analysis.ml.expert_reference_bank import SkillSupport
 from api.pipeline import (
     SkeletonAnalysisPipeline,
+    _attach_serve_transfer_measurements,
     _correction_grade_context,
     _rule_anchor_frames,
     _source_qualitative_phase_results,
     expert_phase_results,
 )
+from badminton_analysis.ml.coaching_feedback import system_instructions
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
 
@@ -186,9 +189,32 @@ def test_serve_gpt_context_reports_backend_distance_components() -> None:
     # claim learner-group calibration or describe another skill.
     assert context["score_status"] == "expert_only_generated_distribution"
     assert "專家動作分布" in context["score_method_zh_tw"]
-    assert "軀幹前傾" in context["score_method_zh_tw"]
+    assert "最大加速度" in context["score_method_zh_tw"]
     assert "學生群組" not in context["score_method_zh_tw"]
     assert "挑球" not in context["score_method_zh_tw"]
+
+
+def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
+    spec = get_skill_spec("serve")
+    diagnostics = {"correction_distance": 0.8, "scorer": "expert_only_identity_distribution_v6"}
+    criteria = [(rule.name_zh_tw, 0.1, rule.maximum * 0.5) for rule in spec.rules]
+    context = _correction_grade_context({"total_grade": 45.0}, diagnostics, spec, criteria)
+    measured = {"rule_reference": "weight_transfer"}
+    for cue, value, floor in (("pelvis_loading_shift", 0.20, 0.29), ("stance_retention", 0.47, 0.70)):
+        measured[f"source_{cue}"] = value
+        measured[f"expert_lower_{cue}"] = floor
+        measured[f"standardized_shortfall_{cue}"] = 1.0
+
+    _attach_serve_transfer_measurements(context, {"criteria": [measured]})
+
+    # An instruction to judge by a measurement GPT never receives is worse
+    # than none: it is told the error cannot be claimed without the number.
+    named = set(
+        re.findall(r"(?:source|expert_lower|standardized_shortfall)_[a-z_]+", system_instructions(spec))
+    )
+    transfer = next(item for item in context["criteria"] if item["rule_reference"] == "weight_transfer")
+    assert named, "the serve instructions name the measurements they rely on"
+    assert named <= set(transfer), f"named in the prompt but not sent: {sorted(named - set(transfer))}"
 
 
 def test_generated_expert_gpt_context_describes_expert_only_score() -> None:

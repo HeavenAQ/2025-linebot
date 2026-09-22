@@ -275,16 +275,27 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
     measured["correction_stance_retention_shortfall"] = 0.24
     measured["correction_stance_allowance"] = 0.19
 
-    _attach_serve_transfer_measurements(context, {"criteria": [measured]})
+    wrist = {
+        "rule_reference": "wrist_flick",
+        "correction_learner_elbow_at_contact_degrees": 133.0,
+        "correction_corrected_elbow_at_contact_degrees": 173.0,
+        "correction_elbow_at_contact_shortfall_degrees": 40.0,
+        "correction_elbow_allowance_degrees": 14.1,
+    }
+
+    _attach_serve_transfer_measurements(context, {"criteria": [measured, wrist]})
 
     # An instruction to judge by a measurement GPT never receives is worse
     # than none: it is told the error cannot be claimed without the number.
     named = set(
         re.findall(r"(?:source|expert_lower|standardized_shortfall|correction)_[a-z_]+", system_instructions(spec))
     )
-    transfer = next(item for item in context["criteria"] if item["rule_reference"] == "weight_transfer")
+    sent = set()
+    for item in context["criteria"]:
+        if item["rule_reference"] in {"weight_transfer", "wrist_flick"}:
+            sent |= set(item)
     assert named, "the serve instructions name the measurements they rely on"
-    assert named <= set(transfer), f"named in the prompt but not sent: {sorted(named - set(transfer))}"
+    assert named <= sent, f"named in the prompt but not sent: {sorted(named - sent)}"
 
 
 def test_generated_expert_gpt_context_describes_expert_only_score() -> None:

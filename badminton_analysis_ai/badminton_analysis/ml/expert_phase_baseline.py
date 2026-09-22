@@ -39,6 +39,12 @@ _SERVE_UNSEEN_EXPERT_MARGIN = 0.15
 # unseen-expert margin. The corrected skeleton keeps its stance open, so this is
 # the correction's own noise on experts, not a stance norm.
 _SERVE_CORRECTION_STANCE_ALLOWANCE = 0.167 * (1.0 + _SERVE_UNSEEN_EXPERT_MARGIN)
+# The racket arm is extended at contact. Experts' elbows at contact are at
+# most 12.3 degrees more bent than their own corrected skeleton's (expert-6);
+# beyond that, with the same margin, every further 10 degrees of bend keeps
+# about a third of the wrist credit.
+_SERVE_CORRECTION_ELBOW_ALLOWANCE_DEGREES = 12.3 * (1.0 + _SERVE_UNSEEN_EXPERT_MARGIN)
+_SERVE_CORRECTION_ELBOW_SCALE_DEGREES = 10.0
 _EPS = 1e-8
 
 
@@ -855,6 +861,42 @@ def _serve_transfer_correction_residuals(
         "correction_stance_retention_shortfall": max(
             0.0, corrected_retention - learner_retention
         ),
+    }
+
+
+def _serve_wrist_correction_residuals(
+    learner_pose: NDArray[np.floating],
+    corrected_pose: NDArray[np.floating],
+) -> dict[str, float]:
+    """How much more the racket elbow is bent at contact than the correction's.
+
+    The racket arm is extended when the wrist flicks through contact; an arm
+    still bent there is pushing the racket instead. The angle is median-filtered
+    over three frames, so one mislabelled joint cannot stand in for the arm,
+    and read at the maximum-acceleration anchor on the scorer's time basis.
+    """
+    learner = np.asarray(learner_pose, dtype=np.float64)
+    corrected = np.asarray(corrected_pose, dtype=np.float64)
+    _, contact = motion_completion_bounds(len(learner), 0.0, 0.5)
+
+    def elbow_at_contact(pose: NDArray[np.float64]) -> float:
+        upper = pose[:, 6] - pose[:, 8]
+        fore = pose[:, 10] - pose[:, 8]
+        cosine = np.sum(upper * fore, axis=-1) / np.maximum(
+            np.linalg.norm(upper, axis=-1) * np.linalg.norm(fore, axis=-1), _EPS
+        )
+        angle = np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
+        return float(np.median(angle[max(0, contact - 1) : contact + 2]))
+
+    learner_angle = elbow_at_contact(learner)
+    corrected_angle = elbow_at_contact(corrected)
+    return {
+        "correction_learner_elbow_at_contact_degrees": learner_angle,
+        "correction_corrected_elbow_at_contact_degrees": corrected_angle,
+        "correction_elbow_at_contact_shortfall_degrees": max(
+            0.0, corrected_angle - learner_angle
+        ),
+        "correction_elbow_allowance_degrees": _SERVE_CORRECTION_ELBOW_ALLOWANCE_DEGREES,
     }
 
 
@@ -1995,6 +2037,11 @@ def _serve_corrected_residual_checklist(
             )
         )
     residual = np.asarray(residual_ratios, dtype=np.float64)
+    # The elbow that stays bent through contact holds wherever the wrist is
+    # read from, the corrected-skeleton residual included.
+    residual *= np.asarray(
+        [float(item.get("correction_elbow_factor", 1.0)) for item in criteria]
+    )
     for item, cost, ratio in zip(criteria, costs, residual, strict=True):
         item["corrected_skeleton_euclidean_cost"] = float(cost)
         item["corrected_skeleton_residual_ratio"] = float(ratio)
@@ -2143,6 +2190,28 @@ def score_expert_correction(
                         ),
                         float(model.criterion_tolerances[index]),
                     )
+                if rule.id == "wrist_flick":
+                    semantic = {
+                        **semantic,
+                        **_serve_wrist_correction_residuals(
+                            semantic_pose,
+                            phase_align_sequence(
+                                correction.corrected_pose,
+                                correction.student.phase_indices,
+                            ),
+                        ),
+                    }
+                if rule.id == "wrist_flick":
+                    semantic = {
+                        **semantic,
+                        **_serve_wrist_correction_residuals(
+                            semantic_pose,
+                            phase_align_sequence(
+                                correction.corrected_pose,
+                                correction.student.phase_indices,
+                            ),
+                        ),
+                    }
                 components[index] = {
                     **semantic,
                     "generated_target_distance": generated_distance,
@@ -2169,6 +2238,18 @@ def score_expert_correction(
         distance = component["combined_distance"]
         excess = max(0.0, distance - tolerance)
         ratio = float(np.exp(-excess / max(scale, 1e-3)))
+        if "correction_elbow_at_contact_shortfall_degrees" in component:
+            component["correction_elbow_factor"] = float(
+                np.exp(
+                    -max(
+                        0.0,
+                        component["correction_elbow_at_contact_shortfall_degrees"]
+                        - _SERVE_CORRECTION_ELBOW_ALLOWANCE_DEGREES,
+                    )
+                    / _SERVE_CORRECTION_ELBOW_SCALE_DEGREES
+                )
+            )
+            ratio *= component["correction_elbow_factor"]
         qualitative_factor = 1.0
         qualitative_diagnostics: dict[str, float | str] = {}
         if qualitative_evidence is not None and qualitative_envelope is not None:

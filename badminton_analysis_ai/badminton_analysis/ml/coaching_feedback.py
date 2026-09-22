@@ -561,5 +561,6 @@ def system_instructions(spec: SkillCorrectionSpec) -> str:
         instructions += """
 重心轉移另有兩種常見錯誤，一律以criteria中的量測判斷，量測為0時不得宣稱該錯誤：
 correction_stance_retention_shortfall大於correction_stance_allowance代表學生兩腳踝距離縮小的程度明顯超過修正骨架（correction_learner_stance_retention對照correction_corrected_stance_retention；併腳或移動前腳），沒有可轉移的底盤；請提醒維持起始步幅，擊球前後前腳不要移動。
+持拍手手腕發力另以擊球瞬間的持拍手肘角度判斷：correction_elbow_at_contact_shortfall_degrees大於correction_elbow_allowance_degrees代表擊球時手肘比修正骨架明顯彎曲（correction_learner_elbow_at_contact_degrees對照correction_corrected_elbow_at_contact_degrees），是用手臂推拍而不是手腕發力；請提醒擊球時手臂伸展、以手腕帶動拍面。
 重心轉移的量測區間是持拍手手腕開始下壓到最大加速度（擊球）之間，重心必須在擊球前完成轉移；source_pelvis_loading_shift低於expert_lower_pelvis_loading_shift代表在這段區間內重心沒有移過去，請提醒學生在揮拍前把重心送到非持拍腳，而不是擊球後才移動。"""
     return instructions

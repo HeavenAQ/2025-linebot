@@ -1,8 +1,11 @@
-"""Bounded cross-request pose microbatches, with a size OR oldest-item timer.
+"""Serialised pose inference on the shared GPU detector, one request per batch.
 
-The 50 ms budget is batch-formation delay while the GPU is available, not a
-promise about Cloud Tasks delivery, cold starts, or an already busy GPU.
-Diffusion shares the execution lock but not RNG state with concurrent requests.
+Frames from different requests are never placed in the same engine batch. A
+GPU engine does not promise a frame the same output whatever shares its batch,
+and the pipeline turns small differences into different grades through its
+thresholds, so a learner's score came to depend on who else was uploading at
+that moment. Each call is run as its caller chunked it, padded with its own
+last frame, which is what an upload analysed alone gets.
 """
 
 from collections import deque
@@ -10,23 +13,22 @@ from concurrent.futures import Future
 import copy
 import logging
 import threading
-import time
 
 LOGGER = logging.getLogger("badminton-analysis")
 
 
 class PoseBatcher:
-    def __init__(self, detector, execution_lock, *, size=16, max_wait=0.05):
-        if not 1 <= size <= 16 or not 0 <= max_wait <= 0.05:
-            raise ValueError("pose batching requires size 1..16 and wait <= 50ms")
+    def __init__(self, detector, execution_lock, *, size=16):
+        if not 1 <= size <= 16:
+            raise ValueError("pose batching requires a size of 1..16")
         self.detector = detector
         self.execution_lock = execution_lock
-        self.size, self.max_wait = size, max_wait
+        self.size = size
         self.condition = threading.Condition()
         self.pending = deque()
         self.closed = False
         self.thread = threading.Thread(
-            target=self._run, name="pose-microbatch", daemon=True
+            target=self._run, name="pose-inference", daemon=True
         )
         self.thread.start()
 
@@ -41,14 +43,13 @@ class PoseBatcher:
     def predict(self, images):
         if not images:
             return []
-        futures = [Future() for _ in images]
+        future = Future()
         with self.condition:
             if self.closed:
                 raise RuntimeError("pose batcher stopped")
-            queued_at = time.monotonic()
-            self.pending.extend(zip(images, futures, [queued_at] * len(images)))
+            self.pending.append((list(images), future))
             self.condition.notify()
-        return [future.result() for future in futures]
+        return future.result()
 
     def _run(self):
         while True:
@@ -57,26 +58,19 @@ class PoseBatcher:
                     self.condition.wait()
                 if self.closed and not self.pending:
                     return
-                deadline = self.pending[0][2] + self.max_wait
-                while len(self.pending) < self.size and not self.closed:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    self.condition.wait(remaining)
-                batch = [
-                    self.pending.popleft()
-                    for _ in range(min(self.size, len(self.pending)))
-                ]
+                images, future = self.pending.popleft()
             try:
-                with self.execution_lock:
-                    results = self.detector.get_poses_batch([item[0] for item in batch])
-                if len(results) != len(batch):
-                    raise RuntimeError("pose engine returned wrong batch size")
-                for (_, future, _), result in zip(batch, results):
-                    future.set_result(result)
+                results = []
+                for start in range(0, len(images), self.size):
+                    chunk = images[start : start + self.size]
+                    with self.execution_lock:
+                        output = self.detector.get_poses_batch(chunk)
+                    if len(output) != len(chunk):
+                        raise RuntimeError("pose engine returned wrong batch size")
+                    results.extend(output)
+                future.set_result(results)
             except Exception as exc:
-                for _, future, _ in batch:
-                    future.set_exception(exc)
+                future.set_exception(exc)
 
     def close(self):
         with self.condition:

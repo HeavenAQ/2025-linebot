@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import secrets
-import signal
 import tempfile
-import threading
 import time
 import uuid
-from concurrent import futures
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, Iterable, NoReturn
@@ -99,11 +95,6 @@ def _analysis_root(storage_prefix: str, user_segment: str, request_segment: str)
     return f"{prefix}/{root}" if prefix else root
 
 
-# A cold start loads every model in about 30 s. Calls that arrive meanwhile
-# wait for it rather than fail; this bounds how long.
-_PIPELINE_LOAD_TIMEOUT_SECONDS = 600
-
-
 class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -113,45 +104,12 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             service_account_email=settings.gcp_service_account_email,
             signed_url_minutes=settings.signed_url_minutes,
         )
-        # The models load after the port is open, not before. Cloud Run's
-        # startup probe began abandoning instances about 22 s in while loading
-        # takes about 32, so a server that loaded first never came up at all.
-        self._pipeline_ready = threading.Event()
-        self._pipeline_error: BaseException | None = None
-        threading.Thread(
-            target=self._load_pipeline, name="pipeline-load", daemon=True
-        ).start()
-
-    def _load_pipeline(self) -> None:
-        try:
-            self._pipeline = SkeletonAnalysisPipeline(
-                self.settings.expert_motion_model_root,
-                device=self.settings.device,
-                openai_model=self.settings.openai_model,
-                pause_seconds=self.settings.coaching_pause_seconds,
-            )
-        except BaseException as exc:
-            self._pipeline_error = exc
-            LOGGER.exception("analysis pipeline failed to load")
-            # An open port with no models would fail every call while looking
-            # healthy; exiting lets Cloud Run replace the instance instead.
-            os._exit(1)
-        finally:
-            self._pipeline_ready.set()
-        LOGGER.info("analysis pipeline loaded")
-
-    @property
-    def pipeline(self) -> SkeletonAnalysisPipeline:
-        ready = getattr(self, "_pipeline_ready", None)
-        if ready is not None and not ready.wait(_PIPELINE_LOAD_TIMEOUT_SECONDS):
-            raise RuntimeError("analysis pipeline is still loading")
-        if getattr(self, "_pipeline_error", None) is not None:
-            raise RuntimeError("analysis pipeline failed to load")
-        return self._pipeline
-
-    @pipeline.setter
-    def pipeline(self, value: SkeletonAnalysisPipeline) -> None:
-        self._pipeline = value
+        self.pipeline = SkeletonAnalysisPipeline(
+            settings.expert_motion_model_root,
+            device=settings.device,
+            openai_model=settings.openai_model,
+            pause_seconds=settings.coaching_pause_seconds,
+        )
 
     @staticmethod
     @contextmanager
@@ -596,37 +554,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             )
 
 
-def serve() -> None:
-    configure_logging(logging.INFO)
-    try:
-        settings = Settings.from_env()
-        service = BadmintonAnalysisService(settings)
-    except Exception:
-        # Logged rather than left to the interpreter so the startup traceback
-        # is one structured ERROR entry instead of many plain stderr lines.
-        LOGGER.exception("server failed to start")
-        raise SystemExit(1) from None
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=8),
-        maximum_concurrent_rpcs=8,
-        options=(
-            ("grpc.max_receive_message_length", settings.max_video_bytes + 1024 * 1024),
-            ("grpc.max_send_message_length", 8 * 1024 * 1024),
-        ),
-    )
-    analysis_pb2_grpc.add_BadmintonAnalysisServicer_to_server(service, server)
-    server.add_insecure_port(f"[::]:{settings.port}")
-    server.start()
-    LOGGER.info("gRPC server listening", extra={"json_fields": {"port": settings.port}})
-
-    def stop(*_: object) -> None:
-        LOGGER.info("stopping gRPC server")
-        server.stop(grace=30)
-
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
-    server.wait_for_termination()
-
-
 if __name__ == "__main__":
+    from api.boot import serve
+
     serve()

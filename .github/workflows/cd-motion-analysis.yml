@@ -326,6 +326,13 @@ jobs:
           # matched expert is deliberately not pinned to a name: the serve clip
           # lands on a different left-handed expert than the one it came from,
           # which is a legitimate outcome of picking the nearest skeleton.
+          # A new GPU instance can be stopped 20 to 40 s after it starts, and
+          # an analysis on it dies with "connection termination", followed by
+          # 429/503 until the replacement is up. Wait for a steady instance
+          # before the first fixture instead of spending an attempt on that.
+          refresh_identity_token
+          RUN_LIVE_ANALYSIS_STEADY=1 go test -timeout 25m -count=1 -v ./api/analysis \
+            -run '^TestLiveAnalysisSteady$'
           #            video skill hand min_grade expert_prefix no_cues expert_video
           run_fixture /tmp/analysis-e2e/smash-expert.mp4 \
             smash right 99 '' 1 1

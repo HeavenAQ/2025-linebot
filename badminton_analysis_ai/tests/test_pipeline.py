@@ -1,6 +1,7 @@
 import re
 import pytest
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -128,6 +129,7 @@ def test_skill_mismatch_stops_before_generation_and_rendering(
         request_detector=lambda: pipeline.pose_detector
     )
     pipeline.lock = threading.Lock()
+    pipeline.request_lock = threading.Lock()
     pipeline.coaching = SimpleNamespace(
         generate=lambda **_: (_ for _ in ()).throw(
             AssertionError("mismatched motion reached coaching")
@@ -162,6 +164,71 @@ def test_skill_mismatch_stops_before_generation_and_rendering(
 
     assert not serve_backend.infer_called
     assert not smash_backend.infer_called
+
+
+def test_concurrent_analyses_never_overlap_from_pose_to_generation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Interleaving requests on the GPU changed what each one detected, so the
+    # stretch from pose extraction to generation admits one request at a time.
+    inside = 0
+    peak = 0
+    guard = threading.Lock()
+
+    class Stop(Exception):
+        pass
+
+    class Processor:
+        def process_frames_batched(self, _):
+            nonlocal inside, peak
+            with guard:
+                inside += 1
+                peak = max(peak, inside)
+            time.sleep(0.05)
+            return {}
+
+    class Backend:
+        spec = get_skill_spec(Skill.SERVE)
+
+        def prepare(self, *_):
+            return SimpleNamespace(pose=object()), (0, 1, 2), object()
+
+        def infer(self, *_args, **_kwargs):
+            nonlocal inside
+            time.sleep(0.02)
+            with guard:
+                inside -= 1
+            raise Stop()
+
+    pipeline = SkeletonAnalysisPipeline.__new__(SkeletonAnalysisPipeline)
+    pipeline.backends = {Skill.SERVE: Backend(), Skill.SMASH: Backend()}
+    pipeline.expert_bank = SimpleNamespace(temporal_skill_support=lambda *_a, **_k: None)
+    pipeline.pose_detector = object()
+    pipeline.pose_batcher = SimpleNamespace(request_detector=lambda: pipeline.pose_detector)
+    pipeline.lock = threading.Lock()
+    pipeline.request_lock = threading.Lock()
+    monkeypatch.setattr(pipeline_module, "VideoProcessor", lambda *_: Processor())
+    monkeypatch.setattr(pipeline_module, "_resolve_handedness", lambda *_: Handedness.RIGHT)
+    monkeypatch.setattr(pipeline_module, "_populate_dominant_motion", lambda *_: None)
+    monkeypatch.setattr(pipeline_module, "source_fps", lambda *_: 30.0)
+
+    def analyse(index: int) -> None:
+        with pytest.raises(Stop):
+            pipeline.analyze(
+                video_path=tmp_path / f"{index}.mp4",
+                output_path=tmp_path / f"{index}-feedback.mp4",
+                skeleton_overlay_path=tmp_path / f"{index}-overlay.mp4",
+                filename=f"{index}.mp4",
+                skill=Skill.SERVE,
+                requested_handedness="right",
+            )
+
+    workers = [threading.Thread(target=analyse, args=(index,)) for index in range(4)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+    assert peak == 1
 
 
 def test_serve_gpt_context_reports_backend_distance_components() -> None:

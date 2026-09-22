@@ -59,6 +59,12 @@ class TorchTRTEngine:
             out = torch.empty(shape, dtype=dtype, device="cuda")
             self.context.set_tensor_address(name, out.data_ptr())
             outputs[name] = out
+        # The input was written, and the outputs allocated, on the caller's
+        # stream. The engine runs on its own stream, which does not order
+        # itself after the caller's, so without this wait it can read an input
+        # the caller's kernels have not finished writing -- invisible on an
+        # idle GPU, a different pose once other requests keep the GPU busy.
+        self.stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(self.stream):
             self.context.execute_async_v3(self.stream.cuda_stream)
         self.stream.synchronize()

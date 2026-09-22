@@ -10,6 +10,7 @@ from badminton_analysis.models.constants import (
     IMPACT_FRAME_SEARCH_WINDOW_BEFORE,
     IMPACT_FRAME_SEARCH_WINDOW_AFTER,
     ANALYSIS_WINDOW_PADDING_BEFORE,
+    SERVE_CONTACT_SEARCH_FRAMES,
     SERVE_MINIMUM_FOLLOW_THROUGH,
     SERVE_PEAK_DROP_RATIO,
 )
@@ -310,17 +311,30 @@ class VideoAnalyzer:
         cls,
         hand_positions: list[Coordinate],
         elbow_positions: list[Coordinate],
+        shoulder_positions: list[Coordinate] | None = None,
     ) -> tuple[int, int, int]:
-        start_frame, peak_frame, end_frame = cls.find_acc_analysis_window(
-            hand_positions, elbow_positions
-        )
+        # The swing is the whole arm moving about the shoulder. Measured about
+        # the elbow it is forearm rotation, which letting the racket down after
+        # the serve produces as readily as the serve itself.
+        if shoulder_positions is None:
+            start_frame, peak_frame, end_frame = cls.find_acc_analysis_window(
+                hand_positions, elbow_positions
+            )
+        else:
+            start_frame, peak_frame, end_frame = cls._serve_swing_window(
+                hand_positions, shoulder_positions
+            )
         acceleration_end_frame = end_frame
-        sub_range_positions = hand_positions[int(start_frame) : int(end_frame)]
+        search_start, search_end = int(start_frame), int(end_frame)
+        if shoulder_positions is not None:
+            search_start = max(search_start, peak_frame - SERVE_CONTACT_SEARCH_FRAMES)
+            search_end = min(search_end, peak_frame + SERVE_CONTACT_SEARCH_FRAMES + 1)
+        sub_range_positions = hand_positions[search_start:search_end]
         arr = np.asarray(sub_range_positions, dtype=np.float64)
         if arr.size > 0:
             y_values = arr[:, 1]
             lowest_hand_relative_index = int(np.argmax(y_values))
-            peak_frame = start_frame + lowest_hand_relative_index
+            peak_frame = search_start + lowest_hand_relative_index
         subset_elbow_pos = elbow_positions[peak_frame:]
         arr_elbow = np.asarray(subset_elbow_pos, dtype=np.float64)
         composite_metric = (
@@ -342,6 +356,30 @@ class VideoAnalyzer:
         start_frame = max(0, peak_frame - ANALYSIS_WINDOW_PADDING_BEFORE)
         final_end_frame = min(len(hand_positions) - 1, end_frame)
         return int(start_frame), int(peak_frame), int(final_end_frame)
+
+    @classmethod
+    def _serve_swing_window(
+        cls,
+        hand_positions: list[Coordinate],
+        shoulder_positions: list[Coordinate],
+    ) -> tuple[int, int, int]:
+        """The serve is the fastest the racket arm moves about its shoulder.
+
+        A smooth, sustained motion -- the racket let down across the body after
+        the serve -- scores well on directional acceleration while moving more
+        slowly than the swing that struck the shuttle, so the swing is taken at
+        the arm's peak speed instead.
+        """
+        arm = cls.moving_average(
+            hand_positions, window_size=SMOOTHING_WINDOW_SIZE
+        ) - cls.moving_average(shoulder_positions, window_size=SMOOTHING_WINDOW_SIZE)
+        speed = np.linalg.norm(np.diff(arm, axis=0), axis=1)
+        peak_frame = int(np.argmax(speed)) + 1 if len(speed) else 0
+        start_frame = max(0, peak_frame - IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
+        end_frame = min(
+            len(hand_positions) - 1, peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER
+        )
+        return start_frame, peak_frame, end_frame
 
     @classmethod
     def _serve_peak_with_follow_through(
@@ -403,11 +441,13 @@ class VideoAnalyzer:
         skill: Skill,
         hand_positions: list[Coordinate] | None,
         elbow_positions: list[Coordinate] | None,
+        shoulder_positions: list[Coordinate] | None = None,
     ) -> tuple[int, int, int, int, int]:
         start, peak, end = cls.find_analysis_window(
             skill=skill,
             hand_positions=hand_positions,
             elbow_positions=elbow_positions,
+            shoulder_positions=shoulder_positions,
         )
         return start, (start + peak) // 2, peak, (peak + end) // 2, end
 
@@ -418,6 +458,7 @@ class VideoAnalyzer:
         skill: Skill,
         hand_positions: list[Coordinate] | None,
         elbow_positions: list[Coordinate] | None,
+        shoulder_positions: list[Coordinate] | None = None,
     ) -> tuple[int, int, int]:
         if not any([hand_positions, elbow_positions]):
             cls.logger.error("At least one coordinate list should be provided")
@@ -427,7 +468,7 @@ class VideoAnalyzer:
             case Skill.SERVE:
                 if hand_positions and elbow_positions:
                     return cls.__find_serve_analysis_window(
-                        hand_positions, elbow_positions
+                        hand_positions, elbow_positions, shoulder_positions
                     )
                 cls.logger.error("At least one coordinate list should be provided")
                 return -1, -1, -1

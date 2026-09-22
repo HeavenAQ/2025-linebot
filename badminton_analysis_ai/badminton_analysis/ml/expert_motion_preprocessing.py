@@ -24,6 +24,7 @@ from badminton_analysis.models.types import Handedness, Skill, TrackingData
 from badminton_analysis.models.constants import (
     IMPACT_FRAME_SEARCH_WINDOW_AFTER,
     IMPACT_FRAME_SEARCH_WINDOW_BEFORE,
+    SERVE_WRIST_CONFIDENCE_FLOOR,
 )
 from badminton_analysis.services.video_analyzer import VideoAnalyzer
 
@@ -387,6 +388,32 @@ def _smash_eimd_v3_phases(
     return start, preparation, contact, follow_through, end
 
 
+def _serve_swing_positions(
+    hand_positions: Sequence[Sequence[float]],
+    skeleton: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    handedness: Handedness,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    """The racket wrist with poorly seen frames bridged, and its shoulder.
+
+    A wrist the detector is unsure of can jump across the frame in one step,
+    and that jump outruns a real serve. Frames below the confidence floor are
+    interpolated from the wrist on either side before the swing is searched.
+    """
+    wrist, shoulder = (9, 5) if handedness == Handedness.LEFT else (10, 6)
+    hand = np.asarray(hand_positions, dtype=np.float64).copy()
+    seen = np.asarray(confidence, dtype=np.float64)[:, wrist] >= SERVE_WRIST_CONFIDENCE_FLOOR
+    if 2 <= int(np.count_nonzero(seen)) < len(hand):
+        frames = np.arange(len(hand))
+        for axis in range(hand.shape[1]):
+            hand[~seen, axis] = np.interp(frames[~seen], frames[seen], hand[seen, axis])
+    shoulders = np.asarray(skeleton, dtype=np.float64)[:, shoulder]
+    return (
+        [tuple(map(float, point)) for point in hand],
+        [tuple(map(float, point)) for point in shoulders],
+    )
+
+
 def prepare_expert_motion_sample(
     tracking: TrackingData,
     handedness: Handedness,
@@ -404,10 +431,17 @@ def prepare_expert_motion_sample(
         raise ValueError("at least five aligned 2D poses are required")
     full_skeleton, full_confidence = tracking_body_arrays(tracking)
     motion_skeleton, _ = interpolate_pose_sequence(full_skeleton, full_confidence)
+    hand_positions = tracking.get("hand_positions")
+    shoulder_positions = None
+    if skill == Skill.SERVE and hand_positions:
+        hand_positions, shoulder_positions = _serve_swing_positions(
+            hand_positions, motion_skeleton, full_confidence, handedness
+        )
     phases = VideoAnalyzer.find_analysis_phases(
         skill=skill,
-        hand_positions=tracking.get("hand_positions"),
+        hand_positions=hand_positions,
         elbow_positions=tracking.get("elbow_positions"),
+        shoulder_positions=shoulder_positions,
     )
     phase_source = "acceleration_wrist_velocity_stop_v6"
     if phase_contract == "eimd_v3":

@@ -110,13 +110,47 @@ def _dual_window_scoring_correction(
     )
 
 
+_SERVE_STANCE_CHECKPOINTS = ("arms_raised", "racket_foot_weight")
+_SERVE_MOTION_CHECKPOINTS = (
+    "weight_transfer",
+    "hip_rotation",
+    "wrist_flick",
+    "shoulder_rotation",
+)
+
+
+def _serve_checkpoint_ratio(item: dict[str, Any]) -> float:
+    ratio = item.get("effective_checklist_ratio")
+    if ratio is None:
+        ratio = float(item["score"]) / max(float(item["maximum"]), 1e-8)
+    return float(np.clip(float(ratio), 0.0, 1.0))
+
+
 def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
-    """Expose the validated six-item checklist on the original rubric scale."""
-    total = float(score["checklist_total_score"])
+    """Expose the validated six-item checklist on the original rubric scale.
+
+    Raised arms and weight on the racket foot are read from the starting pose
+    and nothing after it, so each shows its own grade. The combined soft
+    conjunction covers only the four motion checkpoints, on their 90 points,
+    and is split among them.
+    """
     criteria = [dict(item) for item in score["criteria"]]
     by_id = {str(item["rule_reference"]): item for item in criteria}
-    preserved = ("racket_foot_weight", "weight_transfer", "shoulder_rotation")
-    flexible = ("arms_raised", "hip_rotation", "wrist_flick")
+    motion_ratios = np.asarray(
+        [_serve_checkpoint_ratio(by_id[key]) for key in _SERVE_MOTION_CHECKPOINTS]
+    )
+    motion_maximum = sum(float(by_id[key]["maximum"]) for key in _SERVE_MOTION_CHECKPOINTS)
+    if bool(score.get("isolated_preparation_deviation", False)):
+        motion_share = float(np.mean(motion_ratios))
+    else:
+        power = float(score.get("aggregation_power", 1.0 / 3.0))
+        floor = float(score.get("aggregation_floor", 1e-3))
+        bounded = np.maximum(motion_ratios, floor)
+        motion_share = float(np.mean(bounded**power) ** (1.0 / power))
+    motion_share *= float(score.get("trajectory_novelty_factor", 1.0))
+    total = motion_maximum * motion_share
+    preserved = ("weight_transfer", "shoulder_rotation")
+    flexible = ("hip_rotation", "wrist_flick")
     attributed: dict[str, float] = {
         criterion: min(
             float(by_id[criterion]["maximum"]),
@@ -167,30 +201,14 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
                 break
             active = [key for key in active if key not in capped]
         attributed.update({key: attributed.get(key, 0.0) for key in flexible})
+    for key in _SERVE_STANCE_CHECKPOINTS:
+        item = by_id[key]
+        attributed[key] = float(item["maximum"]) * _serve_checkpoint_ratio(item)
     arms = by_id["arms_raised"]
     if bool(arms.get("passes_corrected_shoulder_height", False)):
         # The semantic shoulder-height rule is authoritative for this one
-        # preparation checkpoint.  Reattribute existing total points rather
-        # than inflating the aggregate: the score distribution stays on the
-        # validated single head while the UI cannot call a passed arm position
-        # a failure merely because another criterion consumed the allocation.
-        target = float(arms["maximum"])
-        needed = max(0.0, target - attributed.get("arms_raised", 0.0))
-        for donor in (
-            "hip_rotation",
-            "wrist_flick",
-            "shoulder_rotation",
-            "racket_foot_weight",
-            "weight_transfer",
-        ):
-            transfer_points = min(needed, attributed.get(donor, 0.0))
-            attributed[donor] = attributed.get(donor, 0.0) - transfer_points
-            attributed["arms_raised"] = (
-                attributed.get("arms_raised", 0.0) + transfer_points
-            )
-            needed -= transfer_points
-            if needed <= 1e-12:
-                break
+        # preparation checkpoint.
+        attributed["arms_raised"] = float(arms["maximum"])
     raw_weighted_total = float(sum(float(item["score"]) for item in criteria))
     for item in criteria:
         item["raw_weighted_score"] = float(item["score"])
@@ -213,7 +231,7 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
         "weighted_total_score": attributed_total,
         "total_score": attributed_total,
         "single_head_attribution_policy": (
-            "strict_transfer_cap_then_bounded_semantic_allocate"
+            "stance_checkpoints_own_grade_motion_checkpoints_combined"
         ),
     }
 

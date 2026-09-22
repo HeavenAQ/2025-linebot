@@ -72,8 +72,9 @@ def test_serve_single_head_preserves_original_rubric_and_total() -> None:
         {"criteria": criteria, "checklist_total_score": 62.5}
     )
 
-    assert np.isclose(result["total_score"], 62.5)
-    assert np.isclose(sum(item["score"] for item in result["criteria"]), 62.5)
+    # Starting-pose checkpoints 2 x 5 x 0.8, motion checkpoints 90 x 0.8.
+    assert np.isclose(result["total_score"], 80.0)
+    assert np.isclose(sum(item["score"] for item in result["criteria"]), 80.0)
     assert [item["maximum"] for item in result["criteria"]] == list(maxima)
     assert all(0.0 <= item["score"] <= item["maximum"] for item in result["criteria"])
 
@@ -106,9 +107,10 @@ def test_serve_single_head_caps_transfer_when_required_cues_disagree() -> None:
     )
     by_id = {item["rule_reference"]: item for item in result["criteria"]}
 
-    assert np.isclose(result["total_score"], 70.0)
-    assert np.isclose(sum(item["score"] for item in result["criteria"]), 70.0)
+    # Every other checkpoint passes; the transfer keeps only its capped share.
     assert by_id["weight_transfer"]["score"] == pytest.approx(30.0 * np.exp(-2.0))
+    assert np.isclose(result["total_score"], 70.0 + 30.0 * np.exp(-2.0))
+    assert np.isclose(sum(item["score"] for item in result["criteria"]), result["total_score"])
     assert by_id["weight_transfer"]["strict_transfer_support_ratio"] == (
         pytest.approx(np.exp(-2.0))
     )
@@ -168,13 +170,50 @@ def test_serve_single_head_keeps_corrected_shoulder_height_as_arm_pass() -> None
         }
     )
 
+    criteria[0]["score"] = 0.0
     result = _serve_single_head_score(
         {"criteria": criteria, "checklist_total_score": 50.0}
     )
     by_id = {item["rule_reference"]: item for item in result["criteria"]}
 
     assert by_id["arms_raised"]["score"] == pytest.approx(5.0)
-    assert sum(item["score"] for item in result["criteria"]) == pytest.approx(50.0)
+    assert sum(item["score"] for item in result["criteria"]) == pytest.approx(100.0)
+
+
+def test_serve_a_failed_starting_pose_checkpoint_costs_only_its_own_points() -> None:
+    ids = (
+        "arms_raised",
+        "racket_foot_weight",
+        "weight_transfer",
+        "hip_rotation",
+        "wrist_flick",
+        "shoulder_rotation",
+    )
+    maxima = (5.0, 5.0, 30.0, 10.0, 30.0, 20.0)
+    ratios = (1.0, 1.0, 1.0, 0.69, 0.91, 0.81)
+
+    def graded(arms_ratio: float) -> dict[str, float]:
+        criteria = [
+            {
+                "rule_reference": rule,
+                "score": maximum * ratio,
+                "maximum": maximum,
+                "effective_checklist_ratio": ratio,
+            }
+            for rule, maximum, ratio in zip(ids, maxima, ratios, strict=True)
+        ]
+        criteria[0]["effective_checklist_ratio"] = arms_ratio
+        criteria[0]["score"] = 5.0 * arms_ratio
+        result = _serve_single_head_score({"criteria": criteria, "checklist_total_score": 0.0})
+        return {item["rule_reference"]: item["score"] for item in result["criteria"]} | {
+            "total": result["total_score"]
+        }
+
+    raised, dropped = graded(1.0), graded(0.001)
+    # Arms that are not raised lose their five points and nothing else.
+    assert raised["total"] - dropped["total"] == pytest.approx(5.0 * (1.0 - 0.001))
+    for rule in ids[1:]:
+        assert dropped[rule] == pytest.approx(raised[rule])
 
 
 def test_smash_runtime_score_preserves_total_and_rubric_caps(

@@ -45,4 +45,4 @@ RUN if [ "$REQUIRE_TRT_ENGINE" = "1" ]; then \
     fi
 
 EXPOSE 8080
-CMD ["python", "-m", "api.server"]
+CMD ["python", "-m", "api.boot"]

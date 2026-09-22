@@ -976,6 +976,22 @@ def _serve_wrist_correction_residuals(
     }
 
 
+_SERVE_CHECKPOINT_MANIFOLDS: dict[tuple[int, str], Any] = {}
+
+
+def _serve_checkpoint_manifold(
+    model: "ExpertPhaseModel", rule_id: str, joints: tuple[int, ...], start: int, end: int
+) -> Any:
+    from badminton_analysis.ml.trajectory_distance import fit_serve_checkpoint_manifold
+
+    key = (id(model), rule_id)
+    if key not in _SERVE_CHECKPOINT_MANIFOLDS:
+        _SERVE_CHECKPOINT_MANIFOLDS[key] = fit_serve_checkpoint_manifold(
+            np.asarray(model.expert_pose), model.expert_subject_ids, joints, start, end
+        )
+    return _SERVE_CHECKPOINT_MANIFOLDS[key]
+
+
 def _serve_transfer_against_correction(
     semantic: dict[str, Any], residuals: dict[str, float], tolerance: float
 ) -> dict[str, Any]:
@@ -2305,6 +2321,34 @@ def score_expert_correction(
                             ),
                         ),
                     }
+                detail = spec.details[index]
+                start, end = detail.bounds(len(semantic_pose))
+                checkpoint_manifold = _serve_checkpoint_manifold(
+                    model, rule.id, tuple(detail.joints or rule.measured_joints), start, end
+                )
+                from badminton_analysis.ml.trajectory_distance import (
+                    SERVE_CHECKPOINT_HELD_OUT,
+                    serve_checkpoint_distance,
+                )
+
+                semantic = {
+                    **semantic,
+                    "checkpoint_distance": serve_checkpoint_distance(
+                        np.asarray(semantic_pose, dtype=np.float64), checkpoint_manifold
+                    ),
+                    "checkpoint_expert_q80": float(
+                        np.quantile(
+                            SERVE_CHECKPOINT_HELD_OUT[
+                                (
+                                    tuple(checkpoint_manifold.triplets),
+                                    checkpoint_manifold.start,
+                                    checkpoint_manifold.end,
+                                )
+                            ],
+                            0.80,
+                        )
+                    ),
+                }
                 components[index] = {
                     **semantic,
                     "generated_target_distance": generated_distance,

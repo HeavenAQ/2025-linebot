@@ -544,3 +544,105 @@ def expert_residual_ratio(
         raise ValueError("expert residual scale must be positive")
     excess = max(0.0, float(cost) - float(tolerance))
     return float(np.exp(-excess / scale))
+
+
+@dataclass(frozen=True)
+class ServeCheckpointManifold:
+    """Expert-only novelty bounds for one checkpoint's joints and frames."""
+
+    triplets: tuple[tuple[int, int, int], ...]
+    start: int
+    end: int
+    standardized_experts: NDArray[np.float64]
+    feature_median: NDArray[np.float64]
+    feature_scale: NDArray[np.float64]
+    expert_q80: float
+    expert_scale: float
+
+
+def serve_checkpoint_feature(
+    pose: NDArray[np.floating],
+    triplets: tuple[tuple[int, int, int], ...],
+    start: int,
+    end: int,
+) -> NDArray[np.float64]:
+    """Joint-angle trajectories of one checkpoint's joints over its frames."""
+
+    values = np.asarray(pose, dtype=np.float64)
+    trajectories = []
+    for first, centre, last in triplets:
+        incoming = values[:, first] - values[:, centre]
+        outgoing = values[:, last] - values[:, centre]
+        denominator = np.maximum(
+            np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1),
+            1e-6,
+        )
+        cosine = np.sum(incoming * outgoing, axis=-1) / denominator
+        trajectories.append(np.arccos(np.clip(cosine, -1.0, 1.0)) / np.pi)
+    frames = np.linspace(start, end - 1, 8).round().astype(np.int64)
+    sampled = np.stack(trajectories, axis=-1)[frames]
+    derivative = np.diff(sampled, axis=0, prepend=sampled[:1])
+    return np.concatenate((sampled.ravel(), derivative.ravel()))
+
+
+def fit_serve_checkpoint_manifold(
+    expert_pose: NDArray[np.floating],
+    expert_subject_ids: Sequence[str],
+    joints: Sequence[int],
+    start: int,
+    end: int,
+) -> ServeCheckpointManifold:
+    """Fit a checkpoint's novelty bounds the way the trajectory manifold is:
+    identity-held-out distances between expert takes, expert data only."""
+
+    triplets = tuple(t for t in _SERVE_MANIFOLD_TRIPLETS if t[1] in set(joints))
+    poses = np.asarray(expert_pose, dtype=np.float64)
+    subjects = np.asarray(tuple(expert_subject_ids))
+    features = np.stack(
+        [serve_checkpoint_feature(pose, triplets, start, end) for pose in poses]
+    )
+    median = np.median(features, axis=0)
+    scale = np.maximum(1.4826 * np.median(np.abs(features - median), axis=0), 0.03)
+    standardized = (features - median) / scale
+    held_out = np.asarray(
+        [
+            float(
+                np.min(
+                    np.sqrt(
+                        np.mean(
+                            np.square(standardized[subjects != subject] - standardized[index]),
+                            axis=1,
+                        )
+                    )
+                )
+            )
+            for index, subject in enumerate(subjects)
+        ]
+    )
+    q80 = float(np.quantile(held_out, 0.80))
+    SERVE_CHECKPOINT_HELD_OUT[(tuple(triplets), start, end)] = held_out
+    return ServeCheckpointManifold(
+        triplets=triplets,
+        start=start,
+        end=end,
+        standardized_experts=standardized,
+        feature_median=median,
+        feature_scale=scale,
+        expert_q80=q80,
+        expert_scale=max(float(np.quantile(held_out, 0.95)) - q80, 0.5),
+    )
+
+
+SERVE_CHECKPOINT_HELD_OUT: dict = {}
+
+
+def serve_checkpoint_distance(
+    pose: NDArray[np.floating], manifold: ServeCheckpointManifold
+) -> float:
+    feature = (
+        serve_checkpoint_feature(pose, manifold.triplets, manifold.start, manifold.end)
+        - manifold.feature_median
+    ) / manifold.feature_scale
+    return float(
+        np.min(np.sqrt(np.mean(np.square(manifold.standardized_experts - feature), axis=1)))
+    )

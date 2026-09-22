@@ -230,6 +230,6 @@ def test_serve_instructions_name_the_two_transfer_error_modes() -> None:
     smash = system_instructions(get_skill_spec(Skill.SMASH))
 
     assert "standardized_shortfall_stance_retention" in serve
-    assert "standardized_shortfall_transfer_swing_synchrony" in serve
+    assert "source_pelvis_loading_shift" in serve
     assert "量測為0時不得宣稱該錯誤" in serve
     assert "stance_retention" not in smash

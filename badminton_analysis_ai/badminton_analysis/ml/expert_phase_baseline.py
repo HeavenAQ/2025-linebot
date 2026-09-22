@@ -13,12 +13,15 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, Sequence
 
+import os
+
 import numpy as np
 from numpy.typing import NDArray
 
 from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     phase_align_sequence,
+    resample_sequence,
 )
 from badminton_analysis.ml.skeleton_scoring import ANGLE_TRIPLETS
 from badminton_analysis.ml.skill_specs import (
@@ -28,6 +31,9 @@ from badminton_analysis.ml.skill_specs import (
 )
 from badminton_analysis.ml.video_annotations import expert_subject_identity
 
+# Room for an expert the envelope has never seen: leave-one-identity-out puts
+# the narrowest stance 15% below the lowest take the fit can see.
+_SERVE_UNSEEN_EXPERT_MARGIN = 0.15
 _EPS = 1e-8
 
 
@@ -633,6 +639,14 @@ def _serve_weight_transfer_components(
     }
 
 
+def _serve_wrist_descent_onset(pose: NDArray[np.float64], contact: int) -> int:
+    """The frame the racket wrist starts coming down, which is where the
+    transfer has to begin: while both hands are still up nothing has moved."""
+    height = _smooth_trajectory(pose[:, 10, 1][:, None])[:, 0]
+    onset = int(np.argmax(height[:contact])) if contact > 1 else 0
+    return int(min(onset, max(0, contact - 4)))
+
+
 def _joint_angle_trajectory(
     pose: NDArray[np.floating], first: int, pivot: int, third: int
 ) -> NDArray[np.float64]:
@@ -665,16 +679,6 @@ def _serve_dominant_chain_angles(
     )
 
 
-def _serve_signal_onset(signal: NDArray[np.floating], fraction: float) -> float:
-    """First frame where a signal has travelled `fraction` of its own range."""
-    low = float(np.min(signal))
-    high = float(np.max(signal))
-    if high - low <= _EPS:
-        return float(len(signal) - 1)
-    crossed = np.flatnonzero(signal >= low + fraction * (high - low))
-    return float(crossed[0]) if len(crossed) else float(len(signal) - 1)
-
-
 def _serve_qualitative_pose_evidence(
     pose: NDArray[np.floating],
     root: NDArray[np.floating] | None = None,
@@ -695,6 +699,16 @@ def _serve_qualitative_pose_evidence(
     completion_start, completion_end = motion_completion_bounds(
         len(values), 0.71875, 1.0
     )
+    # The pelvis has to have arrived by the time the racket accelerates, so
+    # its travel is read between the wrist's descent and maximum acceleration,
+    # from the both-hands-up preparation the learner leaves. The joint chain
+    # stays on the whole stroke, where it separates best. The expert envelope
+    # is fitted from this same function, so the floors follow the interval.
+    _, contact_frame = motion_completion_bounds(len(values), 0.0, 0.5)
+    descent = _serve_wrist_descent_onset(values, contact_frame)
+    loading_start, loading_end = min(descent, contact_frame - 1), contact_frame
+    baseline_start = max(0, descent - max(2, len(values) // 16))
+    baseline_end = max(1, descent)
     hip_center = 0.5 * (values[:, 11] + values[:, 12])
     shoulder_center = 0.5 * (values[:, 5] + values[:, 6])
     torso = np.maximum(np.linalg.norm(shoulder_center - hip_center, axis=-1), _EPS)
@@ -724,15 +738,20 @@ def _serve_qualitative_pose_evidence(
     pelvis_loading = (
         np.sum((hip_center - values[:, 15]) * ankle_axis, axis=-1) / ankle_denominator
     )
-    loading_shift = abs(
-        float(np.median(pelvis_loading[completion_start:completion_end]))
-        - float(np.median(pelvis_loading[preparation_start:preparation_end]))
+    baseline_loading = float(np.median(pelvis_loading[baseline_start:baseline_end]))
+    # The furthest the pelvis gets, not where it sits on one frame: a learner
+    # who arrives early and holds and one who arrives just in time have both
+    # arrived.
+    loading_shift = float(
+        np.max(np.abs(pelvis_loading[loading_start:loading_end] - baseline_loading))
     )
     chain_angles = _serve_dominant_chain_angles(values)
     preparation_chain = np.median(
         chain_angles[preparation_start:preparation_end], axis=0
     )
-    completion_chain = np.median(chain_angles[completion_start:completion_end], axis=0)
+    completion_chain = np.median(
+        chain_angles[completion_start:completion_end], axis=0
+    )
     chain_change = float(np.linalg.norm(completion_chain - preparation_chain) / np.pi)
     chain_baseline = np.median(chain_angles[preparation_start:preparation_end], axis=0)
     chain_excursion = _smooth_trajectory(
@@ -778,24 +797,6 @@ def _serve_qualitative_pose_evidence(
     root_transfer = float(
         np.linalg.norm(completion_root - preparation_root) / preparation_torso
     )
-    # Transfer that is over before the arm moves is not transfer into the
-    # stroke: the learner rocks forward, waits, then swings. The lead is the
-    # gap between the dominant chain reaching half its excursion and the
-    # racket wrist reaching a third of its speed, as a fraction of the stroke.
-    wrist_speed = _smooth_trajectory(
-        np.concatenate(
-            [[0.0], np.linalg.norm(np.diff(values[:, 10], axis=0), axis=-1)]
-        )[:, None]
-    )[:, 0]
-    transfer_lead = max(
-        0.0,
-        (
-            _serve_signal_onset(wrist_speed, 0.3)
-            - _serve_signal_onset(chain_excursion, 0.5)
-        )
-        / len(values),
-    )
-    transfer_swing_synchrony = 1.0 / (1.0 + transfer_lead)
     # A learner who brings the ankles together has no base to transfer across,
     # and a step reads as transfer to the chain cues. The stance that survives
     # the stroke is measured against the one it started from, so the expert
@@ -814,7 +815,6 @@ def _serve_qualitative_pose_evidence(
         "coordinated_hip_rotation": coordinated_hip_rotation,
         "root_transfer_distance": root_transfer,
         "stance_retention": stance_retention,
-        "transfer_swing_synchrony": transfer_swing_synchrony,
     }
 
 
@@ -1263,7 +1263,6 @@ def _serve_semantic_evidence(
                     motion["root_transfer_distance"],
                     motion["coordinated_hip_rotation"],
                     motion["stance_retention"],
-                    motion["transfer_swing_synchrony"],
                 ),
                 dtype=np.float64,
             ),
@@ -1274,7 +1273,6 @@ def _serve_semantic_evidence(
                 "root_transfer_distance",
                 "coordinated_hip_rotation",
                 "stance_retention",
-                "transfer_swing_synchrony",
             ),
             # The dominant-side joint angles carry the decision: invariant to
             # translation, scale and in-plane rotation. Pelvis loading is a
@@ -1282,7 +1280,7 @@ def _serve_semantic_evidence(
             # weight transfer. Root translation is excluded -- monocular
             # perspective distorts it -- and used only as an alternative cue
             # below, when the joint chain independently agrees.
-            np.asarray((2.5, 1.5, 0.5, 0.0, 0.0, 1.0, 1.0), dtype=np.float64),
+            np.asarray((2.5, 1.5, 0.5, 0.0, 0.0, 1.0), dtype=np.float64),
         )
     if rule_id == "hip_rotation":
         rotation = _serve_projected_rotation_features(pose, confidence)
@@ -1479,6 +1477,17 @@ def _serve_expert_envelope(
             # Dynamic checkpoints use identity medians so a single occluded
             # or truncated take cannot erase the required motion pattern.
             lower = np.min(subject_values, axis=0) - within_take_scale
+        if rule_id == "weight_transfer":
+            # Stance varies from take to take within one expert, so every
+            # expert take is a valid example of a base worth transferring
+            # across; a subject median rejects experts on their own evidence.
+            # The margin is what a held-out expert needs: fitted to the takes
+            # alone, the floor is set by whichever identity stands narrowest,
+            # and that identity then fails its own clips.
+            stance = names.index("stance_retention")
+            lower[stance] = float(np.min(matrix[:, stance])) * (
+                1.0 - _SERVE_UNSEEN_EXPERT_MARGIN
+            )
         median = np.median(subject_values, axis=0)
         scale = np.maximum.reduce(
             (
@@ -1540,11 +1549,10 @@ def _serve_expert_envelope_components(
             )
         )
         support_distance = float(np.min(deficiency[2:5]))
-        # A stance that closes leaves nothing to transfer across, and a
-        # transfer finished before the swing never entered the stroke. Either
-        # one decides on its own, however well the chain cues read.
-        timing_distance = float(np.max(deficiency[5:7]))
-        distance = float(max(chain_distance, support_distance, timing_distance))
+        # A stance that closes leaves nothing to transfer across, so it
+        # decides on its own however well the chain cues read.
+        stance_distance = float(deficiency[5])
+        distance = float(max(chain_distance, support_distance, stance_distance))
         aggregation = "dominant_chain_with_pelvis_or_root_support"
     elif rule_id == "hip_rotation":
         # Axial rotation changes apparent hip width, shoulder width, hip-axis
@@ -1923,7 +1931,13 @@ def _serve_corrected_residual_checklist(
             semantic_ratios,
             diagnostics,
         )
-    if manifold_distance <= manifold.expert_q80:
+    every_checkpoint_passed = bool(np.min(semantic_ratios) >= 1.0 - 1e-3)
+    diagnostics["every_checkpoint_passed"] = every_checkpoint_passed
+    if manifold_distance <= manifold.expert_q80 or every_checkpoint_passed:
+        # A serve that satisfies all six checkpoints on expert evidence is a
+        # complete serve. The residual against its own corrected skeleton is a
+        # style difference at that point, and must not take points off
+        # checkpoints that already passed.
         return (
             semantic_total,
             f"expert_manifold_supported_{semantic_policy}",

@@ -449,6 +449,12 @@ class SkeletonAnalysisPipeline:
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
+        # One request at a time from pose extraction through generation. The
+        # same upload scored 92.36 alone and 94.45 beside three others, with
+        # a different analysis window: interleaving requests on the GPU
+        # changes what each one detects. A separate lock, because the pose
+        # worker takes self.lock per chunk while this one is held.
+        self.request_lock = threading.Lock()
         self.pose_batcher = PoseBatcher(self.pose_detector, self.lock)
         self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
@@ -512,73 +518,73 @@ class SkeletonAnalysisPipeline:
                 video_path,
                 output_path.with_name(output_path.stem + ".source-30fps.mp4"),
             )
-        pose_started = time.perf_counter()
-        processor = VideoProcessor(
-            str(video_path),
-            self.pose_batcher.request_detector(),
-        )
-        # The whole upload is available, so poses are extracted in batches:
-        # the cached TensorRT engine on CUDA, RF-DETR predict() on MPS/CPU.
-        # The pose batcher may merge frames from concurrent requests.
-        tracking = processor.process_frames_batched(None)
-        pose_finished = time.perf_counter()
-        handedness = _resolve_handedness(tracking, requested_handedness)
-        _populate_dominant_motion(tracking, handedness)
-        backend = self.backends[skill]
-        # The request label is untrusted.  Validate it against expert-only
-        # temporal support after pose/handedness extraction and before the
-        # requested generator can steer itself from an out-of-distribution
-        # phase sequence. The independently frozen label-support bank
-        # retains its EIMD-v3 windows; grading uses its own matched contract.
-        prepared = backend.prepare(tracking, handedness, filename)
-        support_prepared = (
-            backend.prepare_skill_support(tracking, handedness, filename)
-            if hasattr(backend, "prepare_skill_support")
-            else prepared
-        )
-        alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
-        try:
-            alternative = self.backends[alternative_skill]
-            support_prepare = getattr(
-                alternative, "prepare_skill_support", alternative.prepare
+        with self.request_lock:
+            pose_started = time.perf_counter()
+            processor = VideoProcessor(
+                str(video_path),
+                self.pose_batcher.request_detector(),
             )
-            alternative_prepared = support_prepare(tracking, handedness, filename)
-        except ValueError as exc:
-            # This is a conservative rejection-only guard. If the other
-            # stroke cannot form a valid five-phase hypothesis, it has not
-            # won temporal support and the requested analysis continues.
-            alternative_prepared = None
-            LOGGER.info(
-                "alternative skill hypothesis unavailable requested=%s "
-                "alternative=%s error=%s",
-                skill,
-                alternative_skill,
-                exc,
+            # The whole upload is available, so poses are extracted in batches:
+            # the cached TensorRT engine on CUDA, RF-DETR predict() on MPS/CPU.
+            tracking = processor.process_frames_batched(None)
+            pose_finished = time.perf_counter()
+            handedness = _resolve_handedness(tracking, requested_handedness)
+            _populate_dominant_motion(tracking, handedness)
+            backend = self.backends[skill]
+            # The request label is untrusted.  Validate it against expert-only
+            # temporal support after pose/handedness extraction and before the
+            # requested generator can steer itself from an out-of-distribution
+            # phase sequence. The independently frozen label-support bank
+            # retains its EIMD-v3 windows; grading uses its own matched contract.
+            prepared = backend.prepare(tracking, handedness, filename)
+            support_prepared = (
+                backend.prepare_skill_support(tracking, handedness, filename)
+                if hasattr(backend, "prepare_skill_support")
+                else prepared
             )
-        skill_support = (
-            self.expert_bank.temporal_skill_support(
-                support_prepared[0].pose,
-                alternative_prepared[0].pose,
-                requested_skill=str(skill),
+            alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+            try:
+                alternative = self.backends[alternative_skill]
+                support_prepare = getattr(
+                    alternative, "prepare_skill_support", alternative.prepare
+                )
+                alternative_prepared = support_prepare(tracking, handedness, filename)
+            except ValueError as exc:
+                # This is a conservative rejection-only guard. If the other
+                # stroke cannot form a valid five-phase hypothesis, it has not
+                # won temporal support and the requested analysis continues.
+                alternative_prepared = None
+                LOGGER.info(
+                    "alternative skill hypothesis unavailable requested=%s "
+                    "alternative=%s error=%s",
+                    skill,
+                    alternative_skill,
+                    exc,
+                )
+            skill_support = (
+                self.expert_bank.temporal_skill_support(
+                    support_prepared[0].pose,
+                    alternative_prepared[0].pose,
+                    requested_skill=str(skill),
+                )
+                if alternative_prepared is not None
+                else None
             )
-            if alternative_prepared is not None
-            else None
-        )
-        if skill_support is not None and skill_support.mismatch:
-            raise SkillMismatchError(
-                f"requested {skill_support.requested_skill} conflicts with "
-                f"{skill_support.alternative_skill} temporal motion support "
-                f"(advantage={skill_support.alternative_advantage:.6f}, "
-                f"margin={skill_support.rejection_margin:.6f})"
-            )
-        with self.lock:
-            generated = backend.infer(
-                tracking,
-                handedness,
-                filename,
-                prepared=prepared,
-                fps=source_fps(video_path),
-            )
+            if skill_support is not None and skill_support.mismatch:
+                raise SkillMismatchError(
+                    f"requested {skill_support.requested_skill} conflicts with "
+                    f"{skill_support.alternative_skill} temporal motion support "
+                    f"(advantage={skill_support.alternative_advantage:.6f}, "
+                    f"margin={skill_support.rejection_margin:.6f})"
+                )
+            with self.lock:
+                generated = backend.infer(
+                    tracking,
+                    handedness,
+                    filename,
+                    prepared=prepared,
+                    fps=source_fps(video_path),
+                )
         correction = generated.correction
         skeleton = correction.student.pose
         confidence = correction.student.confidence

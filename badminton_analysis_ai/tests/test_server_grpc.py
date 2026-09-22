@@ -622,3 +622,74 @@ def test_health_binds_request_context(json_logs) -> None:
         server.stop(grace=None).wait()
 
     assert seen["request_id"] == "health-1"
+
+
+def _startup_settings():
+    from api.config import Settings
+
+    return Settings(
+        port=0, max_video_bytes=1, grpc_api_key="key", gcp_project_id="p",
+        gcs_bucket_name="b", gcp_service_account_email="", signed_url_minutes=60,
+        expert_motion_model_root=Path("models"), device="cpu",
+        openai_model="m", coaching_pause_seconds=2.0,
+    )
+
+
+def test_the_port_can_open_before_the_models_have_loaded(monkeypatch) -> None:
+    # Cloud Run abandoned instances about 22 s in while loading took about
+    # 32 s, so loading has to happen behind an open port, not in front of it.
+    import threading
+    import time
+
+    import api.server as server_module
+
+    release = threading.Event()
+    loaded = object()
+
+    def slow_pipeline(*_args, **_kwargs):
+        release.wait(5)
+        return loaded
+
+    monkeypatch.setattr(server_module, "ObjectStorage", lambda *a, **k: object())
+    monkeypatch.setattr(server_module, "SkeletonAnalysisPipeline", slow_pipeline)
+
+    started = time.monotonic()
+    service = server_module.BadmintonAnalysisService(_startup_settings())
+    assert time.monotonic() - started < 0.5, "construction must not wait for the models"
+
+    waiting = {}
+    reader = threading.Thread(target=lambda: waiting.setdefault("pipeline", service.pipeline))
+    reader.start()
+    reader.join(0.2)
+    assert reader.is_alive(), "a call waits for the models instead of failing"
+
+    release.set()
+    reader.join(5)
+    assert waiting["pipeline"] is loaded
+
+
+def test_a_pipeline_that_fails_to_load_takes_the_instance_down(monkeypatch) -> None:
+    # An open port with no models would fail every call while looking healthy.
+    import threading
+
+    import api.server as server_module
+
+    exited = threading.Event()
+    codes = []
+
+    def fake_exit(code):
+        codes.append(code)
+        exited.set()
+        raise SystemExit(code)
+
+    def broken_pipeline(*_args, **_kwargs):
+        raise RuntimeError("model file missing")
+
+    monkeypatch.setattr(server_module, "ObjectStorage", lambda *a, **k: object())
+    monkeypatch.setattr(server_module, "SkeletonAnalysisPipeline", broken_pipeline)
+    monkeypatch.setattr(server_module.os, "_exit", fake_exit)
+
+    server_module.BadmintonAnalysisService(_startup_settings())
+
+    assert exited.wait(5)
+    assert codes == [1]

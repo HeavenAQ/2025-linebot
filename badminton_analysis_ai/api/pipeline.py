@@ -86,6 +86,10 @@ _SERVE_CORRECTION_STANCE_MEASUREMENTS = (
     "correction_corrected_stance_retention",
     "correction_stance_retention_shortfall",
     "correction_stance_allowance",
+    "correction_learner_transfer_lead_frames",
+    "correction_corrected_transfer_lead_frames",
+    "correction_transfer_lead_excess_frames",
+    "correction_transfer_lead_allowance_frames",
 )
 # The racket elbow at contact, against the learner's own corrected skeleton.
 _SERVE_CORRECTION_ELBOW_MEASUREMENTS = (

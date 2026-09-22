@@ -822,3 +822,29 @@ def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() 
     assert judged["combined_distance"] == pytest.approx(
         0.17 + (11.0 - _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES) / 4.0
     )
+
+
+def test_serve_shoulders_turned_less_than_the_correction_at_contact() -> None:
+    from badminton_analysis.ml.expert_phase_baseline import (
+        _serve_wrist_correction_residuals,
+    )
+
+    frames = 64
+    turned = np.zeros((frames, 17, 2))
+    turned[:, 15] = (-1.0, 0.0)
+    turned[:, 16] = (1.0, 0.0)
+    # Canonically a shoulder line turned against the stance reads negative,
+    # as every expert's does at contact.
+    turned[:, 5] = (-1.0, -3.0)
+    turned[:, 6] = (1.0, -3.0 - np.tan(np.radians(30.0)) * 2.0)
+    turned[:, 8] = (1.0, -2.0)
+    turned[:, 10] = (1.0, -1.0)
+    square = turned.copy()
+    square[:, 6] = (1.0, -3.0)
+    measured = _serve_wrist_correction_residuals(square, turned)
+    assert measured["correction_corrected_shoulder_stance_angle_degrees"] == pytest.approx(-30.0)
+    assert measured["correction_learner_shoulder_stance_angle_degrees"] == pytest.approx(0.0)
+    assert measured["correction_shoulder_turn_shortfall_degrees"] == pytest.approx(30.0)
+    assert _serve_wrist_correction_residuals(turned, square)[
+        "correction_shoulder_turn_shortfall_degrees"
+    ] == pytest.approx(0.0)

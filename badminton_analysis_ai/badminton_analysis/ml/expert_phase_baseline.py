@@ -53,6 +53,14 @@ _SERVE_CORRECTION_TRANSFER_LEAD_SCALE_FRAMES = 4.0
 # about a third of the wrist credit.
 _SERVE_CORRECTION_ELBOW_ALLOWANCE_DEGREES = 12.3 * (1.0 + _SERVE_UNSEEN_EXPERT_MARGIN)
 _SERVE_CORRECTION_ELBOW_SCALE_DEGREES = 10.0
+# At maximum acceleration the shoulders have turned against the stance at least
+# as far as the corrected skeleton's: experts turn at most 2.5 degrees less than
+# theirs. Beyond that, with the same margin, every further 5 degrees keeps about
+# a third of the wrist credit.
+_SERVE_CORRECTION_SHOULDER_TURN_ALLOWANCE_DEGREES = 2.5 * (
+    1.0 + _SERVE_UNSEEN_EXPERT_MARGIN
+)
+_SERVE_CORRECTION_SHOULDER_TURN_SCALE_DEGREES = 5.0
 _EPS = 1e-8
 
 
@@ -936,7 +944,29 @@ def _serve_wrist_correction_residuals(
 
     learner_angle = elbow_at_contact(learner)
     corrected_angle = elbow_at_contact(corrected)
+    def shoulder_to_stance(pose: NDArray[np.float64]) -> float:
+        # Signed angle from the ankle line to the shoulder line, both drawn
+        # from the non-racket side to the racket side: how far the upper body
+        # has turned against the stance at contact.
+        shoulders = pose[:, 6] - pose[:, 5]
+        ankles = pose[:, 16] - pose[:, 15]
+        cross = ankles[:, 0] * shoulders[:, 1] - ankles[:, 1] * shoulders[:, 0]
+        dot = np.sum(ankles * shoulders, axis=-1)
+        angle = np.degrees(np.arctan2(cross, dot))
+        return float(np.median(angle[max(0, contact - 1) : contact + 2]))
+
+    learner_turn = shoulder_to_stance(learner)
+    corrected_turn = shoulder_to_stance(corrected)
     return {
+        "correction_shoulder_turn_shortfall_degrees": max(
+            0.0, learner_turn - corrected_turn
+        ),
+        "correction_shoulder_turn_allowance_degrees": (
+            _SERVE_CORRECTION_SHOULDER_TURN_ALLOWANCE_DEGREES
+        ),
+        "correction_learner_shoulder_stance_angle_degrees": learner_turn,
+        "correction_corrected_shoulder_stance_angle_degrees": corrected_turn,
+
         "correction_learner_elbow_at_contact_degrees": learner_angle,
         "correction_corrected_elbow_at_contact_degrees": corrected_angle,
         "correction_elbow_at_contact_shortfall_degrees": max(
@@ -2313,6 +2343,22 @@ def score_expert_correction(
                 )
             )
             ratio *= component["correction_elbow_factor"]
+        if "correction_shoulder_turn_shortfall_degrees" in component:
+            shoulder_factor = float(
+                np.exp(
+                    -max(
+                        0.0,
+                        component["correction_shoulder_turn_shortfall_degrees"]
+                        - _SERVE_CORRECTION_SHOULDER_TURN_ALLOWANCE_DEGREES,
+                    )
+                    / _SERVE_CORRECTION_SHOULDER_TURN_SCALE_DEGREES
+                )
+            )
+            component["correction_shoulder_turn_factor"] = shoulder_factor
+            component["correction_elbow_factor"] = (
+                component.get("correction_elbow_factor", 1.0) * shoulder_factor
+            )
+            ratio *= shoulder_factor
         qualitative_factor = 1.0
         qualitative_diagnostics: dict[str, float | str] = {}
         if qualitative_evidence is not None and qualitative_envelope is not None:

@@ -97,6 +97,10 @@ _SERVE_CORRECTION_ELBOW_MEASUREMENTS = (
     "correction_corrected_elbow_at_contact_degrees",
     "correction_elbow_at_contact_shortfall_degrees",
     "correction_elbow_allowance_degrees",
+    "correction_learner_shoulder_stance_angle_degrees",
+    "correction_corrected_shoulder_stance_angle_degrees",
+    "correction_shoulder_turn_shortfall_degrees",
+    "correction_shoulder_turn_allowance_degrees",
 )
 
 

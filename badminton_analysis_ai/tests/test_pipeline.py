@@ -285,6 +285,10 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
         "correction_corrected_elbow_at_contact_degrees": 173.0,
         "correction_elbow_at_contact_shortfall_degrees": 40.0,
         "correction_elbow_allowance_degrees": 14.1,
+        "correction_learner_shoulder_stance_angle_degrees": -13.9,
+        "correction_corrected_shoulder_stance_angle_degrees": -21.7,
+        "correction_shoulder_turn_shortfall_degrees": 7.8,
+        "correction_shoulder_turn_allowance_degrees": 2.9,
     }
 
     _attach_serve_transfer_measurements(context, {"criteria": [measured, wrist]})

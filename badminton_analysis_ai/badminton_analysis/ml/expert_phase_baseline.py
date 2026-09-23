@@ -1619,6 +1619,18 @@ def _serve_semantic_evidence(
         ) / torso_scale
         elbow_drop = (values[:, 8, 1] - shoulder_center[:, 1]) / torso_scale
         wrist_drop = (values[:, 10, 1] - shoulder_center[:, 1]) / torso_scale
+        # With the shoulders turned forward the racket elbow comes round toward
+        # the other shoulder, closing the angle at that shoulder; a square
+        # upper body leaves it open. Higher is better for every other cue, so
+        # it enters negated.
+        to_elbow = values[:, 8] - values[:, 6]
+        across = values[:, 5] - values[:, 6]
+        shoulder_elbow_cosine = np.sum(to_elbow * across, axis=-1) / np.maximum(
+            np.linalg.norm(to_elbow, axis=-1) * np.linalg.norm(across, axis=-1), _EPS
+        )
+        shoulder_elbow_angle = np.degrees(
+            np.arccos(np.clip(shoulder_elbow_cosine, -1.0, 1.0))
+        )
         rotation = _serve_projected_rotation_features(values, observed)
         return (
             np.asarray(
@@ -1642,6 +1654,12 @@ def _serve_semantic_evidence(
                         start=completion_start,
                         end=completion_end,
                     ),
+                    -_robust_window_value(
+                        shoulder_elbow_angle,
+                        confidence_mask,
+                        start=completion_start,
+                        end=completion_end,
+                    ),
                 ),
                 dtype=np.float64,
             ),
@@ -1650,11 +1668,12 @@ def _serve_semantic_evidence(
                 "terminal_cross_body_reach",
                 "terminal_elbow_drop",
                 "terminal_wrist_drop",
+                "terminal_elbow_across_shoulders",
             ),
             # The checkpoint is shoulder-forward rotation. Elbow/wrist height
             # remains diagnostic but must not turn a valid high or low
             # follow-through style into a shoulder failure.
-            np.asarray((1.5, 0.0, 0.0, 0.0), dtype=np.float64),
+            np.asarray((1.5, 0.0, 0.0, 0.0, 1.0), dtype=np.float64),
         )
     raise KeyError(f"serve rule has no semantic expert evidence: {rule_id}")
 
@@ -1723,6 +1742,14 @@ def _serve_expert_envelope(
             # or truncated take cannot erase the required motion pattern.
             lower = np.min(subject_values, axis=0) - within_take_scale
         if rule_id == "weight_transfer":
+            # One expert identity barely moves the pelvis across its stance --
+            # a quarter of what the rest do -- and fitted to that identity the
+            # floor passes a sway over planted feet. The identity next to it
+            # sets how far the weight has to travel.
+            loading = names.index("pelvis_loading_shift")
+            lower[loading] = (
+                float(np.sort(subject_values[:, loading])[1]) - within_take_scale[loading]
+            )
             # Stance varies from take to take within one expert, so every
             # expert take is a valid example of a base worth transferring
             # across; a subject median rejects experts on their own evidence.
@@ -1793,7 +1820,7 @@ def _serve_expert_envelope_components(
                 / max(float(np.sum(chain_weights)), _EPS)
             )
         )
-        support_distance = float(np.min(deficiency[2:5]))
+        support_distance = float(deficiency[2])
         # A stance that closes leaves nothing to transfer across, so it
         # decides on its own however well the chain cues read.
         stance_distance = float(deficiency[5])
@@ -1820,7 +1847,9 @@ def _serve_expert_envelope_components(
         # forearm/elbow/wrist completion is the observable alternative, but all
         # three arm cues must agree so a single noisy distal joint cannot pass.
         shoulder_depth_proxy = float(deficiency[0])
-        arm_completion = float(np.sqrt(np.mean(deficiency[1:4] ** 2)))
+        # The elbow coming round toward the other shoulder is that same
+        # completion seen at the shoulder itself, so it joins the arm cues.
+        arm_completion = float(np.sqrt(np.mean(deficiency[1:5] ** 2)))
         distance = float(min(shoulder_depth_proxy, arm_completion))
         aggregation = "shoulder_contraction_or_cross_body_completion"
     else:

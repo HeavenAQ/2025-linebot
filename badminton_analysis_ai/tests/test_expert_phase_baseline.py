@@ -428,17 +428,17 @@ def test_serve_weight_transfer_rejects_uncoupled_pelvis_translation() -> None:
     assert evidence["coordinated_hip_rotation"] == pytest.approx(0.0)
 
 
-def test_serve_weight_transfer_accepts_root_as_camera_robust_support() -> None:
+def test_serve_weight_transfer_needs_the_pelvis_not_the_body_drifting() -> None:
     pose = _pose()
     root = np.zeros((len(pose), 2), dtype=np.float32)
     confidence = np.ones((len(pose), 17), dtype=np.float32)
     evidence, names, weights = _serve_semantic_evidence(
         "weight_transfer", pose, root, confidence
     )
-    # Both dominant-chain cues and root transfer meet expert support, while
-    # the pelvis-over-ankle support transition is one scale short. Root motion
-    # remains an alternate support cue for camera robustness; the stricter
-    # all-cues distance is retained separately for rubric attribution.
+    # Both dominant-chain cues and root translation meet expert support, while
+    # the pelvis-over-ankle transition is one scale short. The whole body
+    # drifting through the image is not a weight transfer, so it cannot stand
+    # in for the pelvis moving across the stance.
     lower = evidence.copy()
     lower[2] += 1.0
     envelope = {
@@ -457,7 +457,7 @@ def test_serve_weight_transfer_accepts_root_as_camera_robust_support() -> None:
     assert components["standardized_shortfall_pelvis_loading_shift"] == pytest.approx(
         1.0
     )
-    assert components["combined_distance"] == pytest.approx(0.0)
+    assert components["combined_distance"] == pytest.approx(1.0)
     assert components["semantic_cue_aggregation"] == (
         "dominant_chain_with_pelvis_or_root_support"
     )

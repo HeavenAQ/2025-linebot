@@ -113,17 +113,20 @@ wrist velocity exceeds the maximum derived from expert demonstrations. It keeps
 the exact beginning and ending poses and advances the swing earlier through
 arc-length interpolation instead of deleting intermediate frames.
 
-TensorRT is used only for the batched RF-DETR pose model; EIMD diffusion runs in
-PyTorch on the same GPU. The engine is compiled once on an L4 by
-`badminton_analysis_ai/build_rfdetr_engine.py`, published to Artifact Registry as
-the generic artifact named in `badminton_analysis_ai/models/trt-engine.env`, and
+TensorRT serves both pose stages -- RF-DETR Medium for the player's box and
+ViTPose++-L for the joints; EIMD diffusion runs in PyTorch on the same GPU. The
+two engines are compiled once on an L4 by
+`badminton_analysis_ai/build_pose_engines.py`, published to Artifact Registry as
+the generic artifacts named in `badminton_analysis_ai/models/trt-engine.env`, and
 downloaded, checksum-verified (`models/trt-engines.sha256`) and baked into the
-image by the GPU deploy workflow. Cloud Storage holds learner and expert data
+image by the GPU deploy workflow. Nothing is compiled at run time: the detector
+raises rather than rebuild an engine on a cold start. Cloud Storage holds learner and expert data
 only; container images and build artifacts live in Artifact Registry.
 
 ## Phase extraction and correction
 
-1. RF-DETR Keypoint Preview extracts one athlete's 17 COCO 2D joints. Production
+1. RF-DETR Medium finds the athlete and ViTPose++-L reads their 17 COCO 2D
+   joints from a crop of them. Production
    runs its fixed-batch FP16 TensorRT engine; local Apple Silicon validation uses
    the same RF-DETR weights through MPS.
 2. Handedness is taken from the request or estimated, then left-handed motion is

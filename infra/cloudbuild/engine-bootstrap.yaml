@@ -1,6 +1,6 @@
-# Builds the image used to produce the RF-DETR TensorRT engine. It is the same
-# image as production apart from skipping the engine assertion, which cannot
-# hold before the engine exists.
+# Builds the image used to produce the two pose TensorRT engines. It is the
+# same image as production apart from skipping the engine assertion, which
+# cannot hold before the engines exist.
 #
 # The build context is the analysis service, not this directory, so the source
 # directory is passed separately:

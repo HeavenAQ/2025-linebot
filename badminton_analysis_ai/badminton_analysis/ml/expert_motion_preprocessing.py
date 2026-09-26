@@ -189,9 +189,9 @@ def _serve_shoulder_completion_phases(
         detected_end,
     ) = phases
     if handedness == Handedness.LEFT:
-        hip, shoulder, elbow, wrist, opposite_shoulder = 11, 5, 7, 9, 6
+        _hip, shoulder, elbow, wrist, opposite_shoulder = 11, 5, 7, 9, 6
     else:
-        hip, shoulder, elbow, wrist, opposite_shoulder = 12, 6, 8, 10, 5
+        _hip, shoulder, elbow, wrist, opposite_shoulder = 12, 6, 8, 10, 5
 
     kernel = np.ones(5, dtype=np.float64) / 5.0
     motion_relative_wrist = (
@@ -272,27 +272,19 @@ def _serve_shoulder_completion_phases(
         latest_start=onset_end,
     )
 
-    incoming = coordinates[:, hip] - coordinates[:, shoulder]
-    outgoing = coordinates[:, elbow] - coordinates[:, shoulder]
-    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1)
-    cosine = np.divide(
-        np.sum(incoming * outgoing, axis=-1),
-        denominator,
-        out=np.ones_like(denominator),
-        where=denominator > 1e-8,
-    )
-    shoulder_angle = np.arccos(np.clip(cosine, -1.0, 1.0))
-    shoulder_angle = np.convolve(
-        np.pad(shoulder_angle, (2, 2), mode="edge"),
-        kernel,
-        mode="valid",
+    # The stroke finishes where the racket elbow is highest after contact.
+    # The shoulder angle peaks while the arm is still travelling, which ended
+    # the window mid-follow-through -- four or five frames after contact on
+    # several expert takes, with the real finish outside it.
+    elbow_height = np.convolve(
+        np.pad(-coordinates[:, elbow, 1], (2, 2), mode="edge"), kernel, mode="valid"
     )
     completion_start = acceleration + 2
     completion_end = len(coordinates) - 1
     if completion_start > completion_end:
         raise ValueError("serve shoulder-completion range is too short")
     completion = completion_start + int(
-        np.nanargmax(shoulder_angle[completion_start : completion_end + 1])
+        np.nanargmax(elbow_height[completion_start : completion_end + 1])
     )
     preparation = start + max(1, int(round(0.45 * (acceleration - start))))
     preparation = min(preparation, acceleration - 1)
@@ -314,9 +306,9 @@ def _serve_eimd_v3_phases(
         raise ValueError("skeleton_2d must have shape (T, 17, 2)")
     start, preparation, _, detected_follow_through, detected_end = phases
     if handedness == Handedness.LEFT:
-        hip, shoulder, elbow, wrist = 11, 5, 7, 9
+        _hip, shoulder, elbow, wrist = 11, 5, 7, 9
     else:
-        hip, shoulder, elbow, wrist = 12, 6, 8, 10
+        _hip, shoulder, elbow, wrist = 12, 6, 8, 10
     kernel = np.ones(5, dtype=np.float64) / 5.0
     relative_wrist = coordinates[:, wrist] - coordinates[:, shoulder]
     smoothed_wrist = np.column_stack(
@@ -339,24 +331,18 @@ def _serve_eimd_v3_phases(
     acceleration = acceleration_start + int(
         np.nanargmax(acceleration_magnitude[acceleration_start - 1 : acceleration_stop])
     )
-    incoming = coordinates[:, hip] - coordinates[:, shoulder]
-    outgoing = coordinates[:, elbow] - coordinates[:, shoulder]
-    denominator = np.linalg.norm(incoming, axis=-1) * np.linalg.norm(outgoing, axis=-1)
-    cosine = np.divide(
-        np.sum(incoming * outgoing, axis=-1),
-        denominator,
-        out=np.ones_like(denominator),
-        where=denominator > 1e-8,
-    )
-    shoulder_angle = np.arccos(np.clip(cosine, -1.0, 1.0))
-    shoulder_angle = np.convolve(
-        np.pad(shoulder_angle, (2, 2), mode="edge"), kernel, mode="valid"
+    # The stroke finishes where the racket elbow is highest after contact.
+    # The shoulder angle this used peaks while the arm is still travelling,
+    # which ended the window mid-follow-through: four or five frames after
+    # contact on several expert takes, with the real finish outside it.
+    elbow_height = np.convolve(
+        np.pad(-coordinates[:, elbow, 1], (2, 2), mode="edge"), kernel, mode="valid"
     )
     completion_start = acceleration + 2
     if completion_start > detected_end:
         raise ValueError("serve shoulder-completion range is too short")
     completion = completion_start + int(
-        np.nanargmax(shoulder_angle[completion_start : detected_end + 1])
+        np.nanargmax(elbow_height[completion_start : detected_end + 1])
     )
     preparation = max(start + 1, min(preparation, acceleration - 1))
     follow_through = (acceleration + completion) // 2

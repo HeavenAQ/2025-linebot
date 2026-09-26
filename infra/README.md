@@ -101,18 +101,40 @@ gcloud secrets versions add gpt-validation-access-codes --data-file=codes.json
 the placeholder image Terraform created it with, and the workflows in
 `.github/workflows/` own every revision from that point on.
 
-**6. Build the TensorRT engine** once the GPU service exists, then turn its job
+**6. Build the TensorRT engines** once the GPU service exists, then turn its job
 on — Cloud Run refuses to create a job whose image does not exist yet, which is
-why `create_engine_builder_job` starts false:
+why `create_engine_builder_job` starts false. One run builds both pose stages
+(RF-DETR Medium, then ViTPose++-L) and prints a SHA-256 line per engine:
 
 ```bash
-gcloud builds submit --config cloudbuild/engine-bootstrap.yaml \
+# The build context is the analysis service; the config path is relative to it.
+gcloud builds submit --config infra/cloudbuild/engine-bootstrap.yaml \
   --project "$project" ../badminton_analysis_ai
+
+# Terraform's backend is GCS, so it needs application default credentials
+# rather than the gcloud user login.
+export GOOGLE_APPLICATION_CREDENTIALS=../linebot/sa-key.json
 echo 'create_engine_builder_job = true' >> terraform.tfvars
+terraform init
 terraform apply
-gcloud run jobs execute rfdetr-engine-builder \
+
+# About twenty minutes on an L4: the detector compiles in ~2, and ViTPose
+# exports to a 1.8GB ONNX before TensorRT compiles it.
+gcloud run jobs execute pose-engine-builder \
   --region asia-southeast1 --project "$project" --wait
 ```
+
+Copy the two printed digests into `badminton_analysis_ai/models/trt-engines.sha256`,
+replacing the `PENDING_BUILD_ON_L4` placeholders, and push: the deploy workflow
+downloads both engines, checks them against that file and bakes them into the
+image. A placeholder left in place fails the deploy rather than shipping an
+unverified engine.
+
+Three constraints the job definition already encodes, learned by hitting them:
+Cloud Run ties the memory ceiling to the CPU count (24Gi needs 8 CPU, not 4),
+GPU jobs cannot use zonal redundancy, and the builder needs
+`BADMINTON_TRT_CACHE_DIR` — it writes each engine to the same GPU-named
+subdirectory the detector later reads.
 
 **7. Point GitHub at the pool.** `wif.tf` creates the identity pool and
 provider; the repository needs their full names as secrets:

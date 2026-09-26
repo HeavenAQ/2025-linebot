@@ -335,20 +335,25 @@ class VideoAnalyzer:
             y_values = arr[:, 1]
             lowest_hand_relative_index = int(np.argmax(y_values))
             peak_frame = search_start + lowest_hand_relative_index
-        subset_elbow_pos = elbow_positions[peak_frame:]
-        arr_elbow = np.asarray(subset_elbow_pos, dtype=np.float64)
-        composite_metric = (
-            arr_elbow[:, 0] - arr_elbow[:, 1] if arr_elbow.size > 0 else np.array([])
-        )
+        # The follow-through ends where the racket elbow is highest after
+        # contact: the finish of the stroke, and a landmark the detector can
+        # see. Taking the elbow's sideways travel as well, as this did, ends
+        # the window while the arm is still coming across, and a fixed number
+        # of frames after contact ends it anywhere at all.
+        arr_elbow = np.asarray(elbow_positions[peak_frame:], dtype=np.float64)
         relative_end_index = (
-            int(np.argmax(composite_metric)) if composite_metric.size > 0 else 0
+            int(np.argmin(arr_elbow[:, 1])) if arr_elbow.size > 0 else 0
         )
         end_frame = int(peak_frame) + int(relative_end_index)
-        end_frame = max(
-            acceleration_end_frame,
-            end_frame,
-            peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER,
-        )
+        if relative_end_index < SERVE_MINIMUM_FOLLOW_THROUGH:
+            # The elbow never rises after contact -- an occluded arm, or a
+            # clip that stops on the stroke -- so keep the reserved tail
+            # rather than ending the window on the contact frame itself.
+            end_frame = max(
+                acceleration_end_frame,
+                end_frame,
+                peak_frame + IMPACT_FRAME_SEARCH_WINDOW_AFTER,
+            )
         peak_frame = cls._serve_peak_with_follow_through(
             hand_positions, start_frame=start_frame, peak_frame=peak_frame
         )

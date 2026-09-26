@@ -666,6 +666,29 @@ def _serve_weight_transfer_components(
     }
 
 
+def _serve_best_terminal_value(
+    values: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    *,
+    start: int,
+    end: int,
+) -> float:
+    """The best the follow-through gets over the ending frames.
+
+    The smash reads its endpoint the same way: the frame that earns the most
+    credit among those the detector saw well, rather than an average over an
+    ending whose length depends on where the window happened to stop.
+    """
+    window = np.asarray(values, dtype=np.float64)[start:end]
+    seen = np.asarray(confidence, dtype=np.float64)[start:end] >= 0.20
+    eligible = window[seen & np.isfinite(window)]
+    if not eligible.size:
+        eligible = window[np.isfinite(window)]
+    if not eligible.size:
+        return float("nan")
+    return float(np.min(eligible))
+
+
 def _serve_wrist_descent_onset(pose: NDArray[np.float64], contact: int) -> int:
     """The frame the racket wrist starts coming down, which is where the
     transfer has to begin: while both hands are still up nothing has moved."""
@@ -1619,17 +1642,30 @@ def _serve_semantic_evidence(
         ) / torso_scale
         elbow_drop = (values[:, 8, 1] - shoulder_center[:, 1]) / torso_scale
         wrist_drop = (values[:, 10, 1] - shoulder_center[:, 1]) / torso_scale
-        # With the shoulders turned forward the racket elbow comes round toward
-        # the other shoulder, closing the angle at that shoulder; a square
-        # upper body leaves it open. Higher is better for every other cue, so
-        # it enters negated.
-        to_elbow = values[:, 8] - values[:, 6]
-        across = values[:, 5] - values[:, 6]
-        shoulder_elbow_cosine = np.sum(to_elbow * across, axis=-1) / np.maximum(
-            np.linalg.norm(to_elbow, axis=-1) * np.linalg.norm(across, axis=-1), _EPS
+        # The follow-through, read at the racket elbow: the angle it subtends
+        # between the two shoulders. Shoulders that turn forward bring the
+        # elbow into line with them and close it -- every expert identity
+        # finishes under 62 degrees -- while a body that stays square leaves
+        # the elbow off to the side and the angle open. Higher is better for
+        # every other cue, so it enters negated.
+        to_racket_shoulder = values[:, 6] - values[:, 8]
+        to_other_shoulder = values[:, 5] - values[:, 8]
+        shoulder_elbow_cosine = np.sum(
+            to_racket_shoulder * to_other_shoulder, axis=-1
+        ) / np.maximum(
+            np.linalg.norm(to_racket_shoulder, axis=-1)
+            * np.linalg.norm(to_other_shoulder, axis=-1),
+            _EPS,
         )
         shoulder_elbow_angle = np.degrees(
             np.arccos(np.clip(shoulder_elbow_cosine, -1.0, 1.0))
+        )
+        # Shoulders that turn to face forward foreshorten in the picture: every
+        # expert take finishes with the line between them under a quarter of a
+        # torso, having started near half. A body that never turns keeps its
+        # shoulders square and wide. Negated, so more is better.
+        shoulder_width = (
+            np.linalg.norm(values[:, 5] - values[:, 6], axis=-1) / torso_scale
         )
         rotation = _serve_projected_rotation_features(values, observed)
         return (
@@ -1654,8 +1690,14 @@ def _serve_semantic_evidence(
                         start=completion_start,
                         end=completion_end,
                     ),
-                    -_robust_window_value(
+                    -_serve_best_terminal_value(
                         shoulder_elbow_angle,
+                        confidence_mask,
+                        start=completion_start,
+                        end=completion_end,
+                    ),
+                    -_serve_best_terminal_value(
+                        shoulder_width,
                         confidence_mask,
                         start=completion_start,
                         end=completion_end,
@@ -1668,12 +1710,13 @@ def _serve_semantic_evidence(
                 "terminal_cross_body_reach",
                 "terminal_elbow_drop",
                 "terminal_wrist_drop",
-                "terminal_elbow_across_shoulders",
+                "terminal_elbow_between_shoulders",
+                "terminal_shoulder_foreshortening",
             ),
             # The checkpoint is shoulder-forward rotation. Elbow/wrist height
             # remains diagnostic but must not turn a valid high or low
             # follow-through style into a shoulder failure.
-            np.asarray((1.5, 0.0, 0.0, 0.0, 1.0), dtype=np.float64),
+            np.asarray((1.5, 0.0, 0.0, 0.0, 1.0, 1.0), dtype=np.float64),
         )
     raise KeyError(f"serve rule has no semantic expert evidence: {rule_id}")
 
@@ -1847,10 +1890,19 @@ def _serve_expert_envelope_components(
         # forearm/elbow/wrist completion is the observable alternative, but all
         # three arm cues must agree so a single noisy distal joint cannot pass.
         shoulder_depth_proxy = float(deficiency[0])
-        # The elbow coming round toward the other shoulder is that same
-        # completion seen at the shoulder itself, so it joins the arm cues.
-        arm_completion = float(np.sqrt(np.mean(deficiency[1:5] ** 2)))
-        distance = float(min(shoulder_depth_proxy, arm_completion))
+        arm_completion = float(np.sqrt(np.mean(deficiency[1:4] ** 2)))
+        # An elbow left off to the side is a body that never rotated, whichever
+        # way the arm finished, so the follow-through angle is required rather
+        # than an alternative to the shoulder-contraction cue.
+        elbow_between_shoulders = float(deficiency[4])
+        shoulders_turned = float(deficiency[5])
+        distance = float(
+            max(
+                min(shoulder_depth_proxy, arm_completion),
+                elbow_between_shoulders,
+                shoulders_turned,
+            )
+        )
         aggregation = "shoulder_contraction_or_cross_body_completion"
     else:
         # Every positively weighted feature is a necessary higher-is-better

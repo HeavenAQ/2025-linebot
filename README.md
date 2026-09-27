@@ -33,8 +33,8 @@ LINE app ──video──▶ Go backend (Cloud Run, asia-east1)
                       │ client-streamed gRPC: header + MP4 chunks
                       ▼
             Python analysis service (Cloud Run + NVIDIA L4, asia-southeast1)
-              - RF-DETR Keypoint Preview COCO-17 pose
-                (fixed-batch-16 FP16 TensorRT, cross-request microbatching)
+              - RF-DETR Medium person detection, ViTPose++-L COCO-17 pose
+                (two fixed-batch-16 FP16 TensorRT engines, microbatched)
               - serve/smash phase alignment and requested-skill guard
               - expert-only EIMD v3 diffusion and grading
               - GPT coaching
@@ -92,15 +92,15 @@ v3 generator. These are the only motion weights required at runtime:
 
 | Skill | Artifact | Purpose | SHA-256 |
 |---|---|---|---|
-| Serve | `models/error_isolated_motion/serve/error_isolated_motion.pt` | Expert-only EIMD prior | `bec47df5341429b0c6fd6c3bf470db83d80ce32645fc6931e00c4a050c7b8051` |
-| Serve | `models/error_isolated_motion/serve/expert_score_model.npz` | 53-take, 7-subject RF-DETR expert-distribution and residual scorer | `1a0e3c7e5dc32ee019d071e35255d9337a25c38f5c7210d1ec62104058c9095c` |
-| Smash | `models/error_isolated_motion/smash/error_isolated_motion.pt` | Expert-only EIMD prior | `956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977` |
+| Serve | `models/error_isolated_motion/serve/error_isolated_motion.pt` | Expert-only EIMD prior | `20e8631582e6b9afd5d0331c2c7eb1973485527a7a10da2da33f7d614bc417b7` |
+| Serve | `models/error_isolated_motion/serve/expert_score_model.npz` | 53-take, 7-subject expert-distribution and residual scorer | `7b32797b2e3ade2548f8b80dbc15f680636f1e851a99e42f31a4e3e18b3c9c41` |
+| Smash | `models/error_isolated_motion/smash/error_isolated_motion.pt` | Expert-only EIMD prior | `86aa170aabfb36c595cf7f390500c966e2ebb4c4d21af8c9767a9d675ca7c6eb` |
 | Smash | `models/error_isolated_motion/smash/expert_score_model.npz` | Expert-only qualitative scorer | `1cf4c958cbe360a1c739260e4c077cd286cdec900712c25bcde0a1e72a228f20` |
 | Smash | `models/error_isolated_motion/smash/expert_trajectory_score_model.npz` | Phase-aligned Euclidean residual and expert-manifold gate | `1ed6ee9aa4218f05fdd60e8e0ccdd833ce7163ac2cb75666532ac83f653af027` |
 | Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/metric_graph.pt` | Frozen checkpoint graph heads | `c4cef078b3082584130e10d5bc189b88270b2f30ffeb5fc410ce305ce23b90f2` |
-| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/expert_semantic_score_model.npz` | Active expert-only semantic distribution scorer | `e7006472527ff2e253535afd80ef93c749114972edf914cc51cae16d621ab212` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/expert_semantic_score_model.npz` | Active expert-only semantic distribution scorer | `806278496fb1d585d3de03e0a332d07bd73de19b3072c15f6223eaf740bf472b` |
 | Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/checkpoint_reference.npz` | Annotated expert checkpoint template | `685510316cc3aa498e0621e1650d04973e7ae9834dfa1cb5e8278080a1252280` |
-| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/calibration.json` | Checkpoint scorer calibration | `078acd914ea59e81e1ba0942bfdef6c2d9482e208fbef169d7d1a5ca7fb413dc` |
+| Smash | `models/error_isolated_motion/smash/checkpoint_scorer_v1/calibration.json` | Checkpoint scorer calibration | `abfaf848908bd28d7b382d722581b74d68936abce2cb457225c4e68f24d9bd8a` |
 | Both | `models/expert_reference_bank.npz` | Expert reference clips and requested-skill guard | `ed38bbb8873782a5cd5075522e66feca3abec3697a70117e7d3f5495741eb898` |
 
 Common inference settings:
@@ -127,19 +127,22 @@ wrist velocity exceeds the maximum derived from expert demonstrations. It keeps
 the exact beginning and ending poses and advances the swing earlier through
 arc-length interpolation instead of deleting intermediate frames.
 
-TensorRT is used only for the batched RF-DETR pose model; EIMD diffusion runs in
-PyTorch on the same GPU. The engine is compiled once on an L4 by
-`badminton_analysis_ai/build_rfdetr_engine.py`, published to Artifact Registry as
-the generic artifact named in `badminton_analysis_ai/models/trt-engine.env`, and
+TensorRT serves both pose stages -- RF-DETR Medium for the player's box and
+ViTPose++-L for the joints; EIMD diffusion runs in PyTorch on the same GPU. The
+two engines are compiled once on an L4 by
+`badminton_analysis_ai/build_pose_engines.py`, published to Artifact Registry as
+the generic artifacts named in `badminton_analysis_ai/models/trt-engine.env`, and
 downloaded, checksum-verified (`models/trt-engines.sha256`) and baked into the
-image by the GPU deploy workflow. Cloud Storage holds learner and expert data
+image by the GPU deploy workflow. Nothing is compiled at run time: the detector
+raises rather than rebuild an engine on a cold start. Cloud Storage holds learner and expert data
 only; container images and build artifacts live in Artifact Registry.
 
 ## Phase extraction and correction
 
-1. RF-DETR Keypoint Preview extracts one athlete's 17 COCO 2D joints. Production
-   runs its fixed-batch FP16 TensorRT engine; local Apple Silicon validation uses
-   the same RF-DETR weights through MPS.
+1. RF-DETR Medium finds the athlete and ViTPose++-L reads their 17 COCO 2D
+   joints from a crop of them, rather than from the whole frame squashed into a
+   square. Production runs a fixed-batch FP16 TensorRT engine per stage; local
+   Apple Silicon validation runs the same two models through MPS.
 2. Handedness is taken from the request or estimated, then left-handed motion is
    canonicalized for inference.
 3. The dominant wrist trajectory is measured relative to the dominant elbow so
@@ -182,7 +185,7 @@ hidden by brief pose-detector gaps.
 Serve generation and grading are separate. The correction video uses generated
 expert motion, while the serve grade uses a subject-balanced expert-only
 checkpoint distribution rather than one catalog video or one stochastic
-diffusion sample. RF-DETR confidence remains continuous. Identity-held-out
+diffusion sample. Keypoint confidence remains continuous. Identity-held-out
 expert folds set each tolerance; no learner recording is used for fitting.
 
 All six serve checkpoints use continuous expert-only distribution distances.
@@ -315,7 +318,7 @@ Important optional variables:
 | `COACHING_PAUSE_SECONDS` | `2` | Pause inserted at each feedback frame |
 | `MAX_VIDEO_BYTES` | 150 MiB | Maximum streamed request size |
 | `SIGNED_URL_MINUTES` | `60` | Generated-video URL lifetime |
-| `BADMINTON_TRT_CACHE_DIR` | unset | Prebuilt RF-DETR TensorRT engine directory; production `/app/models/trt-engines` |
+| `BADMINTON_TRT_CACHE_DIR` | unset | Prebuilt pose TensorRT engine directory (both stages); production `/app/models/trt-engines` |
 | `COACHING_NO_SUGGESTION_MIN_SCORE` | `90` | Skip GPT coaching at or above this total… |
 | `COACHING_NO_SUGGESTION_MIN_CRITERION_RATIO` | `0.8` | …when every criterion also reaches this share of its maximum |
 | `OPENAI_COACHING_ATTEMPTS` | `2` | GPT attempts before deterministic rule-based advice |
@@ -384,7 +387,9 @@ python -m api.server
 ```
 
 The service requires FFmpeg for final H.264 rendering. The container also
-includes RF-DETR Keypoint Preview and its production TensorRT dependencies.
+includes RF-DETR Medium, ViTPose++-L's image processor and the production
+TensorRT dependencies; the pose weights themselves are not shipped, because the
+prebuilt engines carry the networks.
 
 Run checks:
 

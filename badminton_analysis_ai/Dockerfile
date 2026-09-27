@@ -33,15 +33,17 @@ COPY . .
 
 RUN python -c "import api.server; print('Python service imports verified')"
 
-# A missing engine is not a runtime error — the detector would just rebuild it
-# on every cold start, which is precisely the cost this avoids. So deployable
-# images must carry it. The exception is the bootstrap build used to produce
-# the engine in the first place, which cannot contain what it exists to create.
+# A missing engine is a hard runtime error now: the two-stage detector refuses
+# to build one at run time, because a cold start that compiles an engine costs
+# minutes on a service that scales to zero. So deployable images must carry
+# both. The exception is the bootstrap build used to produce them in the first
+# place, which cannot contain what it exists to create.
 RUN if [ "$REQUIRE_TRT_ENGINE" = "1" ]; then \
-      test "$(find models/trt-engines -name 'rfdetr-keypoint-preview.trt' | wc -l)" -ge 1 && \
-      echo "Prebuilt RF-DETR TensorRT engine included"; \
+      test "$(find models/trt-engines -name 'rfdetr-medium.trt' | wc -l)" -ge 1 && \
+      test "$(find models/trt-engines -name 'vitpose-plus-large.trt' | wc -l)" -ge 1 && \
+      echo "Prebuilt RF-DETR Medium and ViTPose TensorRT engines included"; \
     else \
-      echo "Bootstrap build: RF-DETR engine not required"; \
+      echo "Bootstrap build: pose engines not required"; \
     fi
 
 EXPOSE 8080

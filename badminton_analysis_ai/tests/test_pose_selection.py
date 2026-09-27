@@ -8,38 +8,44 @@ from badminton_analysis.services.pose_detector import PoseDetector
 
 
 def _result(boxes: list[list[float]]) -> SimpleNamespace:
-    """One RF-DETR result holding several detected people."""
-    count = len(boxes)
+    """One RF-DETR detection result holding several detected people."""
     return SimpleNamespace(
-        class_id=np.ones(count, dtype=np.int64),
-        data={"xyxy": np.asarray(boxes, dtype=np.float64)},
-        xy=np.zeros((count, 17, 2), dtype=np.float64),
-        keypoint_confidence=np.ones((count, 17), dtype=np.float64),
+        class_id=np.ones(len(boxes), dtype=np.int64),
+        xyxy=np.asarray(boxes, dtype=np.float64),
     )
+
+
+def _detector_over(result: SimpleNamespace) -> PoseDetector:
+    """A detector whose detection stage returns this one result."""
+    detector = object.__new__(PoseDetector)
+    detector.device = "mps"
+    detector.person_detection_threshold = 0.5
+    detector._detector = SimpleNamespace(predict=lambda images, **kwargs: [result])
+    return detector
 
 
 # A court holds spectators and opponents; the athlete being graded is the one
 # nearest the camera, so the largest box wins regardless of detection order.
 def test_multiple_people_select_the_largest_bounding_box() -> None:
-    detector = object.__new__(PoseDetector)
     smaller = [0.0, 0.0, 40.0, 50.0]
     largest = [100.0, 80.0, 260.0, 300.0]
+    frame = np.zeros((10, 10, 3), dtype=np.uint8)
 
     for boxes, expected in (
         ([smaller, largest], largest),
         ([largest, smaller], largest),
     ):
-        predictions = detector._largest_person_prediction(_result(boxes))
-        assert len(predictions) == 1
-        assert list(predictions[0]["bbox"]) == expected
+        selected = _detector_over(_result(boxes))._person_boxes([frame])
+        assert len(selected) == 1
+        assert list(selected[0]) == expected
 
 
 def test_no_person_detected_yields_no_prediction() -> None:
-    detector = object.__new__(PoseDetector)
     empty = _result([[0.0, 0.0, 10.0, 10.0]])
     empty.class_id = np.zeros(1, dtype=np.int64)  # not the person class
 
-    assert detector._largest_person_prediction(empty) == []
+    frame = np.zeros((10, 10, 3), dtype=np.uint8)
+    assert _detector_over(empty)._person_boxes([frame]) == [None]
 
 
 # The batched engine path reads raw postprocess tensors rather than a

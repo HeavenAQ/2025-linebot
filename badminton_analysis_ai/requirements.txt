@@ -14,4 +14,9 @@ pydantic==2.12.5
 python-dotenv==1.2.1
 scikit-learn==1.7.2
 shapely==2.1.2
+# ViTPose++ reads the joints. At run time only its image processor is used --
+# the crop, and the heatmap decode -- because the network itself is served by
+# the prebuilt TensorRT engine; the weights are downloaded only by the engine
+# builder, so the deployable image carries neither them nor a hub call.
+transformers==5.17.0
 tqdm==4.67.1

@@ -22,6 +22,16 @@ from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
 
 _EPS = 1e-8
 
+# The keypoint confidence a clearly seen joint reaches. Cue reliability exists
+# to flag a joint the detector missed -- an unobserved elbow blends toward half
+# credit rather than counting as a wrong one -- not to discount one it saw.
+# ViTPose++ reports a clearly seen joint at 0.85-0.95 heatmap confidence where
+# the RF-DETR keypoint head reported ~0.99, so read at face value every expert
+# lost about a tenth of its credit on each arm checkpoint and none reached full
+# marks. This is the level 80% of the expert demonstrations' cues reach (their
+# 20th percentile, 0.853), matching the 81% of cues RF-DETR read as clearly seen.
+SEEN_JOINT_CONFIDENCE = 0.853
+
 FEATURE_NAMES = (
     "preparation_racket_wrist_height",
     "preparation_racket_elbow_height",
@@ -319,7 +329,8 @@ def extract_smash_evidence(
 
     def reliability(joints: Sequence[int], window: tuple[int, int]) -> float:
         joint_confidence = np.min(observed[:, joints], axis=1)
-        return float(np.quantile(joint_confidence[slice(*window)], 0.50))
+        typical = float(np.quantile(joint_confidence[slice(*window)], 0.50))
+        return float(np.clip(typical / SEEN_JOINT_CONFIDENCE, 0.0, 1.0))
 
     reliability_values = np.asarray(
         (

@@ -110,7 +110,7 @@ def export(research, output):
             device="mps",
             candidates=8,
             seed=19,
-            checkpoint_sha256="956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977",
+            checkpoint_sha256="86aa170aabfb36c595cf7f390500c966e2ebb4c4d21af8c9767a9d675ca7c6eb",
         ),
         limitations=[
             "Cached local evidence is not live CUDA parity.",

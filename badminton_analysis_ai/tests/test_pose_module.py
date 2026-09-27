@@ -7,23 +7,13 @@ from badminton_analysis.services.pose_detector import PoseDetector
 from badminton_analysis.models.types import COCOKeypoints
 
 
-def _fake_keypoints_result(
-    boxes_xyxy, class_ids, keypoints=None, keypoint_confidence=None
-):
-    """Minimal stand-in for supervision.KeyPoints, duck-typed to what
-    PoseDetector actually reads (.class_id, .xy, .keypoint_confidence,
-    .data["xyxy"])."""
-    class_id = np.asarray(class_ids, dtype=np.int64)
-    count = len(class_id)
-    if keypoints is None:
-        keypoints = np.zeros((count, 17, 2), dtype=np.float64)
-    if keypoint_confidence is None:
-        keypoint_confidence = np.full((count, 17), 0.9, dtype=np.float64)
+def _fake_detection_result(boxes_xyxy, class_ids):
+    """Minimal stand-in for an RF-DETR detection result, duck-typed to what
+    the detection stage reads (.class_id, .xyxy). The detector now returns a
+    box only; the joints come from the pose stage."""
     return SimpleNamespace(
-        class_id=class_id,
-        xy=np.asarray(keypoints, dtype=np.float64),
-        keypoint_confidence=np.asarray(keypoint_confidence, dtype=np.float64),
-        data={"xyxy": np.asarray(boxes_xyxy, dtype=np.float64)},
+        class_id=np.asarray(class_ids, dtype=np.int64),
+        xyxy=np.asarray(boxes_xyxy, dtype=np.float64),
     )
 
 
@@ -37,7 +27,8 @@ class TestPoseDetector:
         assert self.detector.min_detection_confidence == 0.15
         assert self.detector.elbow_detection_confidence == 0.05
         assert self.detector.person_detection_threshold == 0.5
-        assert self.detector._model is None
+        assert self.detector._detector is None
+        assert self.detector._pose_model is None
         assert hasattr(self.detector, "logger")
 
     def test_get_2d_landmarks_no_results(self):
@@ -105,56 +96,55 @@ class TestPoseDetector:
     def test_get_dense_2d_keypoints_no_predictions(self):
         assert self.detector.get_dense_2d_keypoints() is None
 
-    def test_prediction_prefers_largest_person_and_ignores_other_classes(self):
-        keypoints = np.zeros((3, 17, 2), dtype=np.float64)
-        keypoints[2, 0] = (55.0, 60.0)  # nose of the larger person
-        result = self.detector._largest_person_prediction(
-            _fake_keypoints_result(
-                boxes_xyxy=[
-                    [0.0, 0.0, 20.0, 20.0],  # small person
-                    [100.0, 100.0, 500.0, 500.0],  # large, but a bench
-                    [50.0, 50.0, 250.0, 350.0],  # larger person
-                ],
-                class_ids=[1, 15, 1],
-                keypoints=keypoints,
-            )
+    def test_detection_prefers_largest_person_and_ignores_other_classes(self):
+        self.detector.device = "mps"
+        self.detector._detector = SimpleNamespace(
+            predict=lambda images, **kwargs: [
+                _fake_detection_result(
+                    boxes_xyxy=[
+                        [0.0, 0.0, 20.0, 20.0],  # small person
+                        [100.0, 100.0, 500.0, 500.0],  # large, but a bench
+                        [50.0, 50.0, 250.0, 350.0],  # larger person
+                    ],
+                    class_ids=[1, 15, 1],
+                )
+            ]
         )
 
-        assert len(result) == 1
-        assert result[0]["bbox"] == pytest.approx([50.0, 50.0, 250.0, 350.0])
-        np.testing.assert_allclose(result[0]["keypoints"][0], (55.0, 60.0))
+        boxes = self.detector._person_boxes([np.zeros((10, 10, 3), dtype=np.uint8)])
 
-    def test_prediction_is_empty_when_no_person_found(self):
-        result = self.detector._largest_person_prediction(
-            _fake_keypoints_result(boxes_xyxy=[[0.0, 0.0, 20.0, 20.0]], class_ids=[15])
+        assert len(boxes) == 1
+        assert boxes[0] == pytest.approx((50.0, 50.0, 250.0, 350.0))
+
+    def test_detection_is_empty_when_no_person_found(self):
+        self.detector.device = "mps"
+        self.detector._detector = SimpleNamespace(
+            predict=lambda images, **kwargs: [
+                _fake_detection_result(boxes_xyxy=[[0.0, 0.0, 20.0, 20.0]], class_ids=[15])
+            ]
         )
 
-        assert result == []
-        assert self.detector.get_2d_landmarks(result) is None
+        boxes = self.detector._person_boxes([np.zeros((10, 10, 3), dtype=np.uint8)])
+
+        assert boxes == [None]
 
     def test_prediction_keeps_the_seventeen_body_keypoints(self):
-        keypoints = np.zeros((1, 17, 2), dtype=np.float64)
-        keypoints[0] = np.arange(34, dtype=np.float64).reshape(17, 2)
-        confidence = np.full((1, 17), 0.9, dtype=np.float64)
-        result = self.detector._largest_person_prediction(
-            _fake_keypoints_result(
-                boxes_xyxy=[[10.0, 20.0, 210.0, 320.0]],
-                class_ids=[1],
-                keypoints=keypoints,
-                keypoint_confidence=confidence,
-            )
+        keypoints = np.arange(34, dtype=np.float64).reshape(17, 2)
+        scores = np.full(17, 0.9, dtype=np.float64)
+
+        prediction = self.detector._build_prediction(
+            (10.0, 20.0, 210.0, 320.0), keypoints, scores
         )
 
-        assert len(result) == 1
-        assert result[0]["keypoints"].shape == (17, 2)
-        # RFDETRKeypointPreview's native order already matches COCOKeypoints,
-        # so no schema adapter is needed.
+        assert prediction["keypoints"].shape == (17, 2)
+        # ViTPose emits COCO-17 in this repository's own index order, so no
+        # schema adapter is needed.
         np.testing.assert_allclose(
-            result[0]["keypoints"][int(COCOKeypoints.RIGHT_WRIST)], (20.0, 21.0)
+            prediction["keypoints"][int(COCOKeypoints.RIGHT_WRIST)], (20.0, 21.0)
         )
-        # The model predicts these 17 joints and nothing else: no padded
+        # The pose stage predicts these 17 joints and nothing else: no padded
         # WholeBody slots are carried alongside them.
-        assert set(result[0]) == {"bbox", "keypoints", "keypoint_scores"}
+        assert set(prediction) == {"bbox", "keypoints", "keypoint_scores"}
 
     def test_reset_tracking_clears_cached_state(self):
         self.detector._last_predictions = [{"keypoints": np.zeros((17, 2))}]

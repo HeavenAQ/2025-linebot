@@ -1,1 +1,5 @@
-e4e8500162ec1c3864f08eae7b3c5859141f7581933821d26970645db1f239b5  ./NVIDIA_L4/batch16/rfdetr-keypoint-preview.trt
+# Printed by build_pose_engines.py when it publishes each engine, and checked
+# by the deploy workflow after it downloads them. Both lines must be replaced
+# whenever an engine version in trt-engine.env changes.
+ffdbeaf81c208ac5dca2be754f22d19a262d4ef7dcdf55fbd6f962c7c483d77b  ./NVIDIA_L4/batch16/rfdetr-medium.trt
+52e6e3100fc66bc55e4df7b1cf2b1516ebe38597c473f09a1228eb15ff616ee0  ./NVIDIA_L4/batch16/vitpose-plus-large.trt

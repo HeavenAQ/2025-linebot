@@ -8,7 +8,7 @@ JOINTS = (
     (5, 6, 7, 8, 9),
     (0, 6, 8),
     (6, 8, 10, 12),
-    (5, 6, 10, 11, 12),
+    (5, 6, 11, 12),
 )
 METHODS = ("euclidean", "shape_dtw")
 
@@ -80,9 +80,10 @@ def descriptors(windows, initial):
         elif k == 4:
             feature = joint_angles(x)
         else:
-            feature = np.c_[
-                unit(spine) @ basis, vector(6, 5) - shoulder0, vector(10, 6)
-            ]
+            # The ending is judged on the trunk and the shoulder line turning
+            # forward. Where the wrist ends up is left out: the arm's recovery
+            # is too varied to count against a finished shoulder turn.
+            feature = np.c_[unit(spine) @ basis, vector(6, 5) - shoulder0]
         result.append(feature)
     return result
 

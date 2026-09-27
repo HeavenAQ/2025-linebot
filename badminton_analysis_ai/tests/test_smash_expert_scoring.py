@@ -126,3 +126,30 @@ def test_frozen_smash_distribution_loads_expert_only_envelope() -> None:
     assert np.all(distribution.scale > 0.0)
     assert isinstance(variant, SmashVariant)
     assert variant.aggregation == "geometric"
+
+
+def test_smash_follow_through_ignores_where_the_wrist_ends() -> None:
+    from badminton_analysis.ml.smash_current_endpoint import local_features
+
+    distribution, variant = load_smash_distribution(SMASH_DISTRIBUTION)
+    confidence = np.ones((64, 17), dtype=np.float32)
+    pose = _smash_pose()
+    moved = pose.copy()
+    moved[40:, 10] += np.asarray((0.8, -0.6))
+    evidence, reliability = extract_smash_evidence(pose, confidence)
+    moved_evidence, _ = extract_smash_evidence(moved, confidence)
+    # Cross-body reach changes with the wrist, but no longer enters the grade.
+    assert moved_evidence[18] != evidence[18]
+
+    def follow(values):
+        scored = score_smash_evidence(values, reliability, distribution, variant)
+        return next(
+            item["ratio"]
+            for item in scored["criteria"]
+            if item["rule_reference"] == "follow_through"
+        )
+
+    assert follow(evidence) == follow(np.where(np.arange(len(evidence)) == 18, 0.0, evidence))
+    assert np.allclose(
+        local_features(pose[40:], pose[0], 5), local_features(moved[40:], pose[0], 5)
+    )

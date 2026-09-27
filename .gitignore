@@ -31,3 +31,6 @@ liff/tsconfig.tsbuildinfo
 
 # Generated demonstration videos (rebuild with scripts/make_demo_videos.py)
 /demo-videos/
+
+# Local experiment scratch: extractions, graded runs, rendered comparisons.
+/experiments/

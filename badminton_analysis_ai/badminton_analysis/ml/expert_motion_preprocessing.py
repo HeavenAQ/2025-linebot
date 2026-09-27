@@ -349,9 +349,47 @@ def _serve_eimd_v3_phases(
     return start, preparation, acceleration, follow_through, completion
 
 
+def _smash_rotation_completion(
+    skeleton: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    *,
+    start: int,
+    contact: int,
+    latest: int,
+) -> int | None:
+    """The frame after contact where the shoulders finish turning forward.
+
+    A smash ends when the torso has rotated through to face the net, which in
+    the image is where the projected shoulder span has moved furthest from
+    its span in the stance -- the same |span / initial - 1| measure the smash
+    scorer uses for its endpoint. Returns None when the shoulders are not
+    seen well enough to say.
+    """
+    coordinates = np.asarray(skeleton, dtype=np.float64)
+    seen = np.all(np.asarray(confidence, dtype=np.float64)[:, (5, 6)] > 0.3, axis=1)
+    span = np.linalg.norm(coordinates[:, 5] - coordinates[:, 6], axis=-1)
+    stance = slice(start, max(start + 1, contact - 10))
+    stance_seen = seen[stance] & np.isfinite(span[stance])
+    if not np.any(stance_seen):
+        return None
+    initial = float(np.median(span[stance][stance_seen]))
+    if initial <= 1e-6:
+        return None
+    rotation = np.abs(span / initial - 1.0)
+    kernel = np.ones(5, dtype=np.float64) / 5.0
+    rotation = np.convolve(np.pad(rotation, (2, 2), mode="edge"), kernel, mode="valid")
+    window = slice(contact, latest + 1)
+    candidates = np.where(seen[window] & np.isfinite(rotation[window]), rotation[window], -np.inf)
+    if not np.any(np.isfinite(candidates)):
+        return None
+    return contact + int(np.argmax(candidates))
+
+
 def _smash_eimd_v3_phases(
     hand_positions: Sequence[Sequence[float]],
     elbow_positions: Sequence[Sequence[float]],
+    skeleton: NDArray[np.floating] | None = None,
+    confidence: NDArray[np.floating] | None = None,
 ) -> tuple[int, int, int, int, int]:
     """Reproduce the broad learner ending range used by EIMD-v3 smash."""
     start, _, acceleration_end = VideoAnalyzer.find_acc_analysis_window(
@@ -361,12 +399,35 @@ def _smash_eimd_v3_phases(
     elbow = np.asarray(elbow_positions, dtype=np.float64)
     contact = start + int(np.argmin(hand[start : acceleration_end + 1, 1]))
     start = max(0, contact - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
-    end = contact + int(np.argmax(elbow[contact:, 1]))
     minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
+    # The lowest elbow after contact, held back by the end of the wrist's
+    # acceleration and a minimum follow-through, was the ending. That only
+    # landed near the finish while the detector lost the arm during recovery:
+    # a pose model that keeps tracking it finds the wrist still accelerating
+    # and the elbow still dropping as the player resets, 7-36 frames after the
+    # shoulders have finished turning. It remains the latest the stroke may
+    # end, and the ending when the shoulders cannot be read.
     end = min(
         len(hand) - 1,
-        max(end, acceleration_end, contact + minimum_follow_through),
+        max(
+            contact + int(np.argmax(elbow[contact:, 1])),
+            acceleration_end,
+            contact + minimum_follow_through,
+        ),
     )
+    completed = (
+        _smash_rotation_completion(
+            skeleton, confidence, start=start, contact=contact, latest=end
+        )
+        if skeleton is not None and confidence is not None
+        else None
+    )
+    if completed is not None:
+        # The stroke ends where the shoulders finish turning forward, which on
+        # the expert takes is 9 to 25 frames after contact -- often inside the
+        # half-second follow-through floor above, so only the four-frame
+        # minimum still applies.
+        end = max(completed, contact + 4)
     preparation = (start + contact) // 2
     follow_through = (contact + end) // 2
     if not start < preparation < contact < follow_through < end:
@@ -439,7 +500,9 @@ def prepare_expert_motion_sample(
             elbow_positions = tracking.get("elbow_positions")
             if not hand_positions or not elbow_positions:
                 raise ValueError("smash EIMD-v3 phases require wrist and elbow tracks")
-            phases = _smash_eimd_v3_phases(hand_positions, elbow_positions)
+            phases = _smash_eimd_v3_phases(
+                hand_positions, elbow_positions, full_skeleton, full_confidence
+            )
             phase_source = "acceleration_ending_range_v4"
     elif phase_contract == "current":
         if skill == Skill.SERVE:

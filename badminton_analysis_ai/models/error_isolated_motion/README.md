@@ -96,7 +96,7 @@ the same eight detected-pose caches differs by at most 0.003772 points per
 criterion and 0.0094 overlay pixels. It fails the deliberately strict 1e-4
 replay threshold; it is not bit-identical and is not a live L4 measurement.
 
-This is **not** fresh RF-DETR extraction or live L4/CUDA parity. MPS and CUDA draw
+This is **not** fresh pose extraction or live L4/CUDA parity. MPS and CUDA draw
 different seeded diffusion noise. Before production promotion, verify real-video
 expert **and learner** scores and overlays on the candidate; the two expert CD
 fixtures alone cannot establish beginner parity. Do not relax the expert gate

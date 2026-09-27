@@ -408,7 +408,9 @@ def score_smash_evidence(
                 lower[6],
                 np.sqrt(0.5 * (lower[19] ** 2 + lower[21] ** 2)),
                 np.sqrt(0.5 * (lower[11] ** 2 + lower[20] ** 2)),
-                np.sqrt(0.5 * (lower[17] ** 2 + lower[18] ** 2)),
+                # Follow-through is the shoulder turn alone; cross-body wrist
+                # reach no longer counts.
+                lower[17],
             )
         )
         reliabilities = np.asarray(
@@ -418,7 +420,7 @@ def score_smash_evidence(
                 cue_reliability[6],
                 min(cue_reliability[19], cue_reliability[21]),
                 min(cue_reliability[11], cue_reliability[20]),
-                min(cue_reliability[17], cue_reliability[18]),
+                cue_reliability[17],
             )
         )
         aggregations = (
@@ -427,7 +429,7 @@ def score_smash_evidence(
             "non_dominant_elbow_support",
             "upper_arm_phase_change_and_elbow_displacement",
             "downward_displacement_and_forearm_phase_change",
-            "shoulder_rotation_and_cross_body_completion",
+            "shoulder_rotation",
         )
     elif variant.checkpoint_profile == "semantic_strict_rotation":
         distances = np.asarray(

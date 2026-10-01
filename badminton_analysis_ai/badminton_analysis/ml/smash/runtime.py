@@ -13,19 +13,19 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from badminton_analysis.ml.expert_phase_baseline import (
+from badminton_analysis.ml.motion.view import (
     ankle_spine_view_rotation,
     apply_fixed_hierarchical_pose_placement,
     project_pose_to_student_view,
 )
 from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-from badminton_analysis.ml.smash_current_alignment import (
+from badminton_analysis.ml.smash.alignment import (
     align_contacts,
     observed_cost,
     observed_features,
     transfer_intervals,
 )
-from badminton_analysis.ml.smash_current_graph import (
+from badminton_analysis.ml.smash.graph import (
     CheckpointMetricGraph,
     aggregate,
     checkpoint_index_map,
@@ -33,20 +33,20 @@ from badminton_analysis.ml.smash_current_graph import (
     checkpoint_windows,
     infer,
 )
-from badminton_analysis.ml.smash_current_placement import (
+from badminton_analysis.ml.smash.placement import (
     first_frame_ankle_spine_map,
     first_frame_standing_offsets,
     smooth_corrected_bbox_placement,
     transport_corrected_by_student_displacement,
 )
-from badminton_analysis.ml.smash_current_scoring import (
+from badminton_analysis.ml.smash.scoring import (
     LEGACY_MAXIMA,
     MAXIMA,
     CurrentSmashCalibration,
     score_source_evidence,
 )
-from badminton_analysis.ml.smash_coaching_evidence import build_checkpoint_evidence
-from badminton_analysis.ml.smash_expert_scoring import load_smash_distribution
+from badminton_analysis.ml.smash.coaching_evidence import build_checkpoint_evidence
+from badminton_analysis.ml.smash.semantic import load_smash_distribution
 
 
 def sha256(path):

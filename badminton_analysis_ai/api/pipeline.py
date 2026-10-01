@@ -12,12 +12,12 @@ from typing import Any
 import numpy as np
 
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
-from badminton_analysis.ml.expert_reference_bank import (
+from badminton_analysis.ml.reference_bank import (
     ExpertReference,
     ExpertReferenceBank,
     segmental_alignment,
 )
-from badminton_analysis.ml.expert_motion_backend import (
+from badminton_analysis.ml.backend import (
     ExpertMotionGeneratorBackend,
 )
 from badminton_analysis.ml.skeleton_normalization import (

@@ -11,11 +11,11 @@ import hashlib
 
 import numpy as np
 
-from badminton_analysis.ml.smash_current_scoring import (
+from badminton_analysis.ml.smash.scoring import (
     CurrentSmashCalibration,
     score_source_evidence,
 )
-from badminton_analysis.ml.smash_current_placement import (
+from badminton_analysis.ml.smash.placement import (
     first_frame_ankle_spine_map,
     first_frame_standing_offsets,
 )

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.expert_motion_backend import ExpertMotionGeneratorBackend
+from badminton_analysis.ml.backend import ExpertMotionGeneratorBackend
 from badminton_analysis.models.constants import SERVE_MINIMUM_FOLLOW_THROUGH
 from badminton_analysis.models.types import Handedness, Skill
 from badminton_analysis.services.video_analyzer import VideoAnalyzer

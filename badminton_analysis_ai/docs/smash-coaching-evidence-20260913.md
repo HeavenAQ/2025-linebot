@@ -7,9 +7,9 @@ artifact hashes, reproducibility commands and the production-promotion boundary.
 
 ## One scoring clock
 
-`smash_current_runtime.CurrentSmashScorer` produces scores with maxima
+`ml/smash/runtime.py`'s `CurrentSmashScorer` produces scores with maxima
 5/20/5/20/30/20 and six source-indexed checkpoint intervals. Its same decisions
-feed `smash_coaching_evidence.build_checkpoint_evidence`, the renderer and
+feed `ml/smash/coaching_evidence.build_checkpoint_evidence`, the renderer and
 frontend checkpoint timestamps. The full-source 30fps output avoids cropping
 away early balancing evidence. Before generated coverage, only the detected
 skeleton is visible; after it, continuation is explicitly display-only.

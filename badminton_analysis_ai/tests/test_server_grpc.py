@@ -12,7 +12,7 @@ import grpc
 import pytest
 
 from badminton.analysis.v1 import analysis_pb2, analysis_pb2_grpc
-from badminton_analysis.ml.expert_reference_bank import ExpertReference
+from badminton_analysis.ml.reference_bank import ExpertReference
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
 from api.pipeline import AnalysisResult, PhaseResult, SkillMismatchError

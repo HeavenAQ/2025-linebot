@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from badminton_analysis.ml.expert_motion_preprocessing import (
+from badminton_analysis.ml.motion.preprocessing import (
     _serve_hip_minimum_start,
     _serve_eimd_v3_phases,
     _serve_motion_onset_interval,

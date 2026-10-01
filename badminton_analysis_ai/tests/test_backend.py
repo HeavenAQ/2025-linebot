@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import badminton_analysis.ml.expert_motion_backend as backend_module
-from badminton_analysis.ml.expert_motion_backend import (
+import badminton_analysis.ml.backend as backend_module
+from badminton_analysis.ml.backend import (
     _clip_level_rigid_target_alignment,
     _score_smash_correction,
     _serve_single_head_score,

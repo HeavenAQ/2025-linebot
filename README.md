@@ -426,10 +426,10 @@ Before deployment, verify:
 3. `badminton_analysis_ai/api/pipeline.py`
 4. `badminton_analysis_ai/badminton_analysis/services/pose_detector.py`
 5. `badminton_analysis_ai/badminton_analysis/services/video_analyzer.py`
-6. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_preprocessing.py`
-7. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_backend.py`
-8. `badminton_analysis_ai/badminton_analysis/ml/expert_motion_generator.py`
-9. `badminton_analysis_ai/badminton_analysis/ml/kinematic_retargeting.py`
+6. `badminton_analysis_ai/badminton_analysis/ml/motion/preprocessing.py`
+7. `badminton_analysis_ai/badminton_analysis/ml/backend.py`
+8. `badminton_analysis_ai/badminton_analysis/ml/eimd/inference.py`
+9. `badminton_analysis_ai/badminton_analysis/ml/serve/scoring.py` or `badminton_analysis_ai/badminton_analysis/ml/smash/runtime.py`
 10. `badminton_analysis_ai/api/coaching.py`
 11. `badminton_analysis_ai/api/renderer.py`
 12. `linebot/api/analysis/client.go`

@@ -8,7 +8,7 @@ from badminton_analysis.ml.coaching_feedback import (
     system_instructions,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
-from badminton_analysis.ml.smash_coaching_evidence import build_checkpoint_evidence
+from badminton_analysis.ml.smash.coaching_evidence import build_checkpoint_evidence
 from api.coaching import CoachingGenerator
 from api.coaching_timeline import coaching_video_frame
 

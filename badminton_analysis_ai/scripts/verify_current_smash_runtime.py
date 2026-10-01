@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from badminton_analysis.ml.expert_motion_backend import _score_smash_correction
+from badminton_analysis.ml.backend import _score_smash_correction
 from badminton_analysis.ml.skill_specs import get_skill_spec
-from badminton_analysis.ml.smash_current_runtime import CurrentSmashScorer
+from badminton_analysis.ml.smash.runtime import CurrentSmashScorer
 from badminton_analysis.ml.trajectory_distance import load_smash_trajectory_scorer
 
 
@@ -32,7 +32,7 @@ def verify(research, models, device, regenerate=False, cache_directory=None):
         root / "expert_trajectory_score_model.npz"
     )
     if regenerate:
-        from badminton_analysis.ml.expert_motion_backend import (
+        from badminton_analysis.ml.backend import (
             ExpertMotionGeneratorBackend,
         )
         from badminton_analysis.ml.handedness import interpolated_keypoint

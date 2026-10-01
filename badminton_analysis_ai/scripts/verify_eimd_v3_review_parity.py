@@ -21,28 +21,32 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from badminton_analysis.ml.error_isolated_motion import (  # noqa: E402
+from badminton_analysis.ml.eimd.inference import (  # noqa: E402
     correct_student_motion_error_isolated,
     load_error_isolated_bundle,
 )
-from badminton_analysis.ml.expert_motion_backend import (  # noqa: E402
+from badminton_analysis.ml.backend import (  # noqa: E402
     _dual_window_scoring_correction,
     _score_smash_correction,
     _serve_single_head_score,
 )
-from badminton_analysis.ml.expert_motion_preprocessing import (  # noqa: E402
+from badminton_analysis.ml.motion.preprocessing import (  # noqa: E402
     prepare_expert_motion_sample,
 )
-from badminton_analysis.ml.expert_reference_bank import (  # noqa: E402
+from badminton_analysis.ml.reference_bank import (  # noqa: E402
     ExpertReferenceBank,
 )
-from badminton_analysis.ml.expert_phase_baseline import (  # noqa: E402
-    align_expert_correction_to_ankle_spine_view,
+from badminton_analysis.ml.motion.samples import (
     load_expert_phase_model,
     load_motion_sample,
+)
+from badminton_analysis.ml.motion.view import (
+    align_expert_correction_to_ankle_spine_view,
+)
+from badminton_analysis.ml.serve.scoring import (
     score_expert_correction,
 )
-from badminton_analysis.ml.smash_expert_scoring import (  # noqa: E402
+from badminton_analysis.ml.smash.semantic import (  # noqa: E402
     load_smash_distribution,
 )
 from badminton_analysis.ml.trajectory_distance import (  # noqa: E402

@@ -7,12 +7,16 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 ## Architecture and contracts
 
 - EIMD: expert-only conditional diffusion, 64 COCO-17 poses, eight candidates,
-  seed 19. No retraining is performed by this release.
-- Serve retains its existing EIMD-v3 generation and dual-window grading.
-- Smash uses the v6 wrist-velocity ending window and existing delayed-contact
-  refinement (v7) with the EIMD-v3 weights. Grading and generation use that same
-  window. The independently calibrated requested-skill guard deliberately keeps
-  its original EIMD-v3 hypotheses and unchanged reference bank.
+  seed 19. Both priors were retrained on ViTPose++-L expert poses in September
+  2026; the smash training archives are cut with the EIMD-v3 window, which now
+  ends where the shoulders finish turning forward.
+- Serve retains its EIMD-v3 generation and dual-window grading.
+- Smash serving uses the v6 wrist-velocity ending window and delayed-contact
+  refinement (v7). Grading and generation use that same window.
+- The requested-skill guard still compares EIMD-v3 hypotheses against the
+  RF-DETR-era expert features in `../expert_reference_bank.npz`; with the
+  shoulder ending, some real smashes now read as serves until that bank is
+  rebuilt from ViTPose experts.
 - Smash source video is normalized to 30fps **before** pose extraction. Its
   checkpoint frame numbers, overlay frames, and coaching evidence share this clock.
 - Frozen checkpoint graph heads grade preparation and arm balance. Their input
@@ -44,7 +48,7 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 | Arm balance | 5 | Frozen graph; cap sustained five-frame low dominant hand while support hand is raised |
 | Elbow forward | 20 | Frozen historical semantic/trajectory head |
 | Wrist flick | 30 | Frozen historical semantic/trajectory head at the refined contact checkpoint |
-| Follow-through | 20 | Interval ShapeDTW and best post-contact endpoint; initial/final shoulder-span change can reduce even the original score to zero |
+| Follow-through | 20 | Shoulder turn: interval ShapeDTW and best post-contact endpoint on spine direction and the shoulder line (where the wrist ends is not counted); initial/final shoulder-span change can reduce even the original score to zero |
 
 No endpoint pooling or shoulder-retreat penalty is applied. Experts and learners
 follow identical inference rules. Cohort names, human ratings, and filename
@@ -55,16 +59,20 @@ of unseen-person generalization.
 
 All paths below are relative to `badminton_analysis_ai/`.
 
-- Preprocessing: `api/smash_source.py`,
-  `badminton_analysis/ml/expert_motion_preprocessing.py`.
-- Generation/dispatch: `badminton_analysis/ml/expert_motion_backend.py`.
-- Complete smash orchestration: `badminton_analysis/ml/smash_current_runtime.py`.
-- Numeric rules: `smash_current_scoring.py`, `smash_current_geometry.py`,
-  `smash_current_endpoint.py` in that same module directory.
-- Frozen graph, checkpoint alignment and placement: `smash_current_graph.py`,
-  `smash_current_alignment.py`, `smash_current_placement.py`.
+- Code layout under `badminton_analysis/ml/`:
+  - `eimd/`: the diffusion model (`network.py`, `blocks.py`), inference
+    (`inference.py`), motion-state features and retargeting.
+  - `motion/`: archives and the expert phase model (`samples.py`), phase
+    windows (`preprocessing.py`), camera-view placement (`view.py`).
+  - `serve/scoring.py`: serve's six-checkpoint scorer.
+  - `smash/`: `runtime.py` orchestrates; `graph.py`, `alignment.py`,
+    `placement.py`, `scoring.py`, `geometry.py`, `endpoint.py`,
+    `semantic.py` and `coaching_evidence.py` hold the rules.
+  - `backend.py` dispatches generation and scoring for both skills;
+    `reference_bank.py` picks the expert clip and holds the skill guard.
+- Preprocessing: `api/smash_source.py`, `badminton_analysis/ml/motion/preprocessing.py`.
 - Rendering/GPT: `api/renderer.py`, `api/coaching.py`,
-  `badminton_analysis/ml/smash_coaching_evidence.py`.
+  `badminton_analysis/ml/smash/coaching_evidence.py`.
 - Packaging: `scripts/export_current_smash_artifacts.py` exports the frozen
   research artifacts to a fresh output directory; it does not fit or train.
 - Verification: `scripts/verify_current_smash_port.py` replays all 100 reviewed
@@ -114,14 +122,14 @@ is scored only by `scripts/verify_eimd_v3_review_parity.py`.
 
 | Skill | File | SHA-256 |
 |---|---|---|
-| Serve | `error_isolated_motion.pt` | `bec47df5341429b0c6fd6c3bf470db83d80ce32645fc6931e00c4a050c7b8051` |
-| Serve | `expert_score_model.npz` | `1a0e3c7e5dc32ee019d071e35255d9337a25c38f5c7210d1ec62104058c9095c` |
-| Smash | `error_isolated_motion.pt` | `956b567e407d88eff23ebc936f264e03d16543a550c08bf879268fbb85353977` |
+| Serve | `error_isolated_motion.pt` | `20e8631582e6b9afd5d0331c2c7eb1973485527a7a10da2da33f7d614bc417b7` |
+| Serve | `expert_score_model.npz` | `7b32797b2e3ade2548f8b80dbc15f680636f1e851a99e42f31a4e3e18b3c9c41` |
+| Smash | `error_isolated_motion.pt` | `86aa170aabfb36c595cf7f390500c966e2ebb4c4d21af8c9767a9d675ca7c6eb` |
 | Smash | `expert_score_model.npz` | `1cf4c958cbe360a1c739260e4c077cd286cdec900712c25bcde0a1e72a228f20` |
 | Smash legacy | `expert_semantic_score_model.npz` | `be6b704bd580ff362bb6718eefa4596b51c3edc8368b08d40626140ebc1b16a5` |
 | Smash | `expert_trajectory_score_model.npz` | `1ed6ee9aa4218f05fdd60e8e0ccdd833ce7163ac2cb75666532ac83f653af027` |
 | Smash | `checkpoint_scorer_v1/metric_graph.pt` | `c4cef078b3082584130e10d5bc189b88270b2f30ffeb5fc410ce305ce23b90f2` |
-| Smash | `checkpoint_scorer_v1/expert_semantic_score_model.npz` | `e7006472527ff2e253535afd80ef93c749114972edf914cc51cae16d621ab212` |
+| Smash | `checkpoint_scorer_v1/expert_semantic_score_model.npz` | `806278496fb1d585d3de03e0a332d07bd73de19b3072c15f6223eaf740bf472b` |
 | Smash | `checkpoint_scorer_v1/checkpoint_reference.npz` | `685510316cc3aa498e0621e1650d04973e7ae9834dfa1cb5e8278080a1252280` |
-| Smash | `checkpoint_scorer_v1/calibration.json` | `078acd914ea59e81e1ba0942bfdef6c2d9482e208fbef169d7d1a5ca7fb413dc` |
+| Smash | `checkpoint_scorer_v1/calibration.json` | `abfaf848908bd28d7b382d722581b74d68936abce2cb457225c4e68f24d9bd8a` |
 | Both | `../expert_reference_bank.npz` | `ed38bbb8873782a5cd5075522e66feca3abec3697a70117e7d3f5495741eb898` |

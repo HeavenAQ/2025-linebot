@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.expert_reference_bank import (
+from badminton_analysis.ml.reference_bank import (
     ExpertReferenceBank,
     skill_temporal_descriptor,
 )

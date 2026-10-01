@@ -21,8 +21,6 @@ BONES = (
 )
 
 # Lateral torso spans are projection-dependent rather than rigid limb lengths.
-# The expert-motion generator preserves their generated per-frame profile so
-# shoulder/hip rotation remains visible after student-anatomy retargeting.
 TORSO_WIDTH_BONES = ((5, 6), (11, 12))
 
 ANGLE_TRIPLETS = (
@@ -47,13 +45,7 @@ def project_stable_bone_lengths(
     preserve_target_pelvis: bool = False,
     preserve_direction_chains: tuple[tuple[int, ...], ...] = (),
 ) -> NDArray[np.float32]:
-    """Retarget a motion using stable clip-level student anatomy.
-
-    Rigid limbs use the student's median observed length. Projection-dependent
-    torso widths may instead retain the generated expert profile. Optional
-    distal chains are rebuilt after the global solve so their generated
-    directions survive the length projection exactly.
-    """
+    """Retarget a motion using stable clip-level student anatomy."""
     source = np.asarray(original, dtype=np.float64)
     corrected_source = np.asarray(corrected, dtype=np.float64)
     projected = corrected_source.copy()

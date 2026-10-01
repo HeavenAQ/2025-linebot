@@ -63,9 +63,7 @@ def stable_parent_lengths(
         if not np.isfinite(output[joint]) or output[joint] <= _EPS:
             valid = lengths[:, joint][np.isfinite(lengths[:, joint])]
             output[joint] = float(np.median(valid)) if len(valid) else 1.0
-    # The implicit pelvis is the exact midpoint of the two hips, so both hip
-    # half-widths must be identical. Detector asymmetry must not turn that
-    # identity into two incompatible FK constraints.
+    # The implicit pelvis is the exact midpoint of the two hips, so both hip half-widths must be identical.
     hip_half_width = _weighted_median(
         np.concatenate((lengths[:, 11], lengths[:, 12])),
         np.concatenate(
@@ -150,14 +148,7 @@ def relative_projected_width_trajectory(
     left_joint: int = 5,
     right_joint: int = 6,
 ) -> NDArray[np.float64]:
-    """Return a finite projected-width trajectory with a weighted median of 1.
-
-    Unlike limb lengths, the distance between the two shoulder detections is
-    not a rigid 2D bone. It narrows when the torso turns away from the camera
-    and widens when the shoulders face the camera. Retargeting therefore must
-    preserve the expert's *relative* projected-width change while scaling its
-    median to the student's anatomy.
-    """
+    """Return a finite projected-width trajectory with a weighted median of 1."""
     values = np.asarray(sequence, dtype=np.float64)
     observed = np.asarray(confidence, dtype=np.float64)
     if values.ndim != 3 or values.shape[1:] != (17, 2):
@@ -184,16 +175,7 @@ def retarget_expert_canonical_2d_fk(
     *,
     root_trajectory: NDArray[np.floating] | None = None,
 ) -> NDArray[np.float32]:
-    """Transfer the complete expert motion in the shared canonical 2D frame.
-
-    Skeleton archives are already root-centred, body-scale normalized, and
-    rotated into the initial body frame by ``normalize_skeleton_motion``.
-    Re-basing the expert onto the student's initial torso a second time would
-    preserve the student's global shoulder orientation and defeat visible
-    shoulder-turn correction. This transfer copies every finite expert edge direction in the existing
-    shared canonical frame and changes only bone lengths to the student's
-    stable anatomy.  Screen translation remains an explicit, separate input.
-    """
+    """Transfer the complete expert motion in the shared canonical 2D frame."""
     source = np.asarray(student, dtype=np.float64)
     reference = np.asarray(expert, dtype=np.float64)
     source_observed = np.asarray(student_confidence, dtype=np.float64)
@@ -238,12 +220,7 @@ def retarget_expert_canonical_2d_fk(
     shoulder_width_profile = relative_projected_width_trajectory(
         reference, reference_observed
     )
-    # The correction should begin from the student's observed preparation,
-    # not widen or narrow their shoulders merely because the selected expert
-    # has a different first-frame projection. Preserve the expert's relative
-    # torso-turn trajectory, but anchor its scale to the student's actual
-    # first-frame shoulder span. Median anchoring previously enlarged smash
-    # CG1 from 0.862 to 1.323 before the motion had even started.
+    # The correction should begin from the student's observed preparation.
     shoulder_width_profile /= max(float(shoulder_width_profile[0]), _EPS)
     initial_shoulder_width = float(np.linalg.norm(source[0, 6] - source[0, 5]))
     expert_pelvis = implicit_pelvis(reference)

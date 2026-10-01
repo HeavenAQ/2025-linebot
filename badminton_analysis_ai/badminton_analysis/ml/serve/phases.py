@@ -1,8 +1,4 @@
-"""Where a serve starts, is struck and ends, on the learner's own clip.
-
-The swing track the window detector reads, and the two phase contracts:
-EIMD-v3 (generation and the skill guard) and current (grading).
-"""
+"""Where a serve starts, is struck and ends, on the learner's own clip."""
 
 from __future__ import annotations
 
@@ -28,21 +24,11 @@ def _serve_hip_minimum_start(
     handedness: Handedness = Handedness.RIGHT,
     latest_start: int | None = None,
 ) -> int:
-    """Anchor serve start at minimum canonical pelvis x before acceleration.
-
-    Left-handed/mirrored clips are canonicalized by reflecting image x later
-    in preprocessing.  Apply that same reflection while selecting the start;
-    otherwise ``argmin`` chooses the opposite end of a left-handed motion.
-    """
+    """Anchor serve start at minimum canonical pelvis x before acceleration."""
     coordinates = np.asarray(skeleton_2d, dtype=np.float64)
     if coordinates.ndim != 3 or coordinates.shape[1:] != (17, 2):
         raise ValueError("skeleton_2d must have shape (T, 17, 2)")
-    # A raw global minimum can occur during the swing itself (for example
-    # because the pelvis continues travelling after wrist acceleration). Such
-    # a start collapses preparation to one or two frames and then stretches
-    # them across the normalized sequence. Reserve at least the final quarter
-    # of the detected start-to-acceleration interval for preparation motion,
-    # while retaining a four-frame floor for short clips.
+    # A raw global minimum can occur during the swing itself.
     detected_span = acceleration - detected_start
     required_preparation = max(4, int(np.ceil(0.25 * detected_span)))
     percentage_cutoff = acceleration - required_preparation
@@ -81,14 +67,7 @@ def _serve_motion_onset_interval(
     acceleration: int,
     handedness: Handedness = Handedness.RIGHT,
 ) -> tuple[int, int]:
-    """Find stable preparation immediately preceding the main wrist episode.
-
-    The legacy serve parser used a fixed 30-frame pre-impact window. For a
-    slowly prepared swing that can begin after hand raising and weight transfer
-    have already started. Locate the coherent pre-acceleration episode in
-    percentage space, scan backward to its last stable interval, and retain a
-    small proportional preparation context before that onset.
-    """
+    """Find stable preparation immediately preceding the main wrist episode."""
     coordinates = np.asarray(skeleton_2d, dtype=np.float64)
     if coordinates.ndim != 3 or coordinates.shape[1:] != (17, 2):
         raise ValueError("skeleton_2d must have shape (T, 17, 2)")
@@ -151,14 +130,7 @@ def _serve_shoulder_completion_phases(
     *,
     motion_skeleton_2d: NDArray[np.floating] | None = None,
 ) -> tuple[int, int, int, int, int]:
-    """End serve at maximum shoulder angle after maximum acceleration.
-
-    Raw detections retain the established acceleration and shoulder-angle
-    semantics.  An interpolated copy may be supplied only for recovering a
-    coherent preparation onset when the legacy fixed window starts too late.
-    This prevents short detector gaps from hiding preparation without moving
-    the original contact/completion landmarks on otherwise complete clips.
-    """
+    """End serve at maximum shoulder angle after maximum acceleration."""
     phases = tuple(int(value) for value in detected_phases)
     if len(phases) != 5 or any(b <= a for a, b in zip(phases, phases[1:])):
         raise ValueError("serve phases must contain five increasing frames")
@@ -180,9 +152,9 @@ def _serve_shoulder_completion_phases(
         detected_end,
     ) = phases
     if handedness == Handedness.LEFT:
-        _hip, shoulder, elbow, wrist, opposite_shoulder = 11, 5, 7, 9, 6
+        shoulder, elbow, wrist, opposite_shoulder = 5, 7, 9, 6
     else:
-        _hip, shoulder, elbow, wrist, opposite_shoulder = 12, 6, 8, 10, 5
+        shoulder, elbow, wrist, opposite_shoulder = 6, 8, 10, 5
 
     kernel = np.ones(5, dtype=np.float64) / 5.0
     motion_relative_wrist = (
@@ -210,10 +182,7 @@ def _serve_shoulder_completion_phases(
     if float(np.linalg.norm(forward_axis)) <= 1e-8:
         forward_axis = np.asarray((1.0, 0.0), dtype=np.float64)
 
-    # Search the whole clip: the legacy window can end mid-backswing (CG43 ended
-    # at 96, the forward acceleration was at 101) and the legacy preparation
-    # anchor can fall after the true event (CG07: 82 against 77). The signed
-    # across-body projection already rejects the opposite backswing.
+    # Search the whole clip.
     directional_search_start = start + 2
     directional_search_stop = len(motion_smoothed_wrist) - 2
     if directional_search_stop <= directional_search_start:
@@ -245,9 +214,7 @@ def _serve_shoulder_completion_phases(
         acceleration=provisional_acceleration,
         handedness=handedness,
     )
-    # Never fall back to acceleration magnitude here: a fast backswing can
-    # have the largest magnitude while pointing away from the demonstrated
-    # across-body serve direction.
+    # Never fall back to acceleration magnitude here.
     acceleration = provisional_acceleration
     onset_start, onset_end = _serve_motion_onset_interval(
         motion_coordinates,
@@ -264,9 +231,6 @@ def _serve_shoulder_completion_phases(
     )
 
     # The stroke finishes where the racket elbow is highest after contact.
-    # The shoulder angle peaks while the arm is still travelling, which ended
-    # the window mid-follow-through -- four or five frames after contact on
-    # several expert takes, with the real finish outside it.
     elbow_height = np.convolve(
         np.pad(-coordinates[:, elbow, 1], (2, 2), mode="edge"), kernel, mode="valid"
     )
@@ -297,9 +261,9 @@ def _serve_eimd_v3_phases(
         raise ValueError("skeleton_2d must have shape (T, 17, 2)")
     start, preparation, _, detected_follow_through, detected_end = phases
     if handedness == Handedness.LEFT:
-        _hip, shoulder, elbow, wrist = 11, 5, 7, 9
+        shoulder, elbow, wrist = 5, 7, 9
     else:
-        _hip, shoulder, elbow, wrist = 12, 6, 8, 10
+        shoulder, elbow, wrist = 6, 8, 10
     kernel = np.ones(5, dtype=np.float64) / 5.0
     relative_wrist = coordinates[:, wrist] - coordinates[:, shoulder]
     smoothed_wrist = np.column_stack(
@@ -323,9 +287,6 @@ def _serve_eimd_v3_phases(
         np.nanargmax(acceleration_magnitude[acceleration_start - 1 : acceleration_stop])
     )
     # The stroke finishes where the racket elbow is highest after contact.
-    # The shoulder angle this used peaks while the arm is still travelling,
-    # which ended the window mid-follow-through: four or five frames after
-    # contact on several expert takes, with the real finish outside it.
     elbow_height = np.convolve(
         np.pad(-coordinates[:, elbow, 1], (2, 2), mode="edge"), kernel, mode="valid"
     )
@@ -346,12 +307,7 @@ def _serve_swing_positions(
     confidence: NDArray[np.floating],
     handedness: Handedness,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
-    """The racket wrist with poorly seen frames bridged, and its shoulder.
-
-    A wrist the detector is unsure of can jump across the frame in one step,
-    and that jump outruns a real serve. Frames below the confidence floor are
-    interpolated from the wrist on either side before the swing is searched.
-    """
+    """The racket wrist with poorly seen frames bridged, and its shoulder."""
     wrist, shoulder = (9, 5) if handedness == Handedness.LEFT else (10, 6)
     hand = np.asarray(hand_positions, dtype=np.float64).copy()
     seen = np.asarray(confidence, dtype=np.float64)[:, wrist] >= SERVE_WRIST_CONFIDENCE_FLOOR

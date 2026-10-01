@@ -67,14 +67,7 @@ class VideoAnalyzer:
         prefer_peak_velocity: bool = False,
         forward_axis: NDArray[np.floating[Any]] | None = None,
     ) -> int:
-        """Select forward acceleration rather than an opposite backswing.
-
-        When ``forward_axis`` is supplied, its sign is authoritative. Serve
-        preprocessing derives that axis from the dominant shoulder toward the
-        opposite shoulder, so the same rule works for either racket hand and
-        under image mirroring. Without it, the legacy coherent-episode axis is
-        retained for callers that do not have body orientation.
-        """
+        """Select forward acceleration rather than an opposite backswing."""
         trajectory = np.asarray(positions, dtype=np.float64)
         velocities = np.diff(trajectory, axis=0)
         if len(velocities) < 2:
@@ -194,18 +187,13 @@ class VideoAnalyzer:
         new_peak = int(idx + start_frame)
         new_start = max(0, new_peak - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
         # End at the first completed downward wrist episode after acceleration.
-        # Image y increases downward, so the endpoint is the first local maximum
-        # in wrist y where the smoothed vertical velocity reaches zero.  Using
-        # the elbow's global lowest point used to include a later recovery pose
-        # and stretch the generated follow-through beyond the action itself.
         wrist_stop = cls._first_post_acceleration_wrist_stop(
             hand_positions,
             acceleration_peak_frame=acceleration_peak_frame,
             contact_frame=new_peak,
         )
         if wrist_stop is None:
-            # Degenerate or nearly static tracks do not contain a trustworthy
-            # velocity zero-crossing. Preserve enough context in that case.
+            # Degenerate or nearly static tracks do not contain a trustworthy velocity zero-crossing.
             minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
             new_end = max(
                 acceleration_end_frame,
@@ -224,14 +212,7 @@ class VideoAnalyzer:
         acceleration_peak_frame: int,
         contact_frame: int,
     ) -> int | None:
-        """Return the first low wrist point at the end of a downward episode.
-
-        The wrist coordinates are smoothed before differentiating.  A candidate
-        must have a sustained downward trend, meaningful displacement, and a
-        sustained near-zero/reversing vertical velocity.  This makes the event
-        resistant to one-frame detector jitter while still selecting the first
-        completed follow-through rather than a later rest/recovery position.
-        """
+        """Return the first low wrist point at the end of a downward episode."""
         positions = np.asarray(hand_positions, dtype=np.float64)
         if positions.ndim != 2 or positions.shape[1] < 2 or len(positions) < 7:
             return None
@@ -270,9 +251,7 @@ class VideoAnalyzer:
         raw_descent_threshold = max(0.10, 0.10 * peak_downward_velocity)
         post_range = float(np.max(smoothed_y[search_start:]) - smoothed_y[search_start])
         minimum_displacement = max(1.5, 0.08 * max(post_range, 0.0))
-        # At 30 fps a genuine overhead follow-through persists across several
-        # frames. Shorter excursions are usually a single noisy keypoint made
-        # wider by the smoothing kernel, not a completed wrist trajectory.
+        # At 30 fps a genuine overhead follow-through persists across several frames.
         minimum_descent_frames = 6
 
         descent_start: int | None = None
@@ -313,9 +292,7 @@ class VideoAnalyzer:
         elbow_positions: list[Coordinate],
         shoulder_positions: list[Coordinate] | None = None,
     ) -> tuple[int, int, int]:
-        # The swing is the whole arm moving about the shoulder. Measured about
-        # the elbow it is forearm rotation, which letting the racket down after
-        # the serve produces as readily as the serve itself.
+        # The swing is the whole arm moving about the shoulder.
         if shoulder_positions is None:
             start_frame, peak_frame, end_frame = cls.find_acc_analysis_window(
                 hand_positions, elbow_positions
@@ -335,20 +312,14 @@ class VideoAnalyzer:
             y_values = arr[:, 1]
             lowest_hand_relative_index = int(np.argmax(y_values))
             peak_frame = search_start + lowest_hand_relative_index
-        # The follow-through ends where the racket elbow is highest after
-        # contact: the finish of the stroke, and a landmark the detector can
-        # see. Taking the elbow's sideways travel as well, as this did, ends
-        # the window while the arm is still coming across, and a fixed number
-        # of frames after contact ends it anywhere at all.
+        # The follow-through ends where the racket elbow is highest after contact: the finish of the stroke.
         arr_elbow = np.asarray(elbow_positions[peak_frame:], dtype=np.float64)
         relative_end_index = (
             int(np.argmin(arr_elbow[:, 1])) if arr_elbow.size > 0 else 0
         )
         end_frame = int(peak_frame) + int(relative_end_index)
         if relative_end_index < SERVE_MINIMUM_FOLLOW_THROUGH:
-            # The elbow never rises after contact -- an occluded arm, or a
-            # clip that stops on the stroke -- so keep the reserved tail
-            # rather than ending the window on the contact frame itself.
+            # The elbow never rises after contact -- an occluded arm, or a clip that stops on the stroke.
             end_frame = max(
                 acceleration_end_frame,
                 end_frame,
@@ -368,13 +339,7 @@ class VideoAnalyzer:
         hand_positions: list[Coordinate],
         shoulder_positions: list[Coordinate],
     ) -> tuple[int, int, int]:
-        """The serve is the fastest the racket arm moves about its shoulder.
-
-        A smooth, sustained motion -- the racket let down across the body after
-        the serve -- scores well on directional acceleration while moving more
-        slowly than the swing that struck the shuttle, so the swing is taken at
-        the arm's peak speed instead.
-        """
+        """The serve is the fastest the racket arm moves about its shoulder."""
         arm = cls.moving_average(
             hand_positions, window_size=SMOOTHING_WINDOW_SIZE
         ) - cls.moving_average(shoulder_positions, window_size=SMOOTHING_WINDOW_SIZE)
@@ -394,20 +359,7 @@ class VideoAnalyzer:
         start_frame: int,
         peak_frame: int,
     ) -> int:
-        """A contact frame with room after it for the follow-through phases.
-
-        The five serve phases are cut from the window, and the last two sit
-        after contact. A contact frame at the very end of the footage leaves
-        nothing to cut them from: the phases come back equal, or so close
-        together that they collapse into one index when the clip is resampled.
-
-        When that happens the tail is discarded and the lowest-hand search is
-        repeated on the earlier half, halving again until a contact frame with
-        enough room turns up -- a learner who swings twice and stops recording
-        during the second is analysed on the first. The candidate must still
-        look like a stroke: a hand that never drops is a region with no serve
-        in it, and grading that is worse than saying so.
-        """
+        """A contact frame with room after it for the follow-through phases."""
         positions = np.asarray(hand_positions, dtype=np.float64)
         last_frame = len(positions) - 1
         if peak_frame + SERVE_MINIMUM_FOLLOW_THROUGH <= last_frame:

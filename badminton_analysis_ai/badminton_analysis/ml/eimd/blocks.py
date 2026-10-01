@@ -1,8 +1,4 @@
-"""Diffusion building blocks shared by the EIMD denoiser.
-
-Phase features, the sinusoidal timestep embedding, and the linear noise
-schedule used when sampling a frozen expert-motion checkpoint.
-"""
+"""Diffusion building blocks shared by the EIMD denoiser."""
 
 from __future__ import annotations
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from badminton_analysis.prompts import prompt
 from badminton_analysis.ml.coaching_feedback import (
     RawSkillFeedbackAnalysis,
     RawSmashEvidenceAnalysis,
@@ -31,12 +32,7 @@ LOGGER = logging.getLogger("badminton-analysis.coaching")
 
 
 def _criterion_priority(item: dict[str, Any]) -> tuple[float, float]:
-    """Rank rubric evidence by missing weighted points, then by ratio.
-
-    The rubric maxima encode the relative importance of each checkpoint. A
-    zero on a five-point preparation detail must not hide a 25-point deficit
-    in weight transfer merely because its normalized ratio is slightly lower.
-    """
+    """Rank rubric evidence by missing weighted points, then by ratio."""
     score = float(item.get("score", 0.0))
     maximum = max(float(item.get("maximum", 1.0)), 1e-6)
     return (score - maximum, score / maximum)
@@ -46,13 +42,7 @@ def _normalized_to_output_frame_indices(
     normalized_frame_count: int,
     output_frame_count: int,
 ) -> tuple[int, ...]:
-    """Map canonical motion indices onto the rendered analysis-only clip.
-
-    The correction model always reasons in a normalized timeline while the
-    coaching video contains only the inclusive source analysis range.  Keep
-    the canonical indices as the feedback identities, but read their images
-    from the corresponding output-local frames.
-    """
+    """Map canonical motion indices onto the rendered analysis-only clip."""
     if normalized_frame_count < 2:
         raise ValueError("normalized motion must contain at least two frames")
     if output_frame_count < 1:
@@ -71,12 +61,7 @@ def _response_retry_input(
     previous_analysis: dict[str, Any] | None,
     validation_error: Exception,
 ) -> list[dict[str, Any]]:
-    """Ask the model to correct a rubric-invalid structured response.
-
-    The original multimodal request stays intact so the retry sees the same
-    evidence. Appending the rejected JSON and the exact validator error turns a
-    blind repeat into a targeted re-answer while preserving structured parsing.
-    """
+    """Ask the model to correct a rubric-invalid structured response."""
     if previous_analysis is None:
         return base_input
     return [
@@ -95,13 +80,7 @@ def _response_retry_input(
             "content": [
                 {
                     "type": "input_text",
-                    "text": (
-                        "上一個結構化答案未通過評分規則驗證。請重新回答完整問題，"
-                        "不要只補充說明，也不要重複原本的錯誤。"
-                        f"\n驗證錯誤：{validation_error}"
-                        "\n請以原始影像與分析資料重新產生完整JSON，並完整涵蓋"
-                        "required_priority_criteria_when_nonempty中的每一項。"
-                    ),
+                    "text": prompt("coach/retry", validation_error=validation_error),
                 }
             ],
         },
@@ -121,11 +100,7 @@ def _env_int(name: str, default: int, *, minimum: int) -> int:
 
 class CoachingGenerator:
     def __init__(self, model: str = "gpt-5.6-terra") -> None:
-        # The SDK defaults (600 s per request, 2 internal retries) nest inside
-        # our own OPENAI_COACHING_ATTEMPTS loop, so one stuck call could hold
-        # an analysis for up to attempts x (max_retries + 1) x timeout. Keep
-        # each layer explicit and small: the SDK retries transient transport
-        # errors, our loop retries schema/validation failures.
+        # The SDK defaults nest inside our own OPENAI_COACHING_ATTEMPTS loop.
         self.client = OpenAI(
             timeout=float(_env_int("OPENAI_TIMEOUT_SECONDS", 120, minimum=1)),
             max_retries=_env_int("OPENAI_MAX_RETRIES", 1, minimum=0),
@@ -337,8 +312,7 @@ class CoachingGenerator:
             if correction_grade.get("checkpoint_evidence") is not None:
                 problem["evidence_frame_index"] = sample.frame_index
                 problem["video_frame_index"] = sample.source_frame_index
-                # Preserve the public normalized-frame contract. Rendering and
-                # cue timestamps use the exact output-local frame instead.
+                # Preserve the public normalized-frame contract.
                 final_frame = max(item.source_frame_index for item in samples)
                 problem["frame_index"] = round(
                     sample.source_frame_index * 63 / max(1, final_frame)

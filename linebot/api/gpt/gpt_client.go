@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/HeavenAQ/nstc-linebot-2025/prompts"
 	"strings"
 	"sync"
 	"time"
@@ -64,21 +65,7 @@ func NewGPTClient(apiKey, model string) *Client {
 // coachInstruction is the persona behind replies to learners. It says
 // explicitly that questions about their own progress are in scope: the stored
 // prompt it replaced refused them and told students to find a real coach.
-const coachInstruction = "你是一位羽球教練，正在指導大學體育課的學生。" +
-	"學生會問你關於自己練習的問題，訊息中通常附有系統的動作評分。\n" +
-	"- 一律使用繁體中文，語氣直接、鼓勵，像在球場邊說話。\n" +
-	"- 你的工作就是評估與給建議。學生問自己的學習進度、動作好不好、" +
-	"該怎麼改進時，一律直接給出評估與具體練法。\n" +
-	"- 絕對不要說自己無法分析或評估動作表現，也不要叫學生去問別的教練或找專業人士——" +
-	"你就是他的教練。\n" +
-	"- 有分數時，先說目前的水準與趨勢，點出最弱的項目，再給那個項目的練法。\n" +
-	"- 建議要具體到身體部位與練得到的動作，例如「擊球瞬間手腕先放鬆再快速前甩」，" +
-	"而不是「多多練習」。\n" +
-	"- 只根據提供的分數與對話內容說話，不要杜撰沒有出現過的數字。" +
-	"真的沒有任何資料時，問一個具體的問題把資料問出來，不要空泛地拒絕。\n" +
-	"- 訊息開頭會標明本次討論的動作，只針對那個動作回答；" +
-	"不要改談其他動作，也不要用其他動作的技術要點來解釋。\n" +
-	"- 這是 LINE 訊息，控制在 200 字以內。逐項回饋時每項一行、以數字開頭。"
+var coachInstruction = prompts.Text("coach")
 
 type HistoryMessage struct {
 	Role string `json:"role"`
@@ -110,7 +97,7 @@ func (client *Client) RewriteQuery(history []HistoryMessage, query string) (stri
 	}
 	req := responses.ResponseNewParams{
 		Model:        client.Model,
-		Instructions: param.Opt[string]{Value: "Rewrite the latest user query as one standalone query using only necessary context from the conversation history. Preserve the user's language and intent. Resolve pronouns and omitted badminton skill references. Do not answer the query, add advice, or mention the history. Return only the rewritten query."},
+		Instructions: param.Opt[string]{Value: prompts.Text("rewrite_query")},
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: param.Opt[string]{Value: string(payload)},
 		},
@@ -246,9 +233,7 @@ func functionCalls(resp *responses.Response) []functionCall {
 	return calls
 }
 
-const summaryInstruction = "Summarize the learner's badminton progress in under 100 words, in the language the learner uses. " +
-	"Ground the summary in the recent scores below: state the trend across attempts, the latest total, and the criterion that scores lowest. " +
-	"Where the conversation and the scores disagree, trust the scores. Do not invent scores that are not listed."
+var summaryInstruction = prompts.Text("summary")
 
 // writeScores renders the learner's recent grades. The coach and the summary
 // share it so a learner cannot be told two different things about the same
@@ -286,10 +271,7 @@ func buildSummaryPrompt(content string, scores []commons.SkillScore) string {
 	return b.String()
 }
 
-const weeklyPreviewInstruction = "你是羽球教練，正在為學生準備本週的課前預習提醒。" +
-	"請用繁體中文，先用一行說明這個動作為什麼最需要加強（根據分數趨勢與最弱的細項），" +
-	"再列出兩到三個具體可練習的重點，每點一行、以「・」開頭。" +
-	"全部不超過 150 字，只根據提供的分數，不要杜撰沒有列出的數據。"
+var weeklyPreviewInstruction = prompts.Text("weekly_preview")
 
 // buildWeeklyPreviewPrompt lays out every skill the learner has attempted, so
 // the reasons can draw on the whole picture even though the focus is fixed.

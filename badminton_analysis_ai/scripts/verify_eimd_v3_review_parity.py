@@ -25,14 +25,12 @@ from badminton_analysis.ml.eimd.inference import (  # noqa: E402
     correct_student_motion_error_isolated,
     load_error_isolated_bundle,
 )
-from badminton_analysis.ml.backend import (  # noqa: E402
+from badminton_analysis.ml.serve.scorer import (
     _dual_window_scoring_correction,
-    _score_smash_correction,
     _serve_single_head_score,
 )
-from badminton_analysis.ml.motion.preprocessing import (  # noqa: E402
-    prepare_expert_motion_sample,
-)
+from badminton_analysis.ml.smash.scorer import _score_smash_correction
+from badminton_analysis.ml.skill import prepare_expert_motion_sample
 from badminton_analysis.ml.reference_bank import (  # noqa: E402
     ExpertReferenceBank,
 )
@@ -43,12 +41,8 @@ from badminton_analysis.ml.motion.samples import (
 from badminton_analysis.ml.motion.view import (
     align_expert_correction_to_ankle_spine_view,
 )
-from badminton_analysis.ml.serve.scoring import (
-    score_expert_correction,
-)
-from badminton_analysis.ml.smash.semantic import (  # noqa: E402
-    load_smash_distribution,
-)
+from badminton_analysis.ml.serve.scorer import score_expert_correction
+from badminton_analysis.ml.smash.experts import load_smash_distribution
 from badminton_analysis.ml.trajectory_distance import (  # noqa: E402
     load_smash_trajectory_scorer,
 )

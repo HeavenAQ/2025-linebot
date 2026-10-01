@@ -18,9 +18,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from badminton_analysis.ml.motion.preprocessing import (  # noqa: E402
-    prepare_expert_motion_sample,
-)
+from badminton_analysis.ml.skill import prepare_expert_motion_sample
 from badminton_analysis.ml.reference_bank import (  # noqa: E402
     _SKILL_SUPPORT_CONTRACT,
     skill_temporal_descriptor,

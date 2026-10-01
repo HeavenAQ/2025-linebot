@@ -8,22 +8,20 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 import numpy as np
-
 from badminton_analysis.ml.handedness import estimate_handedness, interpolated_keypoint
 from badminton_analysis.ml.reference_bank import (
     ExpertReference,
     ExpertReferenceBank,
     segmental_alignment,
 )
-from badminton_analysis.ml.backend import (
-    ExpertMotionGeneratorBackend,
-)
+from badminton_analysis.ml.backend import ExpertMotionGeneratorBackend
 from badminton_analysis.ml.skeleton_normalization import (
     tracking_body_arrays,
 )
+from badminton_analysis.ml.skill import skill_definition, supported_skills, supported_skills_text
 from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
+from badminton_analysis.prompts import prompt
 from badminton_analysis.models.types import (
     COCOKeypoints,
     GradingOutcome,
@@ -33,10 +31,11 @@ from badminton_analysis.models.types import (
 )
 from badminton_analysis.services.pose_detector import PoseDetector
 from badminton_analysis.services.video_processor import VideoProcessor
-
 from api.renderer import render_correction_video, source_fps, source_frame_rate
+from api.source_clock import normalize_source_fps
 from api.coaching import CoachingGenerator
 from api.pose_batcher import PoseBatcher
+
 
 LOGGER = logging.getLogger("badminton-analysis")
 
@@ -68,84 +67,10 @@ class AnalysisResult:
     overall_feedback: str
     coaching_problems: tuple[dict[str, Any], ...]
     pause_seconds: float
-    # The real demonstration closest to this learner's corrected motion, or
-    # None when no expert clip exists for the skill.
+    # The real demonstration closest to this learner's corrected motion.
     expert_reference: ExpertReference | None = None
-    # (normalized_position, expert_seconds) pairs mapping this learner's motion
-    # onto that expert's clock between the checkpoints. Empty when it could not
-    # be built, which costs playback its dense alignment and nothing else.
+    #  pairs mapping this learner's motion onto that expert's clock between the checkpoints.
     expert_alignment: tuple[tuple[float, float], ...] = ()
-
-
-# The serve coaching prompt names these measurements, so GPT has to receive
-# them; the criteria list it reads otherwise carries only grades.
-_SERVE_TRANSFER_MEASUREMENTS = ("pelvis_loading_shift",)
-# The stance is judged against the learner's own corrected skeleton.
-_SERVE_CORRECTION_STANCE_MEASUREMENTS = (
-    "correction_learner_stance_retention",
-    "correction_corrected_stance_retention",
-    "correction_stance_retention_shortfall",
-    "correction_stance_allowance",
-    "correction_learner_transfer_lead_frames",
-    "correction_corrected_transfer_lead_frames",
-    "correction_transfer_lead_excess_frames",
-    "correction_transfer_lead_allowance_frames",
-)
-# The racket elbow at contact, against the learner's own corrected skeleton.
-_SERVE_CORRECTION_ELBOW_MEASUREMENTS = (
-    "correction_learner_elbow_at_contact_degrees",
-    "correction_corrected_elbow_at_contact_degrees",
-    "correction_elbow_at_contact_shortfall_degrees",
-    "correction_elbow_allowance_degrees",
-    "correction_learner_shoulder_stance_angle_degrees",
-    "correction_corrected_shoulder_stance_angle_degrees",
-    "correction_shoulder_turn_shortfall_degrees",
-    "correction_shoulder_turn_allowance_degrees",
-)
-
-
-def _attach_serve_transfer_measurements(
-    correction_grade: dict[str, Any], score: dict[str, Any]
-) -> None:
-    measured = next(
-        (
-            item
-            for item in score.get("criteria", [])
-            if str(item.get("rule_reference")) == "weight_transfer"
-        ),
-        None,
-    )
-    if measured is None:
-        return
-    criterion = next(
-        item
-        for item in correction_grade["criteria"]
-        if item["rule_reference"] == "weight_transfer"
-    )
-    for cue in _SERVE_TRANSFER_MEASUREMENTS:
-        for prefix in ("source_", "expert_lower_", "standardized_shortfall_"):
-            if prefix + cue in measured:
-                criterion[prefix + cue] = float(measured[prefix + cue])
-    for key in _SERVE_CORRECTION_STANCE_MEASUREMENTS:
-        if key in measured:
-            criterion[key] = float(measured[key])
-    wrist = next(
-        (
-            item
-            for item in score.get("criteria", [])
-            if str(item.get("rule_reference")) == "wrist_flick"
-        ),
-        None,
-    )
-    if wrist is not None:
-        wrist_criterion = next(
-            item
-            for item in correction_grade["criteria"]
-            if item["rule_reference"] == "wrist_flick"
-        )
-        for key in _SERVE_CORRECTION_ELBOW_MEASUREMENTS:
-            if key in wrist:
-                wrist_criterion[key] = float(wrist[key])
 
 
 def _correction_grade_context(
@@ -155,26 +80,10 @@ def _correction_grade_context(
     criterion_values: list[tuple[str, float, float]],
 ) -> dict[str, Any]:
     component_names = ("position_distance", "angle_distance")
-    # Every supported scorer is fitted from expert data only; learner recordings
-    # never calibrate a tolerance, so the prompt must not say otherwise.
-    score_status = "expert_only_generated_distribution"
-    score_method = (
-        "學生骨架與依其身形、站位座標及動作階段生成的專家全身骨架，逐項比較歐氏距離與目標關節角；"
-        "分數容許範圍只由保留身分的專家動作分布校準"
+    # Every supported scorer is fitted from expert data only.
+    score_status, score_method = skill_definition(spec.skill).describe_scoring(
+        diagnostics, "expert_only_generated_distribution", prompt("coach/score_method")
     )
-    if spec.skill == Skill.SERVE:
-        score_method += (
-            "；發球重心轉移以持拍手手腕開始下壓到最大加速度（擊球）之間的骨盆位移判斷，"
-            "並檢查兩腳踝距離是否在動作中明顯縮小"
-        )
-    if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
-        score_status = "frozen_checkpoint_calibration"
-        score_method = (
-            "殺球按指定檢核區間評分，權重為5/20/5/20/30/20。預備與平衡採凍結骨架圖模型，"
-            "再以手腕高度及連續五幀的持拍手過低限制得分；轉體比較下肢、軀幹及肩軸角度變化；"
-            "手肘與手腕沿用凍結語意及軌跡評分；收拍保留最佳終點，並以起終肩寬變化限制得分。"
-            "只根據所附實際評分區間與量測解釋分數，不得以未觀察到的幀推斷動作。"
-        )
     return {
         "score_method_zh_tw": score_method,
         "score_status": score_status,
@@ -202,14 +111,7 @@ def _expert_alignment(
     reference: ExpertReference,
     corrected_pose: Any,
 ) -> tuple[tuple[float, float], ...]:
-    """Where each of the learner's frames falls in the matched expert's clip.
-
-    Playback anchors on the checkpoints either way; this fills in the movement
-    between them by warping the poses instead of assuming both performers hold
-    the same relative tempo inside a phase. A clip the warp cannot handle costs
-    playback that refinement, not the analysis, so it degrades to nothing and
-    the player interpolates between checkpoints as before.
-    """
+    """Where each of the learner's frames falls in the matched expert's clip."""
     try:
         return segmental_alignment(reference, corrected_pose)
     except (ValueError, IndexError) as exc:
@@ -239,11 +141,7 @@ def _rule_anchor_frames(
 
 
 def _checkpoint_phase_range(spec, rule, phase_indices, phase_times, sequence_length):
-    """Map a semantic window to the source clock, including its display anchor.
-
-    Anchor indices locate checkpoint buttons; they are not interval bounds.
-    Explicit scored evidence takes precedence over this phase-window fallback.
-    """
+    """Map a semantic window to the source clock, including its display anchor."""
     window = next(item for item in spec.phase_windows if item.name == rule.phase)
     last = max(1, sequence_length - 1)
     anchor = phase_indices[rule.allowed_anchor_indices[-1]]
@@ -261,12 +159,7 @@ def expert_phase_results(
     phase_seconds: tuple[float, ...],
     sequence_length: int,
 ) -> tuple[PhaseResult, ...]:
-    """The expert's checkpoints, timestamped in the expert's own video.
-
-    Built from the same rule anchors as the student timeline, so marker ``i``
-    on either side is the same moment of the stroke and playback can map one
-    onto the other segment by segment.
-    """
+    """The expert's checkpoints, timestamped in the expert's own video."""
     if sequence_length <= 0:
         raise ValueError("expert timeline requires a positive sequence length")
     if len(phase_seconds) != len(phase_indices):
@@ -424,17 +317,7 @@ def _dump_pose_arrays(
     source_frame_indices: Any,
     pose_backend: str,
 ) -> None:
-    """Write this run's pose arrays to GCS for an offline joint-by-joint diff.
-
-    A grade is reproducible from the pose, but the pose never leaves the
-    container, so a deployed run and an offline one can only be compared
-    through the single number they both end at -- which cannot say which joint
-    moved. The keys here match the offline extraction cache so the two load
-    side by side without translation.
-
-    Off unless ANALYSIS_POSE_DUMP_PREFIX is set, and never allowed to fail a
-    request: this exists to explain a bad grade, not to cause one.
-    """
+    """Write this run's pose arrays to GCS for an offline joint-by-joint diff."""
     try:
         from api.storage import ObjectStorage
 
@@ -449,8 +332,7 @@ def _dump_pose_arrays(
                 "source_frame_indices": np.asarray(
                     source_frame_indices, dtype=np.int64
                 ),
-                # Names ("serve", "right"), as the offline extraction cache and
-                # Skill/Handedness.convert_to_enum expect -- not IntEnum values.
+                # Names, as the offline extraction cache and Skill/Handedness.convert_to_enum expect.
                 "skill": str(skill),
                 "handedness": str(handedness),
                 "video_name": filename,
@@ -491,18 +373,13 @@ class SkeletonAnalysisPipeline:
     ) -> None:
         self.pose_detector = PoseDetector()
         self.lock = threading.Lock()
-        # One request at a time from pose extraction through generation. The
-        # same upload scored 92.36 alone and 94.45 beside three others, with
-        # a different analysis window: interleaving requests on the GPU
-        # changes what each one detects. A separate lock, because the pose
-        # worker takes self.lock per chunk while this one is held.
+        # One request at a time from pose extraction through generation.
         self.request_lock = threading.Lock()
         self.pose_batcher = PoseBatcher(self.pose_detector, self.lock)
         self.backends: dict[Skill, ExpertMotionGeneratorBackend] = {}
         self.coaching = CoachingGenerator(openai_model)
         self.pause_seconds = pause_seconds
-        # The prior generates an idealised movement rather than copying an
-        # expert, so the clip shown beside it is chosen by similarity instead.
+        # The prior generates an idealised movement rather than copying an expert.
         bank_path = expert_reference_bank or Path("models/expert_reference_bank.npz")
         if not bank_path.exists():
             raise FileNotFoundError(
@@ -510,20 +387,16 @@ class SkeletonAnalysisPipeline:
                 f"{bank_path}"
             )
         self.expert_bank = ExpertReferenceBank(bank_path)
-        for skill in (Skill.SERVE, Skill.SMASH):
+        for skill in supported_skills():
             self.backends[skill] = ExpertMotionGeneratorBackend(
                 expert_motion_model_root,
                 skill,
                 device=device,
-                # This is part of the frozen EIMD-v3 inference contract.  Keep
-                # it explicit here so a helper's default cannot silently make
-                # serving diverge from calibration or the review cohort.
+                # This is part of the frozen EIMD-v3 inference contract.
                 candidates=8,
                 seed=19,
-                current_smash=(skill == Skill.SMASH),
-                # Serve retains its preparation-window view alignment. The
-                # current smash path instead projects once at its first source
-                # frame and supplies scored pixels directly to the renderer.
+                current_scorer=True,
+                # Serve retains its preparation-window view alignment.
                 align_ankle_spine_view=True,
             )
 
@@ -551,14 +424,14 @@ class SkeletonAnalysisPipeline:
         skip_coaching: bool = False,
     ) -> AnalysisResult:
         if skill not in self.backends:
-            raise ValueError("only serve and smash are currently supported")
+            raise ValueError(f"only {supported_skills_text()} are currently supported")
         pipeline_started = time.perf_counter()
-        if skill == Skill.SMASH:
-            from api.smash_source import normalize_smash_source
-
-            video_path = normalize_smash_source(
+        source_rate = skill_definition(skill).required_source_fps
+        if source_rate is not None:
+            video_path = normalize_source_fps(
                 video_path,
-                output_path.with_name(output_path.stem + ".source-30fps.mp4"),
+                output_path.with_name(output_path.stem + f".source-{source_rate:g}fps.mp4"),
+                source_rate,
             )
         with self.request_lock:
             pose_started = time.perf_counter()
@@ -566,25 +439,20 @@ class SkeletonAnalysisPipeline:
                 str(video_path),
                 self.pose_batcher.request_detector(),
             )
-            # The whole upload is available, so poses are extracted in batches:
-            # the cached TensorRT engine on CUDA, RF-DETR predict() on MPS/CPU.
+            # The whole upload is available, so poses are extracted in batches.
             tracking = processor.process_frames_batched(None)
             pose_finished = time.perf_counter()
             handedness = _resolve_handedness(tracking, requested_handedness)
             _populate_dominant_motion(tracking, handedness)
             backend = self.backends[skill]
-            # The request label is untrusted.  Validate it against expert-only
-            # temporal support after pose/handedness extraction and before the
-            # requested generator can steer itself from an out-of-distribution
-            # phase sequence. The independently frozen label-support bank
-            # retains its EIMD-v3 windows; grading uses its own matched contract.
+            # The request label is untrusted.
             prepared = backend.prepare(tracking, handedness, filename)
             support_prepared = (
                 backend.prepare_skill_support(tracking, handedness, filename)
                 if hasattr(backend, "prepare_skill_support")
                 else prepared
             )
-            alternative_skill = Skill.SMASH if skill == Skill.SERVE else Skill.SERVE
+            alternative_skill = next(other for other in supported_skills() if other != skill)
             try:
                 alternative = self.backends[alternative_skill]
                 support_prepare = getattr(
@@ -592,9 +460,7 @@ class SkeletonAnalysisPipeline:
                 )
                 alternative_prepared = support_prepare(tracking, handedness, filename)
             except ValueError as exc:
-                # This is a conservative rejection-only guard. If the other
-                # stroke cannot form a valid five-phase hypothesis, it has not
-                # won temporal support and the requested analysis continues.
+                # This is a conservative rejection-only guard.
                 alternative_prepared = None
                 LOGGER.info(
                     "alternative skill hypothesis unavailable requested=%s "
@@ -674,10 +540,7 @@ class SkeletonAnalysisPipeline:
             )
             for item in generated.score["criteria"]
         ]
-        # A grade that disagrees with the offline run is invisible in the
-        # response, which carries only the total and the Chinese criterion
-        # names. Log the scorer identity, every criterion, and the gate
-        # state so a divergence can be located from the deploy log alone.
+        # A grade that disagrees with the offline run is invisible in the response.
         LOGGER.info(
             "grade skill=%s scorer=%s pose_backend=%s total=%.4f criteria=%s diagnostics=%s",
             skill,
@@ -717,8 +580,7 @@ class SkeletonAnalysisPipeline:
         correction_grade = _correction_grade_context(
             grade, diagnostics, spec, criterion_values
         )
-        if spec.skill == Skill.SERVE:
-            _attach_serve_transfer_measurements(correction_grade, generated.score)
+        skill_definition(spec.skill).attach_grade_context(correction_grade, generated.score)
         if "checkpoint_evidence" in generated.score:
             correction_grade["checkpoint_evidence"] = generated.score[
                 "checkpoint_evidence"
@@ -750,11 +612,7 @@ class SkeletonAnalysisPipeline:
             frame_rate=frame_rate,
         )
         overlay_finished = time.perf_counter()
-        # Coaching is the only stage that leaves this machine: it uploads
-        # sampled frames of the learner to a third-party model. Skipping it
-        # is therefore not an optimisation but a guarantee -- no image of
-        # this learner is sent anywhere. Everything that decides the grade
-        # has already happened above, and all of it is local.
+        # Coaching is the only stage that leaves this machine.
         if skip_coaching:
             coaching_payload = {
                 "analysis": {"problems": [], "overall_feedback": ""},
@@ -821,12 +679,9 @@ class SkeletonAnalysisPipeline:
                 "latency_final_render_seconds": final_render_finished
                 - coaching_finished,
                 "latency_pipeline_seconds": final_render_finished - pipeline_started,
-                # Whether the compiled TensorRT engine served this run, as
-                # opposed to falling back to PyTorch.
+                # Whether the compiled TensorRT engine served this run, as opposed to falling back to PyTorch.
                 "pose_tensorrt_active": float(self.pose_detector.tensorrt_active),
-                # Which path wrote the feedback (openai, deterministic_fallback,
-                # score_gate, or skipped). A string, so it reaches the service
-                # log but not the numeric diagnostics in the response.
+                # Which path wrote the feedback (openai, deterministic_fallback, score_gate, or skipped).
                 "coaching_source": str(coaching_payload.get("source", "skipped")),
             }
         )
@@ -849,8 +704,7 @@ class SkeletonAnalysisPipeline:
         )
         if phase_results[-1].timestamp_seconds > duration + 1.0 / fps:
             raise RuntimeError("phase timeline exceeds rendered video duration")
-        # Match on the canonical-space correction, which is the space the bank
-        # was built in, so no renormalization is needed.
+        # Match on the canonical-space correction, which is the space the bank was built in.
         expert_alignment: tuple[tuple[float, float], ...] = ()
         expert_reference = self.expert_bank.select(
             correction.aligned_corrected_pose,

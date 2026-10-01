@@ -1,10 +1,4 @@
-"""One-JSON-object-per-line logging for Cloud Logging.
-
-Cloud Run ingests stdout line by line and promotes a JSON line's ``severity``,
-``message``, ``time`` and ``logging.googleapis.com/*`` keys into the log entry,
-so plain-text lines lose their level and cannot be joined to the caller's
-trace. Only the stdlib is used so the service image gains no dependency.
-"""
+"""One-JSON-object-per-line logging for Cloud Logging."""
 
 from __future__ import annotations
 
@@ -36,13 +30,7 @@ _RESERVED = frozenset({"severity", "message", "time", "logger"})
 
 
 def parse_cloud_trace_context(value: str | None) -> tuple[str | None, str | None]:
-    """Split ``TRACE_ID/SPAN_ID;o=OPTIONS`` into (trace_id, span_id).
-
-    The header comes from another process, so anything malformed yields None
-    rather than an error: a bad header must cost the correlation, never the
-    request. The span is decimal on the wire but Cloud Logging expects the
-    16-hex-digit form, so it is converted here.
-    """
+    """Split ``TRACE_ID/SPAN_ID;o=OPTIONS`` into (trace_id, span_id)."""
     if not value:
         return None, None
     trace_part, _, rest = value.strip().partition("/")
@@ -73,11 +61,7 @@ def request_context(
     trace_id: str | None = None,
     span_id: str | None = None,
 ) -> Iterator[None]:
-    """Bind correlation fields to every log line emitted during one RPC.
-
-    gRPC reuses worker threads, so the values are reset on exit instead of
-    being left for the next request on the same thread to inherit.
-    """
+    """Bind correlation fields to every log line emitted during one RPC."""
     tokens = (
         (_request_id, _request_id.set(request_id)),
         (_trace_id, _trace_id.set(trace_id)),
@@ -120,8 +104,7 @@ def _severity(levelno: int) -> str:
 
 
 def _json_safe(value: Any) -> Any:
-    # NaN/Infinity are not JSON; one such latency would turn the whole line
-    # back into unstructured text in Cloud Logging.
+    # NaN/Infinity are not JSON.
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, Mapping):
@@ -174,8 +157,7 @@ class CloudLoggingJsonFormatter(logging.Formatter):
         if analysis_id:
             entry["analysis_id"] = analysis_id
         trace_id = _trace_id.get()
-        # The trace field must be a full resource name to link in the console;
-        # without a project it would only be a dangling string.
+        # The trace field must be a full resource name to link in the console.
         if trace_id and self.project_id:
             entry[TRACE_FIELD] = f"projects/{self.project_id}/traces/{trace_id}"
             span_id = _span_id.get()

@@ -60,19 +60,22 @@ of unseen-person generalization.
 All paths below are relative to `badminton_analysis_ai/`.
 
 - Code layout under `badminton_analysis/ml/`:
-  - `eimd/`: the diffusion model (`network.py`, `blocks.py`), inference
-    (`inference.py`), motion-state features and retargeting.
-  - `motion/`: archives and the expert phase model (`samples.py`), phase
-    windows (`preprocessing.py`), camera-view placement (`view.py`).
-  - `serve/scoring.py`: serve's six-checkpoint scorer.
-  - `smash/`: `runtime.py` orchestrates; `graph.py`, `alignment.py`,
-    `placement.py`, `scoring.py`, `geometry.py`, `endpoint.py`,
-    `semantic.py` and `coaching_evidence.py` hold the rules.
-  - `backend.py` dispatches generation and scoring for both skills;
-    `reference_bank.py` picks the expert clip and holds the skill guard.
-- Preprocessing: `api/smash_source.py`, `badminton_analysis/ml/motion/preprocessing.py`.
-- Rendering/GPT: `api/renderer.py`, `api/coaching.py`,
-  `badminton_analysis/ml/smash/coaching_evidence.py`.
+  - `skill.py`: `SkillDefinition`, the pipeline every skill shares (find the
+    stroke, normalize it onto 64 frames, generate, score, coach), and the
+    registry. A skill subclass names three modules that answer its hooks.
+  - `serve/` and `smash/`, the same seven files each: `skill.py` (the
+    subclass), `phases.py` (`eimd_v3_phases`, `current_phases`, …),
+    `scorer.py` (its `SkillScorer` and `create_scorer`), `checkpoints.py`
+    (per-checkpoint measurements), `experts.py` (what experts are fitted to),
+    `coaching.py` (what the coach is told).
+  - `eimd/`: the diffusion model; `motion/`: archives and camera-view placement.
+  - `backend.py` is skill-agnostic: generate, `scorer.score()`, report.
+- Adding a skill: a `Skill` value and rubric in `skill_specs.py`, its EIMD model
+  under `models/error_isolated_motion/<skill>/`, a `ml/<skill>/` package with the
+  seven files above, its prompts under `prompts/<skill>/`, and one line in
+  `ml/skill.py`'s registry. The window detector in
+  `services/video_analyzer.py` still needs a case for it.
+- GPT prompts live in `prompts/` as text files (see `prompts/README.md`).
 - Packaging: `scripts/export_current_smash_artifacts.py` exports the frozen
   research artifacts to a fresh output directory; it does not fit or train.
 - Verification: `scripts/verify_current_smash_port.py` replays all 100 reviewed

@@ -1,0 +1,3 @@
+上一個結構化答案未通過評分規則驗證。請重新回答完整問題，不要只補充說明，也不要重複原本的錯誤。
+驗證錯誤：{validation_error}
+請以原始影像與分析資料重新產生完整JSON，並完整涵蓋required_priority_criteria_when_nonempty中的每一項。

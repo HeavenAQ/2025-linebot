@@ -1,12 +1,4 @@
-"""Serialised pose inference on the shared GPU detector, one request per batch.
-
-Frames from different requests are never placed in the same engine batch. A
-GPU engine does not promise a frame the same output whatever shares its batch,
-and the pipeline turns small differences into different grades through its
-thresholds, so a learner's score came to depend on who else was uploading at
-that moment. Each call is run as its caller chunked it, padded with its own
-last frame, which is what an upload analysed alone gets.
-"""
+"""Serialised pose inference on the shared GPU detector, one request per batch."""
 
 from collections import deque
 from concurrent.futures import Future
@@ -33,8 +25,7 @@ class PoseBatcher:
         self.thread.start()
 
     def request_detector(self):
-        # Getters/reset_tracking mutate these fields. Give each video its own
-        # view; only stateless get_poses_batch runs on the shared GPU detector.
+        # Getters/reset_tracking mutate these fields.
         view = copy.copy(self.detector)
         view.reset_tracking()
         view.get_poses_batch = self.predict

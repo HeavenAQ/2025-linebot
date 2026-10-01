@@ -17,7 +17,6 @@ from badminton_analysis.models.types import Handedness, Skill
 from api.coaching_timeline import coaching_video_frame
 from api.config import Settings
 from api.logging_config import (
-    configure_logging,
     parse_cloud_trace_context,
     request_context,
     sanitize_request_id,
@@ -26,9 +25,9 @@ from api.logging_config import (
 )
 from api.pipeline import (
     AnalysisResult,
+    expert_phase_results,
     SkeletonAnalysisPipeline,
     SkillMismatchError,
-    expert_phase_results,
 )
 from api.renderer import probe_video
 from api.storage import ObjectStorage, SignedObject
@@ -83,13 +82,7 @@ def _completion_fields(result: AnalysisResult) -> dict[str, Any]:
 
 
 def _analysis_root(storage_prefix: str, user_segment: str, request_segment: str) -> str:
-    """Where one analysis's files live, under the caller's own prefix.
-
-    Deployments that share this service share the bucket it writes to, and
-    they share a LINE login channel too, so a learner id is the same string in
-    both and cannot separate their recordings. An empty prefix keeps the
-    original unprefixed layout so existing objects stay where they are.
-    """
+    """Where one analysis's files live, under the caller's own prefix."""
     root = f"analyses/v1/{user_segment}/{request_segment}"
     prefix = _safe_segment(storage_prefix, "") if storage_prefix else ""
     return f"{prefix}/{root}" if prefix else root
@@ -114,12 +107,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
     @staticmethod
     @contextmanager
     def _request_scope(context: grpc.ServicerContext) -> Generator[None]:
-        """Correlate this RPC's log lines with the caller's request and trace.
-
-        Cloud Run forwards its own x-cloud-trace-context under the same key,
-        so reading the key takes the client's value when it sent one and the
-        platform's otherwise.
-        """
+        """Correlate this RPC's log lines with the caller's request and trace."""
         metadata = dict(context.invocation_metadata())
         trace_id, span_id = parse_cloud_trace_context(
             metadata.get("x-cloud-trace-context")
@@ -214,8 +202,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                                 error_type="duplicate_header",
                             )
                         header = chunk.header
-                        # Older clients send no x-request-id metadata; their
-                        # header id is the same job id, so correlate on it.
+                        # Older clients send no x-request-id metadata; their header id is the same job id.
                         set_request_id_if_absent(header.request_id)
                     elif payload == "data":
                         if header is None:
@@ -340,14 +327,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         raise AssertionError("unreachable")
 
     def _expert_timeline(self, spec, reference) -> list[analysis_pb2.PhaseMarker]:
-        """The chosen expert's checkpoints, timed in that expert's own video.
-
-        Built from the same rule anchors as the learner's timeline so marker i
-        means the same moment on both sides, which is what lets playback line
-        the two clips up segment by segment rather than stretching one evenly
-        across the other. A clip whose phases cannot be read costs the
-        alignment, not the analysis.
-        """
+        """The chosen expert's checkpoints, timed in that expert's own video."""
         try:
             markers = expert_phase_results(
                 spec,
@@ -417,11 +397,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
         for frame in sorted(problems_by_frame):
             local_frame = frame
             normalized_position = local_frame / max(1, window_end - window_start)
-            # Both returned student videos contain only the inclusive analysis
-            # window.  Their clock starts at zero, not at the source upload's
-            # window_start frame.  Include earlier inserted coaching pauses in
-            # the feedback-video timestamp while keeping normalized_position
-            # on the pause-free motion axis used by the frontend.
+            # Both returned student videos contain only the inclusive analysis window.
             start_time = (local_frame + pauses_before) / fps
             for problem in problems_by_frame[frame]:
                 cues.append(
@@ -441,9 +417,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             for key, value in result.diagnostics.items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         ]
-        # The correction is generated rather than copied, so the clip beside it
-        # is the closest real demonstration to what the learner is reaching
-        # towards. Without one the panel simply has no video, as before.
+        # The correction is generated rather than copied.
         reference = result.expert_reference
         if reference is None:
             expert_message = analysis_pb2.ExpertMatch(
@@ -487,8 +461,7 @@ class BadmintonAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
                 grading_details=details,
                 score_status="expert_only_generated_distribution",
             ),
-            # Backward-compatible alias: old clients continue to receive the
-            # GPT feedback version through student_video.
+            # Backward-compatible alias.
             student_video=feedback_video,
             feedback_video=feedback_video,
             skeleton_overlay_video=overlay_video,

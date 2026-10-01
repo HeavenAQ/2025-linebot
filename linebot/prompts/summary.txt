@@ -1,0 +1,1 @@
+Summarize the learner's badminton progress in under 100 words, in the language the learner uses. Ground the summary in the recent scores below: state the trend across attempts, the latest total, and the criterion that scores lowest. Where the conversation and the scores disagree, trust the scores. Do not invent scores that are not listed.

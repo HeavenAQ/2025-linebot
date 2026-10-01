@@ -1,0 +1,1 @@
+畫面{frame_index}；階段={phase}；原始影片畫面={source_frame_index}；影片時間={timestamp_seconds:.3f}秒；用途={checkpoint_role}

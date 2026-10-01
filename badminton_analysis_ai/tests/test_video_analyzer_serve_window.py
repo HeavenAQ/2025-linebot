@@ -1,6 +1,6 @@
 import numpy as np
 
-from badminton_analysis.ml.motion.preprocessing import _serve_swing_positions
+from badminton_analysis.ml.serve.phases import _serve_swing_positions
 from badminton_analysis.models.types import Handedness, Skill
 from badminton_analysis.services.video_analyzer import VideoAnalyzer
 

@@ -1,19 +1,14 @@
-"""Put a generated correction in the learner's camera view.
-
-Projects an EIMD-generated correction into the learner's ankle--spine view
-with one clip-level hierarchical placement, shared by serve and smash.
-"""
+"""Put a generated correction in the learner's camera view."""
 
 from __future__ import annotations
 
 from dataclasses import replace
-import numpy as np
+
 from numpy.typing import NDArray
+import numpy as np
+
+from badminton_analysis.ml.motion.samples import ExpertCorrection, MotionSample
 from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-from badminton_analysis.ml.motion.samples import (
-    ExpertCorrection,
-    MotionSample,
-)
 
 
 _EPS = 1e-8
@@ -44,12 +39,7 @@ def ankle_spine_view_rotation(
     start: int,
     end: int,
 ) -> NDArray[np.float32]:
-    """Estimate a rigid 2D camera-frame rotation from ankle and spine axes.
-
-    The 2D cross product is the determinant used to reject a degenerate or
-    reflected basis. Orthogonal Procrustes then returns a proper rotation;
-    scale, stance width, and torso lean are deliberately not normalized away.
-    """
+    """Estimate a rigid 2D camera-frame rotation from ankle and spine axes."""
     student_frame = _ankle_spine_frame(student_pose, start=start, end=end)
     corrected_frame = _ankle_spine_frame(corrected_pose, start=start, end=end)
     left, _, right_t = np.linalg.svd(student_frame @ corrected_frame.T)
@@ -88,17 +78,7 @@ def shift_expert_body_chain_to_student_hip(
     start: int,
     end: int,
 ) -> NDArray[np.float32]:
-    """Align the hip centre after knee-chain placement.
-
-    The generated expert articulation is retained: joints 0..12 receive one
-    shared preparation-window translation from the generated pelvis centre to
-    the student's pelvis centre. Knees and ankles (13..16) remain fixed.
-
-    Both arrays must already be expressed in the same absolute coordinate
-    system. In rendering this means calling the transform after support-ankle
-    grounding, because pelvis-centred model-local poses have no placement
-    residual to correct.
-    """
+    """Align the hip centre after knee-chain placement."""
     student = np.asarray(student_pose, dtype=np.float64)
     corrected = np.asarray(corrected_pose, dtype=np.float64)
     if student.shape != corrected.shape or student.ndim != 3:
@@ -108,8 +88,7 @@ def shift_expert_body_chain_to_student_hip(
     shifted = corrected.copy()
     student_pelvis = 0.5 * (student[:, 11] + student[:, 12])
     corrected_pelvis = 0.5 * (corrected[:, 11] + corrected[:, 12])
-    # One robust placement translation avoids copying the student's dynamic
-    # pelvis trajectory into the expert motion.
+    # One robust placement translation avoids copying the student's dynamic pelvis trajectory into the expert motion.
     hip_translation = np.median(
         student_pelvis[start:end] - corrected_pelvis[start:end], axis=0
     )
@@ -244,14 +223,7 @@ def _retarget_root_with_contacts(
     contacts: NDArray[np.floating],
     reference_pose: NDArray[np.floating],
 ) -> NDArray[np.float32]:
-    """Preserve the expert's world-space support-foot path after retargeting.
-
-    Retargeting expert limbs to the student's lengths moves the local ankle.
-    During a labelled contact, compensate through the global root so that the
-    resulting world ankle follows the same path as the selected expert. Soft
-    contact confidence blends this constraint into the unmodified expert root;
-    simultaneous contacts use their least-squares weighted root translation.
-    """
+    """Preserve the expert's world-space support-foot path after retargeting."""
     local = np.asarray(pose, dtype=np.float64)
     reference = np.asarray(reference_pose, dtype=np.float64)
     prior_root = np.asarray(root, dtype=np.float64)
@@ -286,3 +258,151 @@ def _retarget_root_with_contacts(
                 frame_index
             ] + influence * constrained
     return output.astype(np.float32)
+
+
+def transport_corrected_by_student_displacement(
+    corrected_pixels: NDArray[np.float32],
+    detected_pixels: NDArray[np.float32],
+    confidence: NDArray[np.floating],
+) -> NDArray[np.float32]:
+    """Add only the student's global displacement to an anchored correction."""
+    corrected = np.asarray(corrected_pixels, dtype=np.float32)
+    detected = np.asarray(detected_pixels, dtype=np.float32)
+    observed = np.asarray(confidence, dtype=np.float32)
+    if (
+        corrected.shape != detected.shape
+        or corrected.ndim != 3
+        or corrected.shape[1:] != (17, 2)
+    ):
+        raise ValueError("student displacement poses must share shape (T, 17, 2)")
+    if observed.shape != corrected.shape[:2]:
+        raise ValueError("student displacement confidence must have shape (T, 17)")
+
+    pelvis = 0.5 * (detected[:, 11] + detected[:, 12])
+    torso = 0.25 * (detected[:, 5] + detected[:, 6] + detected[:, 11] + detected[:, 12])
+    ankles = 0.5 * (detected[:, 15] + detected[:, 16])
+    pelvis_ok = np.minimum(observed[:, 11], observed[:, 12]) > 0.05
+    torso_ok = np.minimum.reduce(observed[:, (5, 6, 11, 12)], axis=1) > 0.05
+    ankles_ok = np.minimum(observed[:, 15], observed[:, 16]) > 0.05
+    position = np.full((len(corrected), 2), np.nan, dtype=np.float64)
+    position[pelvis_ok] = pelvis[pelvis_ok]
+    fallback = ~pelvis_ok & torso_ok
+    position[fallback] = torso[fallback]
+    fallback = ~pelvis_ok & ~torso_ok & ankles_ok
+    position[fallback] = ankles[fallback]
+    valid = np.isfinite(position).all(axis=1)
+    if not np.any(valid):
+        return corrected.copy()
+    timeline = np.arange(len(position))
+    for axis in range(2):
+        position[:, axis] = np.interp(timeline, timeline[valid], position[valid, axis])
+    # Reject isolated detector jitter without suppressing real player travel.
+    smoothed = position.copy()
+    padded = np.pad(position, ((2, 2), (0, 0)), mode="edge")
+    for frame in range(len(position)):
+        smoothed[frame] = np.median(padded[frame : frame + 5], axis=0)
+    displacement = smoothed - smoothed[0]
+    displacement[0] = 0.0
+    return np.asarray(corrected + displacement[:, None], dtype=np.float32)
+
+
+def smooth_corrected_bbox_placement(
+    corrected_pixels: NDArray[np.float32],
+    *,
+    alpha_current: float = 0.65,
+) -> NDArray[np.float32]:
+    """Stabilize correction placement with one rigid per-frame translation."""
+    corrected = np.asarray(corrected_pixels, dtype=np.float32)
+    if corrected.ndim != 3 or corrected.shape[1:] != (17, 2):
+        raise ValueError("bbox placement smoothing requires shape (T, 17, 2)")
+    if not 0.0 < alpha_current <= 1.0:
+        raise ValueError("alpha_current must be in (0, 1]")
+    if len(corrected) <= 2 or alpha_current >= 1.0:
+        return corrected.copy()
+
+    core = corrected[:, 5:17].astype(np.float64)
+    anchor = 0.5 * (np.min(core, axis=1) + np.max(core, axis=1))
+    forward = anchor.copy()
+    for frame in range(1, len(anchor)):
+        forward[frame] = (
+            alpha_current * anchor[frame] + (1.0 - alpha_current) * forward[frame - 1]
+        )
+    backward = anchor.copy()
+    for frame in range(len(anchor) - 2, -1, -1):
+        backward[frame] = (
+            alpha_current * anchor[frame] + (1.0 - alpha_current) * backward[frame + 1]
+        )
+    stable_anchor = 0.5 * (forward + backward)
+    stable_anchor[0] = anchor[0]
+    stable_anchor[-1] = anchor[-1]
+    translation = stable_anchor - anchor
+    return np.asarray(corrected + translation[:, None], dtype=np.float32)
+
+
+MIN_CONFIDENCE = 0.05
+
+
+def first_frame_ankle_spine_map(corrected_first, detected_first, confidence_first):
+    """One proper similarity transform, fitted on the first frame only."""
+    corrected = np.asarray(corrected_first, dtype=float)
+    detected = np.asarray(detected_first, dtype=float)
+    confidence = np.asarray(confidence_first, dtype=float)
+    if (
+        corrected.shape != (17, 2)
+        or detected.shape != (17, 2)
+        or confidence.shape != (17,)
+    ):
+        raise ValueError("Expected two COCO17 poses and 17 confidences")
+    torso = [5, 6, 11, 12]
+    if (
+        not np.isfinite(corrected[torso]).all()
+        or not np.isfinite(detected[torso]).all()
+        or not np.isfinite(confidence[torso]).all()
+        or np.any(confidence[torso] <= MIN_CONFIDENCE)
+    ):
+        raise ValueError(
+            "Reliable first-frame torso required; do not silently refit later"
+        )
+    spine = lambda p: p[[5, 6]].mean(0) - p[[11, 12]].mean(0)
+    source, target = spine(corrected), spine(detected)
+    lengths = np.linalg.norm(source), np.linalg.norm(target)
+    if min(lengths) <= 1e-6:
+        raise ValueError("Nondegenerate first-frame spines required")
+    a, b = source / lengths[0], target / lengths[1]
+    cosine = np.dot(a, b)
+    sine = a[0] * b[1] - a[1] * b[0]
+    matrix = np.array([[cosine, sine], [-sine, cosine]]) * (lengths[1] / lengths[0])
+    ankles = [
+        j
+        for j in (15, 16)
+        if np.isfinite(corrected[j]).all()
+        and np.isfinite(detected[j]).all()
+        and np.isfinite(confidence[j])
+        and confidence[j] > MIN_CONFIDENCE
+    ]
+    if not ankles:
+        raise ValueError("Reliable first-frame ankle required")
+    support = max(ankles, key=lambda j: detected[j, 1])
+    translation = detected[support] - corrected[support] @ matrix
+    return matrix, translation, support
+
+
+def first_frame_standing_offsets(corrected_first, detected_first, confidence_first):
+    """Retarget initial standing placement once, after camera projection."""
+    q = np.asarray(corrected_first, float)
+    p = np.asarray(detected_first, float)
+    c = np.asarray(confidence_first, float)
+    if q.shape != (17, 2) or p.shape != q.shape or c.shape != (17,):
+        raise ValueError("Expected two COCO17 poses and 17 confidences")
+    joints = [11, 12, 13, 14, 15, 16]
+    if (
+        not np.isfinite(q[joints]).all()
+        or not np.isfinite(p[joints]).all()
+        or not np.isfinite(c[joints]).all()
+        or np.any(c[joints] <= MIN_CONFIDENCE)
+    ):
+        raise ValueError("Reliable first-frame pelvis, knees and ankles required")
+    offsets = np.zeros((17, 2), dtype=float)
+    offsets[:13] = p[[11, 12]].mean(0) - q[[11, 12]].mean(0)
+    offsets[13:] = p[13:] - q[13:]
+    return offsets

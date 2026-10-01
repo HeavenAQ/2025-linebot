@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from badminton_analysis.ml.motion.preprocessing import (
-    _serve_hip_minimum_start,
+from badminton_analysis.ml.serve.phases import (
     _serve_eimd_v3_phases,
+    _serve_hip_minimum_start,
     _serve_motion_onset_interval,
     _serve_shoulder_completion_phases,
 )

@@ -1,11 +1,10 @@
-"""Build coaching evidence from scoring decisions, never rediscover checkpoints.
-
-All inputs use decoded source-frame indices. Conversion to the cropped video's
-clock happens once here. Missing lead-in/tail remains explicit; do not clamp a
-missing source frame onto an unrelated visible image.
-"""
+"""What the coach is told and shown for a smash."""
 
 from typing import Any
+
+from badminton_analysis.ml.coaching_feedback import criterion_evidence_frames
+from badminton_analysis.prompts import prompt
+
 
 CRITERIA = (
     "preparation",
@@ -87,11 +86,53 @@ def build_checkpoint_evidence(
                 if key in balance_measurement
             }
         if reference == "follow_through":
-            # Initial pose is a scoring/coaching reference, not the start of
-            # the follow-through action that the player should loop.
+            # Initial pose is a scoring/coaching reference.
             contact = int(intervals["wrist_flick"]["anchor"])
             result[reference]["replay_source_interval"] = [
                 max(visible_start, min(contact, visible_end)),
                 visible_end,
             ]
     return result
+
+
+# -- The interface every skill's coaching module provides --------------------
+
+OWNS_CHECKPOINT_EVIDENCE = True
+
+
+def coaching_instructions():
+    """What this skill adds to the coach's system instructions."""
+    return prompt("smash/coach_system")
+
+
+def score_warning():
+    """What the coach is told about where the grade comes from."""
+    return prompt("smash/score_warning")
+
+
+def describe_scoring(diagnostics, status, method):
+    """(score status, method text) the coach is told the grade came from."""
+    if diagnostics.get("scorer") == "smash_local_checkpoint_graph_geometry_v20260913":
+        return "frozen_checkpoint_calibration", prompt("smash/score_method")
+    return status, method
+
+
+def attach_grade_context(correction_grade, score):
+    """Copy this skill's measurements into the grade the coach reads."""
+    return None
+
+
+def feedback_phase(frame_index, anchor_1, anchor_2):
+    """Which coaching phase a normalized frame belongs to."""
+    if frame_index < anchor_1:
+        return "preparation"
+    if frame_index < anchor_2:
+        return "rotation"
+    if frame_index <= anchor_2:
+        return "contact"
+    return "follow_through"
+
+
+def comparison_frames(rule, samples, anchors):
+    """The frames the coach compares for one criterion."""
+    return criterion_evidence_frames(rule, samples, anchors)

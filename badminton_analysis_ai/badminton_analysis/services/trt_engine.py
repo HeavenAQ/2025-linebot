@@ -1,11 +1,4 @@
-"""Minimal torch-native TensorRT engine runner.
-
-Binds engine inputs/outputs directly to `torch.cuda` tensor memory instead of
-going through `pycuda` (which needs the full CUDA toolkit's dev headers to
-build from source and isn't otherwise available here). This is the standard
-zero-copy pattern for running a TensorRT engine from a process that already
-has PyTorch/CUDA initialized.
-"""
+"""Minimal torch-native TensorRT engine runner."""
 
 from __future__ import annotations
 
@@ -59,11 +52,7 @@ class TorchTRTEngine:
             out = torch.empty(shape, dtype=dtype, device="cuda")
             self.context.set_tensor_address(name, out.data_ptr())
             outputs[name] = out
-        # The input was written, and the outputs allocated, on the caller's
-        # stream. The engine runs on its own stream, which does not order
-        # itself after the caller's, so without this wait it can read an input
-        # the caller's kernels have not finished writing -- invisible on an
-        # idle GPU, a different pose once other requests keep the GPU busy.
+        # The input was written, and the outputs allocated, on the caller's stream.
         self.stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(self.stream):
             self.context.execute_async_v3(self.stream.cuda_stream)

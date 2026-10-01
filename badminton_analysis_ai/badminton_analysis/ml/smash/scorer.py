@@ -1,52 +1,68 @@
-"""Frozen September smash pipeline shared by serving and offline validation.
+"""The smash scorer: runs one smash grade end to end."""
 
-Only source poses and the generated correction enter grading. Rendering and
-coaching consume the returned source-clock decisions instead of refitting them.
-"""
+from __future__ import annotations
 
 from dataclasses import replace
-import hashlib
-import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+import hashlib
+import json
 
 import numpy as np
 import torch
 
+from badminton_analysis.ml.motion.samples import ExpertCorrection
 from badminton_analysis.ml.motion.view import (
     ankle_spine_view_rotation,
     apply_fixed_hierarchical_pose_placement,
     project_pose_to_student_view,
 )
 from badminton_analysis.ml.skeleton_normalization import phase_align_sequence
-from badminton_analysis.ml.smash.alignment import (
+from badminton_analysis.ml.skill_specs import SkillCorrectionSpec
+from badminton_analysis.ml.smash.experts import (
     align_contacts,
     observed_cost,
     observed_features,
     transfer_intervals,
 )
-from badminton_analysis.ml.smash.graph import (
-    CheckpointMetricGraph,
+from badminton_analysis.ml.smash.coaching import build_checkpoint_evidence
+from badminton_analysis.ml.smash.experts import (
     aggregate,
     checkpoint_index_map,
     checkpoint_reference_at_source_frames,
     checkpoint_windows,
+    CheckpointMetricGraph,
     infer,
 )
-from badminton_analysis.ml.smash.placement import (
+from badminton_analysis.ml.motion.view import (
     first_frame_ankle_spine_map,
     first_frame_standing_offsets,
     smooth_corrected_bbox_placement,
     transport_corrected_by_student_displacement,
 )
-from badminton_analysis.ml.smash.scoring import (
+from badminton_analysis.ml.smash.checkpoints import (
+    CurrentSmashCalibration,
     LEGACY_MAXIMA,
     MAXIMA,
-    CurrentSmashCalibration,
     score_source_evidence,
 )
-from badminton_analysis.ml.smash.coaching_evidence import build_checkpoint_evidence
-from badminton_analysis.ml.smash.semantic import load_smash_distribution
+from badminton_analysis.ml.smash.experts import (
+    aligned_smash_evidence,
+    allocate_smash_total_to_weighted_criteria,
+    load_smash_distribution,
+    score_smash_evidence,
+    SmashDistribution,
+    SmashVariant,
+)
+from badminton_analysis.ml.trajectory_distance import (
+    apply_smash_trajectory_score,
+    SmashTrajectoryScorer,
+)
+from badminton_analysis.ml.serve.scorer import score_expert_correction
+from badminton_analysis.ml.skeleton_normalization import tracking_body_arrays
+from badminton_analysis.ml.skill import ScoredMotion, ScoringContext, SkillScorer
+from badminton_analysis.ml.trajectory_distance import load_smash_trajectory_scorer
 
 
 def sha256(path):
@@ -248,8 +264,7 @@ class CurrentSmashScorer:
             fps=fps,
             endpoint_acceleration=peak,
         )
-        # Grade the full evidence first, then crop presentation at the selected
-        # endpoint. Never resample motion or recompute scores on the cropped clip.
+        # Grade the full evidence first, then crop presentation at the selected endpoint.
         render_end = int(result["selected_endpoint"])
         if not start <= peak <= render_end < len(full):
             raise ValueError("Scored smash endpoint falls outside the render window")
@@ -307,3 +322,179 @@ class CurrentSmashScorer:
             scorer_contract=self.contract["version"],
         )
         return score, render_pixels.astype(np.float32), (0, peak, render_end)
+
+
+def _score_smash_correction(
+    base_score: dict[str, Any],
+    sample: Any,
+    correction: ExpertCorrection,
+    *,
+    distribution: SmashDistribution,
+    variant: SmashVariant,
+    trajectory_scorer: SmashTrajectoryScorer | None,
+    spec: SkillCorrectionSpec,
+) -> dict[str, Any]:
+    """Apply the frozen smash scorer to the correction shown by the renderer."""
+    evidence, reliability = aligned_smash_evidence(
+        sample.pose,
+        sample.confidence,
+        sample.phase_indices,
+    )
+    semantic_score = score_smash_evidence(
+        evidence,
+        reliability,
+        distribution,
+        variant,
+    )
+    if trajectory_scorer is not None:
+        semantic_score = apply_smash_trajectory_score(
+            semantic_score,
+            correction.aligned_student_pose,
+            correction.aligned_corrected_pose,
+            trajectory_scorer,
+        )
+    rules = {rule.id: rule for rule in spec.rules}
+    semantic_criteria = []
+    for item in semantic_score["criteria"]:
+        rule = rules[str(item["rule_reference"])]
+        semantic_criteria.append(
+            {
+                **item,
+                "name_zh_tw": rule.name_zh_tw,
+                "raw_checkpoint_ratio": float(item["ratio"]),
+                "raw_weighted_score": (float(rule.maximum) * float(item["ratio"])),
+                "maximum": float(rule.maximum),
+                "euclidean_distance": float(item["semantic_distance"]),
+                "target_angle_distance": 0.0,
+                "combined_distance": float(item["semantic_distance"]),
+            }
+        )
+    semantic_total = float(semantic_score["total_score"])
+    attributed_scores = allocate_smash_total_to_weighted_criteria(
+        np.asarray(
+            [item["raw_checkpoint_ratio"] for item in semantic_criteria],
+            dtype=np.float64,
+        ),
+        np.asarray(
+            [item["maximum"] for item in semantic_criteria],
+            dtype=np.float64,
+        ),
+        semantic_total,
+    )
+    for item, attributed in zip(semantic_criteria, attributed_scores, strict=True):
+        item["score"] = float(attributed)
+        item["aggregate_attributed_score"] = float(attributed)
+    attributed_total = float(sum(item["score"] for item in semantic_criteria))
+    return {
+        **base_score,
+        **semantic_score,
+        "criteria": semantic_criteria,
+        "checklist_total_score": semantic_total,
+        "raw_weighted_total_score": float(
+            sum(item["raw_weighted_score"] for item in semantic_criteria)
+        ),
+        "weighted_total_score": attributed_total,
+        "total_score": attributed_total,
+        "score_reference_policy": (
+            "expert_only_identity_distribution_frozen_inference"
+        ),
+        "post_hoc_human_score_scale_calibration": False,
+    }
+
+
+# -- The interface every skill's scorer module provides ----------------------
+
+LIMIT_GENERATED_WRIST_VELOCITY = False
+
+
+class SmashScorer(SkillScorer):
+    """Checkpoint graph, geometry and endpoint rules on source-clock evidence."""
+
+    generation_contract = "current"
+
+    def __init__(self, definition, **config):
+        super().__init__(definition, **config)
+        trajectory_path = self.root / "expert_trajectory_score_model.npz"
+        self.trajectory_scorer = (
+            load_smash_trajectory_scorer(trajectory_path)
+            if trajectory_path.exists()
+            else None
+        )
+        self.checkpoint_scorer = CurrentSmashScorer(
+            self.root / "checkpoint_scorer_v1",
+            generator_path=self.model_path,
+            trajectory_path=trajectory_path,
+            device=next(self.bundle.network.parameters()).device,
+            candidates=self.candidates,
+            seed=self.seed,
+        )
+
+    def score(self, context: ScoringContext) -> ScoredMotion:
+        full, full_confidence = tracking_body_arrays(context.tracking)
+        score, corrected_pixels, window = self.checkpoint_scorer.score(
+            sample=context.sample,
+            correction=context.correction,
+            source_phases=context.source_indices[context.sample.phase_indices],
+            native_phases=self.bundle.canonical_phase_indices,
+            window=context.window,
+            poses=full,
+            confidence=full_confidence,
+            handedness=context.handedness,
+            spec=self.spec,
+            trajectory_scorer=self.trajectory_scorer,
+            score_baseline=_score_smash_correction,
+            fps=context.fps,
+        )
+        return ScoredMotion(
+            score=score,
+            window=window,
+            scoring_sample=context.sample,
+            correction=context.correction,
+            corrected_pixels=corrected_pixels,
+            checkpoint_scorer_active=True,
+        )
+
+
+class LegacySmashScorer(SkillScorer):
+    """The EIMD-v3 semantic scorer, kept to replay the reviewed cohort."""
+
+    def __init__(self, definition, **config):
+        super().__init__(definition, **config)
+        semantic_path = self.root / "expert_semantic_score_model.npz"
+        self.distribution, self.variant = (
+            load_smash_distribution(semantic_path)
+            if semantic_path.exists()
+            else (None, None)
+        )
+        trajectory_path = self.root / "expert_trajectory_score_model.npz"
+        self.trajectory_scorer = (
+            load_smash_trajectory_scorer(trajectory_path)
+            if trajectory_path.exists()
+            else None
+        )
+
+    def score(self, context: ScoringContext) -> ScoredMotion:
+        correction, view_rotation = self.view_aligned(context.correction)
+        score = score_expert_correction(self.score_model, correction)
+        if self.distribution is not None and self.variant is not None:
+            score = _score_smash_correction(
+                score,
+                context.sample,
+                correction,
+                distribution=self.distribution,
+                variant=self.variant,
+                trajectory_scorer=self.trajectory_scorer,
+                spec=self.spec,
+            )
+        return ScoredMotion(
+            score=score,
+            window=context.window,
+            scoring_sample=context.sample,
+            correction=correction,
+            view_rotation=view_rotation,
+        )
+
+
+def create_scorer(definition, *, current_scorer=True, **config):
+    return (SmashScorer if current_scorer else LegacySmashScorer)(definition, **config)
+

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/HeavenAQ/nstc-linebot-2025/prompts"
 	"net/http"
 	"strings"
 	"time"
@@ -183,16 +184,16 @@ func (app *App) chatAnalysisAnswer(ctx context.Context, job db.AnalysisJob, work
 	}
 
 	var prompt strings.Builder
-	prompt.WriteString("[剛上傳的影片分析結果]\n")
+	prompt.WriteString(prompts.Text("upload_result_header") + "\n")
 	prompt.WriteString(fmt.Sprintf("日期：%s\n總分：%.1f\n", job.WorkDate, work.GradingOutcome.TotalGrade))
 	for _, detail := range work.GradingOutcome.GradingDetails {
 		prompt.WriteString(fmt.Sprintf("- %s：%.1f/%.1f\n", detail.Description, detail.Grade, detail.Maximum))
 	}
-	prompt.WriteString("\n這次沒有另外產生影片內的建議，請你根據上面的評分標準說明。\n\n")
+	prompt.WriteString("\n" + prompts.Text("upload_result_note") + "\n\n")
 	if question := strings.TrimSpace(job.Question); question != "" {
 		prompt.WriteString(question)
 	} else {
-		prompt.WriteString("請說明這次動作可以改進的地方。")
+		prompt.WriteString(prompts.Text("upload_default_question"))
 	}
 
 	scores, err := app.FirestoreClient.GetRecentSkillScores(job.UserID, job.Skill, coachingScoreLimit)

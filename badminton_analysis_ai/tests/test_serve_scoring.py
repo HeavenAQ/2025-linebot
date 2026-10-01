@@ -20,17 +20,19 @@ from badminton_analysis.ml.motion.view import (
     shift_expert_body_chain_to_student_hip,
     shift_expert_body_chain_to_student_knee,
 )
-from badminton_analysis.ml.serve.scoring import (
+from badminton_analysis.ml.serve.checkpoints import (
+    _serve_arms_at_corrected_shoulder_evidence,
+    _serve_hip_rotation_components,
+    _serve_qualitative_pose_evidence,
+    _serve_semantic_evidence,
+    _serve_weight_transfer_components,
+    _serve_wrist_action_components,
+)
+from badminton_analysis.ml.serve.experts import _serve_expert_envelope_components
+from badminton_analysis.ml.serve.scorer import (
     _aggregate_qualitative_checkpoint_ratios,
     _criterion_components_for_spec,
     _serve_checklist_aggregation,
-    _serve_arms_at_corrected_shoulder_evidence,
-    _serve_semantic_evidence,
-    _serve_expert_envelope_components,
-    _serve_hip_rotation_components,
-    _serve_qualitative_pose_evidence,
-    _serve_weight_transfer_components,
-    _serve_wrist_action_components,
     score_expert_correction,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
@@ -740,7 +742,7 @@ def test_serve_transfer_is_read_between_the_wrist_descent_and_contact() -> None:
 
 
 def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> None:
-    from badminton_analysis.ml.serve.scoring import (
+    from badminton_analysis.ml.serve.checkpoints import (
         _SERVE_CORRECTION_STANCE_ALLOWANCE,
         _serve_transfer_against_correction,
         _serve_transfer_correction_residuals,
@@ -779,9 +781,7 @@ def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> Non
 
 
 def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> None:
-    from badminton_analysis.ml.serve.scoring import (
-        _serve_wrist_correction_residuals,
-    )
+    from badminton_analysis.ml.serve.checkpoints import _serve_wrist_correction_residuals
 
     frames = 64
     extended = np.zeros((frames, 17, 2))
@@ -803,7 +803,7 @@ def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> Non
 
 
 def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() -> None:
-    from badminton_analysis.ml.serve.scoring import (
+    from badminton_analysis.ml.serve.checkpoints import (
         _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES,
         _serve_transfer_against_correction,
     )
@@ -829,9 +829,7 @@ def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() 
 
 
 def test_serve_shoulders_turned_less_than_the_correction_at_contact() -> None:
-    from badminton_analysis.ml.serve.scoring import (
-        _serve_wrist_correction_residuals,
-    )
+    from badminton_analysis.ml.serve.checkpoints import _serve_wrist_correction_residuals
 
     frames = 64
     turned = np.zeros((frames, 17, 2))

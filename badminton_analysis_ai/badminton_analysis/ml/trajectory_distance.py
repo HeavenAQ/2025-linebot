@@ -1,10 +1,4 @@
-"""Phase-constrained distances between a detected and corrected skeleton.
-
-The functions in this module are deliberately label-free.  They compare a
-learner trajectory with the generated expert correction in the learner's
-canonical body/view coordinate system.  Human scores are evaluation data and
-never enter these calculations.
-"""
+"""Phase-constrained distances between a detected and corrected skeleton."""
 
 from __future__ import annotations
 
@@ -187,12 +181,7 @@ def serve_angle_manifold_distance(
 def smash_motion_manifold_feature(
     pose: NDArray[np.floating],
 ) -> NDArray[np.float64]:
-    """Describe smash shape, direction, and ordering without image translation.
-
-    Joint angles alone cannot distinguish a forward overhead swing from its
-    mirrored/backward counterpart.  Signed segment orientations (encoded as
-    sine/cosine) and body-frame arm positions retain that information.
-    """
+    """Describe smash shape, direction, and ordering without image translation."""
     values = np.asarray(pose, dtype=np.float64)
     if values.shape != (64, 17, 2):
         raise ValueError("smash manifold pose must have shape (64, 17, 2)")
@@ -379,9 +368,7 @@ def apply_smash_trajectory_score(
 
 def _velocity(values: NDArray[np.floating]) -> NDArray[np.float64]:
     trajectory = np.asarray(values, dtype=np.float64)
-    # Four canonical frames are approximately one sixteenth of a 64-frame
-    # motion.  This factor keeps velocity and pose residuals on comparable
-    # dimensionless scales without depending on the source video's FPS.
+    # Four canonical frames are approximately one sixteenth of a 64-frame motion.
     return (
         np.vstack((np.zeros((1, trajectory.shape[1])), np.diff(trajectory, axis=0)))
         * 4.0
@@ -403,11 +390,7 @@ def constrained_dtw_cost(
     radius: int,
     warp_penalty: float = 0.015,
 ) -> float:
-    """Return path-length-normalized dependent multivariate DTW cost.
-
-    A Sakoe--Chiba band and an off-diagonal penalty prevent a missing movement
-    from being hidden by a pathological many-to-one alignment.
-    """
+    """Return path-length-normalized dependent multivariate DTW cost."""
 
     left = np.asarray(source, dtype=np.float64)
     right = np.asarray(target, dtype=np.float64)
@@ -592,8 +575,7 @@ def fit_serve_checkpoint_manifold(
     start: int,
     end: int,
 ) -> ServeCheckpointManifold:
-    """Fit a checkpoint's novelty bounds the way the trajectory manifold is:
-    identity-held-out distances between expert takes, expert data only."""
+    """Fit a checkpoint's novelty bounds the way the trajectory manifold is."""
 
     triplets = tuple(t for t in _SERVE_MANIFOLD_TRIPLETS if t[1] in set(joints))
     poses = np.asarray(expert_pose, dtype=np.float64)

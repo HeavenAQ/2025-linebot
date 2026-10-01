@@ -80,9 +80,7 @@ class GradingOutcome(TypedDict):
 class TrackingData(TypedDict):
     frames: list[NDArray[np.uint8]]
     body_landmarks_2d: NotRequired[list[Coordinate2DDict]]
-    # Dense RF-DETR body output aligned with ``body_landmarks_2d``.  The
-    # dictionary form only encodes present/absent joints, so it must not be
-    # used as the confidence source for model inference or scoring.
+    # Dense RF-DETR body output aligned with ``body_landmarks_2d``.
     body_keypoints_2d: NotRequired[list[NDArray[np.float64]]]
     body_confidence_2d: NotRequired[list[NDArray[np.float64]]]
     hand_positions: list[Coordinate2D]

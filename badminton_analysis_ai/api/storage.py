@@ -12,7 +12,6 @@ from google.auth.transport.requests import Request
 from google.cloud import storage
 
 # Signing goes through the IAM signBytes API, which answers 5xx now and then.
-# Without a retry that blip throws away an analysis the GPU has already run.
 SIGN_ATTEMPTS = 3
 SIGN_RETRY_SECONDS = 0.2
 
@@ -57,8 +56,7 @@ class ObjectStorage:
             "version": "v4",
             "expiration": expires_at,
             "method": "GET",
-            # Older expert objects have no GCS Content-Type. LIFF's embedded
-            # browser does not reliably sniff an octet-stream as video.
+            # Older expert objects have no GCS Content-Type.
             "query_parameters": {
                 "response-content-type": (
                     "video/quicktime"

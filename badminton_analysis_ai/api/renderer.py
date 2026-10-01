@@ -109,15 +109,7 @@ def _expand_display_confidence(
 def _place_in_window(
     values: NDArray[np.floating], lead: int, span: int, total: int
 ) -> NDArray[np.floating]:
-    """Put a model-space sequence back on the frames it was taken from.
-
-    The model sees a 64-frame sample cut from its own phase window, which is
-    usually shorter than the window being drawn. Stretching those frames across
-    the whole render window plays the stroke at the wrong speed and puts the
-    correction's contact somewhere the learner's contact is not. Resample onto
-    the span it came from, hold the end poses either side, and let the display
-    mask hide them.
-    """
+    """Put a model-space sequence back on the frames it was taken from."""
     placed = np.asarray(resample_sequence(values, span))
     if span == total:
         return placed
@@ -129,17 +121,7 @@ def _place_in_window(
 def _complete_interpolated_display_confidence(
     confidence: NDArray[np.floating], reconstructed_confidence: float = 0.2
 ) -> NDArray[np.float32]:
-    """Keep temporally reconstructed joints visible in review renders.
-
-    ``interpolate_pose_sequence`` supplies finite coordinates for detector gaps
-    and rejected limb outliers, but intentionally preserves their zero
-    confidence for scoring.  Rendering with that same mask made an interpolated
-    non-elbow joint disappear. Promote only the display copy when the joint has
-    at least one real observation in this clip. Elbows are deliberately
-    excluded: their lower detector threshold preserves measured coordinates,
-    while truly missing elbow detections must remain hidden rather than being
-    reconstructed. The scoring/model confidence is left untouched.
-    """
+    """Keep temporally reconstructed joints visible in review renders."""
     values = np.clip(np.asarray(confidence, dtype=np.float32), 0.0, 1.0)
     if values.ndim != 2 or values.shape[1] != 17:
         raise ValueError("display confidence must have shape (T, 17)")
@@ -156,12 +138,7 @@ def _complete_interpolated_display_confidence(
 def _prepare_detected_pose_for_render(
     tracking: TrackingData,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    """Prepare detector coordinates without inventing elbow positions.
-
-    Other joints keep the established outlier rejection/interpolation used by
-    the review overlay. Elbows instead retain RF-DETR's measured coordinates at
-    the lower 0.05 confidence cutoff. A below-threshold elbow remains absent.
-    """
+    """Prepare detector coordinates without inventing elbow positions."""
     dense_coordinates = tracking.get("body_keypoints_2d")
     dense_confidence = tracking.get("body_confidence_2d")
     if dense_coordinates is not None and dense_confidence is not None:
@@ -360,14 +337,7 @@ def source_fps(video_path: Path) -> float:
 
 @lru_cache(maxsize=1)
 def _constant_frame_rate_flag() -> str:
-    """Name the flag this ffmpeg uses to force a constant frame rate.
-
-    -fps_mode arrived in ffmpeg 5.0. The container takes ffmpeg from the base
-    image's distribution packages, which are older than that and spell the
-    same thing -vsync; a development machine is usually far newer and accepts
-    both. Asking the binary keeps the two in step, and beats parsing a version
-    string that varies between builds and forks.
-    """
+    """Name the flag this ffmpeg uses to force a constant frame rate."""
     probe = subprocess.run(
         [
             "ffmpeg",
@@ -562,8 +532,7 @@ def render_correction_video(
     )
     model_display_confidence = _expand_display_confidence(model_confidence)
     expanded_detected_confidence = _expand_display_confidence(raw_confidence)
-    # Do not spread an elbow observation into adjacent frames: that would make
-    # a genuinely absent elbow appear at an unmeasured coordinate.
+    # Do not spread an elbow observation into adjacent frames.
     expanded_detected_confidence[:, [7, 8]] = raw_confidence[:, [7, 8]]
     detected_display_confidence = _complete_interpolated_display_confidence(
         expanded_detected_confidence
@@ -604,18 +573,15 @@ def render_correction_video(
     if not writer.isOpened():
         raise RuntimeError(f"could not open output writer: {raw_path}")
     if projected_corrected_pixels is not None:
-        # Already phase-aligned, projected, smoothed, and transported by the
-        # scorer. Never fit or smooth again in this presentation-only path.
+        # Already phase-aligned, projected, smoothed, and transported by the scorer.
         fixed_corrected_pixels = projected_corrected_pixels
         fixed_display_masks = detected_display_confidence[start : end + 1].copy()
         if generated_source_window is not None:
-            # Show actual source evidence outside the generated window, not a
-            # fabricated pose held at either end of it.
+            # Show actual source evidence outside the generated window.
             fixed_display_masks[:generated_lead] = 0
             fixed_display_masks[generated_lead + generated_span :] = 0
     else:
-        # Fit each generated frame onto the detected skeleton, then apply one
-        # clip-level ankle/knee/hip placement.
+        # Fit each generated frame onto the detected skeleton.
         mapped = []
         masks = []
         for window_index in range(window_frame_count):
@@ -639,8 +605,7 @@ def render_correction_video(
             )
         fixed_display_masks = np.asarray(masks, dtype=np.float32)
         if generated_source_window is not None:
-            # Outside the model's own window there is no generated pose, only
-            # the end one held in place; do not draw it.
+            # Outside the model's own window there is no generated pose, only the end one held in place.
             fixed_display_masks[:generated_lead] = 0
             fixed_display_masks[generated_lead + generated_span :] = 0
         fixed_corrected_pixels = _apply_fixed_hierarchical_placement(
@@ -656,11 +621,7 @@ def render_correction_video(
                 issue, target_frames, end - start + 1
             )
             feedback_by_frame.setdefault(source_issue_frame, []).append(issue)
-        # The API returns the same reviewable clip that was scored, not the
-        # unanalysed lead-in/tail of the upload.  The localhost EIMD-v3 oracle
-        # slices tracking to this inclusive range before calling the renderer;
-        # iterating the range directly is equivalent while retaining the full
-        # source indices needed for detected-pose and feedback lookup.
+        # The API returns the same reviewable clip that was scored.
         for frame_index in range(start, end + 1):
             frame = tracking["frames"][frame_index].copy()
             detected_pixels = raw_2d[frame_index]

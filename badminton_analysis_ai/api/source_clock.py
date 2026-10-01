@@ -1,4 +1,4 @@
-"""Establish the frozen smash scorer's 30fps clock before pose extraction."""
+"""Put a source video on the frame rate a skill's scorer was built on, before pose extraction."""
 
 from pathlib import Path
 import subprocess
@@ -6,9 +6,8 @@ import subprocess
 from api.renderer import source_fps
 
 
-def normalize_smash_source(source: Path, output: Path) -> Path:
-    fps = source_fps(source)
-    if abs(fps - 30.0) < 1e-6:
+def normalize_source_fps(source: Path, output: Path, fps: float) -> Path:
+    if abs(source_fps(source) - fps) < 1e-6:
         return source
     output.parent.mkdir(parents=True, exist_ok=True)
     # fps filter works on both container ffmpeg 4.x and current local builds.
@@ -24,7 +23,7 @@ def normalize_smash_source(source: Path, output: Path) -> Path:
             "-map",
             "0:v:0",
             "-vf",
-            "fps=30",
+            f"fps={fps:g}",
             "-an",
             "-c:v",
             "libx264",
@@ -40,6 +39,6 @@ def normalize_smash_source(source: Path, output: Path) -> Path:
         capture_output=True,
         timeout=300,
     )
-    if abs(source_fps(output) - 30.0) >= 1e-6:
-        raise ValueError("Smash frame-rate normalization did not produce 30fps")
+    if abs(source_fps(output) - fps) >= 1e-6:
+        raise ValueError(f"frame-rate normalization did not produce {fps:g}fps")
     return output

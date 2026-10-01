@@ -45,8 +45,7 @@ class VideoProcessor:
         dense_keypoints: tuple[NDArray[np.float64], NDArray[np.float64]] | None,
         handedness: int | None,
     ) -> None:
-        """Record one frame's pose result, skipping frames without a person
-        (or, when handedness is known, without its wrist and elbow)."""
+        """Record one frame's pose result, skipping frames without a person."""
         if not landmark_2d:
             return
         wrist = (
@@ -66,9 +65,7 @@ class VideoProcessor:
 
         self.body_landmarks_2d.append(landmark_2d)
         if dense_keypoints is None:
-            # This branch is defensive: a valid RF-DETR body result normally
-            # always carries its dense scores.  Keep the buffers aligned even
-            # for test doubles or alternate backends.
+            # This branch is defensive: a valid RF-DETR body result normally always carries its dense scores.
             dense = np.full((17, 2), np.nan, dtype=np.float64)
             observed = np.zeros(17, dtype=np.float64)
             for keypoint, coordinate in landmark_2d.items():
@@ -80,8 +77,7 @@ class VideoProcessor:
             coordinates, scores = dense_keypoints
             body_coordinates = np.asarray(coordinates, dtype=np.float64).copy()
             body_scores = np.clip(np.asarray(scores, dtype=np.float64), 0.0, 1.0)
-            # Match get_2d_landmarks' validity decision while retaining the
-            # detector's continuous score for every accepted keypoint.
+            # Match get_2d_landmarks' validity decision while retaining the detector's continuous score for every accepted keypoint.
             general_threshold = float(self.pose_detector.min_detection_confidence)
             elbow_threshold_value = getattr(
                 self.pose_detector, "elbow_detection_confidence", general_threshold
@@ -126,18 +122,7 @@ class VideoProcessor:
         }
 
     def process_frames_batched(self, handedness: int | None) -> TrackingData:
-        """Extract poses from the whole video in pose-detector batches.
-
-        Each call hands up to `BATCH_SIZE` frames to the detector, which runs
-        the TensorRT engine on CUDA and RF-DETR ``predict()`` on MPS/CPU.
-
-        Deliberately synchronous, not threaded: measured on real clips, a
-        background decode thread made this slower, not faster — OpenCV/PyTorch
-        already use their own
-        internal multi-threading for decode/tensor ops, so an added
-        Python-level thread mostly contended with that (high aggregate CPU
-        time, worse wall time) rather than overlapping anything.
-        """
+        """Extract poses from the whole video in pose-detector batches."""
         self.logger.info("Starting video frame processing (extraction only, batched)")
         self.pose_detector.reset_tracking()
         cap = cv2.VideoCapture(self.video_path)
@@ -146,9 +131,7 @@ class VideoProcessor:
         chunk_indices: list[int] = []
         source_frame_index = 0
         inference_batch_size = (
-            # RF-DETR's native MPS path accepts variable batches. Eight keeps
-            # peak unified-memory use bounded while avoiding the severe
-            # per-call overhead of the former four-frame extraction batch.
+            # RF-DETR's native MPS path accepts variable batches.
             8
             if getattr(self.pose_detector, "device", "cuda") == "mps"
             else BATCH_SIZE
@@ -161,8 +144,7 @@ class VideoProcessor:
             for frame, index, results in zip(
                 chunk_frames, chunk_indices, batch_results
             ):
-                # The dense-keypoint getter reads `_last_predictions`, so
-                # point it at this frame's result before reading landmarks.
+                # The dense-keypoint getter reads `_last_predictions`.
                 self.pose_detector._last_predictions = results
                 landmark_2d = self.pose_detector.get_2d_landmarks(results)
                 dense_keypoints = self.pose_detector.get_dense_2d_keypoints()

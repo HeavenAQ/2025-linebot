@@ -38,8 +38,7 @@ class Logger:
         self.logger.setLevel(level)
         self.logger.propagate = False
         if not self.logger.handlers:
-            # Same JSON lines as the service's root logger, so these messages
-            # keep their severity and request correlation in Cloud Logging.
+            # Same JSON lines as the service's root logger.
             self.logger.addHandler(json_stream_handler())
 
     @log_with_frame_info

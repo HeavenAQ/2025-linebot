@@ -1,31 +1,20 @@
+"""Where a serve starts, is struck and ends, on the learner's own clip.
+
+The swing track the window detector reads, and the two phase contracts:
+EIMD-v3 (generation and the skill guard) and current (grading).
+"""
+
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Literal, Sequence
-
+from typing import (
+    Sequence,
+)
 import numpy as np
 from numpy.typing import NDArray
-
-from badminton_analysis.ml.motion.samples import (
-    MotionSample,
+from badminton_analysis.models.types import (
+    Handedness,
 )
-from badminton_analysis.ml.skeleton_normalization import (
-    estimate_foot_contacts,
-    interpolate_pose_sequence,
-    tracking_body_arrays,
-    normalize_skeleton_motion,
-    refine_delayed_overhead_contact_phase_indices,
-    resample_detected_phase_indices,
-    resample_sequence,
-)
-from badminton_analysis.ml.skeleton_scoring import (
-    TORSO_WIDTH_BONES,
-    project_stable_bone_lengths,
-)
-from badminton_analysis.models.types import Handedness, Skill, TrackingData
 from badminton_analysis.models.constants import (
-    IMPACT_FRAME_SEARCH_WINDOW_AFTER,
-    IMPACT_FRAME_SEARCH_WINDOW_BEFORE,
     SERVE_WRIST_CONFIDENCE_FLOOR,
 )
 from badminton_analysis.services.video_analyzer import VideoAnalyzer
@@ -351,92 +340,6 @@ def _serve_eimd_v3_phases(
     return start, preparation, acceleration, follow_through, completion
 
 
-def _smash_rotation_completion(
-    skeleton: NDArray[np.floating],
-    confidence: NDArray[np.floating],
-    *,
-    start: int,
-    contact: int,
-    latest: int,
-) -> int | None:
-    """The frame after contact where the shoulders finish turning forward.
-
-    A smash ends when the torso has rotated through to face the net, which in
-    the image is where the projected shoulder span has moved furthest from
-    its span in the stance -- the same |span / initial - 1| measure the smash
-    scorer uses for its endpoint. Returns None when the shoulders are not
-    seen well enough to say.
-    """
-    coordinates = np.asarray(skeleton, dtype=np.float64)
-    seen = np.all(np.asarray(confidence, dtype=np.float64)[:, (5, 6)] > 0.3, axis=1)
-    span = np.linalg.norm(coordinates[:, 5] - coordinates[:, 6], axis=-1)
-    stance = slice(start, max(start + 1, contact - 10))
-    stance_seen = seen[stance] & np.isfinite(span[stance])
-    if not np.any(stance_seen):
-        return None
-    initial = float(np.median(span[stance][stance_seen]))
-    if initial <= 1e-6:
-        return None
-    rotation = np.abs(span / initial - 1.0)
-    kernel = np.ones(5, dtype=np.float64) / 5.0
-    rotation = np.convolve(np.pad(rotation, (2, 2), mode="edge"), kernel, mode="valid")
-    window = slice(contact, latest + 1)
-    candidates = np.where(seen[window] & np.isfinite(rotation[window]), rotation[window], -np.inf)
-    if not np.any(np.isfinite(candidates)):
-        return None
-    return contact + int(np.argmax(candidates))
-
-
-def _smash_eimd_v3_phases(
-    hand_positions: Sequence[Sequence[float]],
-    elbow_positions: Sequence[Sequence[float]],
-    skeleton: NDArray[np.floating] | None = None,
-    confidence: NDArray[np.floating] | None = None,
-) -> tuple[int, int, int, int, int]:
-    """Reproduce the broad learner ending range used by EIMD-v3 smash."""
-    start, _, acceleration_end = VideoAnalyzer.find_acc_analysis_window(
-        list(hand_positions), list(elbow_positions)
-    )
-    hand = np.asarray(hand_positions, dtype=np.float64)
-    elbow = np.asarray(elbow_positions, dtype=np.float64)
-    contact = start + int(np.argmin(hand[start : acceleration_end + 1, 1]))
-    start = max(0, contact - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
-    minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
-    # The lowest elbow after contact, held back by the end of the wrist's
-    # acceleration and a minimum follow-through, was the ending. That only
-    # landed near the finish while the detector lost the arm during recovery:
-    # a pose model that keeps tracking it finds the wrist still accelerating
-    # and the elbow still dropping as the player resets, 7-36 frames after the
-    # shoulders have finished turning. It remains the latest the stroke may
-    # end, and the ending when the shoulders cannot be read.
-    end = min(
-        len(hand) - 1,
-        max(
-            contact + int(np.argmax(elbow[contact:, 1])),
-            acceleration_end,
-            contact + minimum_follow_through,
-        ),
-    )
-    completed = (
-        _smash_rotation_completion(
-            skeleton, confidence, start=start, contact=contact, latest=end
-        )
-        if skeleton is not None and confidence is not None
-        else None
-    )
-    if completed is not None:
-        # The stroke ends where the shoulders finish turning forward, which on
-        # the expert takes is 9 to 25 frames after contact -- often inside the
-        # half-second follow-through floor above, so only the four-frame
-        # minimum still applies.
-        end = max(completed, contact + 4)
-    preparation = (start + contact) // 2
-    follow_through = (contact + end) // 2
-    if not start < preparation < contact < follow_through < end:
-        raise ValueError("smash EIMD-v3 phases are not strictly increasing")
-    return start, preparation, contact, follow_through, end
-
-
 def _serve_swing_positions(
     hand_positions: Sequence[Sequence[float]],
     skeleton: NDArray[np.floating],
@@ -463,116 +366,44 @@ def _serve_swing_positions(
     )
 
 
-def prepare_expert_motion_sample(
-    tracking: TrackingData,
-    handedness: Handedness,
-    skill: Skill,
-    filename: str,
-    *,
-    target_frames: int = 64,
-    phase_contract: Literal["current", "eimd_v3"] = "current",
-) -> tuple[MotionSample, tuple[int, int, int], NDArray[np.int64]]:
-    """Apply the same 2D extraction contract used by the frozen generator."""
-    if skill not in {Skill.SERVE, Skill.SMASH}:
-        raise ValueError("expert-motion generation currently supports serve and smash")
-    body_2d = tracking.get("body_landmarks_2d")
-    if not body_2d or len(body_2d) < 5:
-        raise ValueError("at least five aligned 2D poses are required")
-    full_skeleton, full_confidence = tracking_body_arrays(tracking)
-    motion_skeleton, _ = interpolate_pose_sequence(full_skeleton, full_confidence)
-    hand_positions = tracking.get("hand_positions")
-    shoulder_positions = None
-    if skill == Skill.SERVE and hand_positions:
-        hand_positions, shoulder_positions = _serve_swing_positions(
-            hand_positions, motion_skeleton, full_confidence, handedness
-        )
-    phases = VideoAnalyzer.find_analysis_phases(
-        skill=skill,
-        hand_positions=hand_positions,
-        elbow_positions=tracking.get("elbow_positions"),
-        shoulder_positions=shoulder_positions,
-    )
-    phase_source = "acceleration_wrist_velocity_stop_v6"
-    if phase_contract == "eimd_v3":
-        if skill == Skill.SERVE:
-            phases = _serve_eimd_v3_phases(phases, full_skeleton, handedness)
-            phase_source = "max_acceleration_shoulder_angle_v1"
-        else:
-            hand_positions = tracking.get("hand_positions")
-            elbow_positions = tracking.get("elbow_positions")
-            if not hand_positions or not elbow_positions:
-                raise ValueError("smash EIMD-v3 phases require wrist and elbow tracks")
-            phases = _smash_eimd_v3_phases(
-                hand_positions, elbow_positions, full_skeleton, full_confidence
-            )
-            phase_source = "acceleration_ending_range_v4"
-    elif phase_contract == "current":
-        if skill == Skill.SERVE:
-            phases = _serve_shoulder_completion_phases(
-                phases,
-                full_skeleton,
-                handedness,
-                motion_skeleton_2d=motion_skeleton,
-            )
-            phase_source = "across_body_directional_wrist_acceleration_v14"
-    else:
-        raise ValueError(f"unsupported phase contract: {phase_contract}")
-    if any(second <= first for first, second in zip(phases, phases[1:])):
-        raise ValueError("analysis phases must be strictly increasing")
-    start, peak, end = int(phases[0]), int(phases[2]), int(phases[-1])
-    if start < 0 or end >= len(full_skeleton) or end - start < 4:
-        raise ValueError(f"invalid analysis window: {(start, peak, end)}")
+# -- The interface every skill's phases module provides ----------------------
 
-    normalized = normalize_skeleton_motion(
-        full_skeleton[start : end + 1],
-        full_confidence[start : end + 1],
-        handedness,
-    )
-    pose = resample_sequence(normalized.skeleton, target_frames)
-    confidence = np.clip(
-        resample_sequence(normalized.confidence, target_frames), 0.0, 1.0
-    )
-    pose = project_stable_bone_lengths(
-        pose,
-        pose,
-        confidence,
-        expert_length_bones=TORSO_WIDTH_BONES,
-    )
-    root = resample_sequence(normalized.root_trajectory, target_frames)
-    contacts = estimate_foot_contacts(pose, root, confidence)
-    phase_indices = resample_detected_phase_indices(phases, target_frames)
-    if skill == Skill.SMASH:
-        refined = refine_delayed_overhead_contact_phase_indices(pose, phase_indices)
-        if not np.array_equal(refined, phase_indices):
-            phase_indices = refined
-            phase_source = "acceleration_wrist_velocity_stop_delayed_contact_v7"
+# The scorer reads the upload at its own frame rate.
+REQUIRED_SOURCE_FPS = None
 
-    source_indices = np.rint(np.linspace(start, end, target_frames)).astype(np.int64)
-    sample = MotionSample(
-        path=Path(filename),
-        pose=pose.astype(np.float32),
-        confidence=confidence.astype(np.float32),
-        root=root.astype(np.float32),
-        foot_contacts=contacts.astype(np.float32),
-        phase_indices=phase_indices,
-        handedness=str(handedness),
-        skill=str(skill),
-        video_name=filename,
-        subject_id="inference",
-        phase_source=phase_source,
-        alignment_contract=(
-            (
-                "serve_max_acceleration_shoulder_angle_v1"
-                if phase_contract == "eimd_v3"
-                else "serve_across_body_directional_wrist_acceleration_v14"
-            )
-            if skill == Skill.SERVE
-            else (
-                "overhead_acceleration_ending_range_v4"
-                if phase_contract == "eimd_v3"
-                else "overhead_wrist_velocity_stop_v6"
-            )
+
+def swing_positions(hand_positions, motion_skeleton, confidence, handedness):
+    """The wrist (and shoulder) tracks the window detector reads."""
+    if not hand_positions:
+        return hand_positions, None
+    return _serve_swing_positions(hand_positions, motion_skeleton, confidence, handedness)
+
+
+def eimd_v3_phases(phases, *, tracking, full_skeleton, full_confidence, motion_skeleton, handedness):
+    """The window generation priors and the skill guard were built on: (phases, source)."""
+    return (
+        _serve_eimd_v3_phases(phases, full_skeleton, handedness),
+        "max_acceleration_shoulder_angle_v1",
+    )
+
+
+def current_phases(phases, *, tracking, full_skeleton, full_confidence, motion_skeleton, handedness):
+    """The window grading and display use: (phases, source)."""
+    return (
+        _serve_shoulder_completion_phases(
+            phases, full_skeleton, handedness, motion_skeleton_2d=motion_skeleton
         ),
-        identity_level="inference_only",
+        "across_body_directional_wrist_acceleration_v14",
     )
-    return sample, (start, peak, end), source_indices
+
+
+def refine_phase_indices(pose, phase_indices, source):
+    """Adjust the phases on the generator's 64-frame clock: (indices, source)."""
+    return phase_indices, source
+
+
+def alignment_contract(contract):
+    """The name a sample records for how its phases were aligned."""
+    if contract == "eimd_v3":
+        return "serve_max_acceleration_shoulder_angle_v1"
+    return "serve_across_body_directional_wrist_acceleration_v14"

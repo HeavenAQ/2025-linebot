@@ -98,9 +98,7 @@ class FeedbackRuleSpec:
     measured_joints: tuple[int, ...]
     coaching_joints: tuple[int, ...]
     allowed_anchor_indices: tuple[int, ...]
-    # Most criteria display inside their semantic phase. A transition may
-    # instead culminate on a shared event boundary, such as serve weight
-    # transfer at the contact anchor.
+    # Most criteria display inside their semantic phase.
     display_phase: str | None = None
 
     def as_prompt_dict(self) -> dict[str, str | float | list[int]]:

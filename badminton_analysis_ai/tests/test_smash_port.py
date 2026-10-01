@@ -4,9 +4,9 @@ import json
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.smash.scoring import compose_points, MAXIMA
-from badminton_analysis.ml.smash.runtime import canonical_source, sha256
-from badminton_analysis.ml.smash.placement import (
+from badminton_analysis.ml.smash.checkpoints import compose_points, MAXIMA
+from badminton_analysis.ml.smash.scorer import canonical_source, sha256
+from badminton_analysis.ml.motion.view import (
     smooth_corrected_bbox_placement,
     transport_corrected_by_student_displacement,
 )

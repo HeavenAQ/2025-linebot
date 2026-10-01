@@ -8,13 +8,13 @@ from types import SimpleNamespace
 import api.pipeline as pipeline_module
 from badminton_analysis.ml.reference_bank import SkillSupport
 from api.pipeline import (
-    SkeletonAnalysisPipeline,
-    _attach_serve_transfer_measurements,
     _correction_grade_context,
     _rule_anchor_frames,
     _source_qualitative_phase_results,
     expert_phase_results,
+    SkeletonAnalysisPipeline,
 )
+from badminton_analysis.ml.serve.coaching import _attach_serve_transfer_measurements
 from badminton_analysis.ml.coaching_feedback import system_instructions
 from badminton_analysis.ml.skill_specs import get_skill_spec
 from badminton_analysis.models.types import Handedness, Skill
@@ -59,7 +59,7 @@ def test_serve_and_smash_backends_enable_ankle_spine_projection(
             "candidates": 8,
             "seed": 19,
             "align_ankle_spine_view": True,
-            "current_smash": skill == Skill.SMASH,
+            "current_scorer": True,
         }
 
 

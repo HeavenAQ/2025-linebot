@@ -54,6 +54,7 @@ from badminton_analysis.ml.skeleton_normalization import (
     CANONICAL_PHASE_INDICES,
     restore_phase_timing,
 )
+from badminton_analysis.models.types import Skill
 
 _EPS = 1e-8
 
@@ -444,6 +445,7 @@ def correct_student_motion_error_isolated(
     project_to_manifold: bool = True,
     condition_guidance_strength: float = 0.0,
     condition_guidance_threshold: float = 0.5,
+    limit_wrist_velocity: bool | None = None,
 ) -> ExpertCorrection:
     """Generate a gated expert target and retarget it through learner FK."""
     if sample.skill != bundle.skill:
@@ -577,7 +579,13 @@ def correct_student_motion_error_isolated(
         reference_weights=weights.astype(np.float32),
         reference_distances=np.sqrt(distances[nearest]).astype(np.float32),
     )
-    if sample.skill == "serve" and np.isfinite(bundle.expert_wrist_velocity_limit):
+    if limit_wrist_velocity is None:  # the skill decides whether its experts' wrist speed caps the target
+        from badminton_analysis.ml.skill import skill_definition
+
+        limit_wrist_velocity = skill_definition(
+            Skill.convert_to_enum(sample.skill)
+        ).limit_generated_wrist_velocity
+    if limit_wrist_velocity and np.isfinite(bundle.expert_wrist_velocity_limit):
         correction = limit_correction_wrist_velocity(
             correction,
             bundle.expert_wrist_velocity_limit,

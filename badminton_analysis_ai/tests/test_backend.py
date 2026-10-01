@@ -5,12 +5,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import badminton_analysis.ml.backend as backend_module
-from badminton_analysis.ml.backend import (
+import badminton_analysis.ml.smash.scorer as smash_scorer_module
+from badminton_analysis.ml.serve.scorer import (
     _clip_level_rigid_target_alignment,
-    _score_smash_correction,
     _serve_single_head_score,
 )
+from badminton_analysis.ml.smash.scorer import _score_smash_correction
 from badminton_analysis.ml.skill_specs import get_skill_spec
 
 
@@ -234,12 +234,12 @@ def test_smash_runtime_score_preserves_total_and_rubric_caps(
         "score_method": "fixture",
     }
     monkeypatch.setattr(
-        backend_module,
+        smash_scorer_module,
         "aligned_smash_evidence",
         lambda *args: (np.zeros(1), np.ones(1)),
     )
     monkeypatch.setattr(
-        backend_module,
+        smash_scorer_module,
         "score_smash_evidence",
         lambda *args: semantic,
     )

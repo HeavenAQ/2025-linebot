@@ -1,10 +1,4 @@
-"""Entry point that opens the port before anything heavy is imported.
-
-On a fresh Cloud Run GPU instance, importing torch and the analysis modules
-took 13 to 33 s, and the platform abandons an instance whose port is not open
-by roughly 22 to 30 s. Only grpc and the generated stubs load before binding;
-the service itself loads behind the open port, and calls wait for it.
-"""
+"""Entry point that opens the port before anything heavy is imported."""
 
 from __future__ import annotations
 
@@ -28,8 +22,7 @@ _LOAD_TIMEOUT_SECONDS = 600
 
 
 class DeferredAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
-    """Answers on the port at once and hands each call to the real service
-    once it has loaded."""
+    """Answers on the port at once and hands each call to the real service once it has loaded."""
 
     def __init__(self, settings: Settings, load: Callable[[Settings], Any]) -> None:
         self._settings = settings
@@ -43,8 +36,7 @@ class DeferredAnalysisService(analysis_pb2_grpc.BadmintonAnalysisServicer):
             self._service = self._load(self._settings)
         except BaseException:
             LOGGER.exception("analysis service failed to load")
-            # An open port with nothing behind it would fail every call while
-            # looking healthy; exiting lets Cloud Run replace the instance.
+            # An open port with nothing behind it would fail every call while looking healthy.
             os._exit(1)
         self._ready.set()
         LOGGER.info("analysis service loaded")

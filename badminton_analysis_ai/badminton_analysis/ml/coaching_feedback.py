@@ -17,7 +17,8 @@ from badminton_analysis.ml.skill_specs import (
     SkillCorrectionSpec,
     get_skill_spec,
 )
-from badminton_analysis.models.types import Skill
+from badminton_analysis.ml.skill import skill_definition
+from badminton_analysis.prompts import prompt
 
 CanonicalJointId = Literal[0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 FeedbackPhase = str
@@ -36,12 +37,7 @@ def maximum_feedback_problem_count(total_score: float) -> int:
 
 
 def minimum_feedback_problem_count(total_score: float) -> int:
-    """Require useful breadth when the rubric contains coaching deficits.
-
-    A low total can contain several large weighted deficits.  Accepting a
-    single, low-value preparation cue in that case hides the movement fault
-    that matters most.
-    """
+    """Require useful breadth when the rubric contains coaching deficits."""
     if total_score < 60.0:
         return 2
     if total_score < 90.0:
@@ -83,7 +79,6 @@ class RawSkillFeedbackAnalysis(BaseModel):
 
 class SmashEvidenceProblem(FeedbackProblem):
     # Evidence IDs beyond 63 are private to the exact-frame smash request.
-    # The returned playback frame is converted back to the public 0..63 clock.
     frame_index: int = Field(ge=0)
 
 
@@ -180,21 +175,7 @@ def phase_for_frame(
     spec: SkillCorrectionSpec,
 ) -> FeedbackPhase:
     _, anchor_1, anchor_2, _, _ = _validated_phase_indices(phase_indices)
-    if spec.skill == Skill.SERVE:
-        if frame_index <= anchor_1:
-            return "preparation"
-        if frame_index < anchor_2:
-            return "weight_transfer"
-        if frame_index <= anchor_2:
-            return "contact"
-        return "follow_through"
-    if frame_index < anchor_1:
-        return "preparation"
-    if frame_index < anchor_2:
-        return "rotation"
-    if frame_index <= anchor_2:
-        return "contact"
-    return "follow_through"
+    return skill_definition(spec.skill).feedback_phase(frame_index, anchor_1, anchor_2)
 
 
 def checkpoint_role(
@@ -222,11 +203,8 @@ def handedness_note_zh_tw(handedness: str | None) -> str:
         side = "右側"
         hand = "右手"
     else:
-        return "關節編號採慣用側正規化；請依提供的handedness判斷實際身體側。"
-    return (
-        f"關節編號採慣用側正規化。此學生為{hand}持拍，"
-        f"因此慣用側關節對應身體{side}。"
-    )
+        return prompt("coach/handedness_unknown")
+    return prompt("coach/handedness", hand=hand, side=side)
 
 
 def _encode_jpeg(frame: NDArray[Any], quality: int) -> tuple[bytes, str]:
@@ -263,7 +241,7 @@ def sample_video_frames(
     )
     plan = [(int(index), source_mapping[int(index)], ()) for index in selected_frames]
     if checkpoint_evidence is not None:
-        if spec.skill != Skill.SMASH:
+        if not skill_definition(spec.skill).owns_checkpoint_evidence:
             raise ValueError("scorer-owned checkpoint evidence is currently smash-only")
         if set(checkpoint_evidence) != {rule.id for rule in spec.rules}:
             raise ValueError("checkpoint evidence must cover all smash criteria")
@@ -388,9 +366,6 @@ def prompt_context(
         < 0.8
     ]
     # Use every available feedback slot for distinct low-scoring criteria.
-    # Every available slot is assigned by the rubric. The vision model explains
-    # the scored deficit from the evidence frames; it does not silently discard
-    # a criterion that the scoring system says requires coaching.
     required_priority_criteria = feedback_candidate_criteria[:maximum_problem_count]
     return {
         "required_output_language": "繁體中文（臺灣，zh-TW）",
@@ -402,13 +377,7 @@ def prompt_context(
             "diagnostic_total_grade": advice.get("total_grade"),
             "score_status": advice.get("score_status"),
         },
-        "score_warning_zh_tw": (
-            "分數由指定區間的骨架比較及已校準的動作規則共同決定；"
-            "請依各項實際量測與可見影像解釋，不得將所有扣分都歸因於修正骨架距離。"
-            if spec.skill == Skill.SMASH
-            else "總分與各項分數來自學生原始骨架和專家化修正骨架之差距；"
-            "分數決定哪些技術標準需要回饋；影像用來具體說明該項動作差距。"
-        ),
+        "score_warning_zh_tw": skill_definition(spec.skill).score_warning_zh_tw,
         "overlay_legend_zh_tw": {
             "cyan": "偵測到的學生骨架",
             "green": "模型預測的專家化修正骨架",
@@ -427,10 +396,8 @@ def prompt_context(
             for rule in spec.rules
         },
         "criterion_comparison_frames": {
-            rule.name_zh_tw: (
-                [anchors[0], anchors[-1]]
-                if spec.skill == Skill.SERVE and rule.id == "weight_transfer"
-                else criterion_evidence_frames(rule, samples, anchors)
+            rule.name_zh_tw: skill_definition(spec.skill).comparison_frames(
+                rule, samples, anchors
             )
             for rule in spec.rules
         },
@@ -460,31 +427,17 @@ def build_response_input(
     content: list[dict[str, Any]] = [
         {
             "type": "input_text",
-            "text": (
-                f"請依照提供的{criterion_count}項{spec.name_zh_tw}技術標準"
-                "逐項分析這組依時間排序的動作畫面，不得只檢查其中一項。"
-                f"skill欄位必須填寫{spec.slug}。最多回報"
-                f"{maximum_problem_count}項不同標準的問題，title必須逐字使用標準名稱。"
-                f"只要低分優先項目非空，就必須回報至少{minimum_problem_count}項不同標準；"
-                f"必須逐項檢查並完整涵蓋低分優先項目{required_priority_criteria}，"
-                "不可只回報最低分的一項；每項仍須由影像驗證。"
-                f"只能從未達標準的{feedback_candidate_criteria}選擇問題；"
-                "已達八成的標準不得列為問題。"
-                "評分系統決定需要回饋的標準；影像的用途是解釋該低分標準在動作上如何改善，"
-                "不得因單一畫面看似正常而省略required_priority_criteria。"
-                "只有feedback_candidate_criteria為空時，problems才可為空陣列。"
-                "不得自行新增其他技術標準。請只使用available_frames中的frame_index，"
-                "而且每項標準只能選criterion_allowed_frames指定的原始評分關鍵幀。"
-                "判斷發球的重心轉移時，必須同時比較criterion_comparison_frames的"
-                "第一與最後畫面，檢查下肢支撐轉換，以及雙肩相對雙髖是否向前傾；"
-                "回報問題時仍使用criterion_allowed_frames指定的停格畫面。"
-                "請只圈選criterion_coaching_target_joint_ids指定的教練提示目標。所有"
-                "overall_feedback、"
-                "feedback與evidence必須使用臺灣繁體中文，禁止英文句子與簡體中文。"
-                "顯示分數只能使用correction_distance_grade，不得另算總分。"
-                "骨架修正與分數只能作為輔助，必須先由影像"
-                "確認問題。\n\n分析資料：\n" + json.dumps(context, ensure_ascii=False)
-            ),
+            "text": prompt(
+                "coach/task",
+                criterion_count=criterion_count,
+                name=spec.name_zh_tw,
+                slug=spec.slug,
+                maximum_problem_count=maximum_problem_count,
+                minimum_problem_count=minimum_problem_count,
+                required_priority_criteria=required_priority_criteria,
+                feedback_candidate_criteria=feedback_candidate_criteria,
+            )
+            + json.dumps(context, ensure_ascii=False),
         }
     ]
     for sample in samples:
@@ -492,11 +445,13 @@ def build_response_input(
             (
                 {
                     "type": "input_text",
-                    "text": (
-                        f"畫面{sample.frame_index}；階段={sample.phase}；"
-                        f"原始影片畫面={sample.source_frame_index}；"
-                        f"影片時間={sample.timestamp_seconds:.3f}秒；"
-                        f"用途={sample.checkpoint_role_zh_tw}"
+                    "text": prompt(
+                        "coach/frame",
+                        frame_index=sample.frame_index,
+                        phase=sample.phase,
+                        source_frame_index=sample.source_frame_index,
+                        timestamp_seconds=sample.timestamp_seconds,
+                        checkpoint_role=sample.checkpoint_role_zh_tw,
                     ),
                 },
                 {
@@ -531,12 +486,7 @@ def validate_analysis_frames(
             raise ValueError(
                 f"feedback frame {problem.frame_index} was not supplied to the model"
             )
-        # The problem phase names the semantic criterion, while the sampled
-        # frame names the visual segment. They usually agree, but serve weight
-        # transfer is evaluated across preparation/follow-through and shown at
-        # the contact anchor. Frame membership below is the authoritative
-        # re-indexing contract; requiring identical labels rejects that valid
-        # cross-frame criterion after GPT selects it.
+        # The problem phase names the semantic criterion, while the sampled frame names the visual segment.
         if problem.frame_index not in allowed_by_rule[problem.rule_reference]:
             raise ValueError(
                 f"feedback frame {problem.frame_index} is not an original grading "
@@ -545,25 +495,11 @@ def validate_analysis_frames(
 
 
 def system_instructions(spec: SkillCorrectionSpec) -> str:
-    instructions = f"""你是專業羽球教練，正在分析{spec.description_zh_tw}。
-你必須嚴格依照提供的{len(spec.rules)}項{spec.name_zh_tw}技術標準，不得新增、改寫或混用其他技術標準。
-評分系統提供的低分標準是必須處理的回饋契約；影像用來解釋青色學生骨架與綠色修正骨架在該標準的具體差異。不得漏掉required_priority_criteria，也不得只回報最低分的一項。只有沒有低分候選標準時才回傳空的problems。
-所有給使用者看的文字必須使用臺灣繁體中文（zh-TW），不得使用英文句子或簡體中文。
-每項建議必須簡短明確，能在兩秒的影片暫停畫面中閱讀。關節編號必須使用提供的慣用側正規化對照。"""
-    if spec.skill == Skill.SMASH:
-        instructions += """
-殺球六項滿分依序為5／20／5／20／30／20，總分100。不得套用舊版10／10／20／20／20／20。
-逐項閱讀checkpoint_evidence的評分區間、量測與可用性，再比較各criterion_comparison_frames。frame_index是影像證據編號，不是原始影片時間；不得自行依編號推算時間。
-雙手平衡需特別檢查非慣用手已抬起、慣用手仍偏低的早期持續片段。必須分清慣用手與非慣用手，不可把慣用手偏低改寫為非慣用手偏低，也不可用之後正常的一幀推翻前段不足。
-隨揮沿用最佳終點與起終肩寬比較，不加入未採用的幀平均或後續回退扣分。
-分數是系統量測，不是動作缺失的直接證明。若full_interval_visible為false、指定影像不足或量測標為無法評估，請明示限制，不能宣稱完整審閱所有區間；給出檢查建議，不能捏造左右側、角度數值或未看見的缺失。"""
-    if spec.skill == Skill.SERVE:
-        instructions += """
-重心轉移另有兩種常見錯誤，一律以criteria中的量測判斷，量測為0時不得宣稱該錯誤：
-correction_stance_retention_shortfall大於correction_stance_allowance代表學生兩腳踝距離縮小的程度明顯超過修正骨架（correction_learner_stance_retention對照correction_corrected_stance_retention；併腳或移動前腳），沒有可轉移的底盤；請提醒維持起始步幅，擊球前後前腳不要移動。
-持拍手手腕發力另以擊球瞬間的持拍手肘角度判斷：correction_elbow_at_contact_shortfall_degrees大於correction_elbow_allowance_degrees代表擊球時手肘比修正骨架明顯彎曲（correction_learner_elbow_at_contact_degrees對照correction_corrected_elbow_at_contact_degrees），是用手臂推拍而不是手腕發力；請提醒擊球時手臂伸展、以手腕帶動拍面。
-correction_shoulder_turn_shortfall_degrees大於correction_shoulder_turn_allowance_degrees代表最大加速度（擊球）時兩肩連線相對兩腳踝連線的轉動比修正骨架少（correction_learner_shoulder_stance_angle_degrees對照correction_corrected_shoulder_stance_angle_degrees），上半身沒有轉到位、靠手臂甩拍；請提醒擊球時上半身隨揮拍轉向前方，再以手腕發力。
-重心轉移的量測區間是持拍手手腕開始下壓到最大加速度（擊球）之間，重心應隨著揮拍加速送到非持拍腳。
-correction_transfer_lead_excess_frames大於correction_transfer_lead_allowance_frames代表重心太早：骨盆在持拍手臂開始加速前就已移到非持拍腳（correction_learner_transfer_lead_frames對照correction_corrected_transfer_lead_frames，單位為64格標準化時間），揮拍時重心沒有一起移動；請提醒學生讓重心隨揮拍一起轉移，不要先移重心再揮拍。此時不得說成重心太晚。
-否則若source_pelvis_loading_shift低於expert_lower_pelvis_loading_shift，代表在這段區間內重心沒有移過去，請提醒學生在揮拍前把重心送到非持拍腳，而不是擊球後才移動。"""
-    return instructions
+    instructions = prompt(
+        "coach/system",
+        description=spec.description_zh_tw,
+        rule_count=len(spec.rules),
+        name=spec.name_zh_tw,
+    )
+    extra = skill_definition(spec.skill).coaching_instructions
+    return instructions + "\n" + extra if extra else instructions

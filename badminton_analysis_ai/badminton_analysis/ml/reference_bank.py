@@ -1,14 +1,4 @@
-"""Pick the expert clip a learner's corrected motion most resembles.
-
-The diffusion prior generates an idealised movement rather than copying any one
-expert, so there is no matched recording to show alongside it. This picks the
-closest real demonstration instead: the learner sees a person performing what
-their corrected skeleton is reaching towards.
-
-Matching is on the canonical-space skeleton both sides already share, so no
-further normalization is needed — the correction and the bank come out of the
-same pipeline.
-"""
+"""Pick the expert clip a learner's corrected motion most resembles."""
 
 from __future__ import annotations
 
@@ -25,6 +15,7 @@ from badminton_analysis.ml.skeleton_normalization import (
     resample_detected_phase_indices,
 )
 from badminton_analysis.ml.trajectory_distance import constrained_dtw_cost
+from badminton_analysis.ml.skill import supported_skills
 
 Metric = Literal["cosine", "euclidean"]
 
@@ -60,15 +51,7 @@ _SKILL_SUPPORT_CONTRACT = (
 def skill_temporal_descriptor(
     pose: NDArray[np.floating],
 ) -> NDArray[np.float32]:
-    """Translation/scale/view-invariant local motion descriptor.
-
-    Joint angles and each segment's signed direction relative to the local
-    pelvis-to-shoulder spine are invariant to image translation, uniform
-    scale, and in-plane camera rotation.  The sample preprocessing already
-    mirrors left-handed motion into the same anatomical convention.  First
-    derivatives retain stroke direction and ordering without using filenames
-    or learner labels.
-    """
+    """Translation/scale/view-invariant local motion descriptor."""
     values = np.asarray(pose, dtype=np.float64)
     if values.shape != (64, 17, 2):
         raise ValueError("skill support pose must have shape (64, 17, 2)")
@@ -125,13 +108,11 @@ class ExpertReference:
     source_phase_indices: tuple[int, ...]
     distance: float
     similarity: float
-    # What the browser needs before it has loaded the clip. Banks built before
-    # these were recorded report zero, which the player treats as "unknown".
+    # What the browser needs before it has loaded the clip.
     duration_seconds: float = 0.0
     width: int = 0
     height: int = 0
-    # The clip's own canonical-space poses, kept so playback can be aligned
-    # against them segment by segment rather than only at the checkpoints.
+    # The clip's own canonical-space poses.
     skeleton: NDArray[np.float32] | None = None
 
     @property
@@ -282,9 +263,10 @@ class ExpertReferenceBank:
         requested_skill: str,
     ) -> SkillSupport:
         """Compare each skill hypothesis in its own frozen phase contract."""
-        if requested_skill not in {"serve", "smash"}:
+        skills = [str(skill) for skill in supported_skills()]
+        if requested_skill not in skills:
             raise ValueError(f"unsupported requested skill {requested_skill!r}")
-        alternative = "smash" if requested_skill == "serve" else "serve"
+        alternative = next(skill for skill in skills if skill != requested_skill)
         requested_distance = self._nearest_skill_distance(
             skill_temporal_descriptor(requested_pose), requested_skill
         )
@@ -308,12 +290,7 @@ class ExpertReferenceBank:
         handedness: str,
         metric: Metric = "cosine",
     ) -> ExpertReference | None:
-        """The closest expert of the same skill, preferring the same handedness.
-
-        A left-handed learner is shown a left-handed demonstration where one
-        exists; falling back to the other hand beats showing nothing, since the
-        movement is mirrored but the technique is the same.
-        """
+        """The closest expert of the same skill, preferring the same handedness."""
         pose = np.asarray(corrected_pose, dtype=np.float32)
         if pose.shape != (64, 17, 2):
             raise ValueError(f"corrected pose must be (64, 17, 2), got {pose.shape}")
@@ -369,19 +346,7 @@ def segmental_alignment(
     *,
     student_phase_indices: NDArray[np.integer] = CANONICAL_PHASE_INDICES,
 ) -> tuple[tuple[float, float], ...]:
-    """Map the learner's motion onto the expert's clock, frame by frame.
-
-    The checkpoints are fixed: the learner's k-th anchor lines up with the
-    expert's k-th anchor, because they are the same moment of the stroke by
-    definition. What happens between them is not fixed -- two people spend
-    different fractions of a phase winding up -- so each segment is aligned by
-    DTW over the poses themselves, the same warping the scorer uses, rather than
-    assumed to run at a constant relative tempo.
-
-    Returns (normalized_position, expert_seconds) pairs, one per learner frame,
-    monotonic in both. An empty result means the alignment could not be built
-    and playback should fall back to interpolating between the checkpoints.
-    """
+    """Map the learner's motion onto the expert's clock, frame by frame."""
     if reference.skeleton is None:
         return ()
     student = np.asarray(corrected_pose, dtype=np.float64)

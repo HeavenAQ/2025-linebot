@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.expert_reference_bank import (
+from badminton_analysis.ml.reference_bank import (
     ExpertReference,
     segmental_alignment,
 )

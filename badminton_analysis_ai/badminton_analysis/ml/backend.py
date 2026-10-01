@@ -7,23 +7,27 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from badminton_analysis.ml.error_isolated_motion import (
+from badminton_analysis.ml.eimd.inference import (
     ErrorIsolatedMotionBundle,
     correct_student_motion_error_isolated,
     load_error_isolated_bundle,
 )
-from badminton_analysis.ml.expert_motion_preprocessing import (
+from badminton_analysis.ml.motion.preprocessing import (
     prepare_expert_motion_sample,
 )
-from badminton_analysis.ml.expert_phase_baseline import (
+from badminton_analysis.ml.motion.samples import (
     ExpertCorrection,
     ExpertPhaseModel,
     MotionSample,
-    align_expert_correction_to_ankle_spine_view,
     load_expert_phase_model,
+)
+from badminton_analysis.ml.motion.view import (
+    align_expert_correction_to_ankle_spine_view,
+)
+from badminton_analysis.ml.serve.scoring import (
     score_expert_correction,
 )
-from badminton_analysis.ml.smash_expert_scoring import (
+from badminton_analysis.ml.smash.semantic import (
     SmashDistribution,
     SmashVariant,
     allocate_smash_total_to_weighted_criteria,
@@ -329,7 +333,7 @@ class ExpertMotionGeneratorBackend:
         self.align_ankle_spine_view = align_ankle_spine_view
         self.current_smash_scorer = None
         if current_smash and skill == Skill.SMASH:
-            from badminton_analysis.ml.smash_current_runtime import CurrentSmashScorer
+            from badminton_analysis.ml.smash.runtime import CurrentSmashScorer
 
             self.current_smash_scorer = CurrentSmashScorer(
                 root / "checkpoint_scorer_v1",

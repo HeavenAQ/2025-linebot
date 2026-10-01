@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 from torch import Tensor, nn
 
-from badminton_analysis.ml.models.expert_motion_diffusion import (
+from badminton_analysis.ml.eimd.blocks import (
     _phase_features,
     timestep_embedding,
 )

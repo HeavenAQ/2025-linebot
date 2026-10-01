@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from badminton_analysis.ml.smash_current_geometry import (
+from badminton_analysis.ml.smash.geometry import (
     cap_balance,
     cap_preparation,
     combined_features,
@@ -19,7 +19,7 @@ from badminton_analysis.ml.smash_current_geometry import (
     rotation_credit,
     legacy_rotation_trace,
 )
-from badminton_analysis.ml.smash_current_endpoint import (
+from badminton_analysis.ml.smash.endpoint import (
     generated_shoulder_cut,
     interval_frames,
     local_cost,

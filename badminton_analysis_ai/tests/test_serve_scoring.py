@@ -6,11 +6,23 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.expert_phase_baseline import (
-    _aggregate_qualitative_checkpoint_ratios,
-    _criterion_components_for_spec,
+from badminton_analysis.ml.motion.samples import (
+    ExpertCorrection,
+    load_expert_phase_model,
+    load_motion_sample,
+)
+from badminton_analysis.ml.motion.view import (
     _retarget_root_with_contacts,
     _aligned,
+    ankle_spine_view_rotation,
+    apply_fixed_hierarchical_pose_placement,
+    project_pose_to_student_view,
+    shift_expert_body_chain_to_student_hip,
+    shift_expert_body_chain_to_student_knee,
+)
+from badminton_analysis.ml.serve.scoring import (
+    _aggregate_qualitative_checkpoint_ratios,
+    _criterion_components_for_spec,
     _serve_checklist_aggregation,
     _serve_arms_at_corrected_shoulder_evidence,
     _serve_semantic_evidence,
@@ -19,14 +31,6 @@ from badminton_analysis.ml.expert_phase_baseline import (
     _serve_qualitative_pose_evidence,
     _serve_weight_transfer_components,
     _serve_wrist_action_components,
-    ExpertCorrection,
-    ankle_spine_view_rotation,
-    apply_fixed_hierarchical_pose_placement,
-    load_expert_phase_model,
-    load_motion_sample,
-    project_pose_to_student_view,
-    shift_expert_body_chain_to_student_hip,
-    shift_expert_body_chain_to_student_knee,
     score_expert_correction,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
@@ -736,7 +740,7 @@ def test_serve_transfer_is_read_between_the_wrist_descent_and_contact() -> None:
 
 
 def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> None:
-    from badminton_analysis.ml.expert_phase_baseline import (
+    from badminton_analysis.ml.serve.scoring import (
         _SERVE_CORRECTION_STANCE_ALLOWANCE,
         _serve_transfer_against_correction,
         _serve_transfer_correction_residuals,
@@ -775,7 +779,7 @@ def test_serve_stance_is_judged_against_the_learners_corrected_skeleton() -> Non
 
 
 def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> None:
-    from badminton_analysis.ml.expert_phase_baseline import (
+    from badminton_analysis.ml.serve.scoring import (
         _serve_wrist_correction_residuals,
     )
 
@@ -799,7 +803,7 @@ def test_serve_elbow_bent_at_contact_is_measured_against_the_correction() -> Non
 
 
 def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() -> None:
-    from badminton_analysis.ml.expert_phase_baseline import (
+    from badminton_analysis.ml.serve.scoring import (
         _SERVE_CORRECTION_TRANSFER_LEAD_ALLOWANCE_FRAMES,
         _serve_transfer_against_correction,
     )
@@ -825,7 +829,7 @@ def test_serve_weight_on_the_front_foot_before_the_swing_is_an_early_transfer() 
 
 
 def test_serve_shoulders_turned_less_than_the_correction_at_contact() -> None:
-    from badminton_analysis.ml.expert_phase_baseline import (
+    from badminton_analysis.ml.serve.scoring import (
         _serve_wrist_correction_residuals,
     )
 

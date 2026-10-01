@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 import torch
 from torch import Tensor
 
-from badminton_analysis.ml.expert_motion_generator import (
+from badminton_analysis.ml.eimd.features import (
     CONTACT_DIM,
     DIRECTION_DIM,
     FRAMES,
@@ -34,18 +34,20 @@ from badminton_analysis.ml.expert_motion_generator import (
     project_to_expert_motion_subspace,
     smooth_generated_motion_state,
 )
-from badminton_analysis.ml.expert_phase_baseline import (
+from badminton_analysis.ml.motion.samples import (
     ExpertCorrection,
     MotionSample,
+)
+from badminton_analysis.ml.motion.view import (
     _retarget_root_with_contacts,
 )
-from badminton_analysis.ml.kinematic_retargeting import (
+from badminton_analysis.ml.eimd.retargeting import (
     retarget_expert_canonical_2d_fk,
 )
-from badminton_analysis.ml.models.error_isolated_motion_diffusion import (
+from badminton_analysis.ml.eimd.network import (
     ErrorIsolatedMotionDenoiser,
 )
-from badminton_analysis.ml.models.expert_motion_diffusion import (
+from badminton_analysis.ml.eimd.blocks import (
     linear_diffusion_schedule,
 )
 from badminton_analysis.ml.skeleton_normalization import (
@@ -182,7 +184,7 @@ def phase_joint_condition(
     """Summarize aligned motion into four joint-aware semantic phase tokens."""
     canonical = _validate_canonical_phase_indices(canonical_phase_indices)
     pose, confidence, _, _ = _aligned(sample, canonical_phase_indices=canonical)
-    from badminton_analysis.ml.kinematic_retargeting import parent_offsets
+    from badminton_analysis.ml.eimd.retargeting import parent_offsets
 
     directions = _unit(parent_offsets(pose))
     phase_directions = []

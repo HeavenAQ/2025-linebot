@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from badminton_analysis.ml.smash_expert_scoring import (
+from badminton_analysis.ml.smash.semantic import (
     SmashVariant,
     allocate_smash_total_to_weighted_criteria,
     FEATURE_NAMES,
@@ -129,7 +129,7 @@ def test_frozen_smash_distribution_loads_expert_only_envelope() -> None:
 
 
 def test_smash_follow_through_ignores_where_the_wrist_ends() -> None:
-    from badminton_analysis.ml.smash_current_endpoint import local_features
+    from badminton_analysis.ml.smash.endpoint import local_features
 
     distribution, variant = load_smash_distribution(SMASH_DISTRIBUTION)
     confidence = np.ones((64, 17), dtype=np.float32)

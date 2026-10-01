@@ -6,7 +6,9 @@ from typing import Literal, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-from badminton_analysis.ml.expert_phase_baseline import MotionSample
+from badminton_analysis.ml.motion.samples import (
+    MotionSample,
+)
 from badminton_analysis.ml.skeleton_normalization import (
     estimate_foot_contacts,
     interpolate_pose_sequence,

@@ -14,11 +14,11 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 
-from badminton_analysis.ml.expert_phase_baseline import (
+from badminton_analysis.ml.motion.samples import (
     ExpertCorrection,
     MotionSample,
 )
-from badminton_analysis.ml.kinematic_retargeting import (
+from badminton_analysis.ml.eimd.retargeting import (
     COCO_PARENTS,
     implicit_pelvis,
     parent_offsets,

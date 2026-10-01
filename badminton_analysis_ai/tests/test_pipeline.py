@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import api.pipeline as pipeline_module
-from badminton_analysis.ml.expert_reference_bank import SkillSupport
+from badminton_analysis.ml.reference_bank import SkillSupport
 from api.pipeline import (
     SkeletonAnalysisPipeline,
     _attach_serve_transfer_measurements,

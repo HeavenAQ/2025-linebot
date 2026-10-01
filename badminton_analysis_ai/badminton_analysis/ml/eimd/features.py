@@ -1,9 +1,4 @@
-"""Motion-state features and post-processing shared by EIMD inference.
-
-Encodes expert and learner poses as direction/root/contact states, and smooths,
-velocity-limits, and projects generated motion. Learner motion supplies only
-static morphology, preparation stance, phase timing, and the camera transform.
-"""
+"""Motion-state features and post-processing shared by EIMD inference."""
 
 from __future__ import annotations
 
@@ -35,9 +30,7 @@ DIRECTION_DIM = JOINTS * 2
 ROOT_DIM = 2
 CONTACT_DIM = 2
 STATE_DIM = DIRECTION_DIM + ROOT_DIM + CONTACT_DIM
-# Static coordinate/stance conditioning deliberately excludes face, arms,
-# elbows, and wrists. Those joints must come from the expert distribution so a
-# learner's missing hand raise cannot be preserved as a target constraint.
+# Static coordinate/stance conditioning deliberately excludes face, arms, elbows, and wrists.
 STANCE_JOINTS = np.asarray((5, 6, 11, 12, 13, 14, 15, 16), dtype=np.int64)
 CONDITIONING_POLICIES = ("selective", "full_pose", "morphology_only")
 _EPS = 1e-8
@@ -104,13 +97,7 @@ def _unit(values: NDArray[np.floating]) -> NDArray[np.float32]:
 
 
 def conditioning_stance_joints(policy: str) -> NDArray[np.int64]:
-    """Return joints exposed to the generator for a named research ablation.
-
-    ``selective`` is the proposed method: it exposes shoulders and lower-body
-    preparation geometry while withholding arms, wrists and face. ``full_pose``
-    is the leakage-prone baseline. ``morphology_only`` uses a constant stance
-    token so only anatomy and handedness remain informative.
-    """
+    """Return joints exposed to the generator for a named research ablation."""
     if policy == "selective":
         return STANCE_JOINTS.copy()
     if policy == "full_pose":
@@ -143,7 +130,6 @@ def motion_features(
     directions = _unit(offsets)
     preparation_end = int(canonical[1]) + 1
     # Morphology is estimated only from the preparation/standing interval.
-    # A faulty or occluded swing must not change the body used by the prior.
     lengths = stable_parent_lengths(
         pose[:preparation_end], confidence[:preparation_end]
     )
@@ -159,8 +145,7 @@ def motion_features(
     )
     if np.any((joints < 0) | (joints >= JOINTS)):
         raise ValueError("stance joint ids must be valid COCO joint indices")
-    # A one-value constant token keeps the morphology-only architecture valid
-    # without injecting any pose information through a learned stance branch.
+    # A one-value constant token keeps the morphology-only architecture valid without injecting any pose information through a learned stance branch.
     stance = (
         _unit(np.median(preparation[:, joints], axis=0)).reshape(-1)
         if len(joints)
@@ -254,12 +239,7 @@ def smooth_generated_motion_state(
     *,
     passes: int = 2,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
-    """Remove high-frequency pose jitter before student-length FK.
-
-    A symmetric binomial filter has zero phase delay, so semantic events do not
-    move earlier or later. Filtering unit directions rather than Cartesian
-    joints lets FK restore exact, stable bone lengths afterward.
-    """
+    """Remove high-frequency pose jitter before student-length FK."""
     if passes < 0:
         raise ValueError("passes cannot be negative")
     direction_values = np.asarray(directions, dtype=np.float64).copy()
@@ -377,9 +357,7 @@ def _rate_limited_sample_positions(
         raise ValueError("expert motion path cannot fit inside the velocity ceilings")
     original_arc = np.interp(original_positions, timeline, cumulative_arc)
     limited_arc = original_arc.copy()
-    # Work backward from the exact ending. Raising an earlier arc position
-    # makes the generated correction begin its swing sooner, while every
-    # student event at and after the original jump remains fixed.
+    # Work backward from the exact ending.
     for frame in range(FRAMES - 2, -1, -1):
         limited_arc[frame] = max(
             limited_arc[frame],
@@ -495,14 +473,7 @@ def project_to_expert_motion_subspace(
     *,
     maximum_rank: int = 8,
 ) -> NDArray[np.float32]:
-    """Project samples into a bounded low-rank expert motion distribution.
-
-    Tiny expert banks leave diffusion weakly constrained in thousands of
-    sequence dimensions.  The complete expert trajectories define a compact
-    affine subspace; diffusion still chooses the coordinate in that subspace,
-    but coordinates are bounded by the observed expert range and radius.  No
-    single exemplar is selected or copied.
-    """
+    """Project samples into a bounded low-rank expert motion distribution."""
     samples = np.asarray(generated, dtype=np.float64)
     experts = np.asarray(expert_states, dtype=np.float64)
     if samples.ndim != 3 or samples.shape[1:] != (FRAMES, STATE_DIM):

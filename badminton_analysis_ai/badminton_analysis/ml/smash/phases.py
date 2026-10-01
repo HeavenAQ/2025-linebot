@@ -1,5 +1,4 @@
-"""Where a smash's EIMD-v3 window ends: when the shoulders finish turning forward.
-"""
+"""Where a smash's EIMD-v3 window ends: when the shoulders finish turning forward."""
 
 from __future__ import annotations
 
@@ -26,14 +25,7 @@ def _smash_rotation_completion(
     contact: int,
     latest: int,
 ) -> int | None:
-    """The frame after contact where the shoulders finish turning forward.
-
-    A smash ends when the torso has rotated through to face the net, which in
-    the image is where the projected shoulder span has moved furthest from
-    its span in the stance -- the same |span / initial - 1| measure the smash
-    scorer uses for its endpoint. Returns None when the shoulders are not
-    seen well enough to say.
-    """
+    """The frame after contact where the shoulders finish turning forward."""
     coordinates = np.asarray(skeleton, dtype=np.float64)
     seen = np.all(np.asarray(confidence, dtype=np.float64)[:, (5, 6)] > 0.3, axis=1)
     span = np.linalg.norm(coordinates[:, 5] - coordinates[:, 6], axis=-1)
@@ -69,13 +61,7 @@ def _smash_eimd_v3_phases(
     contact = start + int(np.argmin(hand[start : acceleration_end + 1, 1]))
     start = max(0, contact - 2 * IMPACT_FRAME_SEARCH_WINDOW_BEFORE)
     minimum_follow_through = max(4, IMPACT_FRAME_SEARCH_WINDOW_AFTER // 2)
-    # The lowest elbow after contact, held back by the end of the wrist's
-    # acceleration and a minimum follow-through, was the ending. That only
-    # landed near the finish while the detector lost the arm during recovery:
-    # a pose model that keeps tracking it finds the wrist still accelerating
-    # and the elbow still dropping as the player resets, 7-36 frames after the
-    # shoulders have finished turning. It remains the latest the stroke may
-    # end, and the ending when the shoulders cannot be read.
+    # The lowest elbow after contact.
     end = min(
         len(hand) - 1,
         max(
@@ -92,10 +78,7 @@ def _smash_eimd_v3_phases(
         else None
     )
     if completed is not None:
-        # The stroke ends where the shoulders finish turning forward, which on
-        # the expert takes is 9 to 25 frames after contact -- often inside the
-        # half-second follow-through floor above, so only the four-frame
-        # minimum still applies.
+        # The stroke ends where the shoulders finish turning forward.
         end = max(completed, contact + 4)
     preparation = (start + contact) // 2
     follow_through = (contact + end) // 2

@@ -1,10 +1,4 @@
-"""Expert-only Error-Isolated Motion Diffusion (EIMD) inference.
-
-A frozen EIMD checkpoint, trained only on expert motion, weighs which
-joint-phase conditioning tokens of a learner's motion are trustworthy and
-samples a corrected expert motion from them. Bundles that declare learner
-training data are rejected on load.
-"""
+"""Expert-only Error-Isolated Motion Diffusion (EIMD) inference."""
 
 from __future__ import annotations
 
@@ -147,10 +141,7 @@ def stabilize_phase_timing(
     if np.any(lower <= 0) or np.any(upper < lower):
         raise ValueError("phase-duration bounds must be positive and ordered")
     target = np.diff(phases)
-    # Minor phase-detector variation is harmless and should preserve the
-    # learner/video alignment.  Projection is reserved for a severely
-    # compressed preparation interval, the failure that skips the generated
-    # expert motion from its beginning directly into the swing ending.
+    # Minor phase-detector variation is harmless and should preserve the learner/video alignment.
     severely_compressed = bool(np.any(target[:2] < 0.5 * lower[:2]))
     if not severely_compressed:
         return phases
@@ -344,13 +335,7 @@ def _inference_features(
     *,
     condition_sample: MotionSample | None = None,
 ) -> tuple[dict[str, NDArray[np.float32]], float]:
-    """Separate target morphology from the optional motion condition.
-
-    ``condition_sample`` is a research-only positive-control hook. Normal
-    inference leaves it unset. Supplying another same-skill expert lets the
-    evaluation test valid-condition responsiveness while holding the target
-    person's morphology and camera coordinates fixed.
-    """
+    """Separate target morphology from the optional motion condition."""
     condition_source = sample if condition_sample is None else condition_sample
     if condition_source.skill != sample.skill:
         raise ValueError("condition sample must have the same skill as target sample")
@@ -396,8 +381,7 @@ def _apply_reliable_condition_guidance(
         return generated
     raw = generated * state_scale[None] + state_mean[None]
     directions = raw[..., :DIRECTION_DIM].reshape(len(raw), FRAMES, JOINTS, 2)
-    # Reliability below chance receives no guidance. Above chance, trust rises
-    # linearly and is also bounded by observation confidence.
+    # Reliability below chance receives no guidance.
     trust = np.clip(
         (reliability - reliability_threshold) / (1.0 - reliability_threshold),
         0.0,

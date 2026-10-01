@@ -24,13 +24,7 @@ def _largest_person_index(
     scores: NDArray[np.floating] | None = None,
     threshold: float = 0.0,
 ) -> int | None:
-    """Index of the biggest detected person, or None when there is no person.
-
-    The CUDA TensorRT path reads raw postprocess tensors and the MPS/CPU
-    ``predict()`` path reads a supervision result. Both must select the same
-    person, or one video could grade differently by device, so the rule lives
-    once here and both paths call it.
-    """
+    """Index of the biggest detected person, or None when there is no person."""
     keep = class_ids == _PERSON_CLASS_ID
     if scores is not None:
         keep = keep & (scores > threshold)
@@ -40,14 +34,10 @@ def _largest_person_index(
     return int(np.argmax(np.where(keep, areas, -np.inf)))
 
 
-# Fixed batch size the cached TensorRT engines are built for. Callers chunk
-# whole videos to this size; a short final chunk is padded internally.
+# Fixed batch size the cached TensorRT engines are built for.
 BATCH_SIZE = 16
 
-# Elbows are frequently self-occluded during a badminton swing. The pose model
-# still tracks them coherently below the general body-joint cutoff, so accept
-# these two joints at a lower confidence instead of synthesizing their
-# coordinates later in the renderer.
+# Elbows are frequently self-occluded during a badminton swing.
 _ELBOW_KEYPOINT_INDICES = frozenset(
     (int(COCOKeypoints.LEFT_ELBOW), int(COCOKeypoints.RIGHT_ELBOW))
 )
@@ -62,8 +52,7 @@ _TRT_CACHE_ROOT = Path(
 DETECTOR_ENGINE = "rfdetr-medium.trt"
 POSE_ENGINE = "vitpose-plus-large.trt"
 POSE_CHECKPOINT = "usyd-community/vitpose-plus-large"
-# ViTPose++ is a mixture of experts over its training datasets; this one reads
-# the COCO 17-keypoint schema, which is the order `COCOKeypoints` uses.
+# ViTPose++ is a mixture of experts over its training datasets; this one reads the COCO 17-keypoint schema.
 POSE_DATASET_INDEX = 0
 POSE_INPUT_HEIGHT, POSE_INPUT_WIDTH = 256, 192
 
@@ -71,41 +60,18 @@ POSE_INPUT_HEIGHT, POSE_INPUT_WIDTH = 256, 192
 def _cv2_warp_affine(
     src: NDArray[np.uint8], M: NDArray[np.floating], size: tuple[int, int]
 ) -> NDArray[np.uint8]:
-    """The warp the original ViTPose uses.
-
-    `transformers` falls back to `scipy.ndimage`, which pushes every channel of
-    the full frame through an inverse affine per crop -- about 1.3s a frame
-    against 0.13s here, for keypoints that agree to 0.008px.
-    """
+    """The warp the original ViTPose uses."""
     return cv2.warpAffine(
         src, np.asarray(M, dtype=np.float32), (size[1], size[0]), flags=cv2.INTER_LINEAR
     )
 
 
 class PoseDetector:
-    """Two-stage 2D pose estimation.
-
-    RF-DETR Medium finds the player and ViTPose++-L reads the joints from a
-    crop of them. The previous single-stage RF-DETR keypoint model saw the
-    whole frame squashed into a square, which spent most of its resolution on
-    an empty court; cropping to the player and reading the pose at 256x192
-    agrees with the raters measurably better (serve checklist ICC 0.839 to
-    0.863 over the fifty rated learners), and Medium is cheaper than the
-    keypoint model it replaces because it only has to return a box.
-
-    ViTPose emits COCO-17 in the same index order as `COCOKeypoints`, so no
-    schema adapter is needed. It has no hand or foot keypoints, so
-    `wholebody_keypoints`/`wholebody_scores` only ever carry real data in their
-    first 17 slots.
-    """
+    """Two-stage 2D pose estimation."""
 
     def __init__(
         self,
-        # 0.5 dropped real, stable elbow/wrist detections during a swing --
-        # the non-dominant arm (partially self-occluded, held close to the
-        # body from most camera angles) commonly scores 0.18-0.45 while still
-        # tracking the correct position frame to frame; 0.15 keeps those and
-        # still excludes near-zero noise.
+        # 0.5 dropped real, stable elbow/wrist detections during a swing.
         min_detection_confidence: float = 0.15,
         elbow_detection_confidence: float = 0.05,
         person_detection_threshold: float = 0.5,
@@ -134,18 +100,12 @@ class PoseDetector:
         self._last_predictions: list[PosePrediction] = []
 
     def keypoint_detection_threshold(self, index: int) -> float:
-        """Return the acceptance threshold for one COCO body joint.
-
-        The TensorRT and torch paths produce the same ``PosePrediction``
-        structure, so applying this threshold while reading predictions keeps
-        their joint filtering identical.
-        """
+        """Return the acceptance threshold for one COCO body joint."""
         if int(index) in _ELBOW_KEYPOINT_INDICES:
             return self.elbow_detection_confidence
         return self.min_detection_confidence
 
-    # The grade log names the pose backend, and the ``pose_tensorrt_active``
-    # diagnostic reports whether the TensorRT engines served the request.
+    # The grade log names the pose backend.
     @property
     def execution_provider(self) -> str:
         return "tensorrt" if self.tensorrt_active else "torch"
@@ -168,8 +128,7 @@ class PoseDetector:
         except ImportError as exc:
             raise RuntimeError("transformers is required for pose estimation") from exc
         vitpose_processing.scipy_warp_affine = _cv2_warp_affine
-        # Built from explicit parameters rather than the hub, so a cold start
-        # never depends on network access.
+        # Built from explicit parameters rather than the hub, so a cold start never depends on network access.
         self._pose_processor = VitPoseImageProcessor(
             size={"height": POSE_INPUT_HEIGHT, "width": POSE_INPUT_WIDTH}
         )
@@ -191,13 +150,7 @@ class PoseDetector:
         return _TRT_CACHE_ROOT / gpu_name / f"batch{BATCH_SIZE}"
 
     def _load_engines(self) -> None:
-        """Load the two prebuilt TensorRT engines baked into the image.
-
-        Unlike the single-stage detector this replaces, nothing is built at
-        run time: `build_pose_engines.py` produces both engines on the serving
-        GPU once and the deploy workflow bakes them in, because a cold start
-        that compiles an engine costs minutes on a service that scales to zero.
-        """
+        """Load the two prebuilt TensorRT engines baked into the image."""
         from badminton_analysis.services.trt_engine import TorchTRTEngine
 
         if self._detector is None:
@@ -349,17 +302,7 @@ class PoseDetector:
         return out
 
     def get_poses_batch(self, images: list[MatLike]) -> list[list[PosePrediction]]:
-        """Detect the largest person and their pose across a batch of frames.
-
-        On CUDA both stages run their cached fixed-batch TensorRT engines
-        (`BATCH_SIZE` frames per call); on MPS/CPU both fall back to torch. It
-        does not touch `_last_predictions`, which callers set per frame before
-        reading landmarks.
-
-        A short final chunk is padded internally with a repeated last frame to
-        satisfy the engines' fixed batch shape, then the padding is truncated
-        back off before returning.
-        """
+        """Detect the largest person and their pose across a batch of frames."""
         if not images:
             return []
         if len(images) > BATCH_SIZE:
@@ -402,12 +345,7 @@ class PoseDetector:
     def get_dense_2d_keypoints(
         self,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
-        """The selected person's 17 body keypoints and their scores.
-
-        Unlike ``get_2d_landmarks`` this keeps every joint, including those
-        below the detection threshold, with its continuous score, so callers
-        can weigh a weak keypoint rather than lose it.
-        """
+        """The selected person's 17 body keypoints and their scores."""
         if not self._last_predictions:
             return None
         target = self._last_predictions[0]

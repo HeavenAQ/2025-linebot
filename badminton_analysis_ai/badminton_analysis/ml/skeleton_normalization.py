@@ -96,14 +96,7 @@ def landmark_dicts_to_array(
 def tracking_body_arrays(
     tracking: TrackingData,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    """Return dense body coordinates with continuous detector confidence.
-
-    New RF-DETR tracking data carries dense coordinates and scores.  Older
-    caches and test doubles only have sparse dictionaries, so they retain a
-    compatibility fallback with a binary observed mask.  Keeping this choice
-    in one function prevents inference, audit, and handedness paths from
-    silently using different confidence semantics.
-    """
+    """Return dense body coordinates with continuous detector confidence."""
     coordinates = tracking.get("body_keypoints_2d")
     confidence = tracking.get("body_confidence_2d")
     if coordinates is not None and confidence is not None:
@@ -144,10 +137,7 @@ def _interpolate_missing(
     return coordinates
 
 
-# Proximal-to-distal bone pairs from skeleton_scoring.BONES, excluding the two
-# lateral pairs ((5, 6) shoulder-shoulder, (11, 12) hip-hip) that have no
-# parent/child relationship, and the torso connectors ((5, 11), (6, 12)) whose
-# "child" is a normalization anchor rather than a joint this should touch.
+# Proximal-to-distal bone pairs from skeleton_scoring.BONES.
 _PARENT_CHILD_BONES = (
     (5, 7),
     (7, 9),
@@ -167,20 +157,7 @@ def _raise_confidence_for_bone_stabilized_joints(
     parent_threshold: float = 0.5,
     child_threshold: float = 0.5,
 ) -> NDArray[np.float32]:
-    """Let a confidently-tracked joint partially vouch for its stabilized child.
-
-    `project_stable_bone_lengths` already anchors an undetected joint's
-    position to a confidently-observed parent (e.g. the ankle to the knee)
-    via the clip's own stable bone length, but leaves that joint's stored
-    confidence untouched -- so a real, reasonably plausible reconstructed
-    position still gets zero-weighted out of every downstream training loss
-    and distance metric. If the parent is confidently observed in this exact
-    frame, promote the child's confidence to a moderate synthetic value
-    (never lowering it), reflecting "positionally anchored, not directly
-    detected" rather than "unknown." Deliberately a single hop, always read
-    from the original (pre-boost) array, so a boosted joint never vouches for
-    a further joint down the same chain.
-    """
+    """Let a confidently-tracked joint partially vouch for its stabilized child."""
     original = np.asarray(confidence, dtype=np.float64)
     boosted = np.asarray(confidence, dtype=np.float32).copy()
     for parent, child in _PARENT_CHILD_BONES:
@@ -245,19 +222,7 @@ def smooth_pose_sequence(
     window: int = 5,
     sigma: float = 1.0,
 ) -> NDArray[np.float32]:
-    """Reduce per-frame detector jitter with a light, confidence-weighted
-    temporal filter.
-
-    A top-down, per-frame pose model (unlike a temporally-consistent 3D
-    tracker) has no cross-frame constraint, so single-frame coordinate noise
-    can make an otherwise-rigid bone's length swing by tens of percent
-    frame-to-frame even though the joint itself barely moved. The Gaussian
-    kernel's width (~1 frame std) is narrow relative to a badminton swing's
-    multi-frame duration, so it damps single-frame spikes without smearing
-    genuine fast motion. Frames get a confidence-weighted blend of their
-    temporal neighborhood; a joint with no confident support anywhere in the
-    window keeps its original (possibly already-interpolated) value.
-    """
+    """Reduce per-frame detector jitter with a light, confidence-weighted temporal filter."""
     coordinates = np.asarray(sequence, dtype=np.float64)
     weights = np.clip(np.asarray(confidence, dtype=np.float64), 0.0, 1.0)
     frames = len(coordinates)
@@ -293,17 +258,7 @@ def stabilize_left_right_joint_labels(
     sequence: NDArray[np.floating],
     confidence: NDArray[np.floating],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Repair isolated whole-body left/right label flips over time.
-
-    Top-down 2D detectors can reverse every paired anatomical label for one
-    frame while keeping geometrically plausible coordinates. A temporal
-    smoother cannot repair that semantic error and may choose the bad first
-    frame as the clip's normalization basis. Dynamic programming chooses the
-    original or fully swapped joint assignment per frame from torso/lower-body
-    continuity. A small bias toward the detector's original labels resolves
-    the otherwise ambiguous all-swapped solution and limits corrections to
-    short discontinuous segments.
-    """
+    """Repair isolated whole-body left/right label flips over time."""
     coordinates = np.asarray(sequence, dtype=np.float64)
     observed = np.asarray(confidence, dtype=np.float64)
     if coordinates.ndim != 3 or coordinates.shape[1:] != (COCO_JOINT_COUNT, 2):
@@ -414,11 +369,7 @@ def normalize_skeleton_sequence(
     confidence: NDArray[np.floating],
     handedness: Handedness | str,
 ) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
-    """Interpolate, mirror anatomy, root-center, rotate, and body-scale a pose sequence.
-
-    Right-dominant anatomy always occupies the right COCO joint slots. Confidence
-    remains the original observation mask, including across interpolated gaps.
-    """
+    """Interpolate, mirror anatomy, root-center, rotate, and body-scale a pose sequence."""
     motion = normalize_skeleton_motion(sequence, confidence, handedness)
     return motion.skeleton, motion.confidence
 
@@ -437,11 +388,7 @@ def normalize_skeleton_motion(
     observed = np.asarray(filtered_confidence, dtype=np.float64).copy()
     if coordinates.shape[1] != COCO_JOINT_COUNT or coordinates.shape[2] != 2:
         raise ValueError("sequence must have shape (T, 17, 2)")
-    # A per-frame 2D detector has no cross-frame consistency constraint, so a
-    # bone's detected length can drift tens of percent frame-to-frame from
-    # coordinate noise alone; smooth the jitter, then project onto stable
-    # per-clip bone lengths so the stored skeleton (and anything trained
-    # against it) treats bone length as the anatomical constant it is.
+    # A per-frame 2D detector has no cross-frame consistency constraint.
     from badminton_analysis.ml.skeleton_scoring import (
         TORSO_WIDTH_BONES,
         project_stable_bone_lengths,
@@ -702,23 +649,7 @@ def refine_delayed_overhead_contact_phase_indices(
     minimum_delay_frames: int = 8,
     speed_ratio_threshold: float = 3.0,
 ) -> NDArray[np.int64]:
-    """Move a false preparation anchor to a later overhead hitting event.
-
-    A player can raise and then hold the racket overhead while waiting for a
-    self-fed shuttle.  The broad overhead detector historically treated that
-    first wrist-height maximum as contact even when the actual racket swing
-    happened much later.  Phase-aligning an expert to that false event makes
-    the corrected skeleton hit a shuttle that has not arrived yet.
-
-    Detect only the unambiguous version of this failure: after the stored
-    contact there must be a second dominant-wrist/shoulder-relative motion at
-    least ``minimum_delay_frames`` later and more than
-    ``speed_ratio_threshold`` times faster than motion at the old anchor.  A
-    high threshold intentionally leaves ordinary 1--3 frame detector offsets
-    unchanged.  The revised contact is one sample before the centred
-    acceleration maximum, compensating for the derivative's one-frame lag.
-    Preparation and follow-through anchors are then rebuilt as midpoints.
-    """
+    """Move a false preparation anchor to a later overhead hitting event."""
     values = np.asarray(sequence, dtype=np.float64)
     phases = np.asarray(phase_indices, dtype=np.int64)
     if values.ndim != 3 or values.shape[1:] != (17, 2):

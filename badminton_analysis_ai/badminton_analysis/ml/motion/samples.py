@@ -1,8 +1,4 @@
-"""Motion archives, the frozen expert phase model and the correction record.
-
-Loads expert and learner motion archives and the expert-only
-``expert_score_model.npz``. No learner data enters the model.
-"""
+"""Motion archives, the frozen expert phase model and the correction record."""
 
 from __future__ import annotations
 

@@ -1,18 +1,4 @@
-"""What every skill shares, and the hooks a skill overrides.
-
-A skill is one stroke the system can grade. The pipeline is the same for all
-of them: find the stroke in the clip, normalize it onto the generator's clock,
-let the skill's EIMD prior generate the expert version, score the learner
-against it, then render and coach. `SkillDefinition` holds that shared path;
-a skill subclasses it and answers only what is particular to it -- where its
-stroke starts and ends, how it is scored, and what the pipeline and the coach
-need to say about it.
-
-Adding a skill means: a `Skill` enum value and its rubric in `skill_specs.py`,
-its EIMD model under `models/error_isolated_motion/<skill>/`, a
-`ml/<skill>/skill.py` with a `SkillDefinition` subclass, and one line in
-`_DEFINITIONS` below.
-"""
+"""What every skill shares, and the hooks a skill overrides."""
 
 from __future__ import annotations
 
@@ -57,8 +43,7 @@ from badminton_analysis.services.video_analyzer import VideoAnalyzer
 PhaseContract = Literal["current", "eimd_v3"]
 PreparedSample = tuple[MotionSample, tuple[int, int, int], NDArray[np.int64]]
 
-# Grading and display use the "current" window; generation priors and the
-# requested-skill guard were trained or calibrated on the "eimd_v3" one.
+# Grading and display use the "current" window.
 PHASE_CONTRACTS: tuple[PhaseContract, ...] = ("current", "eimd_v3")
 
 
@@ -153,11 +138,7 @@ class SkillScorer(ABC):
 
 
 class SkillDefinition:
-    """One stroke: the shared pipeline, answered by the skill's own modules.
-
-    Each skill package provides `phases`, `scorer` and `coaching` modules with
-    the same interface; a subclass names its skill and those three modules.
-    """
+    """One stroke: the shared pipeline, answered by the skill's own modules."""
 
     skill: Skill
     phases: ModuleType

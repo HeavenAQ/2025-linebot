@@ -12,13 +12,7 @@ from badminton_analysis.ml.eimd.blocks import (
 
 
 class PhaseJointReliabilityEncoder(nn.Module):
-    """Infer trustworthy joint-phase tokens before motion conditioning.
-
-    A diagnostic transformer may compare all raw joint tokens to estimate
-    reliability.  The motion-fusion transformer only receives gated local
-    tokens, preventing rejected pose values from leaking through contextual
-    features computed before the gate.
-    """
+    """Infer trustworthy joint-phase tokens before motion conditioning."""
 
     def __init__(
         self,

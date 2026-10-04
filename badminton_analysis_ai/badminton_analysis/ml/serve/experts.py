@@ -178,8 +178,13 @@ def _serve_expert_envelope_components(
     root: NDArray[np.floating],
     confidence: NDArray[np.floating],
     envelope: dict[str, dict[str, Any]],
+    image_evidence: dict[str, float] | None = None,
 ) -> dict[str, float]:
     evidence, names, _ = _serve_semantic_evidence(rule_id, pose, root, confidence)
+    # Cues read on the video's own keypoints replace the pre-processed sample's, which loses the fast follow-through.
+    for name, value in (image_evidence or {}).items():
+        if name in names:
+            evidence[names.index(name)] = value
     calibration = envelope[rule_id]
     lower = np.asarray(calibration["lower_envelope"], dtype=np.float64)
     scale = np.asarray(calibration["feature_scale"], dtype=np.float64)

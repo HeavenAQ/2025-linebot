@@ -15,6 +15,17 @@ from badminton_analysis.ml.skill_specs import motion_completion_bounds
 _SERVE_UNSEEN_EXPERT_MARGIN = 0.15
 
 
+# Experts finish with the hips 10+ degrees over the front foot, well-rated learners 8+; a stacked body line has not transferred.
+_SERVE_HIP_LEAN_FULL_DEGREES = 8.0
+_SERVE_HIP_LEAN_NONE_DEGREES = 3.0
+# Every expert's elbow opens 3+ degrees into the wrist's peak acceleration; an arm that only folds has no flick.
+_SERVE_ELBOW_OPENING_FULL_DEGREES = 3.0
+_SERVE_ELBOW_OPENING_NONE_DEGREES = 1.0
+# After the wrist's peak an expert's shoulder keeps turning while the elbow stays quiet; an elbow outrunning the shoulder is the arm hitting.
+_SERVE_ARM_RATIO_FULL = 2.7
+_SERVE_ARM_RATIO_NONE = 5.0
+
+
 def _wrapped_angle(value: float) -> float:
     """Wrap an angle difference to ``[-pi, pi]``."""
     return float((value + np.pi) % (2.0 * np.pi) - np.pi)
@@ -54,6 +65,135 @@ def _serve_best_terminal_value(
     if not eligible.size:
         return float("nan")
     return float(np.min(eligible))
+
+
+def _serve_image_hip_lean(
+    keypoints: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    source_frames: NDArray[np.integer],
+    handedness: str,
+) -> dict[str, float]:
+    """How far the hips lean over the front foot at the finish, in degrees from true image vertical."""
+    frames = np.asarray(source_frames, dtype=np.int64)
+    values = np.asarray(keypoints, dtype=np.float64)[frames]
+    observed = np.asarray(confidence, dtype=np.float64)[frames]
+    racket, front = (15, 16) if str(handedness).lower() == "left" else (16, 15)
+    preparation_start, preparation_end = motion_completion_bounds(
+        len(frames), 0.125, 0.34375
+    )
+    completion_start, completion_end = motion_completion_bounds(
+        len(frames), 0.71875, 1.0
+    )
+    front_side = float(
+        np.sign(
+            np.median(
+                values[preparation_start:preparation_end, front, 0]
+                - values[preparation_start:preparation_end, racket, 0]
+            )
+        )
+    )
+    hip_center = 0.5 * (values[:, 11] + values[:, 12])
+    ankle_center = 0.5 * (values[:, 15] + values[:, 16])
+    # Image y grows downward, so the hips sit above the ankles at positive height.
+    lean = np.degrees(
+        np.arctan2(
+            front_side * (hip_center[:, 0] - ankle_center[:, 0]),
+            ankle_center[:, 1] - hip_center[:, 1],
+        )
+    )
+    seen = np.min(observed[:, (11, 12, 15, 16)], axis=1) > 0.2
+    finish = np.arange(len(frames))[completion_start:completion_end]
+    finish = finish[seen[finish]] if np.any(seen[finish]) else finish
+    finish_lean = float(np.median(lean[finish]))
+    return {
+        "image_hip_lean_degrees": finish_lean,
+        "image_hip_lean_factor": float(
+            np.clip(
+                (finish_lean - _SERVE_HIP_LEAN_NONE_DEGREES)
+                / (_SERVE_HIP_LEAN_FULL_DEGREES - _SERVE_HIP_LEAN_NONE_DEGREES),
+                0.0,
+                1.0,
+            )
+        ),
+    }
+
+
+def _serve_image_elbow_opening(
+    keypoints: NDArray[np.floating],
+    window: tuple[int, int, int],
+    handedness: str,
+    fps: float,
+) -> dict[str, float]:
+    """The racket elbow around the wrist's peak acceleration: opening into it, and its speed against the shoulder's after it."""
+    start, contact, end = (int(v) for v in window)
+    hip, shoulder, elbow, wrist = (11, 5, 7, 9) if str(handedness).lower() == "left" else (12, 6, 8, 10)
+    values = np.asarray(keypoints, dtype=np.float64)[:, (hip, shoulder, elbow, wrist)]
+    padded = np.pad(values, ((2, 2), (0, 0), (0, 0)), mode="edge")
+    values = np.mean([padded[i : i + len(values)] for i in range(5)], axis=0)
+
+    def joint_angle(a: int, o: int, b: int) -> NDArray[np.float64]:
+        u, v = values[:, a] - values[:, o], values[:, b] - values[:, o]
+        cosine = np.sum(u * v, axis=-1) / np.maximum(
+            np.linalg.norm(u, axis=-1) * np.linalg.norm(v, axis=-1), _EPS
+        )
+        return np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
+
+    elbow_angle, shoulder_angle = joint_angle(1, 2, 3), joint_angle(0, 1, 2)
+    acceleration = np.linalg.norm(
+        np.diff(values[:, 3] - values[:, 1], n=2, axis=0), axis=-1
+    )
+    low, high = start + (contact - start) // 2, min(end, contact + (end - contact) // 2)
+    high = max(high, low + 1)
+    peak = low + int(np.argmax(acceleration[low:high])) + 1
+    step = max(1, int(round(fps / 30.0)))
+    span = elbow_angle[max(start, peak - 8 * step) : peak + 3 * step + 1]
+    opening = float(np.max(span - np.minimum.accumulate(span)))
+    after = slice(peak, peak + max(2, int(round(0.2 * fps))) + 1)
+    elbow_speed = float(np.median(np.abs(np.diff(elbow_angle[after])))) * fps
+    shoulder_speed = float(np.median(np.abs(np.diff(shoulder_angle[after])))) * fps
+    # A still shoulder (under 30 deg/s) is not allowed to make any elbow motion look large.
+    arm_ratio = elbow_speed / max(shoulder_speed, 30.0)
+    opening_factor = np.clip(
+        (opening - _SERVE_ELBOW_OPENING_NONE_DEGREES)
+        / (_SERVE_ELBOW_OPENING_FULL_DEGREES - _SERVE_ELBOW_OPENING_NONE_DEGREES),
+        0.0,
+        1.0,
+    )
+    arm_factor = np.clip(
+        (_SERVE_ARM_RATIO_NONE - arm_ratio) / (_SERVE_ARM_RATIO_NONE - _SERVE_ARM_RATIO_FULL),
+        0.0,
+        1.0,
+    )
+    return {
+        "image_elbow_opening_degrees": opening,
+        "image_elbow_speed_after_peak_degrees_per_second": elbow_speed,
+        "image_shoulder_speed_after_peak_degrees_per_second": shoulder_speed,
+        "image_elbow_to_shoulder_speed_ratio": arm_ratio,
+        "image_elbow_opening_factor": float(min(opening_factor, arm_factor)),
+    }
+
+
+def _serve_image_elbow_between_shoulders(
+    keypoints: NDArray[np.floating],
+    confidence: NDArray[np.floating],
+    window: tuple[int, int, int],
+    handedness: str,
+) -> float:
+    """The smallest angle the two shoulders subtend at the racket elbow over the finish, on the video's own keypoints."""
+    start, _, end = (int(v) for v in window)
+    racket, other, elbow = (5, 6, 7) if str(handedness).lower() == "left" else (6, 5, 8)
+    values = np.asarray(keypoints, dtype=np.float64)
+    observed = np.asarray(confidence, dtype=np.float64)
+    end = min(end + 1, len(values))
+    finish = slice(start + int(round(0.875 * (end - 1 - start))), end)
+    to_racket = values[finish, racket] - values[finish, elbow]
+    to_other = values[finish, other] - values[finish, elbow]
+    cosine = np.sum(to_racket * to_other, axis=-1) / np.maximum(
+        np.linalg.norm(to_racket, axis=-1) * np.linalg.norm(to_other, axis=-1), _EPS
+    )
+    angle = np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0)))
+    seen = np.min(observed[finish][:, (racket, other, elbow)], axis=1) >= 0.20
+    return float(np.min(angle[seen] if np.any(seen) else angle))
 
 
 def _serve_wrist_descent_onset(pose: NDArray[np.float64], contact: int) -> int:
@@ -466,10 +606,14 @@ def _serve_semantic_evidence(
         shoulder_elbow_angle = np.degrees(
             np.arccos(np.clip(shoulder_elbow_cosine, -1.0, 1.0))
         )
-        # Shoulders that turn to face forward foreshorten in the picture.
-        shoulder_width = (
-            np.linalg.norm(values[:, 5] - values[:, 6], axis=-1) / torso_scale
+        # Shoulders that turn to face forward foreshorten in the picture, and past edge-on they swap sides.
+        setup_line = np.median(
+            values[preparation_start:preparation_end, 6]
+            - values[preparation_start:preparation_end, 5],
+            axis=0,
         )
+        setup_line /= max(float(np.linalg.norm(setup_line)), _EPS)
+        shoulder_width = ((values[:, 6] - values[:, 5]) @ setup_line) / torso_scale
         rotation = _serve_projected_rotation_features(values, observed)
         return (
             np.asarray(

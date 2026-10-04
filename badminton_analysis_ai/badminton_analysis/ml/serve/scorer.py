@@ -26,7 +26,12 @@ from badminton_analysis.ml.serve.checkpoints import (
     _serve_wrist_action_components,
     _serve_wrist_correction_residuals,
 )
-from badminton_analysis.ml.serve.checkpoints import _serve_qualitative_pose_evidence
+from badminton_analysis.ml.serve.checkpoints import (
+    _serve_image_elbow_between_shoulders,
+    _serve_image_elbow_opening,
+    _serve_image_hip_lean,
+    _serve_qualitative_pose_evidence,
+)
 from badminton_analysis.ml.serve.experts import (
     _serve_checkpoint_manifold,
     _serve_expert_envelope,
@@ -106,6 +111,7 @@ def _criterion_components_for_spec(
     confidence: NDArray[np.float32],
     *,
     serve_expert_envelope: dict[str, dict[str, Any]] | None = None,
+    image_evidence: dict[str, float] | None = None,
 ) -> list[dict[str, float]]:
     frame_count = len(source_pose)
     if not (
@@ -133,6 +139,7 @@ def _criterion_components_for_spec(
                 source_root,
                 confidence,
                 serve_expert_envelope,
+                image_evidence,
             )
         elif spec.slug == "serve" and rule.id == "weight_transfer":
             components = _serve_weight_transfer_components(
@@ -462,6 +469,7 @@ def score_expert_correction(
     correction: ExpertCorrection,
     *,
     canonical_phase_indices: NDArray[np.integer] = CANONICAL_PHASE_INDICES,
+    image_evidence: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     spec = model.spec
     confidence = np.clip(
@@ -495,6 +503,7 @@ def score_expert_correction(
             semantic_root,
             semantic_confidence,
             serve_expert_envelope=_serve_expert_envelope(model),
+            image_evidence=image_evidence,
         )
         for index, rule in enumerate(spec.rules):
             if rule.id in {
@@ -1015,7 +1024,11 @@ def _dual_window_scoring_correction(
     )
 
 
-def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
+def _serve_single_head_score(
+    score: dict[str, Any],
+    hip_lean: dict[str, float] | None = None,
+    elbow_opening: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """Grade each serve checkpoint from its own evidence and add them up."""
     criteria = [dict(item) for item in score["criteria"]]
     for item in criteria:
@@ -1041,6 +1054,14 @@ def _serve_single_head_score(score: dict[str, Any]) -> dict[str, Any]:
             item["strict_transfer_support_ratio"] = support
             item["strict_transfer_attribution_cap"] = maximum * support
             ratio = min(ratio, support)
+            if hip_lean is not None:
+                # Hips stacked over the ankles at the finish: the weight never went onto the front foot.
+                item.update(hip_lean)
+                ratio = min(ratio, hip_lean["image_hip_lean_factor"])
+        if item["rule_reference"] == "wrist_flick" and elbow_opening is not None:
+            # An elbow that only folds into contact pushes the racket instead of flicking it.
+            item.update(elbow_opening)
+            ratio = min(ratio, elbow_opening["image_elbow_opening_factor"])
         if item["rule_reference"] == "arms_raised" and bool(
             item.get("passes_corrected_shoulder_height", False)
         ):
@@ -1067,7 +1088,7 @@ class ServeScorer(SkillScorer):
     """Expert phase model on the robust grading window, one head per checkpoint."""
 
     def score(self, context: ScoringContext) -> ScoredMotion:
-        scoring_sample, _, _ = self.definition.prepare_sample(
+        scoring_sample, scoring_window, scoring_frames = self.definition.prepare_sample(
             context.tracking,
             context.handedness,
             context.filename,
@@ -1091,9 +1112,26 @@ class ServeScorer(SkillScorer):
             start=scoring_start,
             end=scoring_end,
         )
+        # Cues the pre-processed sample cannot carry are read on the video's own keypoints.
+        keypoints = np.asarray(context.tracking["body_keypoints_2d"], dtype=np.float64)
+        observed = np.asarray(context.tracking["body_confidence_2d"], dtype=np.float64)
+        side = context.handedness.name.lower()
+        hip_lean = _serve_image_hip_lean(keypoints, observed, scoring_frames, side)
+        elbow_opening = _serve_image_elbow_opening(
+            keypoints, scoring_window, side, context.fps
+        )
+        elbow_between = _serve_image_elbow_between_shoulders(
+            keypoints, observed, scoring_window, side
+        )
         # Scored against the expert phase model with the checkpoint's own canonical phases.
         score = _serve_single_head_score(
-            score_expert_correction(self.score_model, scoring_correction)
+            score_expert_correction(
+                self.score_model,
+                scoring_correction,
+                image_evidence={"terminal_elbow_between_shoulders": -elbow_between},
+            ),
+            hip_lean,
+            elbow_opening,
         )
         return ScoredMotion(
             score=score,

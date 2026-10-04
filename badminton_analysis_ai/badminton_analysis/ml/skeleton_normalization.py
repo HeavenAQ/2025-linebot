@@ -174,8 +174,8 @@ def reject_pose_outliers(
     sequence: NDArray[np.floating],
     confidence: NDArray[np.floating],
     *,
-    minimum_length_ratio: float = 0.45,
-    maximum_length_ratio: float = 1.8,
+    minimum_length_ratio: float = 0.15,
+    maximum_length_ratio: float = 1.5,
 ) -> NDArray[np.float32]:
     """Reject limb endpoints whose apparent bone length is temporally implausible."""
     coordinates = np.asarray(sequence, dtype=np.float64)
@@ -195,7 +195,8 @@ def reject_pose_outliers(
             & np.isfinite(lengths)
             & (lengths > _EPS)
         )
-        baseline = float(np.median(lengths[valid])) if np.any(valid) else 0.0
+        # A 2D bone only looks shorter than it is: the long end of what was seen is its length, not the median.
+        baseline = float(np.quantile(lengths[valid], 0.90)) if np.any(valid) else 0.0
         if baseline <= _EPS:
             continue
         invalid = valid & (

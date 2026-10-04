@@ -38,6 +38,19 @@ _SERVE_CORRECTION_ELBOW_MEASUREMENTS = (
 )
 
 
+# Read on the video itself: hips over the front foot at the finish, and the elbow around the wrist's peak.
+_SERVE_IMAGE_TRANSFER_MEASUREMENTS = (
+    "image_hip_lean_degrees",
+    "image_hip_lean_full_degrees",
+)
+_SERVE_IMAGE_WRIST_MEASUREMENTS = (
+    "image_elbow_opening_degrees",
+    "image_elbow_opening_full_degrees",
+    "image_elbow_to_shoulder_speed_ratio",
+    "image_elbow_to_shoulder_speed_ratio_full",
+)
+
+
 def _attach_serve_transfer_measurements(
     correction_grade: dict[str, Any], score: dict[str, Any]
 ) -> None:
@@ -60,7 +73,7 @@ def _attach_serve_transfer_measurements(
         for prefix in ("source_", "expert_lower_", "standardized_shortfall_"):
             if prefix + cue in measured:
                 criterion[prefix + cue] = float(measured[prefix + cue])
-    for key in _SERVE_CORRECTION_STANCE_MEASUREMENTS:
+    for key in _SERVE_CORRECTION_STANCE_MEASUREMENTS + _SERVE_IMAGE_TRANSFER_MEASUREMENTS:
         if key in measured:
             criterion[key] = float(measured[key])
     wrist = next(
@@ -77,7 +90,7 @@ def _attach_serve_transfer_measurements(
             for item in correction_grade["criteria"]
             if item["rule_reference"] == "wrist_flick"
         )
-        for key in _SERVE_CORRECTION_ELBOW_MEASUREMENTS:
+        for key in _SERVE_CORRECTION_ELBOW_MEASUREMENTS + _SERVE_IMAGE_WRIST_MEASUREMENTS:
             if key in wrist:
                 wrist_criterion[key] = float(wrist[key])
 

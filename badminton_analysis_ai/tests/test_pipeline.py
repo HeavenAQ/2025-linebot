@@ -278,6 +278,8 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
     measured["correction_corrected_transfer_lead_frames"] = -3.0
     measured["correction_transfer_lead_excess_frames"] = 11.0
     measured["correction_transfer_lead_allowance_frames"] = 4.6
+    measured["image_hip_lean_degrees"] = 2.1
+    measured["image_hip_lean_full_degrees"] = 8.0
 
     wrist = {
         "rule_reference": "wrist_flick",
@@ -289,6 +291,10 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
         "correction_corrected_shoulder_stance_angle_degrees": -21.7,
         "correction_shoulder_turn_shortfall_degrees": 7.8,
         "correction_shoulder_turn_allowance_degrees": 2.9,
+        "image_elbow_opening_degrees": 0.0,
+        "image_elbow_opening_full_degrees": 3.0,
+        "image_elbow_to_shoulder_speed_ratio": 6.3,
+        "image_elbow_to_shoulder_speed_ratio_full": 2.7,
     }
 
     _attach_serve_transfer_measurements(context, {"criteria": [measured, wrist]})
@@ -296,7 +302,7 @@ def test_serve_gpt_receives_every_measurement_its_instructions_name() -> None:
     # An instruction to judge by a measurement GPT never receives is worse
     # than none: it is told the error cannot be claimed without the number.
     named = set(
-        re.findall(r"(?:source|expert_lower|standardized_shortfall|correction)_[a-z_]+", system_instructions(spec))
+        re.findall(r"(?:source|expert_lower|standardized_shortfall|correction|image)_[a-z_]+", system_instructions(spec))
     )
     sent = set()
     for item in context["criteria"]:

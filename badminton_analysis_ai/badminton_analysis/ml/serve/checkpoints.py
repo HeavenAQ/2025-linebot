@@ -107,6 +107,7 @@ def _serve_image_hip_lean(
     finish_lean = float(np.median(lean[finish]))
     return {
         "image_hip_lean_degrees": finish_lean,
+        "image_hip_lean_full_degrees": _SERVE_HIP_LEAN_FULL_DEGREES,
         "image_hip_lean_factor": float(
             np.clip(
                 (finish_lean - _SERVE_HIP_LEAN_NONE_DEGREES)
@@ -166,9 +167,11 @@ def _serve_image_elbow_opening(
     )
     return {
         "image_elbow_opening_degrees": opening,
+        "image_elbow_opening_full_degrees": _SERVE_ELBOW_OPENING_FULL_DEGREES,
         "image_elbow_speed_after_peak_degrees_per_second": elbow_speed,
         "image_shoulder_speed_after_peak_degrees_per_second": shoulder_speed,
         "image_elbow_to_shoulder_speed_ratio": arm_ratio,
+        "image_elbow_to_shoulder_speed_ratio_full": _SERVE_ARM_RATIO_FULL,
         "image_elbow_opening_factor": float(min(opening_factor, arm_factor)),
     }
 

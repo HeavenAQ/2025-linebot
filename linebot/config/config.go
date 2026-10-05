@@ -81,8 +81,10 @@ type LiffConfig struct {
 }
 
 // DefaultLiffReviewURL is the deployed review tab, used when nothing is set so
-// the bot never hands a learner a broken link.
-const DefaultLiffReviewURL = "https://linebot-liff-nstc-2025.heavian.work/personal?tab=review"
+// the bot never hands a learner a broken link. Like the registration link it is
+// a liff.line.me link: opened from a LINE message, the bare endpoint URL has to
+// finish LINE Login in the in-app browser and can hang on "正在連線 LINE…".
+const DefaultLiffReviewURL = "https://liff.line.me/2006698730-J9npgmy3/personal?tab=review"
 
 // A liff.line.me link, not the endpoint URL: tapping the latter in a LINE
 // message goes through LINE Login, which returns to the app's registered

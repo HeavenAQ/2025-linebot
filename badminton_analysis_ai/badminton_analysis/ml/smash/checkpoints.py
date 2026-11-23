@@ -79,6 +79,7 @@ def score_source_evidence(
     forward_sign=1,
     rescore_interval=True,
     endpoint_acceleration=None,
+    mirrored=False,
 ):
     """Grade source poses against the frozen projected/EMA correction."""
     p, c, q = (
@@ -106,6 +107,10 @@ def score_source_evidence(
         if not 0 <= value["start"] <= value["anchor"] <= value["end"] < len(p):
             raise ValueError("Checkpoint interval is outside source coverage")
     initial = int(frames[0])
+    rotation_poses, rotation_correction = p, q
+    if mirrored:
+        rotation_poses = p * [-1, 1]
+        rotation_correction = q * [-1, 1]
     evidence = {}
     prior = np.asarray(historical_points, float).copy()
     compose_points(prior)  # Validate before changing a head.
@@ -115,7 +120,9 @@ def score_source_evidence(
         if not initial + 2 <= balance_anchor < contact:
             raise ValueError("Unassessed pre-contact rotation window")
         amounts, _, quality = combined_features(
-            p[initial : balance_anchor + 1], c[initial : balance_anchor + 1], handedness
+            rotation_poses[initial : balance_anchor + 1],
+            c[initial : balance_anchor + 1],
+            handedness,
         )
         rotation, present = rotation_credit(
             amounts, calibration.rotation_lower, calibration.rotation_full
@@ -213,10 +220,11 @@ def score_source_evidence(
             if not initial + 2 <= balance_anchor <= frames[-1]:
                 raise ValueError("Legacy rotation lacks generated coverage")
             observed, certainty, _ = legacy_rotation_trace(
-                p[initial : balance_anchor + 1], c[initial : balance_anchor + 1]
+                rotation_poses[initial : balance_anchor + 1],
+                c[initial : balance_anchor + 1],
             )
             target, _, _ = legacy_rotation_trace(
-                q[: balance_anchor - initial + 1],
+                rotation_correction[: balance_anchor - initial + 1],
                 np.ones_like(c[initial : balance_anchor + 1]),
             )
             if (

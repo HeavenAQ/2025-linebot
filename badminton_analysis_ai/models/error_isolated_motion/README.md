@@ -45,7 +45,7 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 | Criterion | Maximum | Current rule |
 |---|---:|---|
 | Preparation | 5 | Frozen graph; cap if dominant wrist rises above expert waist-height support |
-| Body rotation | 20 | Pre-balance lower-body, torso and shoulder-axis angle changes; explicit legacy directional/span fallback when unassessed |
+| Body rotation | 20 | Pre-balance lower-body, torso and shoulder-axis angle changes; up to 10 points for a sustained oblique torso over a staggered base; legacy directional/span fallback when unassessed |
 | Arm balance | 5 | Frozen graph; cap sustained five-frame low dominant hand while support hand is raised |
 | Elbow forward | 20 | Frozen historical semantic/trajectory head |
 | Wrist flick | 30 | Frozen historical semantic/trajectory head at the refined contact checkpoint |
@@ -55,6 +55,16 @@ No endpoint pooling or shoulder-retreat penalty is applied. Experts and learners
 follow identical inference rules. Cohort names, human ratings, and filename
 exceptions never enter the scorer. Full-fit expert calibration is not evidence
 of unseen-person generalization.
+
+The supplemental stance evidence requires concurrent shoulder and ankle offsets
+on opposite sides of the pelvis axis in at least ten of twelve pre-contact
+frames (400 ms). Offsets are normalized by torso length. A nearly side-on pelvis
+or low-confidence body/foot landmarks make this evidence unavailable. The rule
+can recognize a position already established before the recording's scoring
+window. A single projected view cannot establish the shoulder's direction
+relative to the shuttle target, so this evidence supplies at most 10/20.
+The original rotation rule can still award 20/20. The supplement preserves any
+higher existing rotation or fallback grade.
 
 ## Code and reproducibility
 

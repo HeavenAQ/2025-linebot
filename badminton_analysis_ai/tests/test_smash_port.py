@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 import json
 
 import numpy as np
@@ -35,6 +36,118 @@ def test_left_canonicalization_swaps_labels_without_reflection():
     np.testing.assert_array_equal(left[:, 10], p[:, 9])
     roundtrip, _ = canonical_source(left, c, "left")
     np.testing.assert_array_equal(roundtrip, p)
+
+
+@pytest.mark.parametrize(
+    "fallback, turn_degrees, expected",
+    [(False, -35, 20), (False, 35, 0), (True, -35, 20)],
+)
+def test_smash_turn_scores_match_for_mirrored_handedness(
+    monkeypatch, fallback, turn_degrees, expected
+):
+    import badminton_analysis.ml.smash.scorer as scorer_module
+    from badminton_analysis.ml.smash.checkpoints import (
+        CRITERIA,
+        CurrentSmashCalibration,
+    )
+
+    pose = np.zeros((15, 17, 2))
+    turn = np.minimum(np.arange(15) / 6, 1)
+    angle = np.deg2rad(turn_degrees * turn)
+    half_span = np.where(np.arange(15) <= 10, 0.5, 0.25)
+    axis = np.column_stack((np.cos(angle), np.sin(angle))) * half_span[:, None]
+    pose[:, 5] = -axis
+    pose[:, 6] = axis
+    pose[:, 11] = np.column_stack((0.8 * turn - 0.5, np.ones(15)))
+    pose[:, 12] = np.column_stack((0.8 * turn + 0.5, np.ones(15)))
+    pose[:, 15] = [-0.5, 2]
+    pose[:, 16] = [0.5, 2]
+    pose[:, 7] = pose[:, 5] + [-0.25, -0.5]
+    pose[:, 8] = pose[:, 6] + [0.25, -0.5]
+    pose[:, 9] = pose[:, 7] + [-0.25, 0.5]
+    pose[:, 10] = pose[:, 8] + [0.25, 0.5]
+    confidence = np.ones((15, 17))
+    intervals = {name: dict(start=0, anchor=6, end=6) for name in CRITERIA}
+    intervals["arm_balance"]["anchor"] = 10 if fallback else 6
+    intervals["arm_balance"]["end"] = intervals["arm_balance"]["anchor"]
+    intervals["wrist_flick"] = dict(start=10, anchor=10, end=11)
+    intervals["follow_through"] = dict(start=10, anchor=12, end=14)
+    scorer = scorer_module.CurrentSmashScorer.__new__(scorer_module.CurrentSmashScorer)
+    scorer.contract = dict(intervals=intervals, version="test")
+    scorer.calibration = CurrentSmashCalibration(
+        rotation_lower=(10, 10, 10),
+        rotation_full=(20, 20, 20),
+        preparation_height=1,
+        balance_gap=0.1,
+        shoulder_span_reference=0.5,
+        endpoint_map=(0, 1),
+        legacy_rotation_reference=1,
+    )
+    scorer.reference = None
+    baseline = dict(
+        criteria=[
+            dict(
+                rule_reference=name,
+                name_zh_tw=name,
+                euclidean_distance=0,
+                target_angle_distance=0,
+                combined_distance=0,
+            )
+            for name in CRITERIA
+        ]
+    )
+    scorer.historical_heads = lambda *args: (baseline, np.full(6, 5.0))
+    monkeypatch.setattr(scorer_module, "observed_cost", lambda *args: None)
+    monkeypatch.setattr(scorer_module, "align_contacts", lambda *args: (None, None, None))
+    monkeypatch.setattr(scorer_module, "transfer_intervals", lambda *args: intervals)
+    monkeypatch.setattr(
+        scorer_module,
+        "first_frame_ankle_spine_map",
+        lambda *args: (np.eye(2), np.zeros(2), None),
+    )
+    monkeypatch.setattr(scorer_module, "first_frame_standing_offsets", lambda *args: 0)
+
+    results = []
+    for handedness in ("right", "left"):
+        physical_pose = pose.copy()
+        if handedness == "left":
+            physical_pose[:, :, 0] *= -1
+            physical_pose, physical_confidence = canonical_source(
+                physical_pose, confidence, "left"
+            )
+        else:
+            physical_confidence = confidence
+        correction_pose, _ = canonical_source(
+            physical_pose, physical_confidence, handedness
+        )
+        monkeypatch.setattr(
+            scorer_module,
+            "checkpoint_reference_at_source_frames",
+            lambda *args: (correction_pose[args[3]], None),
+        )
+        result, _, _ = scorer.score(
+            sample=None,
+            correction=SimpleNamespace(aligned_corrected_pose=None),
+            source_phases=(0, 6, 10, 12, 14),
+            native_phases=(0, 6, 10, 12, 14),
+            window=(0, 10, 14),
+            poses=physical_pose,
+            confidence=physical_confidence,
+            handedness=handedness,
+            spec=None,
+            trajectory_scorer=None,
+            score_baseline=None,
+            fps=30.0,
+        )
+        results.append(result)
+    right, left = results
+    right_turn = right["criteria"][1]["score"]
+    assert right_turn == pytest.approx(expected)
+    assert left["criteria"][1]["score"] == pytest.approx(right_turn)
+    if fallback:
+        assert left["checkpoint_measurements"]["body_rotation"]["fallback"] == (
+            "legacy_directional_span"
+        )
 
 
 def test_bbox_ema_leaves_joint_vectors_intact_and_transport_happens_after():

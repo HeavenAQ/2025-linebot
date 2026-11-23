@@ -115,6 +115,59 @@ def test_temporal_descriptor_is_invariant_to_translation_scale_and_rotation(
     assert skill_temporal_descriptor(transformed) == pytest.approx(expected, abs=2e-5)
 
 
+@pytest.mark.parametrize(
+    "requested_skill, alternative_distance, confirmation_distance, mismatch",
+    [
+        ("smash", 0.125, 0.21875, False),
+        ("smash", 0.125, 0.15625, True),
+        ("smash", 0.125, 0.1875, False),
+        ("smash", 0.21875, None, False),
+        ("smash", 0.1875, None, False),
+        ("serve", 0.125, None, True),
+    ],
+)
+def test_smash_rejection_requires_serve_support_on_the_requested_window(
+    bank,
+    monkeypatch,
+    requested_skill,
+    alternative_distance,
+    confirmation_distance,
+    mismatch,
+):
+    requested_pose, alternative_pose = bank.skeletons[:2]
+    requested_descriptor = skill_temporal_descriptor(requested_pose)
+    alternative_descriptor = skill_temporal_descriptor(alternative_pose)
+    requested_distance = 0.25
+    calls = []
+
+    def nearest_distance(descriptor, skill):
+        calls.append(skill)
+        if np.array_equal(descriptor, requested_descriptor):
+            if skill == requested_skill:
+                return requested_distance
+            assert confirmation_distance is not None
+            return confirmation_distance
+        np.testing.assert_array_equal(descriptor, alternative_descriptor)
+        assert skill != requested_skill
+        return alternative_distance
+
+    monkeypatch.setattr(bank, "_nearest_skill_distance", nearest_distance)
+    monkeypatch.setattr(bank, "skill_rejection_margin", 0.0625)
+    support = bank.temporal_skill_support(
+        requested_pose, alternative_pose, requested_skill=requested_skill
+    )
+    assert support.mismatch is mismatch
+    assert support.requested_distance == requested_distance
+    assert support.alternative_distance == alternative_distance
+    assert support.alternative_advantage == requested_distance - alternative_distance
+    assert support.same_window_alternative_distance == confirmation_distance
+    assert len(calls) == (2 if confirmation_distance is None else 3)
+    if confirmation_distance is not None:
+        assert support.same_window_alternative_advantage == (
+            requested_distance - confirmation_distance
+        )
+
+
 def test_playback_window_comes_from_the_source_video(bank: ExpertReferenceBank) -> None:
     reference = bank.select(
         bank.skeletons[0], skill="serve", handedness=str(bank.handedness[0])

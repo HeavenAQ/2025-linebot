@@ -138,10 +138,21 @@ class SkillSupport:
     alternative_distance: float
     alternative_advantage: float
     rejection_margin: float
+    same_window_alternative_distance: float | None = None
+
+    @property
+    def same_window_alternative_advantage(self) -> float | None:
+        if self.same_window_alternative_distance is None:
+            return None
+        return self.requested_distance - self.same_window_alternative_distance
 
     @property
     def mismatch(self) -> bool:
-        return self.alternative_advantage > self.rejection_margin
+        advantage = self.alternative_advantage
+        confirmation = self.same_window_alternative_advantage
+        if confirmation is not None:
+            advantage = min(advantage, confirmation)
+        return advantage > self.rejection_margin
 
 
 class ExpertReferenceBank:
@@ -262,24 +273,35 @@ class ExpertReferenceBank:
         *,
         requested_skill: str,
     ) -> SkillSupport:
-        """Compare each skill hypothesis in its own frozen phase contract."""
+        """Compare skill windows and recheck a suspected serve on the smash window."""
         skills = [str(skill) for skill in supported_skills()]
         if requested_skill not in skills:
             raise ValueError(f"unsupported requested skill {requested_skill!r}")
         alternative = next(skill for skill in skills if skill != requested_skill)
+        requested_descriptor = skill_temporal_descriptor(requested_pose)
         requested_distance = self._nearest_skill_distance(
-            skill_temporal_descriptor(requested_pose), requested_skill
+            requested_descriptor, requested_skill
         )
         alternative_distance = self._nearest_skill_distance(
             skill_temporal_descriptor(alternative_pose), alternative
         )
+        alternative_advantage = requested_distance - alternative_distance
+        same_window_distance = None
+        if (
+            requested_skill == "smash"
+            and alternative_advantage > self.skill_rejection_margin
+        ):
+            same_window_distance = self._nearest_skill_distance(
+                requested_descriptor, alternative
+            )
         return SkillSupport(
             requested_skill=requested_skill,
             alternative_skill=alternative,
             requested_distance=requested_distance,
             alternative_distance=alternative_distance,
-            alternative_advantage=requested_distance - alternative_distance,
+            alternative_advantage=alternative_advantage,
             rejection_margin=self.skill_rejection_margin,
+            same_window_alternative_distance=same_window_distance,
         )
 
     def select(

@@ -263,6 +263,7 @@ class CurrentSmashScorer:
             calibration=self.calibration,
             fps=fps,
             endpoint_acceleration=peak,
+            mirrored=str(handedness) == "left",
         )
         # Grade the full evidence first, then crop presentation at the selected endpoint.
         render_end = int(result["selected_endpoint"])

@@ -13,10 +13,10 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 - Serve retains its EIMD-v3 generation and dual-window grading.
 - Smash serving uses the v6 wrist-velocity ending window and delayed-contact
   refinement (v7). Grading and generation use that same window.
-- The requested-skill guard still compares EIMD-v3 hypotheses against the
-  RF-DETR-era expert features in `../expert_reference_bank.npz`; with the
-  shoulder ending, some real smashes now read as serves until that bank is
-  rebuilt from ViTPose experts.
+- The requested-skill guard compares each EIMD-v3 stroke window with the
+  RF-DETR-era expert features in `../expert_reference_bank.npz`. A short serve
+  window can resemble a serve during a smash. To reject a requested smash,
+  the serve match must clear the calibrated margin on both stroke windows.
 - Smash source video is normalized to 30fps **before** pose extraction. Its
   checkpoint frame numbers, overlay frames, and coaching evidence share this clock.
 - Frozen checkpoint graph heads grade preparation and arm balance. Their input
@@ -34,8 +34,9 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
   only the detected skeleton is visible. After it, the final local generated
   pose is held and transported; the motion is not stretched.
   Those held display frames do not create additional generated scoring evidence.
-- Left-handed poses use the existing anatomical label swap, not an inferred
-  camera reflection. The frozen endpoint convention is image-right-forward.
+- Left-handed poses swap anatomical joint labels. The body-rotation rule
+  also reflects the horizontal coordinate when measuring the learner's turn
+  and its fallback reference. The endpoint convention is image-right-forward.
   Opposite-view/left-handed score parity is not established by the right-handed
   validation set; never choose a view by maximizing the resulting score.
 
@@ -44,7 +45,7 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 | Criterion | Maximum | Current rule |
 |---|---:|---|
 | Preparation | 5 | Frozen graph; cap if dominant wrist rises above expert waist-height support |
-| Body rotation | 20 | Pre-balance lower-body, torso and shoulder-axis angle changes; explicit legacy directional/span fallback when unassessed |
+| Body rotation | 20 | Pre-balance lower-body, torso and shoulder-axis angle changes; up to 10 points for a sustained oblique torso over a staggered base; legacy directional/span fallback when unassessed |
 | Arm balance | 5 | Frozen graph; cap sustained five-frame low dominant hand while support hand is raised |
 | Elbow forward | 20 | Frozen historical semantic/trajectory head |
 | Wrist flick | 30 | Frozen historical semantic/trajectory head at the refined contact checkpoint |
@@ -54,6 +55,16 @@ No endpoint pooling or shoulder-retreat penalty is applied. Experts and learners
 follow identical inference rules. Cohort names, human ratings, and filename
 exceptions never enter the scorer. Full-fit expert calibration is not evidence
 of unseen-person generalization.
+
+The supplemental stance evidence requires concurrent shoulder and ankle offsets
+on opposite sides of the pelvis axis in at least ten of twelve pre-contact
+frames (400 ms). Offsets are normalized by torso length. A nearly side-on pelvis
+or low-confidence body/foot landmarks make this evidence unavailable. The rule
+can recognize a position already established before the recording's scoring
+window. A single projected view cannot establish the shoulder's direction
+relative to the shuttle target, so this evidence supplies at most 10/20.
+The original rotation rule can still award 20/20. The supplement preserves any
+higher existing rotation or fallback grade.
 
 ## Code and reproducibility
 

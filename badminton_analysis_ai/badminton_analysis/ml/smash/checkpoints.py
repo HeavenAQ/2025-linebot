@@ -79,6 +79,7 @@ def score_source_evidence(
     forward_sign=1,
     rescore_interval=True,
     endpoint_acceleration=None,
+    mirrored=False,
 ):
     """Grade source poses against the frozen projected/EMA correction."""
     p, c, q = (
@@ -106,16 +107,23 @@ def score_source_evidence(
         if not 0 <= value["start"] <= value["anchor"] <= value["end"] < len(p):
             raise ValueError("Checkpoint interval is outside source coverage")
     initial = int(frames[0])
+    rotation_poses, rotation_correction = p, q
+    if mirrored:
+        rotation_poses = p * [-1, 1]
+        rotation_correction = q * [-1, 1]
     evidence = {}
     prior = np.asarray(historical_points, float).copy()
     compose_points(prior)  # Validate before changing a head.
     balance_anchor = int(intervals["arm_balance"]["anchor"])
     rotation = None
+    amounts = None
     try:
         if not initial + 2 <= balance_anchor < contact:
             raise ValueError("Unassessed pre-contact rotation window")
         amounts, _, quality = combined_features(
-            p[initial : balance_anchor + 1], c[initial : balance_anchor + 1], handedness
+            rotation_poses[initial : balance_anchor + 1],
+            c[initial : balance_anchor + 1],
+            handedness,
         )
         rotation, present = rotation_credit(
             amounts, calibration.rotation_lower, calibration.rotation_full
@@ -213,10 +221,11 @@ def score_source_evidence(
             if not initial + 2 <= balance_anchor <= frames[-1]:
                 raise ValueError("Legacy rotation lacks generated coverage")
             observed, certainty, _ = legacy_rotation_trace(
-                p[initial : balance_anchor + 1], c[initial : balance_anchor + 1]
+                rotation_poses[initial : balance_anchor + 1],
+                c[initial : balance_anchor + 1],
             )
             target, _, _ = legacy_rotation_trace(
-                q[: balance_anchor - initial + 1],
+                rotation_correction[: balance_anchor - initial + 1],
                 np.ones_like(c[initial : balance_anchor + 1]),
             )
             if (
@@ -239,6 +248,21 @@ def score_source_evidence(
             evidence["body_rotation"]["fallback"] = "legacy_directional_span"
         except ValueError as error:
             evidence["body_rotation"]["fallback_reason"] = str(error)
+    stance = sustained_stance_evidence(
+        rotation_poses,
+        c,
+        initial,
+        balance_anchor,
+        contact,
+        calibration.rotation_lower,
+        rotation_amounts=amounts,
+    )
+    evidence["body_rotation"]["sustained_stance"] = stance
+    if stance["available"] and 20 * stance["credit"] > points[1]:
+        points[1] = 20 * stance["credit"]
+        evidence["body_rotation"].update(
+            available=True, credit=stance["credit"], present=True
+        )
     interval = intervals["preparation"]
     try:
         if interval["end"] >= contact:
@@ -436,6 +460,76 @@ def rotation_credit(amount, lower, full, hard_presence=True):
     present = bool(np.all(amount >= lower - 1e-8))
     credit = float(np.clip(amount / full, 0, 1).min())
     return (credit if present or not hard_presence else 0.0), present
+
+
+def sustained_stance_evidence(
+    poses, confidence, start, end, contact, rotation_lower, *, rotation_amounts=None
+):
+    """Recognize a sustained oblique torso over a staggered base before release."""
+    p, c = np.asarray(poses, float), np.asarray(confidence, float)
+    if not 0 <= start <= end < contact < len(p) or end - start < 11:
+        return dict(
+            available=False, reason="Insufficient pre-contact stance coverage"
+        )
+    p, c = p[start : end + 1], c[start : end + 1]
+    pelvis = p[:, [11, 12]].mean(1)
+    spine = p[:, [5, 6]].mean(1) - pelvis
+    scale = np.linalg.norm(spine, axis=1)
+    up = spine / np.maximum(scale, 1e-8)[:, None]
+    lateral = np.column_stack((-up[:, 1], up[:, 0]))
+    axes = p[:, [6, 12, 16]] - p[:, [5, 11, 15]]
+    across = np.einsum("tji,ti->tj", axes, lateral)
+    along = np.einsum("tji,ti->tj", axes, up)
+    joints = [5, 6, 11, 12, 15, 16]
+    valid = (
+        np.isfinite(p[:, joints]).all((1, 2))
+        & np.isfinite(c[:, joints]).all(1)
+        & (c[:, joints].min(1) >= 0.5)
+        & (scale > 1e-6)
+        & (np.abs(across[:, 1]) >= 0.10 * scale)
+    )
+    if not np.any(np.lib.stride_tricks.sliding_window_view(valid, 12).sum(1) >= 10):
+        return dict(
+            available=False, reason="Insufficient reliable torso and base observations"
+        )
+    # The pelvis axis removes image roll and lean from both projected depth cues.
+    hip_slope = np.divide(
+        along[:, 1], across[:, 1], out=np.zeros(len(p)), where=valid
+    )
+    depth = (along - across * hip_slope[:, None]) / np.maximum(scale, 1e-8)[:, None]
+    shoulder, ankle = depth[:, 0], depth[:, 2]
+    oblique = valid & (shoulder * ankle < 0)
+    shoulder_depth, base_depth = np.abs(shoulder), np.abs(ankle)
+    supported = oblique & (base_depth >= 0.12) & (shoulder_depth >= 0.025)
+    if rotation_amounts is not None and np.all(
+        np.asarray(rotation_amounts)[1:] >= np.asarray(rotation_lower)[1:]
+    ):
+        supported |= oblique & (base_depth >= 0.05) & (shoulder_depth >= 0.06)
+    windows = np.lib.stride_tricks.sliding_window_view(supported, 12)
+    enough = windows.sum(1) >= 10
+    if not np.any(enough):
+        return dict(
+            available=True, credit=0.0, reason="No sustained torso and base evidence"
+        )
+    strength = np.minimum(base_depth / 0.18, shoulder_depth / 0.06)
+    strength[~supported] = 0
+    strengths = np.lib.stride_tricks.sliding_window_view(
+        np.clip(strength, 0, 1), 12
+    )
+    credit = np.quantile(strengths, 0.2, axis=1)
+    credit[~enough] = 0
+    best = int(np.argmax(credit))
+    observed = supported[best : best + 12]
+    # A single-camera projected pose supports partial credit without a measured turn.
+    return dict(
+        available=True,
+        credit=float(0.5 * credit[best]),
+        source_interval=[int(start + best), int(start + best + 11)],
+        shoulder_depth=float(np.median(shoulder_depth[best : best + 12][observed])),
+        base_depth=float(np.median(base_depth[best : best + 12][observed])),
+        valid_frames=int(windows[best].sum()),
+        credit_cap=0.5,
+    )
 
 
 def preparation_height(poses, confidence, handedness="right"):

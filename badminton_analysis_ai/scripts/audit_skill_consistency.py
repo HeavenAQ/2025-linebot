@@ -70,6 +70,8 @@ def _case(task: tuple[str, str, str, str]) -> dict[str, Any]:
         "requested_distance": support.requested_distance,
         "alternative_distance": support.alternative_distance,
         "alternative_advantage": support.alternative_advantage,
+        "same_window_alternative_distance": support.same_window_alternative_distance,
+        "same_window_alternative_advantage": support.same_window_alternative_advantage,
         "rejection_margin": support.rejection_margin,
     }
 

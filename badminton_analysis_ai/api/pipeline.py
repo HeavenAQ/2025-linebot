@@ -479,11 +479,17 @@ class SkeletonAnalysisPipeline:
                 else None
             )
             if skill_support is not None and skill_support.mismatch:
+                confirmation = skill_support.same_window_alternative_advantage
+                confirmation_message = (
+                    f", same_window_advantage={confirmation:.6f}"
+                    if confirmation is not None
+                    else ""
+                )
                 raise SkillMismatchError(
                     f"requested {skill_support.requested_skill} conflicts with "
                     f"{skill_support.alternative_skill} temporal motion support "
                     f"(advantage={skill_support.alternative_advantage:.6f}, "
-                    f"margin={skill_support.rejection_margin:.6f})"
+                    f"margin={skill_support.rejection_margin:.6f}{confirmation_message})"
                 )
             with self.lock:
                 generated = backend.infer(
@@ -532,6 +538,17 @@ class SkeletonAnalysisPipeline:
                     ),
                 }
             )
+            if skill_support.same_window_alternative_distance is not None:
+                diagnostics.update(
+                    {
+                        "same_window_alternative_skill_support_distance": (
+                            skill_support.same_window_alternative_distance
+                        ),
+                        "same_window_alternative_skill_support_advantage": (
+                            skill_support.same_window_alternative_advantage
+                        ),
+                    }
+                )
         criterion_values = [
             (
                 str(item["name_zh_tw"]),

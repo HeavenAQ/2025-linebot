@@ -127,8 +127,12 @@ def test_temporal_descriptor_is_invariant_to_translation_scale_and_rotation(
     ],
 )
 def test_smash_rejection_requires_serve_support_on_the_requested_window(
-    bank, monkeypatch, requested_skill, alternative_distance,
-    confirmation_distance, mismatch,
+    bank,
+    monkeypatch,
+    requested_skill,
+    alternative_distance,
+    confirmation_distance,
+    mismatch,
 ):
     requested_pose, alternative_pose = bank.skeletons[:2]
     requested_descriptor = skill_temporal_descriptor(requested_pose)

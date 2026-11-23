@@ -13,10 +13,10 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
 - Serve retains its EIMD-v3 generation and dual-window grading.
 - Smash serving uses the v6 wrist-velocity ending window and delayed-contact
   refinement (v7). Grading and generation use that same window.
-- The requested-skill guard still compares EIMD-v3 hypotheses against the
-  RF-DETR-era expert features in `../expert_reference_bank.npz`; with the
-  shoulder ending, some real smashes now read as serves until that bank is
-  rebuilt from ViTPose experts.
+- The requested-skill guard compares each EIMD-v3 stroke window with the
+  RF-DETR-era expert features in `../expert_reference_bank.npz`. A short serve
+  window can resemble a serve during a smash. To reject a requested smash,
+  the serve match must clear the calibrated margin on both stroke windows.
 - Smash source video is normalized to 30fps **before** pose extraction. Its
   checkpoint frame numbers, overlay frames, and coaching evidence share this clock.
 - Frozen checkpoint graph heads grade preparation and arm balance. Their input
@@ -34,8 +34,9 @@ The September smash scorer is selected explicitly by `api/pipeline.py`.
   only the detected skeleton is visible. After it, the final local generated
   pose is held and transported; the motion is not stretched.
   Those held display frames do not create additional generated scoring evidence.
-- Left-handed poses use the existing anatomical label swap, not an inferred
-  camera reflection. The frozen endpoint convention is image-right-forward.
+- Left-handed poses swap anatomical joint labels. The body-rotation rule
+  also reflects the horizontal coordinate when measuring the learner's turn
+  and its fallback reference. The endpoint convention is image-right-forward.
   Opposite-view/left-handed score parity is not established by the right-handed
   validation set; never choose a view by maximizing the resulting score.
 

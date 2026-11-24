@@ -66,6 +66,19 @@ relative to the shuttle target, so this evidence supplies at most 10/20.
 The original rotation rule can still award 20/20. The supplement preserves any
 higher existing rotation or fallback grade.
 
+Rotation review also checks whether the shoulders and ankles both reverse their
+observed anatomical order by at least 0.2 torso lengths for three consecutive
+30 Hz observations. The setup check uses the first twelve preparation frames as
+its baseline. The finish check uses the twelve frames before contact and the
+first fifteen frames from contact. Each phase reports `flagged`, `clear`, or
+`unassessable`, with exact observed event frames when flagged. Missing landmarks,
+an unstable baseline, long gaps, or abrupt tracking changes prevent an alert.
+Three missing consecutive phase observations leave a negative result
+unassessable because they can conceal the entire sustained event.
+This is a possible turn to review. A scissor step can produce the same projected
+reversal, and the measure cannot establish absolute 3D yaw from one camera.
+The review supplies feedback and diagnostics without changing checkpoint points.
+
 ## Code and reproducibility
 
 All paths below are relative to `badminton_analysis_ai/`.

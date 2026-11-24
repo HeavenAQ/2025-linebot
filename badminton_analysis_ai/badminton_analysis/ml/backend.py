@@ -165,7 +165,7 @@ class ExpertMotionGeneratorBackend:
             total_grade=float(score["total_score"]),
             grading_details=[
                 GradingDetail(
-                    description=str(item["name_zh_tw"]),
+                    description=str(item.get("grade_description", item["name_zh_tw"])),
                     grade=float(item["score"]),
                 )
                 for item in criteria
@@ -174,6 +174,7 @@ class ExpertMotionGeneratorBackend:
         references = score.get("references", [])
         primary_reference = references[0] if references else {}
         diagnostics: dict[str, Any] = {
+            **score.get("criterion_diagnostics", {}),
             "correction_distance": float(
                 np.mean([item["combined_distance"] for item in criteria])
             ),

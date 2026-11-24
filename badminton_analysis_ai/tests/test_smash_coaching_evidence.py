@@ -8,12 +8,15 @@ from badminton_analysis.ml.coaching_feedback import (
     system_instructions,
 )
 from badminton_analysis.ml.skill_specs import get_skill_spec
-from badminton_analysis.ml.smash.coaching import build_checkpoint_evidence
+from badminton_analysis.ml.smash.coaching import (
+    build_checkpoint_evidence,
+    rotation_review_reporting,
+)
 from api.coaching import CoachingGenerator
 from api.coaching_timeline import coaching_video_frame
 
 
-def eg27_evidence():
+def eg27_evidence(rotation_measurement=None):
     bounds = [
         (51, 81, 57),
         (84, 100, 95),
@@ -33,6 +36,7 @@ def eg27_evidence():
         initial_frame=60,
         balance_anchor=112,
         selected_endpoint=130,
+        rotation_measurement=rotation_measurement,
         balance_measurement=dict(
             available=True,
             event_start=103,
@@ -99,6 +103,60 @@ def test_follow_through_replay_does_not_include_initial_scoring_reference():
     assert evidence["source_interval"] == [60, 130]
     assert evidence["replay_source_interval"] == [119, 130]
     assert evidence["source_frame_indices"] == [60, 130]
+
+
+@pytest.mark.parametrize("event, visible", [([123, 125], True), ([131, 133], False)])
+def test_possible_turn_carries_only_visible_frames_into_coaching(event, visible):
+    measurement = {
+        "setup": {"status": "unassessable"},
+        "finish": {"status": "flagged", "event_source_interval": event},
+    }
+    evidence = eg27_evidence(measurement)
+    finish = evidence["follow_through"]
+    assert finish["possible_excess_rotation"] == {
+        "event_source_interval": event,
+        "phase": "finish",
+        "all_event_frames_visible": visible,
+    }
+    for frame in range(event[0], event[1] + 1):
+        assert (frame in finish["source_frame_indices"]) == visible
+        assert (frame in finish["missing_requested_source_frames"]) != visible
+    assert "possible_excess_rotation" not in evidence["body_rotation"]
+
+
+@pytest.mark.parametrize(
+    "phase, rule, note",
+    [("finish", "follow_through", "擊球後"), ("setup", "body_rotation", "準備時")],
+)
+def test_rotation_review_is_attached_to_the_observed_phase(phase, rule, note):
+    criteria = [
+        {"rule_reference": r.id, "name_zh_tw": r.name_zh_tw, "score": r.maximum}
+        for r in get_skill_spec("smash").rules
+    ]
+    other = "setup" if phase == "finish" else "finish"
+    diagnostics = rotation_review_reporting(
+        {
+            phase: {"status": "flagged", "event_source_interval": [77, 79]},
+            other: {"status": "unassessable"},
+        },
+        criteria,
+    )
+    tagged = [r for r in criteria if "grade_description" in r]
+    assert len(tagged) == 1 and tagged[0]["rule_reference"] == rule
+    assert (
+        tagged[0]["grade_description"]
+        == tagged[0]["name_zh_tw"] + f"（{note}可能轉身過多）"
+    )
+    assert [r["score"] for r in criteria] == [
+        r.maximum for r in get_skill_spec("smash").rules
+    ]
+    assert diagnostics == {
+        f"smash_excess_rotation_{other}_assessed": 0.0,
+        f"smash_excess_rotation_{phase}_assessed": 1.0,
+        f"smash_excess_rotation_{phase}_flagged": 1.0,
+        f"smash_excess_rotation_{phase}_start_frame": 77,
+        f"smash_excess_rotation_{phase}_end_frame": 79,
+    }
 
 
 def analysis(frame):

@@ -14,6 +14,32 @@ CRITERIA = (
     "wrist_flick",
     "follow_through",
 )
+ROTATION_REVIEW_PHASES = {
+    "body_rotation": ("setup", "準備時可能轉身過多"),
+    "follow_through": ("finish", "擊球後可能轉身過多"),
+}
+
+
+def rotation_review_reporting(measurement: dict, criteria: list[dict]) -> dict:
+    """Expose observable rotation flags even on analyses with coaching disabled."""
+    rows = {row["rule_reference"]: row for row in criteria}
+    diagnostics = {}
+    for criterion, (phase, note) in ROTATION_REVIEW_PHASES.items():
+        result = measurement[phase]
+        prefix = f"smash_excess_rotation_{phase}"
+        assessed = result["status"] != "unassessable"
+        diagnostics[f"{prefix}_assessed"] = float(assessed)
+        if not assessed:
+            continue
+        flagged = result["status"] == "flagged"
+        diagnostics[f"{prefix}_flagged"] = float(flagged)
+        if flagged:
+            start, end = result["event_source_interval"]
+            diagnostics[f"{prefix}_start_frame"] = start
+            diagnostics[f"{prefix}_end_frame"] = end
+            row = rows[criterion]
+            row["grade_description"] = f"{row['name_zh_tw']}（{note}）"
+    return diagnostics
 
 
 def build_checkpoint_evidence(
@@ -25,6 +51,7 @@ def build_checkpoint_evidence(
     balance_anchor: int,
     selected_endpoint: int,
     balance_measurement: dict[str, Any],
+    rotation_measurement: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not 0 <= window_start <= window_end or set(intervals) != set(CRITERIA):
         raise ValueError("ordered source window and six scoring intervals required")
@@ -39,6 +66,14 @@ def build_checkpoint_evidence(
         if start > end:
             raise ValueError(f"unordered scoring interval: {reference}")
         requested = {start, end}
+        rotation_frames = []
+        if rotation_measurement and reference in ROTATION_REVIEW_PHASES:
+            rotation_phase, _ = ROTATION_REVIEW_PHASES[reference]
+            rotation = rotation_measurement[rotation_phase]
+            if rotation["status"] == "flagged":
+                first, last = rotation["event_source_interval"]
+                rotation_frames = list(range(first, last + 1))
+                requested.update(rotation_frames)
         if reference != "follow_through":
             requested.update((round((start + end) / 2), int(interval["anchor"])))
         if reference == "arm_balance" and balance_measurement.get("available"):
@@ -69,6 +104,12 @@ def build_checkpoint_evidence(
             "missing_requested_source_frames": sorted(requested - set(available)),
             "sampling": "scored boundaries, midpoint/anchor, and exact sustained balance event",
         }
+        if rotation_frames:
+            result[reference]["possible_excess_rotation"] = {
+                "phase": rotation_phase,
+                "event_source_interval": rotation["event_source_interval"],
+                "all_event_frames_visible": set(rotation_frames).issubset(available),
+            }
         if reference == "arm_balance":
             result[reference]["measurement"] = {
                 key: balance_measurement[key]

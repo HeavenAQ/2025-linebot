@@ -26,7 +26,10 @@ from badminton_analysis.ml.smash.experts import (
     observed_features,
     transfer_intervals,
 )
-from badminton_analysis.ml.smash.coaching import build_checkpoint_evidence
+from badminton_analysis.ml.smash.coaching import (
+    build_checkpoint_evidence,
+    rotation_review_reporting,
+)
 from badminton_analysis.ml.smash.experts import (
     aggregate,
     checkpoint_index_map,
@@ -290,6 +293,7 @@ class CurrentSmashScorer:
             balance_anchor=result["balance_anchor"],
             selected_endpoint=result["selected_endpoint"],
             balance_measurement=result["evidence"]["arm_balance"],
+            rotation_measurement=result["evidence"]["body_rotation"]["excess_rotation"],
         )
         criteria = [
             dict(
@@ -307,6 +311,9 @@ class CurrentSmashScorer:
                 baseline["criteria"], result["points"], MAXIMA, strict=True
             )
         ]
+        review_diagnostics = rotation_review_reporting(
+            result["evidence"]["body_rotation"]["excess_rotation"], criteria
+        )
         score = dict(
             criteria=criteria,
             total_score=result["total"],
@@ -319,6 +326,7 @@ class CurrentSmashScorer:
             checkpoint_evidence=evidence,
             checkpoint_source_frames=checkpoint_frames,
             checkpoint_measurements=result["evidence"],
+            criterion_diagnostics=review_diagnostics,
             generation_window=list(window),
             scorer_contract=self.contract["version"],
         )

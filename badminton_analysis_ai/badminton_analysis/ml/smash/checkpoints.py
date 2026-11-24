@@ -263,6 +263,9 @@ def score_source_evidence(
         evidence["body_rotation"].update(
             available=True, credit=stance["credit"], present=True
         )
+    evidence["body_rotation"]["excess_rotation"] = excess_rotation_evidence(
+        p, c, initial, balance_anchor, contact
+    )
     interval = intervals["preparation"]
     try:
         if interval["end"] >= contact:
@@ -460,6 +463,114 @@ def rotation_credit(amount, lower, full, hard_presence=True):
     present = bool(np.all(amount >= lower - 1e-8))
     credit = float(np.clip(amount / full, 0, 1).min())
     return (credit if present or not hard_presence else 0.0), present
+
+
+def excess_rotation_evidence(poses, confidence, start, end, contact):
+    """Locate a possible excessive turn in observed 30 Hz source poses.
+
+    A scissor step can reverse both projected axes, so flagged events need review.
+    """
+    p, c = np.asarray(poses, float), np.asarray(confidence, float)
+    if (
+        p.ndim != 3
+        or p.shape[1:] != (17, 2)
+        or c.shape != p.shape[:2]
+        or not 0 <= contact < len(p)
+    ):
+        raise ValueError(
+            "Matching COCO17 source poses and an observed contact required"
+        )
+    joints = [5, 6, 11, 12, 15, 16]
+    spine = p[:, [5, 6]].mean(1) - p[:, [11, 12]].mean(1)
+    scale = np.linalg.norm(spine, axis=1)
+    up = spine / np.maximum(scale, 1e-8)[:, None]
+    lateral = np.column_stack((-up[:, 1], up[:, 0]))
+    axes = p[:, [6, 16]] - p[:, [5, 15]]
+    spans = np.einsum("tji,ti->tj", axes, lateral) / np.maximum(scale, 1e-8)[:, None]
+    valid = (
+        np.isfinite(p[:, joints]).all((1, 2))
+        & np.isfinite(c[:, joints]).all(1)
+        & (c[:, joints].min(1) >= 0.5)
+        & (scale > 1e-6)
+    )
+
+    def phase(baseline_start, baseline_end, event_start, event_end):
+        complete = event_end < len(p)
+        event_end = min(event_end, len(p) - 1)
+        result = dict(status="unassessable")
+        if not 0 <= baseline_start <= baseline_end < event_start <= event_end < len(p):
+            return dict(result, reason="Insufficient source-clock phase coverage")
+        result["source_interval"] = [int(event_start), int(event_end)]
+        baseline_valid = valid[baseline_start : baseline_end + 1]
+        if len(baseline_valid) != 12 or baseline_valid.sum() < 10:
+            return dict(result, reason="Unreliable pre-turn baseline")
+        baseline_spans = spans[baseline_start : baseline_end + 1][baseline_valid]
+        baseline = np.median(baseline_spans, axis=0)
+        direction = np.sign(baseline)
+        consistent = (np.sign(baseline_spans) == direction).all(1)
+        if np.any(np.abs(baseline) < 0.2) or consistent.mean() < 0.8:
+            return dict(result, reason="Foreshortened or unstable pre-turn baseline")
+        result.update(
+            baseline_source_interval=[int(baseline_start), int(baseline_end)],
+            baseline_spans=baseline.tolist(),
+            baseline_valid_frames=int(baseline_valid.sum()),
+        )
+        observed = valid[event_start : event_end + 1]
+        reversal = -direction * spans[event_start : event_end + 1]
+        supported = observed & (reversal >= 0.2).all(1)
+        if len(supported) >= 3:
+            sustained = np.lib.stride_tricks.sliding_window_view(supported, 3).all(1)
+            if sustained.any():
+                offset = int(np.flatnonzero(sustained)[0])
+                transition_end = event_start + offset + 2
+                transition_start = baseline_start + int(
+                    np.flatnonzero(baseline_valid)[-1]
+                )
+                transition_ids = (
+                    np.flatnonzero(valid[transition_start : transition_end + 1])
+                    + transition_start
+                )
+                gaps = np.diff(transition_ids)
+                steps = np.abs(np.diff(spans[transition_ids], axis=0)) / gaps[:, None]
+                if np.any(gaps > 3) or np.any(steps > 0.35):
+                    return dict(
+                        result, reason="Unobserved or discontinuous turn transition"
+                    )
+                return dict(
+                    result,
+                    status="flagged",
+                    event_source_interval=[
+                        event_start + offset,
+                        event_start + offset + 2,
+                    ],
+                    event_reversal_spans=np.median(
+                        reversal[offset : offset + 3], axis=0
+                    ).tolist(),
+                    minimum_event_confidence=float(
+                        c[event_start + offset : event_start + offset + 3, joints].min()
+                    ),
+                )
+        if not complete:
+            return dict(result, reason="Incomplete source-clock phase coverage")
+        if (
+            len(observed) >= 3
+            and np.lib.stride_tricks.sliding_window_view(~observed, 3).all(1).any()
+        ):
+            return dict(
+                result, reason="A missing stretch could conceal a sustained turn"
+            )
+        if len(observed) < 3 or observed.mean() < 0.8:
+            return dict(result, reason="Insufficient reliable phase observations")
+        return dict(result, status="clear", observed_frames=int(observed.sum()))
+
+    return dict(
+        method="sustained_shoulder_and_base_reversal",
+        span_units="torso_lengths",
+        minimum_reversal_span=0.2,
+        sustained_frames=3,
+        setup=phase(start, start + 11, start + 12, min(end, contact - 1)),
+        finish=phase(contact - 12, contact - 1, contact, contact + 14),
+    )
 
 
 def sustained_stance_evidence(
